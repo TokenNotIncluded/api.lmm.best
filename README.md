@@ -18,6 +18,8 @@ LMM Forge 是一个开源的 AI 服务控制台。它将模型调用、Remote MC
 
 本项目基于 [QuantumNous/new-api](https://github.com/QuantumNous/new-api) 持续开发。Go 是默认后端，前端使用 React 与 TypeScript；Rust 后端和独立 CLI 仍为预览版。
 
+本文描述默认分支。重构分支、已合并代码、签名发布和线上部署的状态需分别核实，不能将开发方案写成已完成的切换。
+
 ## 核心能力
 
 | 方向 | 可以做什么 |
@@ -64,13 +66,13 @@ bun run --filter @lmm/web dev --port 5173 --host 127.0.0.1 --strict-port
 
 ## 部署与升级
 
-Go 和 Web 分别以 `go-vX.Y.Z`、`web-vX.Y.Z` 发布。**合并代码或发布版本不会自动部署到生产。**
+Go 和 Web 分别以 `go-vX.Y.Z`、`web-vX.Y.Z` 发布。**合并代码或发布版本不会自动部署到生产。** 先读[部署流程](docs/deployment-workflow.md)，按已有安装方式选择路径。
 
 | 已有安装方式 | 从这里开始 |
 | --- | --- |
 | 独立 systemd 服务 | [检查、升级、确认与回退](docs/manual-systemd-deployment.md) |
 | 软件包管理的 Go / Web | [签名发布与升级事务](docs/seamless-upgrades.md) |
-| 只更新前端 | [组件发布边界](docs/release-architecture.md) · [前端部署工作流](.github/workflows/deploy-web-frontend.yml) |
+| 只更新前端 | [部署流程与安装方式](docs/deployment-workflow.md) · [组件发布边界](docs/release-architecture.md) |
 | 数据库与缓存 | [PostgreSQL 迁移](docs/postgresql-migration.md) · [生产切换](docs/postgresql-cutover.md) · [Valkey 运维](docs/valkey-lmm-api.md) |
 
 ## 文档
@@ -80,6 +82,12 @@ Go 和 Web 分别以 `go-vX.Y.Z`、`web-vX.Y.Z` 发布。**合并代码或发布
 - **使用与协作：**[工具发布](docs/tool-market-guide.md)、[连接与授权](docs/tool-market-connections.md)、[悬赏与结算](docs/open-source-bounties.md)。
 - **开发与接口：**[本地开发](docs/development.md)、[贡献指南](CONTRIBUTING.md)、[管理 API](docs/openapi/api.json)、[模型转发 API](docs/openapi/relay.json)。
 - **发布与维护：**[发布架构](docs/release-architecture.md)、[认证与会话](docs/authentication.md)、[Rust 预览](docs/rust-blue-green.md)。
+
+## Agent 工作流程
+
+修改仓库前阅读 [AGENTS.md](AGENTS.md)，再从[技能目录](.agents/skills/README.md)选择本次任务需要的技能。详细步骤与检查范围见 [Agent 工作指南](docs/agent-workflows.md)。
+
+当前主 CI 为手动诊断入口，不因提交 PR 自动运行。测试、签名发布与生产部署的边界见 [Actions 说明](docs/ci-workflow-layout.md)。技能不提供额外账户权限，也不代表部署或付费授权。
 
 ## 贡献与安全
 
