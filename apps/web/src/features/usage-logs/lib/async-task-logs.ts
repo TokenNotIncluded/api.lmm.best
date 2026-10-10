@@ -147,7 +147,13 @@ export function canKeepPreviousLogData(
 /** Allow web media and same-origin paths, never executable or credential URLs. */
 export function safeMediaUrl(value: unknown): string | undefined {
   const candidate = text(value)
-  if (!candidate || /[\u0000-\u001f\u007f\\]/.test(candidate)) return undefined
+  if (!candidate) return undefined
+  for (const character of candidate) {
+    const code = character.charCodeAt(0)
+    if (code <= 0x1f || code === 0x7f || character === '\\') {
+      return undefined
+    }
+  }
   if (candidate.startsWith('/') && !candidate.startsWith('//')) return candidate
   try {
     const url = new URL(candidate)
