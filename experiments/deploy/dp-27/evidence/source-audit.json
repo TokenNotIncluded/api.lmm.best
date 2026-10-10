@@ -1,0 +1,52 @@
+{
+  "base_commit": "72667564c0431754d4856dc2e0db55f360bd2745",
+  "base_tree": "d6af55df5419109a7e75ea9a472e99d25f63af1f",
+  "read_via": "GitHub read-only connector",
+  "full_checkout": false,
+  "files": [
+    {
+      "path": "deployment/docker/core.Dockerfile",
+      "git_blob_sha1": "ef94b60ab75681986afe5c6c429892c9a3cd3ff9"
+    },
+    {
+      "path": "deployment/docker/extensions.Dockerfile",
+      "git_blob_sha1": "7bf4a82e50bef34925bd4495c1aa2d2e9facb4a3"
+    },
+    {
+      "path": "apps/lmm-core/Cargo.toml",
+      "git_blob_sha1": "ba2fd1ecd46018c9218bc93a38939aa4ff806b24"
+    },
+    {
+      "path": "apps/lmm-core/build.rs",
+      "git_blob_sha1": "dbdf1296ec3d6072167bdaeee01103a9c97f9e5a"
+    },
+    {
+      "path": "apps/lmm-extensions/go.mod",
+      "git_blob_sha1": "f13d4aa6d1dfdceda432af283de2209ccb080486"
+    },
+    {
+      "path": "scripts/generate-core-protocol.sh",
+      "git_blob_sha1": "2c0e2aa148da208d622b908ded362928dc89437e"
+    },
+    {
+      "path": "package.json",
+      "git_blob_sha1": "5f1fdafcf32f16a0e558dcb8249f514b1336d146"
+    },
+    {
+      "path": "apps/lmm/Cargo.toml",
+      "git_blob_sha1": "2c8a4b8250a6930035198194cc07a63883d4f700"
+    },
+    {
+      "path": ".github/workflows/core-protocol.yml",
+      "git_blob_sha1": "2ccaf0b6773d5600c26976cc53c640cbd3d8a7c8"
+    }
+  ],
+  "standards": [
+    "https://specs.opencontainers.org/image-spec/config/",
+    "https://specs.opencontainers.org/image-spec/manifest/",
+    "https://specs.opencontainers.org/image-spec/image-layout/",
+    "https://docs.docker.com/build/cache/optimize/"
+  ],
+  "remote_write_performed": false,
+  "reason_for_local_patch": "Could not establish safe no-workflow remote push/PR under the no-CI constraint; Git transport also has no DNS."
+}
