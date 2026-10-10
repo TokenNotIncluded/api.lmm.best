@@ -13,10 +13,10 @@
     "shaders:mcp": "shaders install-mcp -a codex",
     "dev": "rsbuild dev",
     "dev:debug": "LMM_ENABLE_PERSONA_DEBUG=1 rsbuild dev",
-    "build": "bun run openui:check && node scripts/sync-shader-compositions.mjs --check && VITE_REACT_APP_VERSION=${VITE_REACT_APP_VERSION:-$(git rev-parse --short HEAD 2>/dev/null || echo 'dev')} rsbuild build",
+    "build": "node scripts/sync-shader-compositions.mjs --check && VITE_REACT_APP_VERSION=${VITE_REACT_APP_VERSION:-$(git rev-parse --short HEAD 2>/dev/null || echo 'dev')} rsbuild build",
     "bundle:check": "node scripts/check-initial-bundle.mjs",
-    "build:check": "bun run openui:check && node scripts/sync-shader-compositions.mjs --check && tsgo -b && rsbuild build",
-    "test": "bun run openui:check && node --test scripts/extore-callback.test.mjs && bun scripts/test-serial.mjs",
+    "build:check": "node scripts/sync-shader-compositions.mjs --check && tsgo -b && rsbuild build",
+    "test": "node --test scripts/extore-callback.test.mjs && bun scripts/test-serial.mjs",
     "typecheck": "tsgo -b",
     "lint": "oxlint -c .oxlintrc.json .",
     "lint:fix": "oxlint -c .oxlintrc.json . --fix",
@@ -28,9 +28,7 @@
     "i18n:sync": "node scripts/sync-i18n.mjs",
     "knip": "knip",
     "smoke:dashboard": "node scripts/read-only-dashboard-smoke.mjs",
-    "blackbox:debug": "node scripts/debug-persona-blackbox.mjs",
-    "openui:generate": "bun scripts/generate-assistant-openui.ts",
-    "openui:check": "bun scripts/generate-assistant-openui.ts --check"
+    "blackbox:debug": "node scripts/debug-persona-blackbox.mjs"
   },
   "dependencies": {
     "@base-ui/react": "1.8.0",

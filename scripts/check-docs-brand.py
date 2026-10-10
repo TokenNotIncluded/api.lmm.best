@@ -17,6 +17,8 @@ ROOT = Path(__file__).resolve().parents[1]
 DOCUMENTS = (
     "README.md", "README_EN.md", "docs/README.md", "docs/development.md",
     "CONTRIBUTING.md", "DESIGN.md", ".github/assets/README.md", "AGENTS.md",
+    "docs/core-migration.md", "docs/release-architecture.md", "docs/legal/README.md",
+    "docs/archive.md", "deployment/docker/README.md",
     ".agents/skills/README.md", "docs/agent-workflows.md", "docs/ci-workflow-layout.md",
 )
 SYMBOLS = (
@@ -165,9 +167,7 @@ def badge_urls(text: str) -> list[str]:
 def check_badges(root: Path) -> list[str]:
     repo = "TokenNotIncluded/api.lmm.best"
     expected = [
-        f"https://github.com/{repo}/actions/workflows/ci.yml/badge.svg?branch=main",
-        *[f"https://img.shields.io/github/v/release/{repo}?filter={kind}-v%2A&label={label}&display_name=tag"
-          for kind, label in (("go", "Go"), ("web", "Web"))],
+        f"https://github.com/{repo}/actions/workflows/core-protocol.yml/badge.svg?branch=wip%2Frust-core-go-extensions",
         "https://img.shields.io/badge/license-AGPL--3.0-blue",
     ]
     return [f"{name}: unexpected CI, component release, or license badges"
