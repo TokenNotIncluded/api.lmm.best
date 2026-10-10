@@ -573,7 +573,7 @@ class LaterProviderHistoryTests(unittest.TestCase):
             self.assertEqual('fixture', kwargs['env']['PGDATABASE'])
             queries.append(argv[6])
             return deploy.subprocess.CompletedProcess(argv, status['code'], json.dumps(current).encode(), b'')
-        with patch.object(deploy, 'Path', side_effect=local_proc_path), patch.object(deploy.subprocess, 'run', side_effect=query):
+        with patch.object(deploy, 'Path', side_effect=local_proc_path), patch.object(deploy.shutil, 'which', return_value='/mock/psql'), patch.object(deploy.subprocess, 'run', side_effect=query):
             self.assertEqual(expected, self.real_database_status(self.manifest, self.capsule))
             for key, changed in [('reserved_count', 1), ('system_identifier', 'other'), ('database', 'other'),
                                  ('database_oid', 43), ('schema', 'other'), ('schema_oid', 2201), ('role', 'other')]:

@@ -9,8 +9,10 @@ import { Input } from '@/components/ui/input'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { api } from '@/lib/api'
 
+import { AssistantUIPreferencesCard } from './assistant-ui-preferences-card'
 import {
   type AssistantWorkspaceAction,
+  type AssistantWorkspaceConfirmationAction,
   workspaceActionTitle,
 } from './assistant-workspace-contract'
 
@@ -19,6 +21,19 @@ export function AssistantWorkspaceActionCard({
   disabled = false,
 }: {
   action: AssistantWorkspaceAction
+  disabled?: boolean
+}) {
+  if (!action.requires_confirmation) {
+    return <AssistantUIPreferencesCard key={action.action_id} action={action} disabled={disabled} />
+  }
+  return <AssistantWorkspaceConfirmationCard action={action} disabled={disabled} />
+}
+
+function AssistantWorkspaceConfirmationCard({
+  action,
+  disabled = false,
+}: {
+  action: AssistantWorkspaceConfirmationAction
   disabled?: boolean
 }) {
   const { t } = useTranslation()
