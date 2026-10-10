@@ -507,7 +507,7 @@ function AssistantGettingStartedActions(props: {
       icon: KeyRound,
       title: props.restricted ? t('Get API access') : t('Create API key'),
       description: props.restricted
-        ? t('Tell us your use case and follow the access review.')
+        ? t('The assistant can enable L1 during this conversation.')
         : t('Create a key, then import it into a supported client.'),
       open: () => props.onOpen(props.restricted ? 'onboarding' : 'api-key'),
     },
@@ -2882,27 +2882,21 @@ function AssistantPanelSession(props: AssistantPanelProps) {
   }
 
   if (mode === 'rail') {
-    if (props.fullscreen) {
-      return (
-        <div
-          id='ai-assistant-panel'
-          role='dialog'
-          aria-modal='true'
-          aria-label={t('AI assistant')}
-          className='assistant-surface bg-background fixed inset-0 z-50 flex min-h-0 flex-col'
-          data-layout='modern'
-        >
-          {panelContent}
-        </div>
-      )
-    }
+    const fullscreen = props.open && props.fullscreen === true
 
-    // In-flow desktop rail: a rounded card that belongs to the same visual
-    // family as the main content surface (radius from the theme token).
+    // Keep the same root so drafts and the token-cloud bindings survive
+    // fullscreen changes. A closed rail must never leave a fixed overlay.
     return (
       <aside
         id='ai-assistant-panel'
-        className='assistant-surface bg-card flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-xl border shadow-sm'
+        role={fullscreen ? 'dialog' : undefined}
+        aria-modal={fullscreen || undefined}
+        className={cn(
+          'assistant-surface flex min-h-0 min-w-0 flex-col',
+          fullscreen
+            ? 'bg-background fixed inset-0 z-50'
+            : 'bg-card h-full overflow-hidden rounded-xl border shadow-sm'
+        )}
         data-layout='modern'
         aria-label={t('AI assistant')}
       >

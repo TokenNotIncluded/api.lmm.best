@@ -1727,6 +1727,91 @@ describe('AssistantPanel', () => {
     }
   })
 
+  test('preserves the desktop input across fullscreen changes and clears hidden overlay', async () => {
+    api.get = (async (url: string) => {
+      if (url === '/api/status') {
+        return {
+          data: { success: true, data: { assistant: { enabled: true } } },
+        }
+      }
+      assert.equal(url, '/api/assistant/status')
+      return { data: { success: true, data: assistantStatus } }
+    }) as typeof api.get
+
+    const rendered = await renderLauncher()
+    try {
+      const launcherButton = requireValue(
+        document.querySelector<HTMLButtonElement>(
+          '[data-testid="assistant-launcher"]'
+        )
+      )
+      await act(async () => {
+        launcherButton.click()
+        await flushEffects()
+      })
+      await act(async () =>
+        waitForCondition(
+          () =>
+            document.querySelector('[data-testid="assistant-fullscreen"]') !==
+            null,
+          'Desktop fullscreen control did not render'
+        )
+      )
+
+      const panel = requireValue(
+        document.querySelector<HTMLElement>('#ai-assistant-panel')
+      )
+      const textarea = requireValue(
+        panel.querySelector<HTMLTextAreaElement>('textarea')
+      )
+      await setTextareaValue(textarea, 'Draft must survive fullscreen')
+      const fullscreenButton = requireValue(
+        panel.querySelector<HTMLButtonElement>(
+          '[data-testid="assistant-fullscreen"]'
+        )
+      )
+
+      await act(async () => {
+        fullscreenButton.click()
+        await flushEffects()
+      })
+      assert.equal(document.querySelector('#ai-assistant-panel'), panel)
+      assert.equal(panel.querySelector('textarea'), textarea)
+      assert.equal(textarea.value, 'Draft must survive fullscreen')
+      assert.equal(panel.getAttribute('role'), 'dialog')
+      assert.ok(panel.classList.contains('fixed'))
+
+      await act(async () => {
+        fullscreenButton.click()
+        await flushEffects()
+      })
+      assert.equal(panel.getAttribute('role'), null)
+      assert.ok(!panel.classList.contains('fixed'))
+      assert.equal(panel.querySelector('textarea'), textarea)
+
+      await act(async () => {
+        fullscreenButton.click()
+        await flushEffects()
+        requireValue(
+          panel.querySelector<HTMLButtonElement>(
+            '[data-testid="assistant-collapse"]'
+          )
+        ).click()
+        await flushEffects()
+      })
+      const rail = requireValue(
+        document.querySelector<HTMLElement>('[data-testid="assistant-rail"]')
+      )
+      assert.equal(rail.getAttribute('data-open'), 'false')
+      assert.ok(rail.classList.contains('pointer-events-none'))
+      assert.ok(rail.hasAttribute('inert'))
+      assert.ok(!panel.classList.contains('fixed'))
+    } finally {
+      await act(async () => rendered.root.unmount())
+      rendered.queryClient.clear()
+    }
+  })
+
   test('syncs queued questions into an already-open assistant input', async () => {
     api.get = (async (url: string) => {
       if (url === '/api/status') {

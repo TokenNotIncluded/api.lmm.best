@@ -73,6 +73,10 @@ export function AssistantLauncher(props: {
   const [initialMessageRevision, setInitialMessageRevision] = useState(0)
   const [autoSendRequestId, setAutoSendRequestId] = useState<string>()
 
+  useEffect(() => {
+    if (!railOpen || isOverlayViewport) setDesktopFullscreen(false)
+  }, [isOverlayViewport, railOpen])
+
   const showAssistant = useCallback(
     (request: {
       id: string
@@ -223,11 +227,14 @@ export function AssistantLauncher(props: {
         <div
           className={cn(
             'hidden shrink-0 overflow-hidden transition-[width,margin,opacity] duration-300 ease-[cubic-bezier(0.32,0.72,0,1)] xl:block',
-            railOpen ? cn('opacity-100', RAIL_WIDTH, 'ms-2') : 'w-0 opacity-0'
+            railOpen
+              ? cn('opacity-100', RAIL_WIDTH, 'ms-2')
+              : 'pointer-events-none w-0 opacity-0'
           )}
           data-testid='assistant-rail'
           data-open={railOpen}
           aria-hidden={!railOpen}
+          inert={!railOpen}
         >
           <div className={cn('h-full min-w-0', RAIL_WIDTH)}>
             <Suspense
