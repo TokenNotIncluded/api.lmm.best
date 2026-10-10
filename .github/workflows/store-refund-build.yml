@@ -1,0 +1,29 @@
+name: Construct reviewed refund tree
+on:
+  push:
+    branches: [review/store-refund-build-20261010]
+    paths: ['.github/store-refund-*', '.github/workflows/store-refund-build.yml']
+permissions:
+  contents: write
+jobs:
+  construct:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22.16.0'
+      - name: Apply only the hash-checked source and translation edits
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp .github/store-refund-build.py "$RUNNER_TEMP/store-refund-build.py"
+          cp .github/store-refund-transfer.json "$RUNNER_TEMP/store-refund-transfer.json"
+          python3 "$RUNNER_TEMP/store-refund-build.py" "$RUNNER_TEMP/store-refund-transfer.json"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: refund-constructed-tree
+          path: ${{ runner.temp }}/refund-constructed-tree
+          retention-days: 2
