@@ -1,0 +1,71 @@
+name: Isolated task settlement regression
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'apps/api-go/model/task_quota_settlement.go'
+      - 'apps/api-go/service/task_billing.go'
+      - 'apps/api-go/service/task_quota_settlement_test.go'
+      - '.github/workflows/task-settlement-regression.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-regression:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: apps/api-go/go.sum
+      - name: Record source and compile without executing application code
+        working-directory: apps/api-go
+        shell: bash
+        run: |
+          set -euo pipefail
+          evidence="$RUNNER_TEMP/task-settlement-evidence"
+          mkdir -p "$evidence"
+          git rev-parse HEAD > "$evidence/revision.txt"
+          go version > "$evidence/go-version.txt"
+          sha256sum model/task_quota_settlement.go service/task_billing.go service/task_quota_settlement_test.go > "$evidence/source-sha256.txt"
+          test -z "$(gofmt -l model/task_quota_settlement.go service/task_billing.go service/task_quota_settlement_test.go)"
+          go test -p 2 -race -c -o "$RUNNER_TEMP/task-settlement.test" ./service 2>&1 | tee "$evidence/compile.log"
+          go test -p 2 -c -o "$RUNNER_TEMP/payment-units.test" ./pkg/paymentpricing 2>&1 | tee "$evidence/payment-compile.log"
+      - name: Run tests with a new network namespace and clean environment
+        shell: bash
+        run: |
+          set -uo pipefail
+          evidence="$RUNNER_TEMP/task-settlement-evidence"
+          status=0
+          for suite in task-settlement payment-units; do
+            pattern='.'
+            if [[ "$suite" == task-settlement ]]; then pattern='^TestTaskQuotaSettlement'; fi
+            sudo unshare --net -- bash -c '
+              set -euo pipefail
+              ip link set lo up
+              work=$(mktemp -d)
+              trap '\''rm -rf "$work"'\'' EXIT
+              cd "$work"
+              env -i PATH=/usr/bin:/bin HOME="$work" TMPDIR="$work" \
+                "$1" -test.run "$2" -test.count=1 -test.v -test.timeout=120s
+            ' isolated-test "$RUNNER_TEMP/$suite.test" "$pattern" 2>&1 | tee "$evidence/$suite.log"
+            code=${PIPESTATUS[0]}
+            printf '%s\n' "$code" > "$evidence/$suite.exit-code.txt"
+            if [[ "$code" != 0 ]]; then status=1; fi
+          done
+          (cd "$evidence" && sha256sum *.log > logs-sha256.txt)
+          exit "$status"
+      - name: Upload source-matched test evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: task-settlement-evidence
+          path: ${{ runner.temp }}/task-settlement-evidence
+          retention-days: 7
+          if-no-files-found: error
