@@ -13,13 +13,13 @@ import (
 // Rules only narrow an existing capability. They never replace live role,
 // ownership, confirmation, payment, registration or service-grant checks.
 type AssistantToolRule struct {
-	Description *string `json:"description,omitempty"`
-	ParameterDescriptions map[string]string `json:"parameter_descriptions,omitempty"`
-	MinLevel               int            `json:"min_level"`
-	MaxLevel               int            `json:"max_level"`
-	DiscountPercentByLevel map[string]int `json:"discount_percent_by_level,omitempty"`
-	MarketServiceIDs       []string       `json:"market_service_ids,omitempty"`
-	DefaultVisibility      string         `json:"default_visibility,omitempty"`
+	Description            *string           `json:"description,omitempty"`
+	ParameterDescriptions  map[string]string `json:"parameter_descriptions,omitempty"`
+	MinLevel               int               `json:"min_level"`
+	MaxLevel               int               `json:"max_level"`
+	DiscountPercentByLevel map[string]int    `json:"discount_percent_by_level,omitempty"`
+	MarketServiceIDs       []string          `json:"market_service_ids,omitempty"`
+	DefaultVisibility      string            `json:"default_visibility,omitempty"`
 }
 
 func DefaultAssistantToolRule(name string) AssistantToolRule {
