@@ -1,0 +1,74 @@
+syntax = "proto3";
+package lmm.core.v1;
+option go_package = "github.com/TokenNotIncluded/api.lmm.best/extensions/internal/corepb;corepb";
+
+// Durable, service-scoped subscriptions. No user or service secrets in messages.
+// Subscriptions are provisioned by core configuration, NOT by this service.
+service CoreEvents {
+  rpc Negotiate(NegotiateEventsRequest) returns (NegotiateEventsResponse);
+  rpc Pull(PullEventsRequest) returns (PullEventsResponse);
+  rpc Acknowledge(AcknowledgeEventRequest) returns (AcknowledgeEventResponse);
+  rpc Retry(RetryEventRequest) returns (RetryEventResponse);
+}
+message EventClientVersion {
+  uint32 protocol_major = 1;
+  uint32 protocol_minor = 2;
+  repeated string required_features = 3;
+}
+message NegotiateEventsRequest {
+  string consumer_id = 1;
+  EventClientVersion version = 2;
+}
+message NegotiateEventsResponse {
+  uint32 protocol_major = 1;
+  uint32 protocol_minor = 2;
+  repeated string features = 3;
+  uint32 max_batch = 4;
+  uint32 max_payload_bytes = 5;
+  uint32 lease_seconds = 6;
+  repeated string event_types = 7;
+}
+// All IDs are positive signed 64-bit integers. Never pass them through a float.
+message EventEnvelope {
+  int64 event_id = 1;
+  string event_key = 2;
+  string event_type = 3;
+  uint32 schema_version = 4;
+  int64 resource_id = 5;
+  int64 resource_version = 6;
+  // Original serialized domain message. Store/forward without re-encoding.
+  bytes payload = 7;
+  // Stable digest; algorithm is specified in contracts/proto/README.md.
+  bytes content_sha256 = 8;
+}
+message EventDelivery {
+  EventEnvelope event = 1;
+  bytes lease_token = 2;
+  uint32 attempt = 3;
+  int64 lease_until_unix_ms = 4;
+}
+message PullEventsRequest {
+  string consumer_id = 1;
+  EventClientVersion version = 2;
+  uint32 max_events = 3;
+}
+message PullEventsResponse { repeated EventDelivery deliveries = 1; }
+message AcknowledgeEventRequest {
+  string consumer_id = 1;
+  int64 event_id = 2;
+  bytes lease_token = 3;
+}
+message AcknowledgeEventResponse { bool already_acknowledged = 1; }
+enum EventRetryReason {
+  EVENT_RETRY_REASON_UNSPECIFIED = 0;
+  EVENT_RETRY_REASON_HANDLER_FAILURE = 1;
+  EVENT_RETRY_REASON_UNSUPPORTED_EVENT = 2;
+  EVENT_RETRY_REASON_DEPENDENCY_UNAVAILABLE = 3;
+}
+message RetryEventRequest {
+  string consumer_id = 1;
+  int64 event_id = 2;
+  bytes lease_token = 3;
+  EventRetryReason reason = 4;
+}
+message RetryEventResponse { bool already_acknowledged = 1; }

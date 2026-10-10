@@ -1,0 +1,103 @@
+name: Task 06 protocol and events
+on:
+  push:
+    branches: [wip/mk-06-protocol-events]
+  pull_request:
+    branches: [wip/rust-core-go-extensions]
+    paths:
+      - 'apps/core-rust/**'
+      - 'apps/api-go/**'
+      - 'contracts/proto/**'
+      - 'scripts/generate-core-protocol.sh'
+      - 'scripts/test-core-boundaries.py'
+      - '.github/workflows/mk06-protocol-events.yml'
+permissions:
+  contents: read
+concurrency:
+  group: mk06-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  protocol:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOWORK: 'off'
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+      CARGO_BUILD_JOBS: '2'
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
+          --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version: '1.27.2'
+          cache-dependency-path: |
+            apps/api-go/go.sum
+            contracts/proto/tests/go/go.sum
+      - name: Install compilers
+        shell: bash
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+          sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes protobuf-compiler postgresql-client
+      - name: Verify generated files, format and boundaries
+        shell: bash
+        run: |
+          set -o pipefail
+          git rev-parse HEAD | tee "$RUNNER_TEMP/mk06-tested-sha.txt"
+          bash scripts/generate-core-protocol.sh --check
+          (cd apps/core-rust && cargo +1.99.0 fmt --all --check)
+          test -z "$(gofmt -l apps/api-go/internal/coreclient/*.go contracts/proto/tests/go/*.go)"
+          python3 -B scripts/test-core-boundaries.py 2>&1 | tee "$RUNNER_TEMP/mk06-boundaries.log"
+      - name: Rust strict checks and real PostgreSQL tests
+        shell: bash
+        working-directory: apps/core-rust
+        run: |
+          set -o pipefail
+          cargo +1.99.0 clippy --locked --all-targets -- -D warnings 2>&1 | tee "$RUNNER_TEMP/mk06-clippy.log"
+          cargo +1.99.0 test --locked --all-targets 2>&1 | tee "$RUNNER_TEMP/mk06-rust.log"
+      - name: Go vet and race tests
+        if: ${{ !cancelled() }}
+        shell: bash
+        working-directory: apps/api-go
+        run: |
+          set -o pipefail
+          go vet -mod=readonly ./...
+          go test -mod=readonly -race -json ./... -count=1 2>&1 | tee "$RUNNER_TEMP/mk06-go.log"
+      - name: Required cross-language process recovery
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          set -o pipefail
+          (cd apps/core-rust && cargo +1.99.0 build --locked --example protocol-events-fixture)
+          (cd contracts/proto/tests/go && go vet -mod=readonly ./... && go build -mod=readonly -o "$RUNNER_TEMP/mk06-go-fixture" .)
+          MK06_GO_FIXTURE="$RUNNER_TEMP/mk06-go-fixture" python3 contracts/proto/tests/process_recovery.py 2>&1 | tee "$RUNNER_TEMP/mk06-process.log"
+          git diff --exit-code
+      - name: Preserve source and test evidence
+        if: ${{ always() }}
+        shell: bash
+        run: |
+          git rev-parse HEAD > "$RUNNER_TEMP/mk06-tested-sha.txt"
+          tar --exclude=target -cf "$RUNNER_TEMP/mk06-source.tar" apps/core-rust apps/api-go contracts/proto scripts/generate-core-protocol.sh scripts/test-core-boundaries.py .github/workflows/mk06-protocol-events.yml
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: ${{ always() }}
+        with:
+          name: mk06-evidence-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/mk06-*.log
+            ${{ runner.temp }}/mk06-tested-sha.txt
+            ${{ runner.temp }}/mk06-source.tar
+          retention-days: 7

@@ -1,0 +1,96 @@
+syntax = "proto3";
+package lmm.core.v1;
+option go_package = "github.com/TokenNotIncluded/api.lmm.best/extensions/internal/corepb;corepb";
+import "lmm/core/v1/control.proto";
+
+// Integration contracts, NOT available business implementations. Servers must
+// advertise a feature only after its business module and authorization exist.
+// Every mutation requires independent service AND current user authorization.
+// Recheck user/resource/funding authority in the business transaction, including
+// replay. A transport credential or an idempotency key never grants authority.
+message MutationContext {
+  string idempotency_key = 1; // 16..128 visible ASCII bytes; stable across retries.
+  optional int64 expected_version = 2;
+}
+message MutationReceipt {
+  int64 operation_id = 1;
+  int64 resource_id = 2;
+  int64 resource_version = 3;
+  repeated int64 event_ids = 4;
+}
+message LedgerAmount {
+  int64 units = 1; // Positive integer units, defined by the core's asset registry.
+  string asset = 2; // Allowlisted asset; no client-selected precision or float.
+}
+service CoreIdentityCommands {
+  rpc RevokeCredential(RevokeCredentialRequest) returns (MutationReceipt);
+}
+message RevokeCredentialRequest {
+  MutationContext mutation = 1;
+  int64 credential_id = 2;
+}
+service CoreLedgerCommands {
+  rpc CaptureVerifiedPayment(CaptureVerifiedPaymentRequest) returns (MutationReceipt);
+  rpc Transfer(TransferFundsRequest) returns (MutationReceipt);
+  rpc Refund(RefundFundsRequest) returns (MutationReceipt);
+}
+message CaptureVerifiedPaymentRequest {
+  MutationContext mutation = 1;
+  // A core-verified payment record fixes payer, amount and external event ID.
+  // This request cannot supply a replacement account or credit amount.
+  int64 verified_payment_id = 2;
+}
+message TransferFundsRequest {
+  MutationContext mutation = 1;
+  Account source = 2;
+  Account destination = 3;
+  LedgerAmount amount = 4;
+}
+message RefundFundsRequest {
+  MutationContext mutation = 1;
+  int64 original_operation_id = 2;
+  LedgerAmount amount = 3; // Core caps cumulative refunds at the original debit.
+}
+service CoreBillingCommands {
+  rpc Reserve(ReserveUsageRequest) returns (ReservationReceipt);
+  rpc Settle(SettleUsageRequest) returns (MutationReceipt);
+  rpc Release(ReleaseUsageRequest) returns (MutationReceipt);
+}
+message ReserveUsageRequest {
+  MutationContext mutation = 1;
+  // Quote and model request are already core-owned. Core selects funding and
+  // applies all user/team/key budgets; callers cannot choose a balance to debit.
+  int64 quote_id = 2;
+  string model_request_id = 3;
+}
+message ReservationReceipt {
+  MutationReceipt mutation = 1;
+  int64 reservation_id = 2;
+  Account charged_account = 3;
+}
+message UsageCounters {
+  int64 input_tokens = 1;
+  int64 output_tokens = 2;
+  int64 cache_read_tokens = 3;
+  int64 cache_write_tokens = 4;
+}
+message SettleUsageRequest {
+  MutationContext mutation = 1;
+  int64 reservation_id = 2;
+  // Only the trusted core relay's validated usage evidence may settle. A Go
+  // module/user cannot submit arbitrary usage to reduce the charge.
+  int64 verified_usage_id = 3;
+}
+message ReleaseUsageRequest {
+  MutationContext mutation = 1;
+  int64 reservation_id = 2;
+}
+service CoreRoutingCommands {
+  rpc ActivateConfiguration(ActivateConfigurationRequest) returns (MutationReceipt);
+}
+message ActivateConfigurationRequest {
+  MutationContext mutation = 1;
+  // A staged, validated immutable configuration owned by core. CAS activation
+  // must preserve the previous active version on failure. No arbitrary settings.
+  int64 validated_configuration_id = 2;
+}
