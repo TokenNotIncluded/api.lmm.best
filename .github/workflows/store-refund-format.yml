@@ -41,7 +41,7 @@ jobs:
           import re, subprocess
           from pathlib import Path
           names = subprocess.check_output(['git', 'diff', '--name-only', '7f09e17d68a27c4dd7ada3e43fe0474795f71f6e', 'HEAD', '--', '.'], text=True).splitlines()
-          files = [Path('../../')/name for name in names if name.startswith('apps/web/') and Path(name).suffix in ('.ts', '.tsx', '.mjs')]
+          files = [Path(name.removeprefix('apps/web/')) for name in names if name.startswith('apps/web/') and Path(name).suffix in ('.ts', '.tsx', '.mjs')]
           files = [p for p in files if p.is_file()]
           pattern = re.compile(r'^/\*\nCopyright \(C\)[\s\S]*?QuantumNous[\s\S]*?\*/\n+')
           headers = {}
