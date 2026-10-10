@@ -2,47 +2,26 @@ name: Pi remote control review
 on:
   push:
     branches: [feat/pi-remote-control-commands]
-    paths: [.remote-control-change.b64, .github/workflows/pi-remote-control-review.yml]
   pull_request:
+    paths:
+      - 'apps/api-go/controller/pi_remote_control*'
+      - 'apps/api-go/controller/oauth_server.go'
+      - 'apps/api-go/middleware/pi_remote_control.go'
+      - 'apps/api-go/router/**'
+      - 'apps/api-go/service/oauth_server.go'
+      - 'apps/web/src/features/remote-control/**'
+      - 'apps/web/scripts/remote-control*'
+      - 'apps/web/scripts/remote-control-review/**'
+      - '.github/workflows/pi-remote-control-review.yml'
 permissions:
   contents: read
 jobs:
-  source:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: write
-    outputs:
-      sha: ${{ steps.source.outputs.sha }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ github.head_ref || github.ref_name }}
-      - name: Apply the reviewed source update to this feature branch
-        id: source
-        shell: bash
-        run: |
-          if [ '${{ github.event_name }}' = 'push' ] && [ '${{ github.ref_name }}' = 'feat/pi-remote-control-commands' ] && [ -f .remote-control-change.b64 ]; then
-            python3 - <<'PY'
-          import base64, pathlib, subprocess, zlib
-          sources = sorted(pathlib.Path('.').glob('.remote-control-change.part*')) + [pathlib.Path('.remote-control-change.b64')]
-          patch = zlib.decompress(base64.b64decode(''.join(path.read_text().strip() for path in sources), validate=True))
-          subprocess.run(['git', 'apply', '--index', '--check', '-'], input=patch, check=True)
-          subprocess.run(['git', 'apply', '--index', '-'], input=patch, check=True)
-          PY
-            git rm .remote-control-change.b64 .remote-control-change.part*
-            git -c user.name='LMM integration' -c user.email='noreply@lmm.best' commit -m 'feat: scoped Pi remote-control API and interactive web controller'
-            git push origin HEAD:feat/pi-remote-control-commands
-          fi
-          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
   backend:
-    needs: source
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.source.outputs.sha }}
           persist-credentials: false
       - uses: actions/setup-go@v6
         with:
@@ -50,9 +29,16 @@ jobs:
           cache-dependency-path: apps/api-go/go.sum
       - name: Remote relay, ownership, explicit consent and OAuth regression
         working-directory: apps/api-go
-        run: go test ./controller ./router -run 'TestPiRemote|TestOAuthHTTPDiscovery' -count=1 -v
+        run: |
+          set -o pipefail
+          go test ./controller ./router ./service -run 'TestPiRemote|TestOAuth' -count=1 -v | tee "$RUNNER_TEMP/pi-remote-go.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: pi-remote-go-proof
+          path: ${{ runner.temp }}/pi-remote-go.log
+          retention-days: 7
   browser:
-    needs: source
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
@@ -62,7 +48,6 @@ jobs:
           echo "PLAYWRIGHT_MODULE=$RUNNER_TEMP/remote-tools/node_modules/playwright/index.mjs" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
-          ref: ${{ needs.source.outputs.sha }}
           path: server
           persist-credentials: false
       - uses: actions/checkout@v4
@@ -114,6 +99,7 @@ jobs:
           wait "$pi_pid"
           cat "$REMOTE_BROWSER_ROOT/native.log"
       - name: Full web TypeScript check
+        if: always()
         working-directory: server/apps/web
         run: bun run typecheck
       - uses: actions/upload-artifact@v4
