@@ -149,6 +149,11 @@ func assistantRewardReadOnlyFollowUp(text string) bool {
 // topic; a generic use-case answer can still continue an actual application.
 func assistantRewardTopicForRequest(message string, conversations ...[]assistantOpenAIMessage) string {
 	topic := func(text string) string {
+		// An explicit coupon application can mention check-in as context, not
+		// as a request to switch away from the coupon workflow.
+		if assistantWeeklyDiscountRequest(text) && !assistantExplicitNewUserGiftTopic(text) {
+			return "weekly_discount"
+		}
 		if assistantExplicitOtherRewardTopic(text) && !assistantExplicitWelcomeGiftRequest(text) && !strings.Contains(text, "礼包") {
 			return "other"
 		}

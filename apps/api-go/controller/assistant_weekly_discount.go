@@ -34,7 +34,15 @@ func ClaimAssistantWeeklyDiscount(c *gin.Context) {
 	}
 	reward, alreadyClaimed, err := model.ClaimAssistantWeeklyDiscount(c.GetInt("id"))
 	if err != nil {
-		if errors.Is(err, model.ErrAssistantWeeklyDiscountUnavailable) || errors.Is(err, model.ErrAssistantWeeklyDiscountLimit) {
+		if errors.Is(err, model.ErrAssistantWeeklyDiscountDisabled) {
+			c.AbortWithStatusJSON(http.StatusConflict, gin.H{"success": false, "code": "ASSISTANT_WEEKLY_DISCOUNT_DISABLED", "message": "Weekly discounts are disabled for this account by the current policy. No new code was created."})
+			return
+		}
+		if errors.Is(err, model.ErrAssistantWeeklyDiscountLimit) {
+			c.AbortWithStatusJSON(http.StatusConflict, gin.H{"success": false, "code": "ASSISTANT_WEEKLY_DISCOUNT_LIMIT", "message": "The offered discount exceeds the current account limit. Ask support to check the policy; waiting for next week is not a confirmed fix."})
+			return
+		}
+		if errors.Is(err, model.ErrAssistantWeeklyDiscountUnavailable) {
 			c.AbortWithStatusJSON(http.StatusConflict, gin.H{
 				"success": false,
 				"code":    "ASSISTANT_WEEKLY_DISCOUNT_UNAVAILABLE",
@@ -69,22 +77,29 @@ func executeAssistantWeeklyDiscountTool(c *gin.Context, userID int, input map[st
 		runes,
 	)
 	if err != nil {
-		if errors.Is(err, model.ErrAssistantWeeklyDiscountLimit) {
-			return map[string]any{"ok": false, "status": "discount_limit_exceeded", "error": "the discount exceeds this account's current limit; no reward decision was recorded"}
+		if errors.Is(err, model.ErrAssistantWeeklyDiscountDisabled) {
+			return map[string]any{"ok": false, "status": "disabled_for_account", "decision_used": false, "retryable": false, "error": "Weekly discounts are disabled by the current account-level policy. No weekly decision was recorded. Do not claim the weekly opportunity was used or promise it will reopen next week."}
 		}
-		if errors.Is(err, model.ErrAssistantWeeklyDiscountInvalid) {
+		if errors.Is(err, model.ErrAssistantWeeklyDiscountLimit) {
+			return map[string]any{"ok": false, "status": "discount_limit_exceeded", "decision_used": false, "retryable": true, "error": "the discount exceeds this account's current limit; no reward decision was recorded"}
+		}
+		if errors.Is(err, model.ErrAssistantWeeklyDiscountConversationRequired) {
 			return map[string]any{
 				"ok":     false,
-				"status": "more_conversation_needed",
-				"error":  "continue with at least two substantive user turns before evaluating the weekly discount",
+				"status": "more_conversation_needed", "decision_used": false, "retryable": true,
+				"error": "continue with at least two substantive user turns before evaluating the weekly discount",
 			}
+		}
+		if errors.Is(err, model.ErrAssistantWeeklyDiscountInvalid) {
+			return map[string]any{"ok": false, "status": "invalid_decision", "decision_used": false, "retryable": true, "error": "Use a valid percentage and a reason of 2-240 characters. No weekly decision was recorded."}
 		}
 		if errors.Is(err, model.ErrAssistantWeeklyDiscountUnavailable) {
 			return map[string]any{"ok": false, "status": "unavailable", "error": "the weekly discount is not available"}
 		}
-		return map[string]any{"ok": false, "status": "unavailable", "error": "the weekly discount decision could not be saved"}
+		common.SysError("weekly discount decision failed: " + err.Error())
+		return map[string]any{"ok": false, "status": "service_error", "retryable": true, "decision_used": "unknown", "error": "The weekly discount request failed. Read get_weekly_discount_status before retrying; do not claim that the entry is closed, the opportunity was used, or the user must wait until next week."}
 	}
-	if reward.Status == model.AssistantWeeklyDiscountOffered && c != nil {
+	if (reward.Status == model.AssistantWeeklyDiscountOffered || reward.Status == model.AssistantWeeklyDiscountClaimed) && c != nil {
 		c.Set(assistantClientActionKey, map[string]any{
 			"type":             "weekly_discount",
 			"discount_percent": reward.DiscountPercent,
@@ -92,12 +107,21 @@ func executeAssistantWeeklyDiscountTool(c *gin.Context, userID int, input map[st
 			"status":           reward.Status,
 		})
 	}
+	nextStep := "The user may claim this weekly discount from the card shown in chat. Never claim it for them."
+	switch reward.Status {
+	case model.AssistantWeeklyDiscountDeclined:
+		nextStep = "This week has a stored zero-discount decision, not a closed application entry. No coupon exists to claim. Explain this without inventing an outage."
+	case model.AssistantWeeklyDiscountClaimed:
+		nextStep = "The user already claimed this week's discount. Show the existing card; do not generate another code or ask them to claim it again."
+	}
 	return map[string]any{
 		"ok":               true,
+		"decision_used":    true,
+		"claim_available":  reward.Status == model.AssistantWeeklyDiscountOffered,
 		"created":          created,
 		"status":           reward.Status,
 		"discount_percent": reward.DiscountPercent,
 		"reason":           reward.Reason,
-		"next_step":        "The user may claim this weekly discount from the card shown in chat. It can be claimed once during the current UTC week; never claim it for them.",
+		"next_step":        nextStep,
 	}
 }

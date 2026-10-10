@@ -13,7 +13,7 @@ func TestReferralCreditRebaseRevokeRestoreAndTransfer(t *testing.T) {
 	require.NoError(t, db.AutoMigrate(&User{}, &ReferralReward{}, &ReferralLedgerEntry{}, &WalletReferralCreditRebase{}))
 	user := User{Username: "rebased-referral", Password: "password", AffQuota: 1_000_000, Status: common.UserStatusEnabled}
 	require.NoError(t, db.Create(&user).Error)
-	reward := ReferralReward{InviterId: user.Id, InviteeId: 99, TopUpId: 99, Quota: 6_800_000, Status: "earned", PenaltyPercent: 10}
+	reward := ReferralReward{InviterId: user.Id, InviteeId: 99, TopUpId: referralTestTopUpID(99), Quota: 6_800_000, Status: "earned", PenaltyPercent: 10}
 	require.NoError(t, db.Create(&reward).Error)
 	base := WalletReferralCreditRebase{RewardID: reward.Id, UserID: user.Id, MigrationID: "test", OriginalQuota: 6_800_000, Divisor: "6.8", Rounding: "half-away-from-zero", RebasedQuota: 1_000_000}
 	require.NoError(t, db.Create(&base).Error)
@@ -42,7 +42,7 @@ func TestReferralCreditRebasePreviouslyRevokedRestoresScaledCredit(t *testing.T)
 	require.NoError(t, db.AutoMigrate(&User{}, &ReferralReward{}, &ReferralLedgerEntry{}, &WalletReferralCreditRebase{}))
 	user := User{Username: "old-revocation", Password: "password", AffQuota: -100_000, Status: common.UserStatusEnabled}
 	require.NoError(t, db.Create(&user).Error)
-	reward := ReferralReward{InviterId: user.Id, InviteeId: 99, TopUpId: 99, Quota: 6_800_000, RevokedQuota: 6_800_000, PenaltyQuota: 680_000, Status: "revoked", Reason: "abuse", PenaltyPercent: 10}
+	reward := ReferralReward{InviterId: user.Id, InviteeId: 99, TopUpId: referralTestTopUpID(99), Quota: 6_800_000, RevokedQuota: 6_800_000, PenaltyQuota: 680_000, Status: "revoked", Reason: "abuse", PenaltyPercent: 10}
 	require.NoError(t, db.Create(&reward).Error)
 	base := WalletReferralCreditRebase{RewardID: reward.Id, UserID: user.Id, MigrationID: "test", OriginalQuota: 6_800_000, Divisor: "6.8", Rounding: "half-away-from-zero", RebasedQuota: 1_000_000, RebasedRevokedQuota: 1_000_000, RebasedPenaltyQuota: 100_000}
 	require.NoError(t, db.Create(&base).Error)
@@ -69,7 +69,7 @@ func TestReferralCreditRebaseMissingBaselineFailsClosed(t *testing.T) {
 			require.NoError(t, db.Exec("INSERT INTO wallet_credit_rebases VALUES (?, ?)", "test", `{"user_ids":[1],"include_affiliate":true,"referral_bases":[{"reward_id":1}]}`).Error)
 			user := User{Id: 1, Username: "missing-referral-basis", Password: "password", AffQuota: 100, Status: common.UserStatusEnabled}
 			require.NoError(t, db.Create(&user).Error)
-			reward := ReferralReward{Id: 1, InviterId: 1, InviteeId: 99, TopUpId: 99, Quota: 680, Status: "earned"}
+			reward := ReferralReward{Id: 1, InviterId: 1, InviteeId: 99, TopUpId: referralTestTopUpID(99), Quota: 680, Status: "earned"}
 			require.NoError(t, db.Create(&reward).Error)
 			err := db.Transaction(func(tx *gorm.DB) error { return revokeReferralTx(tx, &reward, "refund", false) })
 			require.ErrorIs(t, err, ErrRefundAmountInvalid)
@@ -86,3 +86,5 @@ func TestReferralCreditRebaseRoundingPolicy(t *testing.T) {
 	require.EqualValues(t, 1, scaleReferralCredit(4, divisor, "half-away-from-zero"))
 	require.EqualValues(t, 0, scaleReferralCredit(4, divisor, "toward-zero"))
 }
+
+func referralTestTopUpID(id int) *int { return &id }

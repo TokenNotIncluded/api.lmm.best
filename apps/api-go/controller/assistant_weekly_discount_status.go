@@ -14,7 +14,7 @@ import (
 func assistantWeeklyDiscountStatusRequest(text string) bool {
 	text = strings.ToLower(strings.TrimSpace(text))
 	if text == "" || !assistantTextContainsAny(text,
-		"每周折扣", "本周折扣", "周折扣", "每周优惠", "本周优惠", "充值折扣", "优惠码", "折扣码",
+		"优惠券", "coupon", "每周折扣", "本周折扣", "周折扣", "每周优惠", "本周优惠", "充值折扣", "优惠码", "折扣码",
 		"weekly discount", "weekly coupon", "recharge discount", "discount code",
 	) {
 		return false
@@ -34,7 +34,7 @@ func assistantWeeklyDiscountStatusRequest(text string) bool {
 		return true
 	}
 	if assistantTextContainsAny(text,
-		"我想申请", "我要申请", "我希望申请", "帮我申请", "替我申请", "请申请", "想领", "要领", "帮我领",
+		"求一张", "求个", "给张", "来张", "我想申请", "我要申请", "我希望申请", "帮我申请", "替我申请", "请申请", "想领", "要领", "帮我领",
 		"给我优惠码", "给我折扣码", "发我优惠码", "发我折扣码", "送我优惠码", "送我折扣码", "给我本周折扣", "给我每周折扣",
 		"i want to apply", "i'd like to apply", "i want to claim", "i'd like to claim", "please claim", "grant me", "give me a discount", "give me the discount",
 	) || strings.HasPrefix(text, "apply ") || strings.HasPrefix(text, "please apply ") || strings.HasPrefix(text, "claim ") {
@@ -51,7 +51,7 @@ func assistantWeeklyDiscountStatusRequest(text string) bool {
 		return true
 	}
 	return !assistantTextContainsAny(text,
-		"申请", "领取", "想领", "要领", "帮我领", "给我", "送我", "发我", "希望给",
+		"求一张", "求个", "给张", "来张", "申请", "领取", "想领", "要领", "帮我领", "给我", "送我", "发我", "希望给",
 		"apply", "i want to claim", "i'd like to claim", "claim my", "claim the", "please claim", "give me", "grant me",
 	)
 }

@@ -62,3 +62,22 @@ func TestAssistantWeeklyDiscountIsOnePerWeekAndClaimIsIdempotent(t *testing.T) {
 	require.NoError(t, db.Model(&DiscountCode{}).Where("owner_user_id = ?", user.Id).Count(&codes).Error)
 	assert.Equal(t, int64(1), codes)
 }
+
+func TestAssistantWeeklyDiscountIncompleteConversationDoesNotConsumeWeek(t *testing.T) {
+	installPaidPolicyCurrencyFixture(t, common.QuotaPerUnit)
+	db := setupConsoleActivationTestDB(t)
+	require.NoError(t, db.AutoMigrate(&Option{}, &TopUp{}, &DiscountCode{}, &AssistantWeeklyDiscount{}))
+	user := User{Username: "weekly-retry-user", Status: common.UserStatusEnabled}
+	require.NoError(t, db.Create(&user).Error)
+	now := time.Date(2026, time.October, 10, 0, 0, 0, 0, time.UTC)
+	_, _, err := DecideAssistantWeeklyDiscountAt(user.Id, 1, 5, "use case missing", 1, 80, now)
+	require.ErrorIs(t, err, ErrAssistantWeeklyDiscountConversationRequired)
+	require.ErrorIs(t, err, ErrAssistantWeeklyDiscountInvalid)
+	var count int64
+	require.NoError(t, db.Model(&AssistantWeeklyDiscount{}).Count(&count).Error)
+	require.Zero(t, count)
+	reward, created, err := DecideAssistantWeeklyDiscountAt(user.Id, 1, 5, "Chat, research and small coding tasks", 2, 80, now)
+	require.NoError(t, err)
+	require.True(t, created)
+	require.Equal(t, AssistantWeeklyDiscountOffered, reward.Status)
+}

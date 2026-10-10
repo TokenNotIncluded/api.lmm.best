@@ -1043,8 +1043,8 @@ func assistantWeeklyDiscountRequest(text string) bool {
 		return false
 	}
 	return assistantTextContainsAny(normalized,
-		"优惠码", "折扣码", "充值折扣", "每周优惠", "每周折扣", "本周优惠", "本周折扣",
-		"weekly discount", "weekly coupon", "recharge discount", "discount code",
+		"优惠券", "有券就申请", "优惠码", "折扣码", "充值折扣", "每周优惠", "每周折扣", "本周优惠", "本周折扣",
+		"weekly discount", "weekly coupon", "recharge discount", "discount code", "coupon",
 	)
 }
 
@@ -3049,7 +3049,8 @@ func executeAssistantInvitationTool(userID int) map[string]any {
 	if err != nil {
 		return map[string]any{"ok": false, "error": "invitation information could not be loaded"}
 	}
-	amounts := []int{user.AffQuota, user.AffHistoryQuota, common.QuotaForInviter, common.QuotaForInvitee}
+	policy := model.GetReferralPolicy()
+	amounts := []int{max(0, user.AffQuota), user.AffHistoryQuota, policy.RewardQuota, 0}
 	usd := make([]any, len(amounts))
 	projectionUnavailable := false
 	for i, amount := range amounts {
@@ -3069,17 +3070,23 @@ func executeAssistantInvitationTool(userID int) map[string]any {
 		"affiliate_code_path":          "/aff",
 		"invited_count":                user.AffCount,
 		"currency_unit":                "credit",
-		"pending_reward_credit":        user.AffQuota,
+		"pending_reward_credit":        max(0, user.AffQuota),
+		"available_reward_credit":      max(0, user.AffQuota),
+		"reward_debt_credit":           max(0, -user.AffQuota),
+		"wallet_balance_credit":        user.Quota,
+		"registration_reward_credit":   policy.RegistrationRewardQuota,
+		"referral_policy":              policy,
+		"accounting_note":              "Available referral rewards are earned and transferable, not unpaid invitee rewards. Lifetime total is gross historical earnings, not current wallet balance. pending_reward_* is a legacy alias for available rewards. Do not divide total earnings by today’s reward to invent a paid-invitee count. Do not infer an invitee’s payment status from these balances.",
 		"total_reward_credit":          user.AffHistoryQuota,
-		"reward_per_inviter_credit":    common.QuotaForInviter,
-		"reward_per_invitee_credit":    common.QuotaForInvitee,
+		"reward_per_inviter_credit":    policy.RewardQuota,
+		"reward_per_invitee_credit":    0,
 		"pending_reward_usd":           usd[0],
 		"total_reward_usd":             usd[1],
 		"reward_per_inviter_usd":       usd[2],
 		"reward_per_invitee_usd":       usd[3],
 		"promotional_rewards_eligible": !model.IsDisposableEmail(user.Email),
 		"payment_compliance_confirmed": operation_setting.IsPaymentComplianceConfirmed(),
-		"next_step":                    "Open the invitation page to generate or copy the current invitation code.",
+		"next_step":                    "Explain the configured registration advance separately from the first-payment tail. The tail needs the first verified cash payment to meet the configured floor in its settlement currency. Gift, manual, transfer and later top-up credits do not qualify. Available rewards must be transferred to wallet before spending; a lifetime total is not lost balance. Open the invitation page for rules and history.",
 	}
 	result["legacy_reward_credit_unit"] = common.LedgerQuotaUnit
 	if projectionUnavailable {
@@ -3094,6 +3101,25 @@ func executeAssistantInvitationTool(userID int) map[string]any {
 		result[key] = value
 	}
 	result["legacy_reward_credit_unit"] = common.LedgerQuotaUnit
+	for _, field := range []struct {
+		name  string
+		quota int
+	}{
+		{"available_reward", max(0, user.AffQuota)}, {"reward_debt", max(0, -user.AffQuota)},
+		{"wallet_balance", user.Quota}, {"registration_reward", policy.RegistrationRewardQuota},
+	} {
+		amount, err := units.ProjectLedgerQuota(int64(field.quota))
+		if err != nil {
+			return map[string]any{"ok": false, "status": "unavailable", "error": "invitation currency units are unavailable"}
+		}
+		result[field.name+"_public_credits"] = amount.String()
+		usdAmount, _, projectionErr := assistantFiatProjection(int64(field.quota))
+		if projectionErr == nil {
+			result[field.name+"_usd"] = usdAmount
+		} else {
+			result[field.name+"_usd"] = nil
+		}
+	}
 	for i, key := range []string{"pending_reward_public_credits", "total_reward_public_credits", "reward_per_inviter_public_credits", "reward_per_invitee_public_credits"} {
 		amount, err := units.ProjectLedgerQuota(int64(amounts[i]))
 		if err != nil {

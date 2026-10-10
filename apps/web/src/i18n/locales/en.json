@@ -11843,6 +11843,17 @@
     "Waiting for Pi connection": "Waiting for Pi connection",
     "Trading paused": "Trading paused",
     "Unavailable for purchase": "Unavailable for purchase",
-    "Unlimited sales removes the sales quota, not the inventory requirement. Import stock for inventory-based variants, or use fixed content for unlimited supply.": "Unlimited sales removes the sales quota, not the inventory requirement. Import stock for inventory-based variants, or use fixed content for unlimited supply."
+    "Unlimited sales removes the sales quota, not the inventory requirement. Import stock for inventory-based variants, or use fixed content for unlimited supply.": "Unlimited sales removes the sales quota, not the inventory requirement. Import stock for inventory-based variants, or use fixed content for unlimited supply.",
+    "Registration advance reward (0 = disabled)": "Registration advance reward (0 = disabled)",
+    "Registration advance reward": "Registration advance reward",
+    "First top-up tail reward": "First top-up tail reward",
+    "Valid invited registration": "Valid invited registration",
+    "Additional first top-up credit floor": "Additional first top-up credit floor",
+    "Minimum first cash payment by currency": "Minimum first cash payment by currency",
+    "Amounts are actual payments in each currency, not credits or exchange rates. A payment equal to the minimum qualifies. Unlisted currencies do not earn a tail reward.": "Amounts are actual payments in each currency, not credits or exchange rates. A payment equal to the minimum qualifies. Unlisted currencies do not earn a tail reward.",
+    "Tail reward after the invited user’s first cash payment meets the minimum ({{formattedQuota}})": "Tail reward after the invited user’s first cash payment meets the minimum ({{formattedQuota}})",
+    "A small registration advance can be enabled. The tail reward requires a qualifying first cash payment. Confirmed abuse or a full refund can revoke rewards. Reward debt never deducts purchased balance.": "A small registration advance can be enabled. The tail reward requires a qualifying first cash payment. Confirmed abuse or a full refund can revoke rewards. Reward debt never deducts purchased balance.",
+    "Only the first verified cash payment can earn the tail. A smaller first payment cannot be topped up later to qualify. Lifetime earnings are not your current wallet balance.": "Only the first verified cash payment can earn the tail. A smaller first payment cannot be topped up later to qualify. Lifetime earnings are not your current wallet balance.",
+    "Registration advance and first-payment tail are separate rewards. Available rewards can be transferred to balance. Lifetime earnings are not the current balance.": "Registration advance and first-payment tail are separate rewards. Available rewards can be transferred to balance. Lifetime earnings are not the current balance."
   }
 }
