@@ -17,7 +17,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestPostTextConsumeQuotaMissingUsageFailureRefundsPrepayment(t *testing.T) {
+func TestPostTextConsumeQuotaMissingUsageFailureSettlement(t *testing.T) {
 	for _, tc := range []struct {
 		name      string
 		reason    relaycommon.StreamEndReason
@@ -97,6 +97,10 @@ func TestPostTextConsumeQuotaMissingUsageFailureRefundsPrepayment(t *testing.T) 
 							}
 
 							wantQuota := payload.prompt + payload.completion
+							expectEstimated := tc.cancelled && wantQuota == 0
+							if expectEstimated {
+								wantQuota = info.FinalPreConsumedQuota
+							}
 							PostTextConsumeQuota(c, info, payload.usage, nil)
 							assertSubscriptionBillingBalances(t, db, info, int64(wantQuota), 0, wantQuota)
 
@@ -108,7 +112,12 @@ func TestPostTextConsumeQuotaMissingUsageFailureRefundsPrepayment(t *testing.T) 
 							require.Equal(t, payload.completion, logs[0].CompletionTokens)
 							var other map[string]interface{}
 							require.NoError(t, json.Unmarshal([]byte(logs[0].Other), &other))
-							require.NotContains(t, other, "usage_estimated")
+							if expectEstimated {
+								require.Equal(t, true, other["usage_estimated"])
+								require.Equal(t, "client_cancelled_preconsumed", other["usage_estimate_basis"])
+							} else {
+								require.NotContains(t, other, "usage_estimated")
+							}
 							billing := other["billing_settlement"].(map[string]interface{})
 							require.EqualValues(t, wantQuota, billing["actual_quota"])
 							require.EqualValues(t, wantQuota, billing["charged_quota"])

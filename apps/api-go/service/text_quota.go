@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"math"
 	"sort"
@@ -441,6 +442,10 @@ func canEstimateMissingTextUsage(ctx *gin.Context, info *relaycommon.RelayInfo) 
 	return status == nil || (status.IsNormalEnd() && status.EndError == nil && !status.HasErrors())
 }
 
+func wasTextRequestCancelled(ctx *gin.Context) bool {
+	return ctx != nil && ctx.Request != nil && ctx.Request.Context().Err() == context.Canceled
+}
+
 func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, usage *dto.Usage, extraContent []string) {
 	originUsage := usage
 	billingUsage := effectiveBillingUsage(usage)
@@ -491,7 +496,15 @@ func PostTextConsumeQuota(ctx *gin.Context, relayInfo *relaycommon.RelayInfo, us
 	}
 
 	if !summary.hasBillableUsage() {
-		if !canEstimateMissingTextUsage(ctx, relayInfo) {
+		if wasTextRequestCancelled(ctx) && relayInfo.FinalPreConsumedQuota > 0 {
+			// Cancellation is controlled by the client and does not prove that
+			// the provider did no billable work. Keep the bounded reservation
+			// rather than allowing repeated accepted requests to become free.
+			summary.Quota = relayInfo.FinalPreConsumedQuota
+			estimatedMissingUsage = true
+			estimateBasis = "client_cancelled_preconsumed"
+			extraContent = append(extraContent, "客户端取消且上游未返回用量；保留本次预扣额度结算")
+		} else if !canEstimateMissingTextUsage(ctx, relayInfo) {
 			// Unknown usage on an interrupted/failed request is not evidence
 			// of a successful request. Settle zero through the normal path so
 			// prepayment is refunded without replaying an already-started stream.
