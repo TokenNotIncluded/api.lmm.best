@@ -5,6 +5,9 @@ on:
       - fix/assistant-reward-autonomy-20261010
 permissions:
   contents: read
+concurrency:
+  group: assistant-welcome-gift-check-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   go-rewards:
     runs-on: ubuntu-latest
@@ -15,10 +18,17 @@ jobs:
         with:
           go-version-file: apps/api-go/go.mod
           cache-dependency-path: apps/api-go/go.sum
+      - name: Check Go source formatting
+        run: test -z "$(gofmt -l apps/api-go/controller/assistant*.go apps/api-go/model/assistant*.go apps/api-go/setting/assistant*.go)"
       - name: Go assistant tests
         run: cd apps/api-go && go test ./setting ./model ./controller -count=1
-      - name: Go formatting
-        run: test -z "$(gofmt -l apps/api-go/controller/assistant*.go apps/api-go/model/assistant*.go apps/api-go/setting/assistant*.go)"
+      - name: Inspect stale request contracts
+        if: always()
+        run: |
+          cd apps/api-go
+          go generate ./controller
+          git diff --stat -- controller/assistant_admin_operation_contracts.json
+          git diff -- controller/assistant_admin_operation_contracts.json | head -n 180 || true
   web-types:
     runs-on: ubuntu-latest
     timeout-minutes: 20
