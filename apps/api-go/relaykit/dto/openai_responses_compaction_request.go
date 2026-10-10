@@ -45,8 +45,32 @@ func (r *OpenAIResponsesCompactionRequest) GetTokenCountMeta() *types.TokenCount
 }
 
 // Only traverse protocol content containers. Tool arguments and unknown items
-// remain text, even when they happen to contain image-like JSON.
+// remain text, even when they happen to contain image-like JSON. Traversal is
+// bounded so attacker-controlled nesting cannot amplify CPU and memory usage.
+const (
+	maxResponsesInputDepth = 64
+	maxResponsesInputNodes = 10000
+	maxResponsesInputBytes = 8 << 20
+)
+
+type responsesInputWalkState struct {
+	nodes int
+	bytes int
+}
+
 func collectResponsesTokenInput(raw json.RawMessage, texts *[]string, files *[]*types.FileMeta) {
+	state := responsesInputWalkState{}
+	collectResponsesTokenInputBounded(raw, texts, files, &state, 0)
+}
+
+func collectResponsesTokenInputBounded(raw json.RawMessage, texts *[]string, files *[]*types.FileMeta, state *responsesInputWalkState, depth int) {
+	state.nodes++
+	state.bytes += len(raw)
+	if depth > maxResponsesInputDepth || state.nodes > maxResponsesInputNodes || state.bytes > maxResponsesInputBytes {
+		*texts = append(*texts, normalizeRawJSONForTokenCount(raw))
+		return
+	}
+
 	var text string
 	if json.Unmarshal(raw, &text) == nil {
 		*texts = append(*texts, text)
@@ -55,7 +79,7 @@ func collectResponsesTokenInput(raw json.RawMessage, texts *[]string, files *[]*
 	var items []json.RawMessage
 	if json.Unmarshal(raw, &items) == nil {
 		for _, item := range items {
-			collectResponsesTokenInput(item, texts, files)
+			collectResponsesTokenInputBounded(item, texts, files, state, depth+1)
 		}
 		return
 	}
@@ -112,7 +136,7 @@ func collectResponsesTokenInput(raw json.RawMessage, texts *[]string, files *[]*
 		case "", "message":
 			if item.Role != "" && len(item.Content) > 0 {
 				*texts = append(*texts, item.Role)
-				collectResponsesTokenInput(item.Content, texts, files)
+				collectResponsesTokenInputBounded(item.Content, texts, files, state, depth+1)
 				return
 			}
 		}
