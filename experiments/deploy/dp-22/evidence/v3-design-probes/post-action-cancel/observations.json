@@ -1,0 +1,40 @@
+{
+  "scope": "real_nginx_python_transport_reference",
+  "rust_executed": false,
+  "billing_executed": false,
+  "upstream_calls": {
+    "cancel-before-ack-held": 1
+  },
+  "controller_events": [
+    {
+      "event": "route_committed",
+      "candidate": "a",
+      "old": null,
+      "evidence": "transport_only"
+    },
+    {
+      "event": "route_committed",
+      "candidate": "b",
+      "old": "a",
+      "evidence": "transport_only"
+    },
+    {
+      "event": "old_drain_waits_for_admission",
+      "instance": "a"
+    }
+  ],
+  "pending_ingress_tickets": 1,
+  "records": {
+    "a": {
+      "cancel-before-ack-held": "transport_unknown"
+    },
+    "b": {}
+  },
+  "exit_codes": {
+    "a": 0,
+    "b": 0
+  },
+  "remaining_child_processes": 0,
+  "cleanup_forced_kills": [],
+  "nginx_exit_code": 0
+}

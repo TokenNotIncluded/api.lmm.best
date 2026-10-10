@@ -1,0 +1,17 @@
+{
+  "tests_run": 17,
+  "failures": 0,
+  "errors": 0,
+  "elapsed_seconds": 26.522,
+  "scope": "real_nginx_python_transport_reference",
+  "rust_runtime": "NOT_RUN_NO_TOOLCHAIN",
+  "billing": "NOT_CONNECTED_NOT_TESTED",
+  "normal_rollout_acceptance": "NOT_PASSED_REAL_RUST_AND_SETTLEMENT_NOT_TESTED",
+  "known_gaps": [
+    "Rust ACK adapter is written but not compiled or executed",
+    "unknown request completion intentionally retains a bounded ticket; the ingress authority is still an in-memory research service"
+  ],
+  "base": "72667564c0431754d4856dc2e0db55f360bd2745",
+  "nginx": "nginx version: nginx/1.26.3",
+  "details": []
+}
