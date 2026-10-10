@@ -9,36 +9,73 @@ permissions:
   contents: read
 
 jobs:
-  workspace:
+  public-revisions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: python -m pip install --disable-pip-version-check playwright==1.57.0
+      - name: Read public revisions without signing in or modifying production
+        shell: bash
+        run: |
+          mkdir -p evidence
+          python - <<'PY'
+          import json, shutil, time
+          from pathlib import Path
+          from playwright.sync_api import sync_playwright
+          report = {'observed_at_utc': time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime()), 'source_base': 'e1d04c82dbfcd6111cf7e94713fd079084414299', 'requests': []}
+          with sync_playwright() as p:
+              browser = p.chromium.launch(executable_path=shutil.which('google-chrome') or shutil.which('chromium'), headless=True)
+              context = browser.new_context(viewport={'width': 1440, 'height': 1000}, locale='en-GB')
+              try:
+                  response = context.request.get('https://api.lmm.best/api/status', timeout=20000)
+                  report['status_http'] = response.status
+                  payload = response.json()
+                  data = payload.get('data', {})
+                  report['backend'] = {k: data[k] for k in ('version', 'revision', 'commit', 'backend_version', 'runtime') if k in data}
+              except Exception as error:
+                  report['status_error'] = str(error).splitlines()[0]
+              page = context.new_page()
+              page.on('response', lambda r: report['requests'].append({'method': r.request.method, 'url': r.url.split('?')[0], 'status': r.status}))
+              try:
+                  page.goto('https://api.lmm.best/', wait_until='domcontentloaded', timeout=30000)
+                  page.wait_for_function("document.documentElement.hasAttribute('data-build-rev')", timeout=20000)
+                  report['frontend_revision'] = page.locator('html').get_attribute('data-build-rev')
+                  report['frontend_descriptor'] = page.evaluate('window.__APP_BUILD__ || null')
+                  page.screenshot(path='evidence/production-public-desktop.png', full_page=False)
+              except Exception as error:
+                  report['browser_error'] = str(error).splitlines()[0]
+              browser.close()
+          Path('evidence/production-revisions.json').write_text(json.dumps(report, indent=2))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: interaction-public-revisions
+          path: evidence/
+          retention-days: 7
+  go-workspace:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           persist-credentials: false
-      - name: Archive the exact source revision without Git credentials
-        run: git archive --format=tar.gz HEAD -o "$RUNNER_TEMP/interaction-source.tar.gz"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
         with:
-          name: interaction-source
-          path: ${{ runner.temp }}/interaction-source.tar.gz
-          retention-days: 3
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
-        with:
-          bun-version: "1.3.14"
-      - name: Install locked dependencies in the isolated runner
-        run: bun install --frozen-lockfile
-      - name: Archive only dependencies and the test runtime
+          go-version-file: apps/api-go/go.mod
+          cache: false
+      - name: Download locked Go dependencies, without production configuration
+        working-directory: apps/api-go
+        run: go mod download
+      - name: Package only the compiler and downloaded modules for local checks
         shell: bash
         run: |
-          mkdir -p "$RUNNER_TEMP/interaction-runtime/bin"
-          cp "$(command -v bun)" "$RUNNER_TEMP/interaction-runtime/bin/bun"
-          find . -type d -name node_modules -prune -print0 | tar --null -T - -czf "$RUNNER_TEMP/interaction-dependencies.tar.gz"
-          tar -C "$RUNNER_TEMP/interaction-runtime" -czf "$RUNNER_TEMP/interaction-runtime.tar.gz" bin
+          tar -C "$(go env GOROOT)" -czf "$RUNNER_TEMP/interaction-goroot.tar.gz" .
+          tar -C "$(go env GOMODCACHE)" -czf "$RUNNER_TEMP/interaction-gomodcache.tar.gz" .
       - uses: actions/upload-artifact@v4
         with:
-          name: interaction-runtime
+          name: interaction-go-runtime
           path: |
-            ${{ runner.temp }}/interaction-dependencies.tar.gz
-            ${{ runner.temp }}/interaction-runtime.tar.gz
+            ${{ runner.temp }}/interaction-goroot.tar.gz
+            ${{ runner.temp }}/interaction-gomodcache.tar.gz
           retention-days: 3
