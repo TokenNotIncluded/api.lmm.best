@@ -6,6 +6,7 @@ import (
 	"crypto/rsa"
 	"crypto/tls"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -137,6 +138,33 @@ func TestStrictAuthorization(t *testing.T) {
 	q.Add("client_id", "coweft-web")
 	if _, e := p.parseAuthorization(q); e == nil {
 		t.Fatal("duplicate parameter accepted")
+	}
+}
+
+func TestRateLimitUsesTrustedForwardedClient(t *testing.T) {
+	p, _ := setup(t)
+	_, proxy, e := net.ParseCIDR("127.0.0.1/32")
+	if e != nil {
+		t.Fatal(e)
+	}
+	p.config.TrustedProxies = []*net.IPNet{proxy}
+
+	request := func(forwarded string) *http.Request {
+		r := httptest.NewRequest("POST", "http://api.lmm.best/api/oidc/token", nil)
+		r.RemoteAddr = "127.0.0.1:54321"
+		r.Header.Set("X-Forwarded-For", forwarded)
+		return r
+	}
+	for range 120 {
+		if !p.allowed(request("198.51.100.9")) {
+			t.Fatal("attacker bucket exhausted early")
+		}
+	}
+	if p.allowed(request("198.51.100.9")) {
+		t.Fatal("attacker exceeded its rate limit")
+	}
+	if !p.allowed(request("203.0.113.10")) {
+		t.Fatal("distinct forwarded client shared the proxy rate limit")
 	}
 }
 func TestCodeTokenIntrospectionAndRevocation(t *testing.T) {
