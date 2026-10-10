@@ -672,9 +672,12 @@ func assistantDirectL1GrantAllowed(context assistantUserContext) bool {
 }
 
 func assistantNewUserGiftToolAllowed(context assistantUserContext) bool {
-	// User-authored project details can authorize applying without a new phrase.
-	// Pure status questions remain read-only. Eligibility is checked in storage.
-	return !context.AdministratorMode &&
+	// Existing conversation details can authorize an ordinary gift request,
+	// but status-only requests, farming signals, and security risks stay blocked.
+	// The storage layer still checks verified registration and one-time credit.
+	return !context.AdministratorMode && !context.GiftRewardBlocked &&
+		context.CustomerProfile != assistantProfilePromotion &&
+		context.CustomerProfile != assistantProfileSecurityRisk &&
 		context.RewardTopic != "weekly_discount" && context.RewardTopic != "other" &&
 		!assistantNewUserGiftStatusWorkflowRequired(context) &&
 		!assistantWeeklyDiscountStatusWorkflowRequired(context)
