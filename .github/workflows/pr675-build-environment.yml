@@ -1,0 +1,87 @@
+name: PR675 isolated build tools
+on:
+  push:
+    branches: [work/pr675-rebase-e1d04c82]
+    paths: [.github/workflows/pr675-build-environment.yml]
+permissions:
+  contents: read
+jobs:
+  tools:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 8a632c008f953a61713bee8116b5e703515fd1fc
+          persist-credentials: false
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version: '1.27.2'
+          cache: false
+      - name: Prepare Go toolchain and locked modules without account configuration
+        shell: bash
+        env:
+          GOWORK: 'off'
+          GOMODCACHE: ${{ runner.temp }}/go-modules
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/tools"
+          for module in apps/lmm-extensions apps/lmm-extensions/internal/modules/store/pgtest contracts/proto/tests/go; do
+            (cd "$module" && go mod download)
+          done
+          go version > "$RUNNER_TEMP/tools/go-version.txt"
+          tar -czf "$RUNNER_TEMP/tools/go-toolchain.tar.gz" -C "$(go env GOROOT)" .
+          tar -czf "$RUNNER_TEMP/tools/go-modules.tar.gz" -C "$GOMODCACHE" .
+      - name: Prepare Rust toolchain and locked dependency cache
+        shell: bash
+        env:
+          CARGO_HOME: ${{ runner.temp }}/cargo-cache
+        run: |
+          set -euo pipefail
+          rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+          toolchain="$(rustup which --toolchain 1.99.0 rustc)"
+          toolchain="$(dirname "$(dirname "$toolchain")")"
+          PATH="$toolchain/bin:$PATH" cargo fetch --locked --manifest-path apps/lmm-core/Cargo.toml
+          "$toolchain/bin/rustc" --version > "$RUNNER_TEMP/tools/rust-version.txt"
+          tar -czf "$RUNNER_TEMP/tools/rust-toolchain.tar.gz" -C "$toolchain" .
+          tar -czf "$RUNNER_TEMP/tools/cargo-registry.tar.gz" -C "$CARGO_HOME" registry
+      - name: Prepare disposable PostgreSQL binaries, never a database or credential
+        shell: bash
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/postgres-tools"
+          mkdir -p "$out/usr/lib" "$out/usr/share"
+          docker pull postgres:17-bookworm
+          docker image inspect postgres:17-bookworm --format '{{index .RepoDigests 0}}' > "$RUNNER_TEMP/tools/postgres-image.txt"
+          cid=$(docker create postgres:17-bookworm)
+          trap 'docker rm -f "$cid" >/dev/null' EXIT
+          docker cp "$cid:/usr/lib/postgresql" "$out/usr/lib/"
+          docker cp "$cid:/usr/share/postgresql" "$out/usr/share/"
+          docker cp "$cid:/usr/lib/x86_64-linux-gnu" "$out/usr/lib/"
+          rm -f "$out/usr/lib/x86_64-linux-gnu"/libc.so* "$out/usr/lib/x86_64-linux-gnu"/libm.so* "$out/usr/lib/x86_64-linux-gnu"/libpthread.so* "$out/usr/lib/x86_64-linux-gnu"/libdl.so* "$out/usr/lib/x86_64-linux-gnu"/librt.so* "$out/usr/lib/x86_64-linux-gnu"/ld-linux*
+          tar -czf "$RUNNER_TEMP/tools/postgres-tools.tar.gz" -C "$out" .
+          cd "$RUNNER_TEMP/tools"
+          sha256sum *.tar.gz > checksums.txt
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: pr675-pinned-go-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/tools/go-*.tar.gz
+            ${{ runner.temp }}/tools/go-version.txt
+          retention-days: 1
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: pr675-pinned-rust-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/tools/rust-toolchain.tar.gz
+            ${{ runner.temp }}/tools/cargo-registry.tar.gz
+            ${{ runner.temp }}/tools/rust-version.txt
+          retention-days: 1
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: pr675-pinned-postgres-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/tools/postgres-tools.tar.gz
+            ${{ runner.temp }}/tools/postgres-image.txt
+            ${{ runner.temp }}/tools/checksums.txt
+          retention-days: 1
