@@ -23,6 +23,9 @@ func Run() error {
 	if len(os.Args) != 1 {
 		return errors.New("lmm-extensions accepts no subcommands; configure it with LMM_EXTENSION_* variables")
 	}
+	if err := validateEnvironment(os.Getenv); err != nil {
+		return err
+	}
 	credential, err := readHostCredential(os.Getenv("LMM_EXTENSION_TOKEN_FILE"))
 	if err != nil {
 		return err

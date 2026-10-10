@@ -1,4 +1,4 @@
-name: Profile share SVG review
+name: Profile share frontend review
 
 on:
   workflow_dispatch:
@@ -39,13 +39,6 @@ jobs:
           path: profile-share-review
           retention-days: 7
           if-no-files-found: error
-      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
-        with:
-          go-version-file: apps/api-go/go.mod
-          cache-dependency-path: apps/api-go/go.sum
-      - name: Verify real aggregation, consent, SVG rendering, and legacy layouts
-        working-directory: apps/api-go
-        run: go test -p 2 ./model ./controller -run '^TestProfileShare' -count=1 -v
       - name: Verify editor types and targeted regressions
         working-directory: apps/web
         run: |

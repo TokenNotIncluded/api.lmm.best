@@ -4,7 +4,6 @@
   <p>Model access, MCP tools, and open-source work. One console.</p>
   <p>
     <a href="https://github.com/TokenNotIncluded/api.lmm.best/actions/workflows/ci.yml"><img src="https://github.com/TokenNotIncluded/api.lmm.best/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI" /></a>
-    <a href="https://github.com/TokenNotIncluded/api.lmm.best/releases?q=go-v"><img src="https://img.shields.io/github/v/release/TokenNotIncluded/api.lmm.best?filter=go-v%2A&amp;label=Go&amp;display_name=tag" alt="Go release" /></a>
     <a href="https://github.com/TokenNotIncluded/api.lmm.best/releases?q=web-v"><img src="https://img.shields.io/github/v/release/TokenNotIncluded/api.lmm.best?filter=web-v%2A&amp;label=Web&amp;display_name=tag" alt="Web release" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License: AGPL-3.0" /></a>
   </p>
@@ -17,8 +16,6 @@
 LMM Forge is an open-source console for AI services. Model access, a Remote MCP tool marketplace, and open-source bounties share one account and credit system. Connect a client, publish paid tools, or earn platform balance by completing open-source tasks.
 
 This project is a maintained fork of [QuantumNous/new-api](https://github.com/QuantumNous/new-api). Go is the default backend. The web app uses React and TypeScript. The Rust core / Go extensions migration is WIP and cannot receive production traffic. The standalone CLI remains a preview.
-
-This guide describes the default branch. Check refactor branches, merged code, signed releases, and production deployment separately. A design proposal does not prove that a switch is complete.
 
 ## Core features
 
@@ -39,41 +36,19 @@ Visit the [home page](https://api.lmm.best), [model pricing](https://api.lmm.bes
 
 ## Quick start
 
-These steps are for local development, **not production installation**. Install Git, Just, Bun 1.3.14, Node.js 22.12+, and Go 1.25.1+. Prepare separate PostgreSQL and Valkey services.
+**This branch is a breaking, fresh-install WIP.** It is not the current live site's backend. It has no legacy import, schema upgrade, balance conversion or automatic database migration path.
 
-```bash
-git clone https://github.com/TokenNotIncluded/api.lmm.best.git
-cd api.lmm.best
-just setup
-cp .env.example apps/api-go/.env
-```
+Use the [Docker development stack](deployment/docker/README.md). It explicitly installs an empty core database with `lmm-core-admin init-db`. A second installation or an existing application database is rejected. Normal service startup does not alter tables.
 
-Edit `apps/api-go/.env` first. Set `SQL_DSN` and `REDIS_CONN_STRING`. Set independent random values for `SESSION_SECRET` and `CRYPTO_SECRET`. Use a development database: startup applies database migrations by default.
+`apps/core-rust` is the Rust core. `apps/api-go` is the Go extension host. Go currently provides only the read-only identity module, not the old shop, assistant, payment or console APIs. Model endpoints remain unavailable. Frontend source is retained, but this branch is not a working replacement for the whole site.
 
-Start the backend from the repository root:
+For local commands and separately exported service configuration, use the [development guide](docs/development.md). Do not copy an old Go database environment into the new extension process.
 
-```bash
-just dev-go
-```
+## Deployment boundary
 
-Start the frontend in a second terminal. Use a separate port because the backend uses port 3000:
+Core and extensions have independent Docker projects. Rebuilding Go must not restart the core or its database. This branch no longer ships the old Go server packages or systemd database-upgrade tools. No production deployment or data deletion is performed by these checks.
 
-```bash
-bun run --filter @lmm/web dev --port 5173 --host 127.0.0.1 --strict-port
-```
-
-Open <http://localhost:5173> and complete setup. See the [development guide](docs/development.md) for configuration, checks, and new-core development notes. The existing Go development flow still needs a local `docker-compose.dev.yml`. The new [Docker development stack](deployment/docker/README.md) is for the Rust core / Go extensions migration only, not a production replacement.
-
-## Deploy and upgrade
-
-Go and Web have separate release tags: `go-vX.Y.Z` and `web-vX.Y.Z`. **A merge or release does not deploy to production.** Read the [deployment workflow](docs/deployment-workflow.md) and select the path for the existing installation first.
-
-| Existing installation | Start here |
-| --- | --- |
-| Standalone systemd service | [Inspect, upgrade, confirm, and roll back](docs/manual-systemd-deployment.md) |
-| Package-managed Go / Web | [Signed releases and upgrade transactions](docs/seamless-upgrades.md) |
-| Frontend-only update | [Deployment and installation types](docs/deployment-workflow.md) · [Release boundaries](docs/release-architecture.md) |
-| Database and cache | [PostgreSQL migration](docs/postgresql-migration.md) · [Production cutover](docs/postgresql-cutover.md) · [Valkey operations](docs/valkey-lmm-api.md) |
+See [fresh installation](deployment/docker/README.md), [core identity](docs/core-identity.md), and [Protobuf communication](docs/core-protocol.md). Historical deployment documents describe the retired architecture and must not be used to install this branch.
 
 ## Documentation
 
@@ -82,12 +57,6 @@ The [documentation index](docs/README.md) groups guides by user, developer, and 
 - **Use and contribute:** [Tool publishing](docs/tool-market-guide.md), [connections and permissions](docs/tool-market-connections.md), [bounties and settlement](docs/open-source-bounties.md).
 - **Development and APIs:** [Local development](docs/development.md), [contribution guide](CONTRIBUTING.md), [admin API](docs/openapi/api.json), [relay API](docs/openapi/relay.json).
 - **Releases and maintenance:** [Release architecture](docs/release-architecture.md), [authentication and sessions](docs/authentication.md), [Core and extensions migration](docs/core-migration.md).
-
-## Agent workflow
-
-Read [AGENTS.md](AGENTS.md) before editing. Select the relevant task from the [skill index](.agents/skills/README.md). See the [Agent working guide](docs/agent-workflows.md) for steps and check coverage.
-
-The main CI workflow is a manual diagnostic entry point. Opening a PR does not trigger it. See [Actions](docs/ci-workflow-layout.md) for the separate testing, signing, and deployment steps. Skills do not grant account permissions or authorize deployment or payment.
 
 ## Contribute and report security issues
 

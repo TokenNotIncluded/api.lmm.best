@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-component=${1:?component (go|web) is required}
+component=${1:?component (web) is required}
 version=${2:?release version is required}
 assets=${3:?asset directory is required}
 output=${4:?output package path is required}
@@ -10,7 +10,6 @@ package_release=${6:-1}
 [[ "$package_release" =~ ^[1-9][0-9]*(\.[0-9]+)?$ ]]
 
 case "$component" in
-  go) package_name=lmm-api-go-bin; recipe="$repo/packaging/aur/lmm-api-go-bin" ;;
   web) package_name=lmm-api-web-bin; recipe="$repo/packaging/aur/lmm-api-web-bin" ;;
   *) printf 'unsupported package component\n' >&2; exit 2 ;;
 esac
@@ -41,10 +40,8 @@ bundle="$assets/${asset_name}.sigstore.json"
 cosign verify-blob --bundle "$bundle" \
   --certificate-identity "https://github.com/TokenNotIncluded/api.lmm.best/.github/workflows/release-${component}.yml@refs/tags/${component}-v${version}" \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com "$asset"
-if [[ "$component" == web ]]; then
-  bsdtar -xOf "$asset" lmm-api-web.install >"$build/lmm-api-web.install"
-  [[ -s "$build/lmm-api-web.install" ]]
-fi
+bsdtar -xOf "$asset" lmm-api-web.install >"$build/lmm-api-web.install"
+[[ -s "$build/lmm-api-web.install" ]]
 
 # makepkg requires a writable SRCDEST. Keep the verified release inputs in the
 # container-local build directory instead of writing to the read-only/mounted
@@ -54,11 +51,7 @@ install -m0644 "$asset" "$checksum" "$bundle" "$build/"
 asset_sha=$(sha256sum "$asset" | awk '{print $1}')
 checksum_sha=$(sha256sum "$checksum" | awk '{print $1}')
 bundle_sha=$(sha256sum "$bundle" | awk '{print $1}')
-if [[ "$component" == go ]]; then
-  perl -0pi -e "s/sha256sums_x86_64=\(.*?\)/sha256sums_x86_64=(\n  '${asset_sha}'\n  '${checksum_sha}'\n  '${bundle_sha}'\n)/s" "$build/PKGBUILD"
-else
-  perl -0pi -e "s/sha256sums=\(.*?\)/sha256sums=(\n  '${asset_sha}'\n  '${checksum_sha}'\n  '${bundle_sha}'\n)/s" "$build/PKGBUILD"
-fi
+perl -0pi -e "s/sha256sums=\(.*?\)/sha256sums=(\n  '${asset_sha}'\n  '${checksum_sha}'\n  '${bundle_sha}'\n)/s" "$build/PKGBUILD"
 
 pkgdest="$build/pkgdest"
 builddir="$build/makepkg"
