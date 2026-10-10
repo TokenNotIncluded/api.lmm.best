@@ -119,7 +119,7 @@ class PhaseSixSourceWriterEvidenceContract(unittest.TestCase):
     def setUp(self):
         self.events = passes(phase_six.REQUIRED)
         self.plan = {
-            'writer_capability': 7,
+            'writer_capability': 8,
             'tables': [
                 {'name': 'merchant_store_products', 'columns': [
                     {'name': 'category_id', 'size': 36, 'not_null': True}]},
@@ -129,9 +129,9 @@ class PhaseSixSourceWriterEvidenceContract(unittest.TestCase):
         }
         self.revision = 'a' * 40
 
-    def test_reviewed_writer_seven_preserves_phase_six_evidence_identity(self):
+    def test_reviewed_writer_eight_preserves_phase_six_evidence_identity(self):
         result = phase_six.validate(self.events, self.plan, self.revision)
-        self.assertEqual(7, result['writer_capability'])
+        self.assertEqual(8, result['writer_capability'])
         self.assertEqual('merchant-store-phase-six-postgres-v1', result['format'])
         self.assertEqual(list(phase_six.LEAVES), result['required_pg_leaves'])
         self.assertEqual(['merchant_store_categories', 'merchant_store_product_likes',
@@ -139,7 +139,7 @@ class PhaseSixSourceWriterEvidenceContract(unittest.TestCase):
         self.assertEqual((0, 0, 'passed'), (result['failed'], result['skipped'], result['status']))
 
     def test_stale_future_non_integer_and_missing_writer_markers_are_refused(self):
-        for marker in (1, 4, 5, 6, 8, 9, True, 7.0, '7', None):
+        for marker in (1, 4, 5, 6, 7, 9, True, 8.0, '8', None):
             with self.subTest(marker=marker), self.assertRaises(ValueError):
                 phase_six.validate(self.events, {**self.plan, 'writer_capability': marker}, self.revision)
         with self.assertRaises(ValueError):

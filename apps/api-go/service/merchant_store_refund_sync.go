@@ -147,9 +147,22 @@ func merchantStoreApplySyncedRefunds(ctx context.Context, d *model.MerchantStore
 		var known *model.MerchantStoreRefund
 		for i := range rows {
 			r := &rows[i]
-			if r.ProviderRefundReference != nil && *r.ProviderRefundReference == proof.RefundReference || r.ID == received.businessReference && (r.Status == "awaiting_provider" || r.Status == "reconciliation_required" || r.Status == "completed") {
+			if r.ProviderRefundReference != nil && *r.ProviderRefundReference == proof.RefundReference {
 				known = r
 				break
+			}
+		}
+		// A provider can associate several execution records with one ticket.
+		// Never collapse a distinct native receipt into a completed request, or
+		// discard a real partial execution because its requested amount differs.
+		// An overlapping in-flight request remains reserved by the model fence.
+		if known == nil {
+			for i := range rows {
+				r := &rows[i]
+				if r.ID == received.businessReference && r.ProviderRefundReference == nil && r.AmountMinor == proof.AmountMinor && r.Currency == proof.Currency && (r.Status == "awaiting_provider" || r.Status == "reconciliation_required") {
+					known = r
+					break
+				}
 			}
 		}
 		var err error

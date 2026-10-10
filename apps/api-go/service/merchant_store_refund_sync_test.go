@@ -98,10 +98,11 @@ func TestMerchantStoreRefundSyncBothDirectionsAndRepeatsThroughSDK(t *testing.T)
 			require.NoError(t, err)
 			sellerBefore, buyerBefore := merchantStoreRefundTestQuota(t, f.seller.Id), merchantStoreRefundTestQuota(t, f.buyer.Id)
 			// A local partial refund and a dashboard partial refund sum to the original
-			// tax-inclusive charge. There is no outward refund POST during sync.
+			// tax-inclusive charge. The provider reused the ticket reference but
+			// execution IDs differ. There is no outward refund POST during sync.
 			data := merchantStoreOrderRefundFixture(t, d, []map[string]any{
 				merchantStoreOrderRefundExecution(d, "provider-refund-execution-1", local.ID, "0.25"),
-				merchantStoreOrderRefundExecution(d, "psp-dashboard-2", "dashboard-ticket", "0.85"),
+				merchantStoreOrderRefundExecution(d, "psp-dashboard-2", local.ID, "0.85"),
 			})
 			calls := 0
 			client, err := pancake.New(pancake.Config{MerchantID: config.MerchantID, PrivateKey: config.PrivateKey, Environment: pancake.Environment(config.Environment), HTTPClient: &http.Client{Transport: merchantStoreTestTransport(func(req *http.Request) (*http.Response, error) {
