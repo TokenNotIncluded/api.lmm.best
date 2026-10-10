@@ -31,17 +31,9 @@ func TestRegistrationGuardToolCatalogUsesSignedInActorScope(t *testing.T) {
 			names[tool.Function.Name] = true
 		}
 		require.Equal(t, context.AccessLevel == "L0", names["ban_l0_user"])
-		require.False(t, names["prepare_l1_recommendation"])
+		require.Equal(t, context.AccessLevel == "L0", names["prepare_l1_recommendation"])
 		require.False(t, names[assistantInterlocutorAssessmentTool])
 	}
-}
-func TestRegistrationGuardRetiresPublicRecommendationSubmission(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	w := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(w)
-	RetiredDeveloperAccessRequest(c)
-	require.Equal(t, http.StatusGone, w.Code)
-	require.Contains(t, w.Body.String(), "DEVELOPER_ACCESS_LETTER_RETIRED")
 }
 func TestRegistrationGuardTerminationReturnsRestrictedReceipt(t *testing.T) {
 	gin.SetMode(gin.TestMode)

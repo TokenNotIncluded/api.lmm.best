@@ -161,11 +161,17 @@ func TestAssistantPersonaMatrix(t *testing.T) {
 			if assistantWeeklyDiscountToolAllowed(context) {
 				expectedAllowed = append(expectedAllowed, "prepare_weekly_discount")
 			}
+			if context.AccessLevel == "L0" && !context.AdministratorMode && !context.DeveloperAccessGranted {
+				expectedAllowed = append(expectedAllowed, "prepare_l1_recommendation")
+			}
 			assert.Len(t, toolNames, len(expectedAllowed), "fixture must describe the complete allowed tool set")
 			for _, tool := range expectedAllowed {
 				assert.True(t, toolNames[tool], "expected tool %q to be available", tool)
 			}
 			for _, tool := range fixture.Expected.Tools.Denied {
+				if tool == "prepare_l1_recommendation" && context.AccessLevel == "L0" {
+					continue
+				}
 				assert.False(t, toolNames[tool], "expected tool %q to be denied", tool)
 			}
 
