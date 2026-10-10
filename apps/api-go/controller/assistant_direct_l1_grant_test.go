@@ -31,7 +31,7 @@ func TestAssistantDirectL1GrantToolRequiresEligibleL0Context(t *testing.T) {
 	assert.False(t, toolNames(eligible)["grant_l1_access"])
 }
 
-func TestExecuteAssistantDirectL1GrantToolActivatesWithoutConfirmation(t *testing.T) {
+func TestExecuteAssistantDirectL1GrantToolCannotActivate(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	db := setupTokenControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(model.RegistrationGuardMigrationModels()...))
@@ -57,16 +57,25 @@ func TestExecuteAssistantDirectL1GrantToolActivatesWithoutConfirmation(t *testin
 		Name:      "grant_l1_access",
 		Arguments: `{"user_statement":"I will use LMM for a concrete coding workflow.","recommendation":"The user described a legitimate coding workflow."}`,
 	}}
-	result := executeAssistantTool(c, call)
-	assert.Equal(t, true, result["ok"])
-	assert.Equal(t, "activated", result["status"])
-	assert.Equal(t, "L1", result["access_level"])
-	_, hasConfirmation := result["confirmation_token"]
-	assert.False(t, hasConfirmation)
+	for attempt := 0; attempt < 2; attempt++ {
+		result := executeAssistantTool(c, call)
+		assert.Equal(t, false, result["ok"])
+		assert.NotEmpty(t, result["error"])
+		assert.NotEqual(t, "activated", result["status"])
+		assert.NotEqual(t, "already_active", result["status"])
+		assert.NotContains(t, result, "access_level")
+		assert.NotContains(t, result, "confirmation_token")
+		assert.NotContains(t, result, "request_id")
+	}
 
 	var stored model.User
 	require.NoError(t, db.First(&stored, user.Id).Error)
-	assert.Positive(t, stored.ConsoleActivatedAt)
+	assert.Zero(t, stored.ConsoleActivatedAt)
+	var requests, archives int64
+	require.NoError(t, db.Model(&model.DeveloperAccessRequest{}).Where("user_id = ?", user.Id).Count(&requests).Error)
+	require.NoError(t, db.Model(&model.DeveloperAccessRecommendationArchive{}).Where("user_id = ?", user.Id).Count(&archives).Error)
+	assert.Zero(t, requests)
+	assert.Zero(t, archives)
 }
 
 func TestAssistantDirectL1GrantRequiresBrowserSession(t *testing.T) {

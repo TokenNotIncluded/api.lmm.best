@@ -2,7 +2,6 @@ package model
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 
@@ -38,38 +37,6 @@ var (
 	ErrDeveloperAccessRequestQueueUnavailable = errors.New("解锁申请队列暂时不可用")
 	ErrAssistantDirectGrantNotL0              = errors.New("assistant direct L1 grant requires an unrestricted L0 user")
 )
-
-type AssistantDeveloperAccessGrant struct {
-	Request        *DeveloperAccessRequest
-	ConversationID int64
-	CompletedTurns int
-	Activated      bool
-}
-
-// DeveloperAccessRequest records the non-payment path to L1 access. The
-// request is deliberately separate from User.TrustLevelOverride: approving a
-// request unlocks L1 without freezing later paid progression at that level.
-type DeveloperAccessRequest struct {
-	Id               int    `json:"id" gorm:"primaryKey"`
-	UserId           int    `json:"user_id" gorm:"not null;index"`
-	Status           string `json:"status" gorm:"type:varchar(20);not null;index"`
-	Source           string `json:"source" gorm:"type:varchar(40);not null;default:legacy;index"`
-	Reason           string `json:"reason" gorm:"type:text"`
-	AIRecommendation string `json:"ai_recommendation" gorm:"type:text"`
-	AdminUserId      int    `json:"admin_user_id" gorm:"index"`
-	AdminNote        string `json:"admin_note" gorm:"type:text"`
-	CreatedAt        int64  `json:"created_at" gorm:"not null;index"`
-	ReviewedAt       int64  `json:"reviewed_at" gorm:"not null;default:0"`
-	Revision         int64  `json:"-" gorm:"not null;default:0"`
-}
-
-func (DeveloperAccessRequest) TableName() string { return "developer_access_requests" }
-
-type DeveloperAccessRequestView struct {
-	DeveloperAccessRequest
-	Username string `json:"username"`
-	Email    string `json:"email"`
-}
 
 func normalizeDeveloperAccessRequestText(value string) (string, error) {
 	value = strings.TrimSpace(value)
@@ -246,114 +213,6 @@ func SubmitConfirmedAssistantDeveloperAccessRecommendation(token string, match A
 		return nil, errors.Join(ErrDeveloperAccessRequestQueueUnavailable, err)
 	}
 	return request, nil
-}
-
-// GrantAssistantDeveloperAccess performs the narrowly scoped L0 -> L1 action
-// available to the customer assistant as soon as the current use is understood. The user
-// row serializes this action with submissions, reviews, resets, and concurrent
-// tool calls. The approved request row is the durable audit record.
-func GrantAssistantDeveloperAccess(userID int, conversationID int64, reason string, recommendation string) (*AssistantDeveloperAccessGrant, error) {
-	if userID <= 0 || conversationID < 0 {
-		return nil, gorm.ErrInvalidData
-	}
-	normalizedReason, err := normalizeDeveloperAccessRequestText(reason)
-	if err != nil {
-		return nil, err
-	}
-	if normalizedReason == "" {
-		return nil, ErrDeveloperAccessRequestReasonTooShort
-	}
-	if strings.TrimSpace(recommendation) == "" {
-		recommendation = "Assistant enabled L1 for the current user's stated use. No application letter required."
-	}
-	normalizedRecommendation, err := normalizeDeveloperAccessRequestText(recommendation)
-	if err != nil {
-		return nil, err
-	}
-
-	result := &AssistantDeveloperAccessGrant{}
-	err = DB.Transaction(func(tx *gorm.DB) error {
-		var user User
-		if err := lockForUpdate(tx).Where("id = ?", userID).First(&user).Error; err != nil {
-			return err
-		}
-		completedTurns := 0
-		if conversationID > 0 {
-			var err error
-			completedTurns, err = countCompletedAssistantConversationTurnsWithTx(tx, userID, conversationID, true)
-			if err != nil {
-				return err
-			}
-		}
-		result.ConversationID = conversationID
-		result.CompletedTurns = completedTurns
-		if user.Status != common.UserStatusEnabled || user.Role != common.RoleCommonUser || user.TrustLevelOverride != nil {
-			return ErrAssistantDirectGrantNotL0
-		}
-		access, err := GetDeveloperAccessStateForUserBaseWithTx(tx, user.ToBaseUser(), CurrentDeveloperAccessPolicy())
-		if err != nil {
-			return err
-		}
-
-		var latest DeveloperAccessRequest
-		findErr := lockForUpdate(tx).Where("user_id = ?", userID).Order("id DESC").First(&latest).Error
-		if access.Granted {
-			if findErr == nil && latest.Status == DeveloperAccessRequestApproved && latest.Source == DeveloperAccessRequestSourceDirectAI {
-				result.Request = &latest
-				return nil
-			}
-			return ErrAssistantDirectGrantNotL0
-		}
-		if findErr != nil && !errors.Is(findErr, gorm.ErrRecordNotFound) {
-			return findErr
-		}
-
-		if err := checkAssistantRegistrationTx(tx, userID); err != nil {
-			return err
-		}
-		now := common.GetTimestamp()
-		if conversationID == 0 {
-			// A successful first-turn action needs an owned conversation before
-			// the answer is written. Create it in this transaction so a failed
-			// risk check or audit write never leaves an empty conversation.
-			conversation := AssistantConversation{
-				UserId: userID, Title: assistantConversationTitle(normalizedReason),
-				LastMessagePreview: assistantConversationTitle(normalizedReason),
-				CreatedAt:          now, UpdatedAt: now,
-			}
-			if err := tx.Create(&conversation).Error; err != nil {
-				return err
-			}
-			conversationID = conversation.Id
-			result.ConversationID = conversationID
-		}
-		auditNote := fmt.Sprintf("AI assistant granted L1 after %d completed turns in conversation %d", completedTurns, conversationID)
-		latest = DeveloperAccessRequest{
-			UserId: userID, Status: DeveloperAccessRequestApproved,
-			Source: DeveloperAccessRequestSourceDirectAI, Reason: redactAssistantHandoffMessage(normalizedReason),
-			AIRecommendation: redactAssistantHandoffMessage(normalizedRecommendation), AdminNote: auditNote,
-			CreatedAt: now, ReviewedAt: now,
-		}
-		if err := tx.Create(&latest).Error; err != nil {
-			return err
-		}
-		if err := tx.Model(&user).Update("console_activated_at", now).Error; err != nil {
-			return err
-		}
-		if err := archiveApprovedDeveloperAccessRecommendation(tx, latest); err != nil {
-			return err
-		}
-		result.Request = &latest
-		result.Activated = true
-		return nil
-	})
-	if err != nil {
-		return nil, err
-	}
-	if result.Activated {
-		_ = InvalidateUserCache(userID)
-	}
-	return result, nil
 }
 
 func submitDeveloperAccessRequest(userID int, reason string, recommendation string, source string, clearRecommendation bool) (*DeveloperAccessRequest, error) {
