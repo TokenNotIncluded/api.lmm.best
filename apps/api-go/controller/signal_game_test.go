@@ -51,6 +51,9 @@ func TestSignalGameGuestCompletionThenAuthenticatedClaim(t *testing.T) {
 	}
 	require.NoError(t, json.Unmarshal(start.Body.Bytes(), &envelope))
 	token := envelope.Data.Token
+	// Countdown rejection must happen before validating attacker-controlled
+	// actions, including an otherwise forbidden hint.
+	require.Equal(t, 409, call("POST", "/finish", map[string]any{"token": token, "actions": []int{-1}}, false).Code)
 	c := signalgames.Generate(envelope.Data.Seed, 5)
 	tiles := append([]int(nil), c.Tiles...)
 	actions := []int{}

@@ -21,10 +21,10 @@ func ValidSize(size int) bool {
 	return false
 }
 func MaxMoves(size int) int {
-	if size*size*16 < 400 {
-		return 400
-	}
-	return size * size * 16
+	// Four turns restore a tile to its original orientation, so a larger
+	// allowance cannot help solve a board. Keep one full rotation per tile as
+	// room for player corrections without accepting unbounded replay work.
+	return size * size * 4
 }
 
 type Circuit struct {
@@ -192,10 +192,8 @@ func Replay(seed uint32, size int, actions []int, allowHints bool) (int, error) 
 	c := Generate(seed, size)
 	tiles := append([]int(nil), c.Tiles...)
 	hints := 0
-	for _, action := range actions {
-		if Won(tiles, size) {
-			return 0, errors.New("moves after completion")
-		}
+	var beforeLast []int
+	for actionNumber, action := range actions {
 		index := action
 		if action == -1 && allowHints {
 			index = -1
@@ -210,7 +208,16 @@ func Replay(seed uint32, size int, actions []int, allowHints bool) (int, error) 
 		if index < 0 || index >= size*size {
 			return 0, errors.New("invalid tile or forbidden hint")
 		}
+		if actionNumber == len(actions)-1 && len(actions) > 1 {
+			beforeLast = append([]int(nil), tiles...)
+		}
 		tiles[index] = Rotate(tiles[index])
+	}
+	// Checking reachability after every move made replay cost proportional to
+	// board size times action count. One pre-final check preserves rejection of
+	// the usual trailing-move case while bounding reachability work per replay.
+	if beforeLast != nil && Won(beforeLast, size) {
+		return 0, errors.New("moves after completion")
 	}
 	if !Won(tiles, size) {
 		return 0, errors.New("circuit is not connected")

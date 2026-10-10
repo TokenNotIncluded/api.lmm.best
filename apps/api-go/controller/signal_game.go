@@ -81,12 +81,28 @@ func FinishSignalGameAttempt(c *gin.Context) {
 		signalError(c, 404, "Challenge not found")
 		return
 	}
+	actions, _ := json.Marshal(input.Actions)
+	now := time.Now().UnixMilli()
+	// Reject attempts that cannot be consumed before doing deterministic board
+	// generation or replay. A completed attempt is safe to return idempotently
+	// because its stored action list has already passed replay validation.
+	if row.FinishedAt != 0 {
+		if row.Actions != string(actions) {
+			signalError(c, 409, "Challenge is expired, changed, or still counting down")
+			return
+		}
+		c.JSON(200, gin.H{"success": true, "data": gin.H{"moves": row.Moves, "elapsed_ms": row.ElapsedMs, "finished_at": row.FinishedAt}})
+		return
+	}
+	if now < row.StartedAt || now-row.StartedAt > 24*60*60*1000 {
+		signalError(c, 409, "Challenge is expired, changed, or still counting down")
+		return
+	}
 	if _, err = signalgames.Replay(row.Seed, row.Size, input.Actions, false); err != nil {
 		signalError(c, 400, "Challenge replay rejected")
 		return
 	}
-	actions, _ := json.Marshal(input.Actions)
-	row, err = model.FinishSignalGameAttempt(row.TokenHash, string(actions), len(input.Actions), time.Now().UnixMilli())
+	row, err = model.FinishSignalGameAttempt(row.TokenHash, string(actions), len(input.Actions), now)
 	if err != nil {
 		signalError(c, 409, "Challenge is expired, changed, or still counting down")
 		return

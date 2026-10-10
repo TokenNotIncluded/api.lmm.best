@@ -86,3 +86,39 @@ func TestSignalGameReplayRejectsForgedChallenge(t *testing.T) {
 		t.Fatal("challenge accepted hints")
 	}
 }
+
+func TestSignalGameReplayBudgetScalesWithBoard(t *testing.T) {
+	for _, size := range []int{5, 8, 12, 24, 48, 64} {
+		if got, want := MaxMoves(size), size*size*4; got != want {
+			t.Fatalf("MaxMoves(%d) = %d, want %d", size, got, want)
+		}
+	}
+}
+
+func TestSignalGameReplayDoesNotAllocatePerAction(t *testing.T) {
+	const size = 64
+	c := Generate(42, size)
+	solution := solve(c, size)
+	onRoute := make(map[int]bool, len(c.Route))
+	for _, index := range c.Route {
+		onRoute[index] = true
+	}
+	paddingTile := 0
+	for onRoute[paddingTile] {
+		paddingTile++
+	}
+	padding := make([]int, MaxMoves(size)-len(solution))
+	padding = padding[:len(padding)/4*4]
+	for i := range padding {
+		padding[i] = paddingTile
+	}
+	padded := append(padding, solution...)
+	if _, err := Replay(42, size, padded, false); err != nil {
+		t.Fatal(err)
+	}
+	baseAllocs := testing.AllocsPerRun(1, func() { _, _ = Replay(42, size, solution, false) })
+	paddedAllocs := testing.AllocsPerRun(1, func() { _, _ = Replay(42, size, padded, false) })
+	if paddedAllocs > baseAllocs+2 {
+		t.Fatalf("replay allocations grew with actions: base %.0f, padded %.0f", baseAllocs, paddedAllocs)
+	}
+}
