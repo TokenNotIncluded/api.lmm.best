@@ -11843,6 +11843,13 @@
     "Waiting for Pi connection": "Waiting for Pi connection",
     "Trading paused": "Trading paused",
     "Unavailable for purchase": "Unavailable for purchase",
-    "Unlimited sales removes the sales quota, not the inventory requirement. Import stock for inventory-based variants, or use fixed content for unlimited supply.": "Unlimited sales removes the sales quota, not the inventory requirement. Import stock for inventory-based variants, or use fixed content for unlimited supply."
+    "Unlimited sales removes the sales quota, not the inventory requirement. Import stock for inventory-based variants, or use fixed content for unlimited supply.": "Unlimited sales removes the sales quota, not the inventory requirement. Import stock for inventory-based variants, or use fixed content for unlimited supply.",
+    "Sign in with the purchasing account": "Sign in with the purchasing account",
+    "The pickup code does not match. Use the code provided with this order, not the pickup link or your account password.": "The pickup code does not match. Use the code provided with this order, not the pickup link or your account password.",
+    "The payment provider has returned funds. Local reconciliation is pending; do not issue another refund.": "The payment provider has returned funds. Local reconciliation is pending; do not issue another refund.",
+    "Provider refund confirmed; conflicting requests need review": "Provider refund confirmed; conflicting requests need review",
+    "Sync with payment provider": "Sync with payment provider",
+    "Refund issued by the payment provider": "Refund issued by the payment provider",
+    "A provider refund changed the remaining amount before this request was sent.": "A provider refund changed the remaining amount before this request was sent."
   }
 }

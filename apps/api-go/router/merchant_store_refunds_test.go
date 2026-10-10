@@ -81,6 +81,16 @@ func TestMerchantStoreRefundRouterOwnershipStrictBodyAndPurePickup(t *testing.T)
 	require.Equal(t, 403, response.Code, "buyer cannot trigger seller's provider operation")
 	response = shopRequest(engine, "POST", path+"/"+r.ID+"/reconcile", adminToken, `{}`)
 	require.Equal(t, 403, response.Code)
+	for _, token := range []string{buyerToken, adminToken} {
+		response = shopRequest(engine, "POST", path+"/sync", token, `{}`)
+		require.Equal(t, 403, response.Code, "only original seller or current root can query/import gateway refunds")
+	}
+	response = shopRequest(engine, "POST", path+"/sync", "", `{}`)
+	require.NotEqual(t, 200, response.Code)
+	for _, bad := range []string{`{"amount_minor":1}`, `{"completed":true}`, `{"recipient":1}`, `{} {}`} {
+		response = shopRequest(engine, "POST", path+"/sync", rootToken, bad)
+		require.Equal(t, 422, response.Code, "a browser cannot provide native refund facts or a destination")
+	}
 	response = shopRequest(engine, "POST", path+"/"+r.ID+"/reconcile", rootToken, `{"completed":true}`)
 	require.Equal(t, 422, response.Code, "no browser-supplied evidence")
 }

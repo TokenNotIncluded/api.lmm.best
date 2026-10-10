@@ -72,6 +72,7 @@ function errorMessage(body?: { code?: unknown; message?: unknown }) {
 }
 export class StoreAPIError extends Error {
   readonly code?: string
+  readonly status?: number
   readonly orderId?: string
   readonly orderStatus?: string
   readonly orderCancelled?: boolean
@@ -85,9 +86,10 @@ export class StoreAPIError extends Error {
     order_cancelled?: unknown
     request_key?: unknown
     order_created?: unknown
-  }) {
+  }, status?: number) {
     super(errorMessage(body))
     this.name = 'StoreAPIError'
+    this.status = status
     this.code = typeof body?.code === 'string' ? body.code : undefined
     this.orderId =
       typeof body?.order_id === 'string' ? body.order_id : undefined
@@ -113,7 +115,7 @@ async function unwrap<T>(request: Promise<{ data: Envelope<T> }>) {
         response?: { data?: ConstructorParameters<typeof StoreAPIError>[0] }
       }
     )?.response?.data
-    throw new StoreAPIError(body)
+    throw new StoreAPIError(body, (error as { response?: { status?: number } })?.response?.status)
   }
   if (response.data.success !== true) {
     throw new StoreAPIError(response.data)

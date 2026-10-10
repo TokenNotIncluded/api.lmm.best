@@ -11844,6 +11844,13 @@
     "Waiting for Pi connection": "正在等待 Pi 连接",
     "Trading paused": "交易暂停",
     "Unavailable for purchase": "暂不可购买",
-    "Unlimited sales removes the sales quota, not the inventory requirement. Import stock for inventory-based variants, or use fixed content for unlimited supply.": "不限销售数量只取消销售配额，并不免除库存要求。按库存交付的规格仍需导入库存；若需不限量供应，请使用固定内容交付。"
+    "Unlimited sales removes the sales quota, not the inventory requirement. Import stock for inventory-based variants, or use fixed content for unlimited supply.": "不限销售数量只取消销售配额，并不免除库存要求。按库存交付的规格仍需导入库存；若需不限量供应，请使用固定内容交付。",
+    "Sign in with the purchasing account": "使用购买商品的账号登录",
+    "The pickup code does not match. Use the code provided with this order, not the pickup link or your account password.": "取件码不匹配。请使用购买时设置或随订单提供的取件码，不是领取链接，也不是账号密码。",
+    "The payment provider has returned funds. Local reconciliation is pending; do not issue another refund.": "支付网关已退款，站内记录正在核对。请勿再次发起退款。",
+    "Provider refund confirmed; conflicting requests need review": "网关已退款，需核对其他退款申请",
+    "Sync with payment provider": "同步支付网关退款",
+    "Refund issued by the payment provider": "来自支付网关的退款",
+    "A provider refund changed the remaining amount before this request was sent.": "此申请尚未发送时，支付网关已退款，可退金额发生变化。请重新核对余额后申请。"
   }
 }

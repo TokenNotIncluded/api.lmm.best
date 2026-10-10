@@ -26,6 +26,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 const searchSchema = z.object({
   redirect: z.string().optional(),
+  reauth: z.enum(['1']).optional(),
 })
 
 export const Route = createFileRoute('/(auth)/sign-in')({
@@ -35,7 +36,7 @@ export const Route = createFileRoute('/(auth)/sign-in')({
     const { auth } = useAuthStore.getState()
 
     // 如果已经有用户信息，说明已登录
-    if (auth.user) {
+    if (auth.user && search.reauth !== '1') {
       const target =
         sanitizeAuthRedirect(search?.redirect, window.location.origin) ??
         getAuthenticatedLandingRoute(auth.user)

@@ -11843,6 +11843,13 @@
     "Waiting for Pi connection": "正在等待 Pi 连接",
     "Trading paused": "交易暫停",
     "Unavailable for purchase": "暫時無法購買",
-    "Unlimited sales removes the sales quota, not the inventory requirement. Import stock for inventory-based variants, or use fixed content for unlimited supply.": "不限銷售數量只取消銷售配額，並不免除庫存要求。按庫存交付的規格仍需匯入庫存；若需不限量供應，請使用固定內容交付。"
+    "Unlimited sales removes the sales quota, not the inventory requirement. Import stock for inventory-based variants, or use fixed content for unlimited supply.": "不限銷售數量只取消銷售配額，並不免除庫存要求。按庫存交付的規格仍需匯入庫存；若需不限量供應，請使用固定內容交付。",
+    "Sign in with the purchasing account": "使用購買商品的帳號登入",
+    "The pickup code does not match. Use the code provided with this order, not the pickup link or your account password.": "取件碼不符。請使用購買時設定或隨訂單提供的取件碼，不是領取連結，也不是帳號密碼。",
+    "The payment provider has returned funds. Local reconciliation is pending; do not issue another refund.": "支付閘道已退款，站內記錄正在核對。請勿再次發起退款。",
+    "Provider refund confirmed; conflicting requests need review": "閘道已退款，需核對其他退款申請",
+    "Sync with payment provider": "同步支付閘道退款",
+    "Refund issued by the payment provider": "來自支付閘道的退款",
+    "A provider refund changed the remaining amount before this request was sent.": "此申請尚未傳送時，支付閘道已退款，可退金額發生變化。請重新核對餘額後申請。"
   }
 }

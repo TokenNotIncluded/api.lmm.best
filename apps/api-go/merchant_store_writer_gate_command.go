@@ -38,7 +38,14 @@ func runMerchantStoreWriterGateCommand(args []string, stdout, stderr io.Writer) 
 	accessReady := set.Bool("reviewed-access-ready", false, "activate-access: operator confirms full access/catalogue/guest-email schema and all serving and retained writers support capability five")
 	phaseSixReady := set.Bool("reviewed-phase-six-ready", false, "activate-phase-six: operator confirms reviewed categories/likes schema and all serving and retained writers support capability six")
 	fixedContentReady := set.Bool("reviewed-fixed-content-ready", false, "prepare-fixed-content/activate-fixed-content: operator confirms reviewed phase-seven content and anonymous analytics schema and all serving and retained writers support capability seven")
+	refundSyncReady := set.Bool("reviewed-refund-sync-ready", false, "activate-refund-sync: all serving and retained writers understand provider-origin refund reconciliation; no schema changes")
 	if err := set.Parse(args[1:]); err != nil || set.NArg() != 0 {
+		return appcli.ExitUsage
+	}
+	if *refundSyncReady && args[0] != "activate-refund-sync" {
+		return appcli.ExitUsage
+	}
+	if args[0] == "activate-refund-sync" && (!*refundSyncReady || *fixedContentReady || *ready || *lifecycleReady || *refundsReady || *schemaReady || *accessReady || *phaseSixReady || (*expected != 7 && *expected != 8) || *requireWritable) {
 		return appcli.ExitUsage
 	}
 	if *fixedContentReady && args[0] != "prepare-fixed-content" && args[0] != "activate-fixed-content" {
@@ -65,13 +72,13 @@ func runMerchantStoreWriterGateCommand(args []string, stdout, stderr io.Writer) 
 	if args[0] == "activate-phase-six" && (!*phaseSixReady || *accessReady || *schemaReady || *ready || *lifecycleReady || *refundsReady || (*expected != 5 && *expected != 6) || *requireWritable) {
 		return appcli.ExitUsage
 	}
-	if args[0] != "activate" && args[0] != "activate-lifecycle" && args[0] != "activate-refunds" && args[0] != "prepare-schema" && args[0] != "activate-access" && args[0] != "activate-phase-six" && args[0] != "prepare-fixed-content" && args[0] != "activate-fixed-content" && (*expected != 0 || *ready || *lifecycleReady || *refundsReady || *schemaReady || *accessReady || *phaseSixReady) {
+	if args[0] != "activate" && args[0] != "activate-lifecycle" && args[0] != "activate-refunds" && args[0] != "prepare-schema" && args[0] != "activate-access" && args[0] != "activate-phase-six" && args[0] != "prepare-fixed-content" && args[0] != "activate-fixed-content" && args[0] != "activate-refund-sync" && (*expected != 0 || *ready || *lifecycleReady || *refundsReady || *schemaReady || *accessReady || *phaseSixReady) {
 		return appcli.ExitUsage
 	}
 	if args[0] == "bootstrap" && *requireWritable {
 		return appcli.ExitUsage
 	}
-	if args[0] != "status" && args[0] != "bootstrap" && args[0] != "activate" && args[0] != "activate-lifecycle" && args[0] != "activate-refunds" && args[0] != "prepare-schema" && args[0] != "activate-access" && args[0] != "activate-phase-six" && args[0] != "prepare-fixed-content" && args[0] != "activate-fixed-content" && args[0] != "verify-fixed-content" {
+	if args[0] != "status" && args[0] != "bootstrap" && args[0] != "activate" && args[0] != "activate-lifecycle" && args[0] != "activate-refunds" && args[0] != "prepare-schema" && args[0] != "activate-access" && args[0] != "activate-phase-six" && args[0] != "prepare-fixed-content" && args[0] != "activate-fixed-content" && args[0] != "verify-fixed-content" && args[0] != "activate-refund-sync" {
 		return appcli.ExitUsage
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
@@ -102,6 +109,8 @@ func runMerchantStoreWriterGateCommand(args []string, stdout, stderr io.Writer) 
 		err = model.VerifyMerchantStoreFixedContent(db)
 	case "prepare-fixed-content":
 		err = model.PrepareMerchantStoreFixedContent(db, *expected)
+	case "activate-refund-sync":
+		err = model.ActivateMerchantStoreRefundSync(db, *expected)
 	case "activate-fixed-content":
 		err = model.ActivateMerchantStoreFixedContent(db, *expected)
 	case "activate-phase-six":

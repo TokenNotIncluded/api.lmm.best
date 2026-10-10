@@ -20,6 +20,8 @@ import axios, { type AxiosRequestConfig } from 'axios'
 import { t } from 'i18next'
 import { toast } from 'sonner'
 
+import { signInHref } from '@/features/auth/lib/auth-redirect'
+
 import {
   applyAuthRotation,
   clearAuthentication,
@@ -102,7 +104,7 @@ function redirectToSignIn(): void {
     typeof window !== 'undefined' &&
     window.location.pathname !== '/sign-in'
   ) {
-    window.location.replace('/sign-in')
+    window.location.replace(signInHref(window.location))
   }
 }
 

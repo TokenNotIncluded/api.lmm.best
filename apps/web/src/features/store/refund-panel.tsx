@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/input'
 import { Separator } from '@/components/ui/separator'
 import { Textarea } from '@/components/ui/textarea'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
+import { signInHref } from '@/features/auth/lib/auth-redirect'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { useAuthStore } from '@/stores/auth-store'
 
@@ -55,6 +56,7 @@ const statusLabels = {
   requested: 'Refund requested',
   awaiting_provider: 'Awaiting payment provider',
   reconciliation_required: 'Payment refunded; platform settlement pending',
+  provider_review: 'Provider refund confirmed; conflicting requests need review',
   completed: 'Refund completed',
   rejected: 'Refund rejected',
   cancelled: 'Refund request cancelled',
@@ -162,6 +164,26 @@ export function StoreRefundPanel({
       }
     }
   }
+  async function syncProvider() {
+    if (inFlight.current || !canManage) return
+    inFlight.current = true
+    setBusy(true)
+    setError(null)
+    setNeedsRefresh(true)
+    try {
+      await storeRefundApi.sync(orderId)
+      await refresh()
+      await client.invalidateQueries({ queryKey: ['store', 'orders'] })
+      await onChanged?.()
+    } catch (issue) {
+      setError(issue)
+      // A receipt can be durable even while its wallet settlement needs review.
+      await query.refetch()
+    } finally {
+      inFlight.current = false
+      setBusy(false)
+    }
+  }
   async function mutate(
     run: () => Promise<StoreRefund>,
     input?: StoreRefundInput
@@ -234,6 +256,17 @@ export function StoreRefundPanel({
           <StoreError error={query.error || error} />
           <div className='flex flex-wrap items-center justify-between gap-2'>
             <h3 className='text-sm font-semibold'>{t('Refund history')}</h3>
+            {canManage && refundView?.supports_provider_sync && (
+              <Button
+                type='button'
+                size='sm'
+                variant='outline'
+                disabled={busy || query.isFetching}
+                onClick={() => void syncProvider()}
+              >
+                {t('Sync with payment provider')}
+              </Button>
+            )}
             <Button
               type='button'
               size='sm'
@@ -249,6 +282,13 @@ export function StoreRefundPanel({
           ) : (
             refundView && (
               <>
+                {refundView.provider_reconciliation_pending && (
+                  <Alert>
+                    <AlertDescription>
+                      {t('The payment provider has returned funds. Local reconciliation is pending; do not issue another refund.')}
+                    </AlertDescription>
+                  </Alert>
+                )}
                 {showOrderIdentity && (
                   <div className='space-y-1 text-sm'>
                     <p className='font-medium break-words'>
@@ -624,6 +664,11 @@ function StoreRefundHistoryRow({
           {t(statusLabels[refund.status])}
         </Badge>
       </div>
+      {refund.requested_role === 'provider' && (
+        <p className='text-muted-foreground text-xs'>
+          {t('Refund issued by the payment provider')}
+        </p>
+      )}
       <p className='text-muted-foreground text-xs'>
         {storeDate(refund.created_at, i18n.language)}
       </p>
@@ -657,7 +702,7 @@ function StoreRefundHistoryRow({
             <Button
               type='button'
               size='sm'
-              disabled={disabled}
+              disabled={disabled || view.provider_reconciliation_pending}
               onClick={() => onDecision('approve', reason)}
             >
               {t('Approve refund')}
@@ -703,10 +748,10 @@ export function StorePickupRefunds({
   const user = useAuthStore((state) => state.auth.user)
   const [code, setCode] = useState('')
   const [proof, setProof] = useState<StorePickupRefundProof | undefined>()
-  if (metadata.pickup_login_required && !metadata.pickup_login_satisfied) {
+  if (metadata.pickup_login_required && !metadata.pickup_login_satisfied && metadata.status !== 'refunded') {
     return null
   }
-  if (metadata.pickup_login_required && !user) {
+  if (metadata.pickup_login_required && (!user || !metadata.pickup_login_satisfied)) {
     return (
       <div className='space-y-3 rounded-lg border p-4'>
         <p className='text-sm'>
@@ -717,7 +762,7 @@ export function StorePickupRefunds({
           variant='outline'
           render={
             <a
-              href={`/sign-in?redirect=${encodeURIComponent(window.location.pathname)}`}
+              href={signInHref(window.location, true)}
             />
           }
         >

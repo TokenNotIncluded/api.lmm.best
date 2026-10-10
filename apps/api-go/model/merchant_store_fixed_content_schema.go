@@ -69,7 +69,7 @@ func VerifyMerchantStoreFixedContent(db *gorm.DB) error {
 	return withMerchantStoreActivationDB(db, func(bound *gorm.DB) error {
 		return bound.Transaction(func(tx *gorm.DB) error {
 			floor, err := storeWriterGateRow(tx, "SHARE")
-			if err != nil || (floor != 6 && floor != 7) {
+			if err != nil || (floor != 6 && floor != 7 && floor != 8) {
 				return ErrMerchantStoreWriterFrozen
 			}
 			if err := storeCheckPhaseSixSchema(tx); err != nil {

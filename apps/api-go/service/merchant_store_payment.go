@@ -810,7 +810,7 @@ func validateMerchantStorePancakeCallback(order *model.MerchantStoreOrder, payme
 
 // Waffo verifies with the route's environment key before any order lookup.
 // The order's frozen merchant/store/product/identity and amount are then checked.
-func HandleMerchantStorePancakeWebhook(_ context.Context, scope string, sellerID int, environment string, payload []byte, signature string) error {
+func HandleMerchantStorePancakeWebhook(ctx context.Context, scope string, sellerID int, environment string, payload []byte, signature string) error {
 	if len(payload) == 0 || len(payload) > 256<<10 || (scope != "platform" && scope != "external") || (environment != "prod" && environment != "test") || (scope == "platform" && sellerID != 0) || (scope == "external" && sellerID <= 0) {
 		return ErrMerchantStorePaymentVerification
 	}
@@ -833,7 +833,7 @@ func HandleMerchantStorePancakeWebhook(_ context.Context, scope string, sellerID
 		return err
 	}
 	if event.EventType == "refund.succeeded" || event.EventType == "refund.failed" {
-		return merchantStoreHandleRefundNotification(order, payload, signature, event.Data.RefundTicketMerchantExternalID)
+		return merchantStoreHandleRefundNotification(ctx, order, payload, signature, event.Data.RefundTicketMerchantExternalID)
 	}
 	tradeID, err := validateMerchantStorePancakeCallback(order, paymentContext, event)
 	if err != nil {
