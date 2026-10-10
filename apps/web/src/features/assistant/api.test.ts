@@ -983,9 +983,10 @@ describe('assistant chat retry policy', () => {
     globalThis.fetch = (async () => {
       calls += 1
       abortTimer = setTimeout(() => controller.abort(), 10)
-      return new Response('{"message":"temporarily unavailable"}', {
-        status: 503,
-      })
+      return Response.json(
+        { message: 'temporarily unavailable', retryable: true },
+        { status: 503 }
+      )
     }) as typeof globalThis.fetch
     try {
       await assert.rejects(
@@ -1043,6 +1044,39 @@ describe('assistant chat retry policy', () => {
     }
   })
 
+  test('does not retry streaming HTTP errors without an explicit boolean retry grant', async () => {
+    const originalFetch = globalThis.fetch
+    try {
+      for (const grant of [undefined, 'true', 1]) {
+        let calls = 0
+        let resets = 0
+        globalThis.fetch = (async () => {
+          calls += 1
+          return Response.json(
+            {
+              message: 'rate limited',
+              ...(grant === undefined ? {} : { retryable: grant }),
+            },
+            { status: 429 }
+          )
+        }) as typeof globalThis.fetch
+        await assert.rejects(
+          sendAssistantMessage('hello', [], undefined, undefined, {
+            onDelta: () => undefined,
+            onReset: () => {
+              resets += 1
+            },
+          }),
+          /rate limited/
+        )
+        assert.equal(calls, 1)
+        assert.equal(resets, 0)
+      }
+    } finally {
+      globalThis.fetch = originalFetch
+    }
+  })
+
   test('retries HTTP rate limits with the same conversation and question', async () => {
     const originalFetch = globalThis.fetch
     const requests: Array<{ body: unknown; attempt: string | null }> = []
@@ -1052,7 +1086,10 @@ describe('assistant chat retry policy', () => {
         attempt: new Headers(init?.headers).get('X-LMM-Assistant-Attempt'),
       })
       return requests.length === 1
-        ? new Response('{"message":"rate limited"}', { status: 429 })
+        ? Response.json(
+            { message: 'rate limited', retryable: true },
+            { status: 429 }
+          )
         : Response.json({
             choices: [{ message: { content: 'Windows setup instructions' } }],
           })

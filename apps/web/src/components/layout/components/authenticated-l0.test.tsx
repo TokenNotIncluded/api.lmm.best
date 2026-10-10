@@ -37,6 +37,7 @@ for (const key of [
   'HTMLElement',
   'HTMLButtonElement',
   'HTMLInputElement',
+  'HTMLFormElement',
   'ResizeObserver',
   'getComputedStyle',
   'scrollTo',

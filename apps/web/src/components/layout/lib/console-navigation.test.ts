@@ -157,19 +157,19 @@ describe('current location and secondary site links', () => {
 })
 
 describe('single console navigation contract', () => {
-  test('removes parallel top navigation and scopes sidebar-free mode to L0', () => {
+  test('keeps one shared sidebar shell and only folds it for settings', () => {
     const source = readFileSync(
       new URL('../components/authenticated-layout.tsx', import.meta.url),
       'utf8'
     )
     assert.match(source, /showTopNav=\{false\}/)
-    assert.match(
-      source,
-      /focusedOnboarding = assistantPage && !consoleActivated/
-    )
-    assert.match(source, /focusedOnboarding \? null : <AppSidebar/)
-    assert.match(source, /showLanguageSwitcher=\{focusedOnboarding\}/)
-    assert.match(source, /showConfigDrawer=\{focusedOnboarding\}/)
+    assert.match(source, /<AppSidebar \/>/)
+    assert.match(source, /defaultOpen=\{settingsPage \? false : defaultOpen\}/)
+    assert.match(source, /persistState=\{!settingsPage\}/)
+    assert.match(source, /showLanguageSwitcher=\{false\}/)
+    assert.match(source, /showConfigDrawer=\{false\}/)
+    assert.match(source, /consoleActivated && <ConsoleMobileDock \/>/)
+    assert.doesNotMatch(source, /focusedOnboarding/)
   })
 })
 
