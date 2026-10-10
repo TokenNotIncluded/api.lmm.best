@@ -1,0 +1,36 @@
+{
+  "repository": "TokenNotIncluded/api.lmm.best",
+  "base_commit": "72667564c0431754d4856dc2e0db55f360bd2745",
+  "method": "live GitHub reads at the exact commit; not a full local checkout",
+  "source_blobs": {
+    "apps/lmm-core/src/main.rs": "df75644011e3ba9fef2b9939fc8f95ed4c7af861",
+    "apps/lmm-core/src/identity/mod.rs": "8e228eae756bc47bd6877d6879404cc0b67782c7",
+    "apps/lmm-core/src/internal_rpc.rs": "d2260dfea28dd1b4384e72dff0238938149db4d4",
+    "apps/lmm-core/src/events/mod.rs": "3a4b632c41c0d7973c827a2cf3bf3b2fa20de4c2",
+    "apps/lmm-core/src/billing/ledger/mod.rs": "e895557a60ae48b546e452656a8ce7ee727366b7",
+    "apps/lmm-core/src/billing/charging/engine.rs": "9974620be6f903ca1ad812612dfc6302ed6a5ba1",
+    "apps/lmm-core/src/bin/lmm-core-admin.rs": "5fdd054939930521464a8ca4d0ff53e35f91bca0",
+    "apps/lmm-extensions/internal/app/run.go": "979cf1463e22f695a00499f98c6ea77e9023d905",
+    "apps/lmm-core/schema/identity.sql": "414580d81a99680b0aaa7f5678bd8512fae73e3f",
+    "apps/lmm-core/schema/ledger.sql": "671d57be7064bb5f163f6f40df2e6f2898d2d299",
+    "deployment/docker/compose.identity.yml": "beb03757d983f683cd95e97b067d3cabf2b23196",
+    "deployment/docker/README.md": "827f6a742b66bafe54b4977fa5dee896821c3add"
+  },
+  "pools": [
+    {"name":"identity-http","cap":8,"enabled_when":"database URL is set","source":"apps/lmm-core/src/identity/mod.rs","constructor":"IdentityStore::connect","acquire_timeout_ms":3000,"session_settings":["statement_timeout=5s","idle_in_transaction_session_timeout=10s"]},
+    {"name":"identity-rpc","cap":2,"enabled_when":"database URL and RPC socket/credential are set","source":"apps/lmm-core/src/internal_rpc.rs","constructor":"readonly_store","acquire_timeout_ms":400,"session_settings":["statement_timeout=1500ms","idle_in_transaction_session_timeout=2s","default_transaction_read_only=on"]},
+    {"name":"offline-admin","cap":8,"enabled_when":"on-demand separate core-admin process","source":"apps/lmm-core/src/bin/lmm-core-admin.rs","constructor":"IdentityStore::connect","note":"cap is 8; serial CLI operations do not prove it actually opens 8"},
+    {"name":"events","cap":2,"enabled_in_main":false,"source":"apps/lmm-core/src/events/mod.rs","constructor":"EventStore::connect","acquire_timeout_ms":400,"session_settings":["statement_timeout=1500ms","lock_timeout=250ms","idle_in_transaction_session_timeout=2s"]},
+    {"name":"ledger","cap":null,"enabled_in_main":false,"source":"apps/lmm-core/src/billing/ledger/mod.rs","constructor":"Ledger::from_pool","note":"caller supplies the pool; do not count a cloned pool twice"},
+    {"name":"charging","cap":null,"enabled_in_main":false,"source":"apps/lmm-core/src/billing/charging/engine.rs","note":"caller-supplied PgPool and ledger trait; host integration is absent"},
+    {"name":"go-host","enabled_database_pools":0,"source":"apps/lmm-extensions/internal/app/run.go","note":"only identity RPC module is registered; do not treat unregistered business modules as a zero-cost completed stack"}
+  ],
+  "sql_compatibility": {
+    "session_SET": "present in three connection constructors; blocks unqualified transaction-pool adoption",
+    "SET_LOCAL": "ledger uses lock_timeout, statement_timeout and synchronous_commit inside its transaction",
+    "transaction_locks": "ledger and charging use pg_advisory_xact_lock; row locks also stay within transactions",
+    "protocol_prepared_statements": "real sqlx + selected PgBouncer version not tested",
+    "temporary_tables_LISTEN_session_locks": "whole-module scan not completed; absence is NOT asserted",
+    "pgbouncer_runtime_test": "not run"
+  }
+}

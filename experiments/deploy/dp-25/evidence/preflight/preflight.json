@@ -1,0 +1,16 @@
+{
+  "at": "2026-10-10T15:04:19.777199+00:00",
+  "base_commit": "72667564c0431754d4856dc2e0db55f360bd2745",
+  "status": "blocked",
+  "blockers": [
+    "Docker executable is absent",
+    "a locally installed immutable PostgreSQL image digest is required",
+    "pinned source file is unavailable: apps/lmm-core/schema/identity.sql",
+    "pinned source file is unavailable: apps/lmm-core/schema/ledger.sql"
+  ],
+  "schema_blob_hashes": {},
+  "business_acceptance": false,
+  "database_tests_executed": false,
+  "environment_memory_limit": "4294967296",
+  "environment_cpu_limit": "400000 100000"
+}
