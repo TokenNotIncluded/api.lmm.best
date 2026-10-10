@@ -117,7 +117,7 @@ describe('authenticated route access', () => {
     assert.equal(redirect.options.to, '/sign-in')
   })
 
-  test('keeps a mobile L0 account on getting started and redirects other console routes there', async () => {
+  test('keeps an L0 account on wallet and redirects restricted console routes there', async () => {
     authenticate({
       id: 7,
       username: 'mobile-l0',
@@ -125,14 +125,16 @@ describe('authenticated route access', () => {
       developer_access_granted: false,
     })
 
-    assert.equal(await runBeforeLoad('/getting-started'), undefined)
     assert.equal(await runBeforeLoad('/wallet'), undefined)
+    const oldPageRedirect = await runBeforeLoad('/getting-started')
+    assert.ok(isRedirect(oldPageRedirect))
+    assert.equal(oldPageRedirect.options.to, '/wallet')
     const dashboardRedirect = await runBeforeLoad('/dashboard')
     assert.ok(isRedirect(dashboardRedirect))
-    assert.equal(dashboardRedirect.options.to, '/getting-started')
+    assert.equal(dashboardRedirect.options.to, '/wallet')
   })
 
-  test('lets an existing Persona E user reach dashboard, todos, and getting started', async () => {
+  test('lets an existing Persona E user reach dashboard, todos, and wallet', async () => {
     authenticate({
       id: 8,
       username: 'persona-e',
@@ -140,7 +142,7 @@ describe('authenticated route access', () => {
       developer_access_granted: true,
     })
 
-    for (const pathname of ['/dashboard', '/todos', '/getting-started']) {
+    for (const pathname of ['/dashboard', '/todos', '/wallet']) {
       assert.equal(await runBeforeLoad(pathname), undefined)
     }
   })

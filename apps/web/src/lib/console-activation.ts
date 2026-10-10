@@ -137,9 +137,9 @@ export function getAuthenticatedLandingRoute(
   sidebarModulesAdmin: unknown = getCachedSidebarModulesAdmin()
 ): string {
   // The server access decision is the access boundary.  The remaining setup
-  // checklist is guidance for an already-enabled account and must not trap a
-  // newly approved L1 user on the L0 welcome page.
-  if (!getOnboardingState(user).activationComplete) return '/getting-started'
+  // checklist is guidance for an already-enabled account, not a route gate.
+  // L0 accounts can access the wallet and ask the assistant for help.
+  if (!getOnboardingState(user).activationComplete) return '/wallet'
 
   // Keep the login redirect aligned with the rendered sidebar. Accounts that
   // cannot edit sidebar settings do not have an effective user overlay.
@@ -182,8 +182,6 @@ export function isContributorRoute(pathname: string): boolean {
   // remain subject to the server's payment access gate; developer and bounty
   // management routes still require L1.
   return (
-    pathname === '/getting-started' ||
-    pathname.startsWith('/getting-started/') ||
     pathname === '/support' ||
     pathname === '/support/' ||
     pathname === '/todos' ||

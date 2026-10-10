@@ -37,7 +37,7 @@ describe('legacy playground route', () => {
     }
 
     assert.ok(isRedirect(thrown))
-    assert.equal(thrown.options.to, '/getting-started')
+    assert.equal(thrown.options.to, '/dashboard')
     assert.equal(thrown.options.replace, true)
     assert.equal(consumeQueuedAssistantRequest()?.preset, 'api-key')
   })

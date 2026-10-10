@@ -228,7 +228,7 @@ export function ForgeHome() {
     }
     const activated = isConsoleActivated(user)
     requestAssistantSend(activated ? 'service' : 'onboarding', safeMessage)
-    void navigate({ to: activated ? '/dashboard' : '/getting-started' })
+    void navigate({ to: activated ? '/dashboard' : '/wallet' })
   }
   const submitMessage = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -253,7 +253,7 @@ export function ForgeHome() {
                 to={nextStep.to}
                 search={
                   nextStep.to === '/sign-in'
-                    ? { redirect: '/getting-started' }
+                    ? { redirect: '/dashboard' }
                     : undefined
                 }
               />

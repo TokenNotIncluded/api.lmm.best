@@ -2572,7 +2572,6 @@ async fn assistant_navigation_tool(
     let page = input_string(input, "page");
     let path = match page.as_str() {
         "home" => "/".to_owned(),
-        "getting-started" => "/getting-started".to_owned(),
         "pricing" => "/pricing".to_owned(),
         "wallet" => "/wallet".to_owned(),
         "usage-logs" => format!(

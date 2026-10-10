@@ -79,7 +79,7 @@ function EmptyAboutState() {
         <Button
           size='lg'
           render={
-            <Link to='/sign-in' search={{ redirect: '/getting-started' }} />
+            <Link to='/sign-in' search={{ redirect: '/dashboard' }} />
           }
         >
           {t('Sign in to get started')}

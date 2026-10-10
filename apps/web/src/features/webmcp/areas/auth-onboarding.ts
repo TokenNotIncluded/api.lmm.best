@@ -204,7 +204,7 @@ export const authOnboardingTools: WebMcpToolFactory = ({ router }) => {
       name: 'lmm_onboarding_open_assistant',
       title: 'Open onboarding help',
       description:
-        'Open onboarding help for a signed-in account. Unactivated accounts use the existing inline getting-started page; plan and human presets open the wallet or support page. Activated accounts use the console assistant. This tool sends no message and never opens a second assistant for an L0 account.',
+        'Open onboarding help for a signed-in account. Unactivated accounts can open the assistant from the wallet; plan and human presets open the wallet or support page. Activated accounts use the console assistant. This tool sends no message.',
       inputSchema: {
         type: 'object',
         properties: {
@@ -221,14 +221,14 @@ export const authOnboardingTools: WebMcpToolFactory = ({ router }) => {
         if (!preset) throw new TypeError('preset is required')
         ensureNotAborted(options.signal)
         if (!getOnboardingState(user).activationComplete) {
-          const path =
-            preset === 'plan'
-              ? '/wallet'
-              : preset === 'human'
-                ? '/support'
-                : '/getting-started'
-          await router.navigate({ to: path })
-          return { preset, opened: true, path, mode: 'inline' }
+          if (preset === 'plan' || preset === 'human') {
+            const path = preset === 'plan' ? '/wallet' : '/support'
+            await router.navigate({ to: path })
+            return { preset, opened: true, path, mode: 'page' }
+          }
+          requestAssistantOpen(preset)
+          await router.navigate({ to: '/wallet' })
+          return { preset, opened: true, path: '/wallet', mode: 'assistant' }
         }
         requestAssistantOpen(preset)
         return { preset, opened: true }

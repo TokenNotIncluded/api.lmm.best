@@ -20,7 +20,6 @@ import type { AssistantIntent } from './api'
 import type { AssistantPresetId } from './assistant-events'
 
 export type AssistantNavigationPath =
-  | '/getting-started'
   | '/pricing'
   | '/wallet'
   | '/usage-logs'
@@ -63,7 +62,7 @@ export function getExplicitAssistantNavigation(
   if (!intent || !NAVIGATION_WORDS.test(message)) return undefined
   switch (intent) {
     case 'onboarding':
-      return '/getting-started'
+      return '/wallet'
     case 'plan_purchase':
       return '/pricing'
     case 'api_key':
