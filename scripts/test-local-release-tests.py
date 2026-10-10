@@ -116,7 +116,7 @@ class LocalReleaseTests(unittest.TestCase):
 
 
     def add_microkernel_fixture(self):
-        for name in ('apps/api-go/host.go', 'apps/core-rust/schema/identity.sql',
+        for name in ('apps/lmm-extensions/host.go', 'apps/lmm-core/schema/identity.sql',
                      'contracts/proto/lmm/core/v1/control.proto',
                      'deployment/docker/compose.rpc-core.yml',
                      'deployment/docker/compose.rpc-extensions.yml'):
@@ -135,7 +135,7 @@ class LocalReleaseTests(unittest.TestCase):
     def test_extension_evidence_tracks_the_canonical_go_directory(self):
         self.add_microkernel_fixture()
         self.record_component('extensions')
-        (self.repo / 'apps/api-go/host.go').write_text('changed host\n')
+        (self.repo / 'apps/lmm-extensions/host.go').write_text('changed host\n')
         self.commit()
         self.assertEqual(1, self.verify('extensions').returncode)
 
@@ -151,10 +151,10 @@ class LocalReleaseTests(unittest.TestCase):
     def test_extension_only_change_does_not_invalidate_core_evidence(self):
         self.add_microkernel_fixture()
         self.record_component('core')
-        (self.repo / 'apps/api-go/host.go').write_text('independent extension change\n')
+        (self.repo / 'apps/lmm-extensions/host.go').write_text('independent extension change\n')
         self.commit()
         self.assertEqual(0, self.verify('core').returncode)
-        (self.repo / 'apps/core-rust/schema/identity.sql').write_text('changed core schema\n')
+        (self.repo / 'apps/lmm-core/schema/identity.sql').write_text('changed core schema\n')
         self.commit()
         self.assertEqual(1, self.verify('core').returncode)
 

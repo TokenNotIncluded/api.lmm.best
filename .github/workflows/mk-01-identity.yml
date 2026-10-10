@@ -5,7 +5,7 @@ on:
   pull_request:
     branches: [wip/rust-core-go-extensions]
     paths:
-      - apps/core-rust/**
+      - apps/lmm-core/**
       - .github/workflows/mk-01-identity.yml
 permissions:
   contents: read
@@ -43,24 +43,24 @@ jobs:
         id: rust
         run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
       - name: Build disposable extension for relay independence acceptance
-        working-directory: apps/api-go
+        working-directory: apps/lmm-extensions
         run: |
           go build -o "$RUNNER_TEMP/lmm-relay-extension" ./cmd/extensions
           echo "LMM_RELAY_EXTENSION_BIN=$RUNNER_TEMP/lmm-relay-extension" >> "$GITHUB_ENV"
       - name: Check formatting
-        working-directory: apps/core-rust
+        working-directory: apps/lmm-core
         run: cargo fmt --all --check 2>&1 | tee "$RUNNER_TEMP/identity-format.log"
       - name: Check Rust with locked dependencies
         if: ${{ !cancelled() && steps.rust.outcome == 'success' }}
-        working-directory: apps/core-rust
+        working-directory: apps/lmm-core
         run: cargo clippy --locked --all-targets -- -D warnings 2>&1 | tee "$RUNNER_TEMP/identity-clippy.log"
       - name: Test against isolated PostgreSQL databases
         if: ${{ !cancelled() && steps.rust.outcome == 'success' }}
-        working-directory: apps/core-rust
+        working-directory: apps/lmm-core
         run: cargo test --locked --all-targets --no-fail-fast 2>&1 | tee "$RUNNER_TEMP/identity-tests.log"
       - name: Repeat rejected event acknowledgement regression
         if: ${{ !cancelled() && steps.rust.outcome == 'success' }}
-        working-directory: apps/core-rust
+        working-directory: apps/lmm-core
         run: |
           for attempt in {1..10}; do
             echo "Regression run $attempt/10" | tee -a "$RUNNER_TEMP/identity-events-repeated.log"
@@ -70,7 +70,7 @@ jobs:
         if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}
         run: |
           git rev-parse HEAD > "$RUNNER_TEMP/identity-commit.txt"
-          tar -czf "$RUNNER_TEMP/identity-source.tar.gz" apps/core-rust/Cargo.* apps/core-rust/rust-toolchain.toml apps/core-rust/build.rs apps/core-rust/src apps/core-rust/schema apps/core-rust/tests contracts
+          tar -czf "$RUNNER_TEMP/identity-source.tar.gz" apps/lmm-core/Cargo.* apps/lmm-core/rust-toolchain.toml apps/lmm-core/build.rs apps/lmm-core/src apps/lmm-core/schema apps/lmm-core/tests contracts
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}
         with:

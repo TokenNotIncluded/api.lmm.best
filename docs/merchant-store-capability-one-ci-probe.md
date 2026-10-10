@@ -6,7 +6,7 @@ capability when the executable is missing. The original eight PG cases stay
 unchanged; three variant cases verify shared capacity, exact stock delivery,
 and a real SHARE/UPDATE transition followed by old-model write rejection.
 
-The fixture in `apps/api-go/model/testdata` is exactly the test-only source used
+The fixture in `apps/lmm-extensions/model/testdata` is exactly the test-only source used
 by the isolated capability-one run. It is copied into an exported reviewed
 capability-one source tree; no production constant or source file is modified.
 The builder requires a local checkout root and its exact reviewed SHA, verifies

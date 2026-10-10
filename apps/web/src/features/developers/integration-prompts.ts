@@ -15,8 +15,8 @@ Provider: https://api.lmm.best
 6. Add mock HTTP tests for success, empty catalog, null versus zero prices, per-request versus token pricing, expression prices, 401/403, 404, 429, timeout and invalid JSON. Do not make paid model requests to test the catalog.
 
 Source contracts:
-https://github.com/TokenNotIncluded/api.lmm.best/blob/main/apps/api-go/controller/pricing.go
-https://github.com/TokenNotIncluded/api.lmm.best/blob/main/apps/api-go/service/oauth_catalog.go
+https://github.com/TokenNotIncluded/api.lmm.best/blob/main/apps/lmm-extensions/controller/pricing.go
+https://github.com/TokenNotIncluded/api.lmm.best/blob/main/apps/lmm-extensions/service/oauth_catalog.go
 Deliver the implementation, configuration example without credentials, and test results.`
 
 export const OAUTH_PROMPT = `Integrate LMM OAuth into this project where the provider contract supports it. First inspect the application type and existing auth libraries; check installed dependencies and reuse the current stack. Explain your work in the language of our conversation.
@@ -40,8 +40,8 @@ For a registered native client:
 - Test callback cancellation, mismatched state/issuer, expired/replayed code, denied scopes, timeout, refresh concurrency, token revocation and unavailable discovery with mocks. Do not request a user's password or API key in chat.
 
 Source contract:
-https://github.com/TokenNotIncluded/api.lmm.best/blob/main/apps/api-go/service/oauth_server.go
-https://github.com/TokenNotIncluded/api.lmm.best/blob/main/apps/api-go/router/oauth_server.go
+https://github.com/TokenNotIncluded/api.lmm.best/blob/main/apps/lmm-extensions/service/oauth_server.go
+https://github.com/TokenNotIncluded/api.lmm.best/blob/main/apps/lmm-extensions/router/oauth_server.go
 Deliver code only for supported, registered flows; clearly list remaining provider prerequisites and test results.`
 
 export const PRICING_EXAMPLE = `export async function getLmmPricing() {

@@ -90,7 +90,7 @@ Root-authorized routes:
 Storage keys: `ServiceTierPricingPolicy`, `ServiceTierPricingCatalog`.
 
 Run `go test -race ./pkg/servicetier ./relay/helper ./relay/common` from
-`apps/api-go`, affected relay/service/controller suites, web type checking and
+`apps/lmm-extensions`, affected relay/service/controller suites, web type checking and
 `service-tier-api.test.ts`. Rust guard tests are under
 `routes::relay_openai::service_tier`. No ordinary pricing or live settings are
 changed by these tests.

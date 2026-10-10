@@ -123,7 +123,7 @@ Go-callable authorization endpoints. Final integration must enforce that boundar
 
 ## Validation and joint acceptance
 
-Run from `apps/core-rust`, against disposable PostgreSQL with database-create rights:
+Run from `apps/lmm-core`, against disposable PostgreSQL with database-create rights:
 
 ```sh
 DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/postgres \

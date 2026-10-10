@@ -61,7 +61,7 @@ Market search accepts up to 120 valid Unicode code points after trimming. SQL wi
 ## Validation
 
 ```sh
-cd apps/api-go
+cd apps/lmm-extensions
 go test -p 2 ./model ./controller ./router ./service -run ToolMarket -count=1
 cd ../web
 bun test --preload ./scripts/test-preload.mjs --timeout 15000 ./src/features/tool-market/connection-utils.test.ts ./src/features/tool-market/connection-i18n.test.ts

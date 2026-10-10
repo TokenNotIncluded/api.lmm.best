@@ -126,7 +126,7 @@ admission on the next restart. These source changes do not deploy themselves.
 
 ## Tests and allocation benchmarks
 
-From `apps/api-go`:
+From `apps/lmm-extensions`:
 
 ```bash
 go test ./pkg/admission ./common ./middleware ./relay ./relay/common ./relay/channel ./router
@@ -165,7 +165,7 @@ growth work to insertion. User callbacks and values may also allocate. The
 benchmarks below measure allocation volume for individual operations, not
 retained heap, whole-server savings, or production throughput and latency.
 
-Reproduce from `apps/api-go`:
+Reproduce from `apps/lmm-extensions`:
 
 ```bash
 go test -race ./pkg/cachex

@@ -9,7 +9,7 @@ command -v protoc >/dev/null
 (cd "$tools" && go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11)
 (cd "$tools" && go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.5.1)
 export PATH="$tools:$PATH"
-output="$root/apps/api-go"
+output="$root/apps/lmm-extensions"
 if [[ ${1:-} == --check ]]; then output="$tools/generated"; fi
 mkdir -p "$output/internal/corepb"
 protoc -I "$root/contracts/proto" \
@@ -22,6 +22,6 @@ sed -i -E 's@^//[[:space:]]+protoc[[:space:]]+v[0-9.]+$@// protoc: proto3 compil
 gofmt -w "$output/internal/corepb/"*.pb.go
 if [[ ${1:-} == --check ]]; then
   for file in "$output/internal/corepb/"*.pb.go; do
-    diff -u "$root/apps/api-go/internal/corepb/$(basename "$file")" "$file"
+    diff -u "$root/apps/lmm-extensions/internal/corepb/$(basename "$file")" "$file"
   done
 fi

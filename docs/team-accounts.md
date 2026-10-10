@@ -69,13 +69,13 @@
 
 | 现有代码 | 后续接入方式 |
 | --- | --- |
-| `apps/api-go/model/token.go` | 保留 Key 身份和限额，增加独立的账号归属及版本化付款策略 |
-| `apps/api-go/common/str.go` 的 `NormalizeBillingPreference` | 复用四种内部付款偏好；新写入仍需严格校验，不用旧兼容回退吞掉非法值 |
-| `apps/api-go/service/billing_session.go` | 在创建现有计费会话之前选择付款账号；固定后继续预留、结算、退款 |
-| `apps/api-go/service/funding_source.go` | 复用钱包／订阅实现，不另写团队扣款副本 |
-| `apps/api-go/model/wallet_billing_budget.go` | 扩展现有原子预留，与团队／成员／Key 限额共同提交 |
-| `apps/api-go/model/subscription.go` | 把订阅归属和限购扩展到账号，不复制套餐表 |
-| `apps/api-go/model/wallet_transfer.go` | 扩展收付款账号，保留重复请求保护和一笔事务提交 |
+| `apps/lmm-extensions/model/token.go` | 保留 Key 身份和限额，增加独立的账号归属及版本化付款策略 |
+| `apps/lmm-extensions/common/str.go` 的 `NormalizeBillingPreference` | 复用四种内部付款偏好；新写入仍需严格校验，不用旧兼容回退吞掉非法值 |
+| `apps/lmm-extensions/service/billing_session.go` | 在创建现有计费会话之前选择付款账号；固定后继续预留、结算、退款 |
+| `apps/lmm-extensions/service/funding_source.go` | 复用钱包／订阅实现，不另写团队扣款副本 |
+| `apps/lmm-extensions/model/wallet_billing_budget.go` | 扩展现有原子预留，与团队／成员／Key 限额共同提交 |
+| `apps/lmm-extensions/model/subscription.go` | 把订阅归属和限购扩展到账号，不复制套餐表 |
+| `apps/lmm-extensions/model/wallet_transfer.go` | 扩展收付款账号，保留重复请求保护和一笔事务提交 |
 | `apps/web/src/components/profile-dropdown.tsx` | 增加账号切换、我的团队、加入团队、API Key 管理 |
 | `apps/web/src/features/wallet/components/subscription-plans-card.tsx` | 复用四种偏好选项；团队设置按权限显示 |
 | `apps/web/src/features/profile`、`controller/profile_share*_svg.go` | 复用主页和 SVG 展示；维持主动公开与撤销语义 |
@@ -203,7 +203,7 @@ Key 编辑页展示可排序的付款账号列表，每行明确显示个人／�
 独立规则包只依赖 Go 标准库，可以不下载项目依赖运行：
 
 ```sh
-cd apps/api-go
+cd apps/lmm-extensions
 GO111MODULE=off go test -race -cover ./pkg/accountfunding -count=1
 GO111MODULE=off go vet ./pkg/accountfunding
 GO111MODULE=off go test ./pkg/accountfunding -run '^$' -fuzz=FuzzResolveOrder -fuzztime=10s -parallel=2

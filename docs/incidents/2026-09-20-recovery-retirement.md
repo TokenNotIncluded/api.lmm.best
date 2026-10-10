@@ -38,9 +38,9 @@ reconstructible in Git history at
 
 | Former path | Git blob SHA-1 |
 | --- | --- |
-| `apps/api-go/cmd/incident20260920-recovery/main.go` | `93cfadd54d27a29fc0f97000188d877f61389281` |
-| `apps/api-go/internal/appcli/incident20260920_recovery_linux.go` | `c85ff5c0f726987b7704f70897352f152cd44145` |
-| `apps/api-go/internal/appcli/incident20260920_recovery_linux_test.go` | `86b6e1cebec89b662e3dd46514dcd4c01ecb8385` |
+| `apps/lmm-extensions/cmd/incident20260920-recovery/main.go` | `93cfadd54d27a29fc0f97000188d877f61389281` |
+| `apps/lmm-extensions/internal/appcli/incident20260920_recovery_linux.go` | `c85ff5c0f726987b7704f70897352f152cd44145` |
+| `apps/lmm-extensions/internal/appcli/incident20260920_recovery_linux_test.go` | `86b6e1cebec89b662e3dd46514dcd4c01ecb8385` |
 
 The source binds candidate revision
 `ae5bf90d7bf3cc97a8a1cb5d3a69ffec4b592267` and rollback archive SHA-256

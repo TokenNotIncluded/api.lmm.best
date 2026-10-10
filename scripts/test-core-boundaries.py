@@ -10,20 +10,20 @@ ROOT = Path(__file__).resolve().parents[1]
 
 class CoreBoundaryTests(unittest.TestCase):
     def test_retired_backends_and_migration_entry_points_are_absent(self):
-        for name in ("apps/api-rust", "apps/extensions-go", "apps/core-rust/migrations",
-                     "apps/api-go/model", "apps/api-go/controller", "apps/api-go/relay",
-                     "apps/api-go/router", "apps/api-go/migration", "apps/api-go/internal/appcli",
+        for name in ("apps/api-rust", "apps/extensions-go", "apps/core-rust", "apps/api-go", "apps/lmm-core/migrations",
+                     "apps/lmm-extensions/model", "apps/lmm-extensions/controller", "apps/lmm-extensions/relay",
+                     "apps/lmm-extensions/router", "apps/lmm-extensions/migration", "apps/lmm-extensions/internal/appcli",
                      "scripts/ci/qualify-go-migration-startup.sh", "scripts/deploy-systemd.py",
                      "scripts/deploy-shared-postgres.py", "packaging/common/lmm-api/migration-compatibility.env"):
             self.assertFalse((ROOT / name).exists(), name)
         self.assertTrue((ROOT / "apps/lmm/Cargo.toml").is_file())
-        self.assertTrue((ROOT / "apps/api-go/cmd/extensions/main.go").is_file())
+        self.assertTrue((ROOT / "apps/lmm-extensions/cmd/extensions/main.go").is_file())
 
     def test_extension_has_no_core_database_or_authority_dependency(self):
-        module = (ROOT / "apps/api-go/go.mod").read_text()
+        module = (ROOT / "apps/lmm-extensions/go.mod").read_text()
         for forbidden in ("gorm.io", "go-sql-driver", "lib/pq", "jackc/pgx", "sqlite"):
             self.assertNotIn(forbidden, module)
-        for path in (ROOT / "apps/api-go").rglob("*.go"):
+        for path in (ROOT / "apps/lmm-extensions").rglob("*.go"):
             if path.name.endswith("_test.go"):
                 continue
             text = path.read_text()
@@ -32,9 +32,9 @@ class CoreBoundaryTests(unittest.TestCase):
             if path.name != "environment.go":
                 for forbidden in ("SQL_DSN", "LMM_CORE_DATABASE_URL"):
                     self.assertNotIn(forbidden, text, str(path))
-        startup = (ROOT / "apps/api-go/internal/app/run.go").read_text()
+        startup = (ROOT / "apps/lmm-extensions/internal/app/run.go").read_text()
         self.assertLess(startup.index("validateEnvironment(os.Getenv)"), startup.index("readHostCredential(os.Getenv"))
-        identity = (ROOT / "apps/api-go/internal/modules/identity/identity.go").read_text()
+        identity = (ROOT / "apps/lmm-extensions/internal/modules/identity/identity.go").read_text()
         self.assertIn("type Core interface", identity)
         for operation in ("Capabilities", "Authorize", "ListTeams"):
             self.assertIn(operation, identity)
@@ -42,9 +42,9 @@ class CoreBoundaryTests(unittest.TestCase):
 
     def assert_extension_storage(self, path, text):
         stores = {
-            "apps/api-go/internal/coreclient/sqlinbox.go": "extension_events.",
-            "apps/api-go/internal/modules/store/postgres.go": "lmm_store.",
-            "apps/api-go/internal/modules/support/postgres.go": "lmm_support.",
+            "apps/lmm-extensions/internal/coreclient/sqlinbox.go": "extension_events.",
+            "apps/lmm-extensions/internal/modules/store/postgres.go": "lmm_store.",
+            "apps/lmm-extensions/internal/modules/support/postgres.go": "lmm_support.",
         }
         if path not in stores:
             self.assertNotIn('"database/sql"', text, path)
@@ -61,7 +61,7 @@ class CoreBoundaryTests(unittest.TestCase):
                 self.assertNotIn(schema, text, path)
 
     def test_extension_storage_guard_rejects_core_and_cross_module_access(self):
-        path = "apps/api-go/internal/modules/store/postgres.go"
+        path = "apps/lmm-extensions/internal/modules/store/postgres.go"
         source = (ROOT / path).read_text()
         self.assert_extension_storage(path, source)
         for forbidden in ("core_identity.users", "core_billing.balance_state",
@@ -71,30 +71,30 @@ class CoreBoundaryTests(unittest.TestCase):
                 with self.assertRaises(AssertionError):
                     self.assert_extension_storage(path, source + "\n" + forbidden)
         with self.assertRaises(AssertionError):
-            self.assert_extension_storage("apps/api-go/internal/app/unapproved.go", source)
+            self.assert_extension_storage("apps/lmm-extensions/internal/app/unapproved.go", source)
 
     def test_fresh_schema_is_explicit_and_relational(self):
-        schema = (ROOT / "apps/core-rust/schema/identity.sql").read_text()
+        schema = (ROOT / "apps/lmm-core/schema/identity.sql").read_text()
         for table in ("accounts", "users", "teams", "memberships", "credentials", "key_funding_rules"):
             self.assertIn("CREATE TABLE core_identity." + table, schema)
         self.assertNotIn("funding_policy JSONB", schema)
         self.assertNotIn("DROP ", schema)
-        runtime = (ROOT / "apps/core-rust/src/identity/mod.rs").read_text()
+        runtime = (ROOT / "apps/lmm-core/src/identity/mod.rs").read_text()
         self.assertNotIn("MIGRATOR", runtime)
         self.assertNotIn("sqlx::migrate!", runtime)
-        admin = (ROOT / "apps/core-rust/src/bin/lmm-core-admin.rs").read_text()
+        admin = (ROOT / "apps/lmm-core/src/bin/lmm-core-admin.rs").read_text()
         self.assertIn('"init-db"', admin)
         self.assertNotIn('"migrate"', admin)
-        self.assertNotIn("init_database", (ROOT / "apps/core-rust/src/main.rs").read_text())
+        self.assertNotIn("init_database", (ROOT / "apps/lmm-core/src/main.rs").read_text())
 
     def test_core_has_no_extension_startup_dependency(self):
-        cargo = tomllib.loads((ROOT / "apps/core-rust/Cargo.toml").read_text())
+        cargo = tomllib.loads((ROOT / "apps/lmm-core/Cargo.toml").read_text())
         self.assertEqual(cargo["lints"]["rust"]["unsafe_code"], "forbid")
         self.assertNotIn("migrate", cargo["dependencies"]["sqlx"]["features"])
         for name in cargo["dependencies"]:
             self.assertNotIn("extension", name)
         for name in ("main.rs", "http.rs"):
-            self.assertNotIn("LMM_EXTENSION", (ROOT / "apps/core-rust/src" / name).read_text())
+            self.assertNotIn("LMM_EXTENSION", (ROOT / "apps/lmm-core/src" / name).read_text())
 
     def test_compose_projects_are_separate_and_resource_bounded(self):
         core = (ROOT / "deployment/docker/compose.core.yml").read_text()
@@ -113,8 +113,8 @@ class CoreBoundaryTests(unittest.TestCase):
         self.assertIn("external: true", extension)
         self.assertNotIn("SQL_DSN", extension)
         self.assertNotIn("DATABASE_URL", extension)
-        self.assertIn("COPY apps/api-go/", (ROOT / "deployment/docker/extensions.Dockerfile").read_text())
-        self.assertIn("COPY apps/core-rust/schema", (ROOT / "deployment/docker/core.Dockerfile").read_text())
+        self.assertIn("COPY apps/lmm-extensions/", (ROOT / "deployment/docker/extensions.Dockerfile").read_text())
+        self.assertIn("COPY apps/lmm-core/schema", (ROOT / "deployment/docker/core.Dockerfile").read_text())
 
     def test_development_and_qualification_use_only_new_entry_points(self):
         sample = (ROOT / ".env.example").read_text()
@@ -128,7 +128,7 @@ class CoreBoundaryTests(unittest.TestCase):
                 self.assertNotIn(retired, body)
 
     def test_no_workflow_calls_deleted_go_business_packages(self):
-        retired = ("apps/api-go/relaykit", "./oauthserver", "./oidcprovider",
+        retired = ("apps/lmm-extensions/relaykit", "./oauthserver", "./oidcprovider",
                    "./internal/marketprovider", "./model", "./controller", "./router",
                    "./service", "./middleware")
         for path in (ROOT / ".github/workflows").glob("*.yml"):
@@ -146,7 +146,7 @@ class CoreBoundaryTests(unittest.TestCase):
         cases = json.loads((ROOT / "contracts/core/v1/funding-cases.json").read_text())
         self.assertGreaterEqual(len(cases), 24)
         self.assertEqual(len({case["name"] for case in cases}), len(cases))
-        self.assertIn("funding-cases.json", (ROOT / "apps/core-rust/src/funding.rs").read_text())
+        self.assertIn("funding-cases.json", (ROOT / "apps/lmm-core/src/funding.rs").read_text())
 
 
 if __name__ == "__main__":

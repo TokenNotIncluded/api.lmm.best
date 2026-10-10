@@ -209,7 +209,7 @@ permission/connection-loss tests also require test-only role creation and backen
 termination rights. Those are not runtime privileges.
 
 ```sh
-cd apps/core-rust
+cd apps/lmm-core
 export DATABASE_URL='postgres://postgres:postgres@127.0.0.1:5432/postgres'
 cargo +1.99.0 fmt --all --check
 cargo +1.99.0 clippy --locked --all-targets -- -D warnings

@@ -12,8 +12,8 @@ on:
       - scripts/local-release-tests.py
       - scripts/test-local-release-tests.py
       - .env.example
-      - apps/core-rust/**
-      - apps/api-go/**
+      - apps/lmm-core/**
+      - apps/lmm-extensions/**
       - contracts/**
       - deployment/docker/**
       - scripts/generate-core-protocol.sh
@@ -53,7 +53,7 @@ jobs:
       - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
         with:
           go-version: '1.27.2'
-          cache-dependency-path: apps/api-go/go.sum
+          cache-dependency-path: apps/lmm-extensions/go.sum
       - name: Install pinned Rust and protobuf compiler
         run: |
           rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
@@ -70,22 +70,22 @@ jobs:
       - name: Check generated Go bindings
         run: bash scripts/generate-core-protocol.sh --check
       - name: Build actual Go host for Rust stream isolation
-        working-directory: apps/api-go
+        working-directory: apps/lmm-extensions
         run: |
           CGO_ENABLED=0 go build -mod=readonly -trimpath -o "$RUNNER_TEMP/lmm-extensions" ./cmd/extensions
           echo "LMM_RELAY_EXTENSION_BIN=$RUNNER_TEMP/lmm-extensions" >> "$GITHUB_ENV"
       - name: Rust formatting
-        working-directory: apps/core-rust
+        working-directory: apps/lmm-core
         run: cargo fmt --all --check
       - name: Rust checks and real database tests
         if: ${{ !cancelled() }}
-        working-directory: apps/core-rust
+        working-directory: apps/lmm-core
         run: |
           cargo clippy --locked --all-targets -- -D warnings
           cargo test --locked --all-targets --no-fail-fast 2>&1 | tee "$RUNNER_TEMP/core-tests.log"
       - name: Go contract and race tests
         if: ${{ !cancelled() }}
-        working-directory: apps/api-go
+        working-directory: apps/lmm-extensions
         run: |
           bash ../../scripts/check-go-format.sh .
           go mod verify
@@ -99,14 +99,14 @@ jobs:
         run: |
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE lmm_store_test'
           trap 'psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS lmm_store_test"' EXIT
-          cd apps/api-go/internal/modules/store/pgtest
+          cd apps/lmm-extensions/internal/modules/store/pgtest
           go mod verify
           go vet -mod=readonly ./...
           go test -mod=readonly -race -count=1 -json ./... | tee "$RUNNER_TEMP/store-postgres.jsonl"
       - name: Durable cross-language event process recovery
         if: ${{ !cancelled() }}
         run: |
-          (cd apps/core-rust && cargo build --locked --example protocol-events-fixture)
+          (cd apps/lmm-core && cargo build --locked --example protocol-events-fixture)
           (cd contracts/proto/tests/go && go vet -mod=readonly ./... && go build -mod=readonly -o "$RUNNER_TEMP/mk06-go-fixture" .)
           MK06_GO_FIXTURE="$RUNNER_TEMP/mk06-go-fixture" python3 contracts/proto/tests/process_recovery.py 2>&1 | tee "$RUNNER_TEMP/events-process.log"
       - name: Native protobuf round trips and failure recovery

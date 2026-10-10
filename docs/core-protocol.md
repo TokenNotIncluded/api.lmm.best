@@ -2,7 +2,7 @@
 
 使用 Protobuf 定义二进制消息，gRPC 发送请求和接收结果。同机容器通过私有 Unix socket 连接。这不是共享内存或持久消息队列，也不承载模型 token 输出。
 
-Go 唯一源码目录为 `apps/api-go`。核心只有一个身份与账号权威来源，不从 Go 的旧用户或余额表回退。数据库只面向全新安装；部署命令见 [Docker 指南](../deployment/docker/README.md)。
+Go 唯一源码目录为 `apps/lmm-extensions`。核心只有一个身份与账号权威来源，不从 Go 的旧用户或余额表回退。数据库只面向全新安装；部署命令见 [Docker 指南](../deployment/docker/README.md)。
 
 ## 方向与权限
 
@@ -67,9 +67,9 @@ Rust 构建时从同一 `.proto` 生成绑定。Go 的生成文件提交入库�
 ```sh
 bash scripts/generate-core-protocol.sh
 bash scripts/generate-core-protocol.sh --check
-(cd apps/api-go && go mod verify && go vet ./... && go test -race ./... -count=1)
+(cd apps/lmm-extensions && go mod verify && go vet ./... && go test -race ./... -count=1)
 # DATABASE_URL 必须指向可创建临时测试数据库的独立 PostgreSQL。
-(cd apps/core-rust && cargo fmt --all --check && cargo clippy --locked --all-targets -- -D warnings && cargo test --locked --all-targets)
+(cd apps/lmm-core && cargo fmt --all --check && cargo clippy --locked --all-targets -- -D warnings && cargo test --locked --all-targets)
 python3 -B scripts/test-core-boundaries.py
 python3 -B scripts/test-core-rpc-docker.py
 ```

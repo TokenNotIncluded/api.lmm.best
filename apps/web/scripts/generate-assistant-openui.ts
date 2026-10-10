@@ -6,7 +6,7 @@ import { assistantOpenUIPrompt } from '../src/components/ai-elements/openui/libr
 
 const path = fileURLToPath(
   new URL(
-    '../../api-go/controller/assistant_openui_prompt.txt',
+    '../../lmm-extensions/controller/assistant_openui_prompt.txt',
     import.meta.url
   )
 )
