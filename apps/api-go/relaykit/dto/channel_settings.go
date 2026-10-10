@@ -287,16 +287,20 @@ func isAdvancedCustomGeminiIncomingPath(incomingPath string) bool {
 }
 
 func matchAdvancedCustomRouteModel(models []string, model string) bool {
-	normalizedModels := normalizeAdvancedCustomRouteModels(models)
-	if len(normalizedModels) == 0 {
-		return true
-	}
-	for _, allowedModel := range normalizedModels {
+	// Match in place: building a normalized slice for every channel check
+	// allocates even when the first rule matches. Keep all-blank catch-alls.
+	hasModels := false
+	for _, allowedModel := range models {
+		allowedModel = strings.TrimSpace(allowedModel)
+		if allowedModel == "" {
+			continue
+		}
+		hasModels = true
 		if matchAdvancedCustomRouteModelRule(allowedModel, model) {
 			return true
 		}
 	}
-	return false
+	return !hasModels
 }
 
 // advancedCustomModelRegexCache caches compiled route model patterns. Route model
