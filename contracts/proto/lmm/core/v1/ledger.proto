@@ -1,0 +1,104 @@
+syntax = "proto3";
+package lmm.core.v1;
+option go_package = "github.com/TokenNotIncluded/api.lmm.best/extensions/internal/corepb;corepb";
+import "lmm/core/v1/commands.proto";
+
+// Task 02 handoff. Contract only: do not register before user/team/key budgets,
+// service permissions and same-transaction outbox integration exist.
+service CoreLedger {
+  rpc PostLedger(PostLedgerRequest) returns (PostLedgerResponse);
+  rpc GetLedgerBalance(GetLedgerBalanceRequest) returns (GetLedgerBalanceResponse);
+}
+message PostLedgerRequest {
+  uint32 protocol_major = 1; // Must be 1; unknown action fails closed.
+  MutationContext mutation = 2;
+  string unit = 3; // Exactly credit_500k_usd: 500,000 integer units = USD 1.
+  string business_reference = 4; // Stable, bounded reference; not authorization.
+  string audit_reason = 5; // Bounded text, no secrets.
+  // Scope and actor come from independent service/user authentication, never a
+  // supplied actor ID. Each action has a separate ledger.<action> permission.
+  oneof action {
+    LedgerCredit credit = 10;
+    LedgerTransfer transfer = 11;
+    LedgerCharge charge = 12;
+    LedgerReserve reserve = 13;
+    LedgerCapture capture = 14;
+    LedgerRelease release = 15;
+    LedgerRefund refund = 16;
+    LedgerReverse reverse = 17;
+  }
+}
+message LedgerCredit {
+  // Core-verified record fixes account, amount, conversion and globally unique
+  // provider/merchant/environment/transaction. No caller-chosen credit amount.
+  int64 verified_payment_id = 1;
+}
+message LedgerTransfer {
+  int64 source_account_id = 1; // core_identity.accounts.id, NOT user/team ID.
+  int64 destination_account_id = 2;
+  int64 amount = 3; // Positive units. Check both ownership and treasury scope.
+}
+message LedgerCharge {
+  int64 billing_authorization_id = 1; // Core-owned durable single-use grant.
+}
+message LedgerReserve {
+  int64 billing_authorization_id = 1; // Fixes payer, amount and all budget holds.
+}
+message LedgerCapture {
+  int64 reservation_journal_id = 1;
+  int64 verified_usage_id = 2; // Core computes amount; zero final charge is valid.
+}
+message LedgerRelease {
+  int64 reservation_journal_id = 1;
+  int64 terminal_request_evidence_id = 2; // Timeout alone does not allow release.
+}
+message LedgerRefund {
+  int64 original_journal_id = 1;
+  int64 amount = 2; // Positive; cumulative cap; destination fixed by original.
+}
+message LedgerReverse {
+  int64 original_journal_id = 1; // Narrow reconciliation/admin permission only.
+}
+message PostLedgerResponse {
+  string idempotency_key = 1;
+  bytes request_sha256 = 2; // Core-computed canonical request, including actor.
+  string receipt_id = 3; // Stable across retries, including permanent rejection.
+  oneof outcome {
+    LedgerPosted posted = 10;
+    LedgerRejected rejected = 11;
+  }
+  // Idempotency conflict is ALREADY_EXISTS, not a business rejection.
+  // UNAVAILABLE/DEADLINE_EXCEEDED may mean UNKNOWN commit: repeat the same key.
+  // Do not infer failure from an absent response or create a compensating debit.
+}
+message LedgerPosted {
+  int64 journal_id = 1;
+  string unit = 2;
+  repeated LedgerEntrySnapshot entries = 3;
+}
+message LedgerEntrySnapshot {
+  int64 ledger_account_id = 1;
+  int64 owner_account_id = 2;
+  int64 delta = 3;
+  int64 resulting_balance = 4;
+  int64 revision = 5;
+}
+message LedgerRejected {
+  string code = 1; // Stable domain code; permanent result for this exact key.
+}
+message GetLedgerBalanceRequest {
+  int64 account_id = 1; // Require ledger.read and current account authorization.
+}
+message GetLedgerBalanceResponse {
+  int64 account_id = 1;
+  string unit = 2;
+  int64 available = 3;
+  int64 held = 4;
+  int64 available_revision = 5;
+  int64 held_revision = 6;
+}
+message LedgerPostedEvent {
+  string receipt_id = 1;
+  string idempotency_key = 2;
+  LedgerPosted posted = 3;
+}

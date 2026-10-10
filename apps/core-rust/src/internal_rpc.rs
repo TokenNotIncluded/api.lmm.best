@@ -1,4 +1,4 @@
-//! Bounded, read-only protobuf control plane over a private Unix socket.
+//! Bounded protobuf control and durable event plane over a private Unix socket.
 //! Never calls Go; public model/identity routes do not depend on this listener.
 use crate::{
     accounts,
@@ -27,6 +27,8 @@ use tokio::{
 use tokio_stream::{StreamExt, wrappers::UnixListenerStream};
 use tonic::transport::server::{Connected, UdsConnectInfo};
 use tonic::{Request, Response, Status, metadata::MetadataMap, transport::Server};
+
+mod event_service;
 
 pub mod pb {
     tonic::include_proto!("lmm.core.v1");
@@ -123,6 +125,8 @@ fn account(value: accounts::Account) -> pb::Account {
 struct Control {
     token_digest: [u8; 32],
     store: Option<IdentityStore>,
+    events: Option<crate::events::EventStore>,
+    service_id: String,
     slots: Arc<Semaphore>,
 }
 impl Control {
@@ -133,6 +137,8 @@ impl Control {
         Ok(Self {
             token_digest: Sha256::digest(token).into(),
             store,
+            events: None,
+            service_id: "extensions".into(),
             slots: Arc::new(Semaphore::new(MAX_CALLS)),
         })
     }
@@ -194,10 +200,15 @@ impl CoreControl for Control {
             Ok(pb::CapabilitiesResponse {
                 protocol_major: 1,
                 identity_available: self.store.is_some(),
-                features: if self.store.is_some() {
-                    vec!["identity.read".into(), "teams.read".into()]
-                } else {
-                    vec![]
+                features: {
+                    let mut features = Vec::new();
+                    if self.store.is_some() {
+                        features.extend(["identity.read".into(), "teams.read".into()]);
+                    }
+                    if self.events.is_some() {
+                        features.extend(crate::events::FEATURES.iter().map(|v| (*v).into()));
+                    }
+                    features
                 },
             })
         })
@@ -340,6 +351,20 @@ impl RpcServer {
             control,
         })
     }
+    /// Explicit integration hook. Provisioned subscriptions bind to this
+    /// server-configured principal, never a principal supplied by the caller.
+    pub fn with_events(
+        mut self,
+        store: crate::events::EventStore,
+        service_id: &str,
+    ) -> io::Result<Self> {
+        if !crate::events::valid_name(service_id, 64) {
+            return Err(invalid("invalid event service identity"));
+        }
+        self.control.events = Some(store);
+        self.control.service_id = service_id.into();
+        Ok(self)
+    }
     pub async fn serve(
         self,
         mut shutdown: watch::Receiver<bool>,
@@ -368,7 +393,12 @@ impl RpcServer {
             .initial_stream_window_size(64 * 1024)
             .initial_connection_window_size(256 * 1024)
             .add_service(
-                CoreControlServer::new(control)
+                CoreControlServer::new(control.clone())
+                    .max_decoding_message_size(MAX_MESSAGE)
+                    .max_encoding_message_size(MAX_MESSAGE),
+            )
+            .add_service(
+                pb::core_events_server::CoreEventsServer::new(control)
                     .max_decoding_message_size(MAX_MESSAGE)
                     .max_encoding_message_size(MAX_MESSAGE),
             )
@@ -420,7 +450,7 @@ mod tests {
     use super::*;
     use prost::Message;
     const TOKEN: &[u8] = b"0123456789abcdef0123456789abcdef";
-    fn request<T>(body: T) -> Request<T> {
+    pub(super) fn request<T>(body: T) -> Request<T> {
         let mut r = Request::new(body);
         r.metadata_mut().insert(
             "authorization",
