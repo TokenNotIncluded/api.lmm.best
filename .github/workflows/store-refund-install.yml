@@ -1,0 +1,50 @@
+name: Apply reviewed store refund patch
+on:
+  push:
+    branches: [fix/store-claim-refund-sync-20261010]
+    paths: ['.github/store-refund-update.*', '.github/workflows/store-refund-install.yml']
+permissions:
+  contents: read
+jobs:
+  apply:
+    if: github.repository == 'TokenNotIncluded/api.lmm.best' && github.ref == 'refs/heads/fix/store-claim-refund-sync-20261010'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Verify and apply exact reviewed source patch
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64, hashlib, lzma, os
+          parts = [Path(f'.github/store-refund-update.{i:03}') for i in range(1, 5)]
+          patch = lzma.decompress(base64.b64decode(''.join(p.read_text() for p in parts), validate=True))
+          assert len(patch) == 114948
+          assert hashlib.sha256(patch).hexdigest() == '9de5408b44e5bb08ae9ccdc87dad4720cee5705eed731642750a30365a4a3c0e'
+          Path(os.environ['RUNNER_TEMP'], 'reviewed.patch').write_bytes(patch)
+          PY
+          git apply --check --whitespace=error --exclude=.github/workflows/store-claim-refund-review.yml "$RUNNER_TEMP/reviewed.patch"
+          git apply --whitespace=error --exclude=.github/workflows/store-claim-refund-review.yml "$RUNNER_TEMP/reviewed.patch"
+          rm .github/store-refund-update.00{1,2,3,4}
+          git diff --check
+      - name: Commit source only to the isolated work branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix(store): preserve pickup login and reconcile partial gateway refunds'
+          git -c credential.helper='!f() { echo username=x-access-token; echo password="$GH_TOKEN"; }; f' push origin HEAD:refs/heads/fix/store-claim-refund-sync-20261010
+          git rev-parse HEAD
+      - name: Package resulting source for review
+        run: git archive --format=zip --output="$RUNNER_TEMP/store-review-applied.zip" HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: store-review-applied-source
+          path: ${{ runner.temp }}/store-review-applied.zip
+          retention-days: 1
