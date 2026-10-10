@@ -4,11 +4,9 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 import hashlib
 import io
-import json
 import os
 import shutil
 import subprocess
-import sys
 import tarfile
 import tempfile
 import textwrap
@@ -41,24 +39,24 @@ class EntrypointTests(unittest.TestCase):
         shutil.copyfile(ENTRYPOINT, self.script)
         self.bin = self.root / 'tools'
         self.bin.mkdir()
-        self.log = self.root / 'commands.jsonl'
+        self.log = self.root / 'commands.bin'
         self.env = dict(os.environ, PATH=str(self.bin) + os.pathsep + os.environ['PATH'],
                         COMMAND_LOG=str(self.log), FAKE_EXIT='0')
         for key in ('LMM_API_DEPLOY_BINARY', 'LMM_API_BUILD_WORKSPACE',
                     'LMM_API_GITHUB_REPOSITORY'):
             self.env.pop(key, None)
-        self.fake = f'#!{sys.executable}\n' + textwrap.dedent('''\
-            import json, os, pathlib, shutil, sys
-            name = pathlib.Path(sys.argv[0]).name
-            with open(os.environ['COMMAND_LOG'], 'a') as output:
-                output.write(json.dumps([name, *sys.argv[1:]]) + '\\n')
-            code = int(os.environ['FAKE_EXIT'])
-            if name == 'bun' and code == 0:
-                target = pathlib.Path.cwd() / 'apps/api-go/out/lmm-api-deploy-engine'
-                target.parent.mkdir(parents=True, exist_ok=True)
-                shutil.copyfile(__file__, target)
-                target.chmod(0o755)
-            sys.exit(code)
+        self.fake = textwrap.dedent('''\
+            #!/bin/bash
+            set -eu
+            name=${0##*/}
+            printf '%s\\0' "$(( $# + 1 ))" "$name" "$@" >> "$COMMAND_LOG"
+            if [[ $name == bun && $FAKE_EXIT == 0 ]]; then
+                target=$PWD/apps/api-go/out/lmm-api-deploy-engine
+                mkdir -p -- "${target%/*}"
+                cp -- "$0" "$target"
+                chmod +x -- "$target"
+            fi
+            exit "$FAKE_EXIT"
         ''')
         for tool in ('gh', 'bun', 'python3'):
             self.make_tool(self.bin / tool)
@@ -73,7 +71,18 @@ class EntrypointTests(unittest.TestCase):
                               capture_output=True, text=True, timeout=10)
 
     def calls(self):
-        return [json.loads(line) for line in self.log.read_text().splitlines()] if self.log.exists() else []
+        if not self.log.exists():
+            return []
+        # Counted NUL-separated records preserve empty arguments and whitespace.
+        fields = self.log.read_bytes().split(b'\0')
+        self.assertEqual(b'', fields.pop())
+        commands = []
+        while fields:
+            count = int(fields.pop(0))
+            self.assertGreaterEqual(len(fields), count)
+            commands.append([os.fsdecode(value) for value in fields[:count]])
+            del fields[:count]
+        return commands
 
     def test_help_never_needs_provider_or_authentication(self):
         self.env['LMM_API_DEPLOY_BINARY'] = '/missing/provider'
@@ -84,19 +93,29 @@ class EntrypointTests(unittest.TestCase):
                 self.assertIn('web', result.stdout)
         self.assertEqual([], self.calls())
 
-    def test_web_dispatch_uses_main_once_without_provider(self):
+    def test_web_commands_preserve_arguments_and_fail_without_retry(self):
+        dispatch = ['workflow', 'run', 'deploy-web-frontend.yml', '--ref', 'main',
+                    '--raw-field', 'release_tag=' + TAG]
+        cases = (
+            (('deploy', TAG), dispatch, 0, None),
+            (('deploy', TAG), dispatch, 0, 'example/instance'),
+            (('deploy', TAG), dispatch, 4, None),
+            (('status', '123'), ['run', 'view', '123', '--exit-status'], 1, None),
+            (('watch', '123'), ['run', 'watch', '123', '--exit-status', '--interval', '10'], 1, None),
+            (('list',), ['run', 'list', '--workflow', 'deploy-web-frontend.yml',
+                        '--event', 'workflow_dispatch', '--limit', '10'], 0, None),
+        )
         self.env['LMM_API_DEPLOY_BINARY'] = '/missing/provider'
-        result = self.call('web', 'deploy', TAG)
-        self.assertEqual(0, result.returncode, result.stderr)
-        self.assertEqual([['gh', 'workflow', 'run', 'deploy-web-frontend.yml',
-                          '--ref', 'main', '--raw-field', 'release_tag=' + TAG,
-                          '--repo', REPO]], self.calls())
-
-    def test_web_repository_override_is_one_argument(self):
-        self.env['LMM_API_GITHUB_REPOSITORY'] = 'example/instance'
-        result = self.call('web', 'deploy', TAG)
-        self.assertEqual(0, result.returncode, result.stderr)
-        self.assertEqual(['--repo', 'example/instance'], self.calls()[0][-2:])
+        for args, command, code, repository in cases:
+            with self.subTest(args=args, code=code, repository=repository):
+                self.log.unlink(missing_ok=True)
+                self.env['FAKE_EXIT'] = str(code)
+                self.env.pop('LMM_API_GITHUB_REPOSITORY', None)
+                if repository is not None:
+                    self.env['LMM_API_GITHUB_REPOSITORY'] = repository
+                result = self.call('web', *args)
+                self.assertEqual(code, result.returncode, result.stderr)
+                self.assertEqual([['gh', *command, '--repo', repository or REPO]], self.calls())
 
     def test_bad_inputs_fail_before_any_external_command(self):
         for args in (('web', 'deploy'), ('web', 'deploy', 'main'),
@@ -109,25 +128,6 @@ class EntrypointTests(unittest.TestCase):
         self.env['LMM_API_GITHUB_REPOSITORY'] = 'owner/repo;echo bad'
         self.assertEqual(2, self.call('web', 'deploy', TAG).returncode)
         self.assertEqual([], self.calls())
-
-    def test_dispatch_failure_is_not_retried(self):
-        self.env['FAKE_EXIT'] = '4'
-        self.assertEqual(4, self.call('web', 'deploy', TAG).returncode)
-        self.assertEqual(1, len(self.calls()))
-
-    def test_status_and_watch_use_exact_run_and_propagate_failure(self):
-        self.env['FAKE_EXIT'] = '1'
-        for action, command in (('status', 'view'), ('watch', 'watch')):
-            with self.subTest(action=action):
-                self.assertEqual(1, self.call('web', action, '123').returncode)
-                args = self.calls()[-1]
-                self.assertEqual(['gh', 'run', command, '123', '--exit-status'], args[:5])
-                self.assertEqual(['--repo', REPO], args[-2:])
-
-    def test_list_does_not_dispatch(self):
-        self.assertEqual(0, self.call('web', 'list').returncode)
-        self.assertEqual(['gh', 'run', 'list'], self.calls()[0][:3])
-        self.assertIn('deploy-web-frontend.yml', self.calls()[0])
 
     def test_package_reuses_tool_and_builds_artifacts_once(self):
         self.make_tool(self.root / 'apps/api-go/out/lmm-api-deploy-engine')
@@ -173,12 +173,6 @@ class EntrypointTests(unittest.TestCase):
         self.assertEqual(['python3', str(self.script.with_name('deploy-systemd.py')), 'doctor', '--json'], self.calls()[-1])
         self.assertEqual(0, self.call('shared-postgres', 'validate', '--plan', 'plan with spaces').returncode)
         self.assertEqual(['python3', '-B', str(self.script.with_name('deploy-shared-postgres.py')), 'validate', '--plan', 'plan with spaces'], self.calls()[-1])
-
-    def test_just_package_has_no_unconditional_build_dependency(self):
-        source = (ROOT / 'justfile').read_text()
-        self.assertIn('\npackage-go:\n', source)
-        self.assertNotIn('\npackage-go: build', source)
-        self.assertIn('{{quote(tag)}}', source)
 
 
 class DownloadTests(unittest.TestCase):

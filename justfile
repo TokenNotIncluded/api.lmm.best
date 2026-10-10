@@ -122,12 +122,11 @@ test-rust:
 # Test both backend implementations and the frontend.
 test-all: test test-rust
 
-# Run default Go and web quality gates.
-check: format-check lint typecheck test check-deploy
+# Run Go and web quality gates; test-go already compiles every Go package.
+check: format-check lint typecheck-web test check-deploy
 
-# Verify runtime CLI isolation and the separate deployment engine.
+# Run offline deployment tests. Go CLI tests run once through test-go.
 check-deploy:
-    cd apps/api-go && go test ./internal/appcli ./internal/deploycli -count=1
     python3 -B scripts/test-deploy-entrypoint.py -v
 
 format: format-go format-web
@@ -225,8 +224,7 @@ deploy-web-watch run_id:
     bash scripts/lmm-api-deploy.sh web watch {{quote(run_id)}}
 
 # Check workstation deployment paths without server/database access.
-test-deploy-entrypoint:
-    python3 -B scripts/test-deploy-entrypoint.py -v
+test-deploy-entrypoint: check-deploy
     python3 -B scripts/test-web-ship.py -v
 
 # Validate the public AUR package that consumes prebuilt release assets.
