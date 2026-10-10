@@ -26,6 +26,17 @@ for (const file of paths.filter(file => !file.startsWith(localeDirectory))) {
   mkdirSync(path.dirname(file), { recursive: true })
   writeFileSync(file, show(SOURCE, file))
 }
+// Restore the existing workflow-topology contract for recently merged review
+// entry points. Keep every job intact; do not disable or weaken any test.
+for (const name of ['pi-remote-control-review.yml', 'task-drawing-logs-review.yml']) {
+  const file = `.github/workflows/${name}`
+  const before = show(BASE, file)
+  const after = before.replace(/on:\n[\s\S]*?\npermissions:/, 'on:\n  workflow_dispatch:\npermissions:')
+  if (after !== before) {
+    writeFileSync(file, after)
+    paths.push(file)
+  }
+}
 const audit = []
 for (const [locale, copy] of Object.entries(storeStockCopy)) {
   const file = `${localeDirectory}${locale}.json`
