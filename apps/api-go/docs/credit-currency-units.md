@@ -1,9 +1,8 @@
 # Credit currency initialization
 
-Wallet balances are integer credits. `CreditsPerUSD` is an immutable option,
-created once from one authoritative database snapshot of the legacy settings:
+The [payment money contract](../../../docs/payment-money-contract.md) is the single source of truth for wallet, payment, and model-price units.
 
-`CreditsPerUSD = QuotaPerUnit × USDExchangeRate × TopUpPlatformUnitsPerCNY`
+Production uses the immutable denomination **1 USD = 500000 wallet credits**, independently of the current CNY/USD exchange rate and recharge promotions. Startup initialization and verification require `CreditsPerUSD`, `QuotaPerUnit`, `LegacyPricingQuotaPerUnit`, and `PublicCreditsPerUSD` to agree with this fixed denomination; a different stored value fails validation and requires a separately audited migration. Historical non-1 rate tests exercise compatibility arithmetic, not an adjustable live wallet denomination.
 
 Existing balances, prices, paid or pending order snapshots, refund credits and
 financial ledger entries are not rewritten. Retained legacy price tables use
