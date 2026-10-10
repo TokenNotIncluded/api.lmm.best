@@ -8,6 +8,9 @@ license = "AGPL-3.0-or-later"
 publish = false
 
 [dependencies]
+argon2 = "=0.5.3"
+base64 = "=0.22.1"
+jsonwebtoken = { version = "=9.3.1", default-features = false }
 axum = "=0.8.9"
 rand = "=0.8.5"
 reqwest = { version = "=0.12.28", default-features = false, features = ["json", "stream", "rustls-tls", "http2"] }

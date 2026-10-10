@@ -84,8 +84,23 @@ impl IdentityStore {
     pub async fn revoke(&self, secret: &str, id: i64) -> Result<()> {
         let mut tx = self.pool.begin().await?;
         let actor = session(&mut tx, secret).await?;
-        let changed = sqlx::query("UPDATE core_identity.credentials SET revoked_at=COALESCE(revoked_at,clock_timestamp()) WHERE id=$1 AND user_id=$2")
-            .bind(id).bind(actor.user_id).execute(&mut *tx).await?.rows_affected();
+        let target = sqlx::query("SELECT c.user_id,c.kind,t.id AS team_id FROM core_identity.credentials c LEFT JOIN core_identity.teams t ON t.account_id=c.owner_account_id WHERE c.id=$1")
+            .bind(id).fetch_optional(&mut *tx).await?.ok_or(IdentityError::Forbidden)?;
+        if target.try_get::<i64, _>("user_id")? != actor.user_id {
+            if target.try_get::<String, _>("kind")? != "api_key" {
+                return Err(IdentityError::Forbidden);
+            }
+            let team_id = target
+                .try_get::<Option<i64>, _>("team_id")?
+                .ok_or(IdentityError::Forbidden)?;
+            let team = lock_team(&mut tx, team_id).await?;
+            let (role, _) = team_role(&mut tx, &team, team_id, actor.user_id).await?;
+            if !matches!(role, TeamRole::Owner | TeamRole::Admin) {
+                return Err(IdentityError::Forbidden);
+            }
+        }
+        let changed = sqlx::query("UPDATE core_identity.credentials SET revoked_at=COALESCE(revoked_at,clock_timestamp()) WHERE id=$1")
+            .bind(id).execute(&mut *tx).await?.rows_affected();
         if changed != 1 {
             return Err(IdentityError::Forbidden);
         }
