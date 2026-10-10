@@ -1,35 +1,83 @@
 name: Store claim and refund review
-
 on:
+  pull_request:
+    paths: ['apps/api-go/**', 'apps/web/**', '.github/workflows/store-claim-refund-review.yml']
   push:
     branches: [fix/store-claim-refund-sync-20261010]
-    paths:
-      - '.github/workflows/store-claim-refund-review.yml'
-      - 'apps/api-go/**'
-      - 'apps/web/**'
-      - 'scripts/**'
+    paths: ['apps/api-go/**', 'apps/web/**', '.github/workflows/store-claim-refund-review.yml']
   workflow_dispatch:
-
 permissions:
   contents: read
-
 concurrency:
   group: store-claim-refund-review-${{ github.ref }}
   cancel-in-progress: true
-
 jobs:
-  source-fixture:
+  backend:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 30
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: store_test
+          POSTGRES_PASSWORD: disposable_test_only
+          POSTGRES_DB: store_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U store_test -d store_test"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      MERCHANT_STORE_POSTGRES_TEST_DSN: postgres://store_test:disposable_test_only@127.0.0.1:5432/store_test?sslmode=disable
     steps:
       - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
         with:
-          persist-credentials: false
-      - name: Package tracked source for isolated review
-        run: git archive --format=zip --output="$RUNNER_TEMP/store-review-source.zip" HEAD
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: apps/api-go/go.sum
+      - name: Store, auth and refund regression
+        working-directory: apps/api-go
+        run: |
+          set -o pipefail
+          go test -p 2 -count=1 -json -run 'Test(MerchantStore|StoreClaim)' ./model ./service ./controller ./router . ./internal/appcli | tee "$RUNNER_TEMP/store-go-tests.jsonl"
+      - name: Refund receipt race and actual PostgreSQL locks
+        working-directory: apps/api-go
+        run: |
+          set -o pipefail
+          go test -p 2 -race -count=1 -json -run 'TestMerchantStore(RefundSync|PickupDenials)' ./model ./service | tee "$RUNNER_TEMP/store-go-race.jsonl"
       - uses: actions/upload-artifact@v4
+        if: always()
         with:
-          name: store-review-source
-          path: ${{ runner.temp }}/store-review-source.zip
-          retention-days: 1
-          if-no-files-found: error
+          name: store-refund-backend-results
+          path: ${{ runner.temp }}/store-go-*.jsonl
+          retention-days: 7
+  frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with: {persist-credentials: false}
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with: {bun-version: '1.3.14'}
+      - name: Install frozen frontend dependencies
+        working-directory: apps/web
+        run: bun install --frozen-lockfile
+      - name: Check frontend types
+        working-directory: apps/web
+        run: bun run typecheck
+      - name: Store and login regression (isolated test processes)
+        working-directory: apps/web
+        run: |
+          set -o pipefail
+          {
+            while IFS= read -r -d '' file; do
+              bun test --preload ./scripts/test-preload.mjs --timeout 15000 "$file" || exit 1
+            done < <(find src/features/store src/features/auth/lib -type f \( -name '*.test.ts' -o -name '*.test.tsx' \) -print0 | sort -z)
+            bun test --preload ./scripts/test-preload.mjs --timeout 15000 src/lib/http-client.test.ts
+          } 2>&1 | tee "$RUNNER_TEMP/store-web-tests.log"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: store-refund-frontend-results
+          path: ${{ runner.temp }}/store-web-tests.log
+          retention-days: 7
