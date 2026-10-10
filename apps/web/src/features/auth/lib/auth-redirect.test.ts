@@ -152,3 +152,58 @@ describe('store pickup login returns', () => {
     )
   })
 })
+
+describe('final authentication destination compatibility', () => {
+  const pickupPath = '/store/claim/' + 'x'.repeat(43)
+  const query =
+    '?source=mail%2Breceipt&variant_id=variant-fixture&quantity=3&item=1&item=2'
+
+  test('normalizes local dot paths without losing pickup parameters', () => {
+    const expected = `${pickupPath}${query}#refunds`
+    const actual = sanitizeAuthRedirect(
+      `/store/products/../claim/${'x'.repeat(43)}${query}#refunds`,
+      origin
+    )
+    assert.equal(actual, expected)
+    assert.equal(new URL(actual!, origin).origin, origin)
+    assert.equal(sanitizeAuthRedirect(actual, origin), actual)
+  })
+
+  test('accepts equivalent same-origin absolute URLs', () => {
+    const expected = `${pickupPath}${query}#refunds`
+    assert.equal(
+      sanitizeAuthRedirect(
+        `HTTPS://DASHBOARD.EXAMPLE.COM:443${expected}`,
+        origin
+      ),
+      expected
+    )
+  })
+
+  test('keeps encoded values and repeated parameters unchanged', () => {
+    const expected =
+      `${pickupPath}?item=1&item=2&promotion=A%2BB&label=a+b` +
+      '&source=mail%2Freceipt&literal=%252F#refunds'
+    assert.equal(sanitizeAuthRedirect(expected, origin), expected)
+    assert.equal(sanitizeAuthRedirect(origin + expected, origin), expected)
+  })
+
+  test('keeps a safe destination through repeated authentication handoffs', () => {
+    const location = {
+      origin,
+      pathname: pickupPath,
+      search: query,
+      hash: '#refunds',
+    }
+    const login = new URL(signInHref(location, true), origin)
+    assert.equal(login.searchParams.get('reauth'), '1')
+    let target = login.searchParams.get('redirect')
+    for (const route of ['/otp', '/oauth/fixture', '/sign-in']) {
+      const next = new URL(route, origin)
+      next.searchParams.set('redirect', target!)
+      target = sanitizeAuthRedirect(next.searchParams.get('redirect'), origin)
+      assert.equal(target, `${pickupPath}${query}#refunds`)
+      assert.equal(new URL(target!, origin).origin, origin)
+    }
+  })
+})
