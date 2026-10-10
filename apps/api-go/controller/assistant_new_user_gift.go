@@ -49,7 +49,7 @@ func assistantGiftMoneyFields(gift *model.AssistantNewUserGift) (map[string]any,
 	claimAvailable := gift != nil && gift.Status == model.AssistantGiftOffered && credits > 0
 	blocked := ""
 	if claimAvailable {
-		if limitErr := model.CheckAssistantGiftCreditLimit(credits, cap); limitErr != nil {
+		if limitErr := model.CheckAssistantExistingGiftCreditLimit(credits, cap); limitErr != nil {
 			claimAvailable = false
 			blocked = model.AssistantGiftErrorCode(limitErr)
 		}
