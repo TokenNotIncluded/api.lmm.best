@@ -41,6 +41,7 @@ const (
 	OAuthBalanceScope        = "balance:read"
 	OAuthUsageScope          = "usage:read"
 	OAuthInvokeScope         = "models:invoke"
+	OAuthRemoteControlScope  = "remote:control"
 	OAuthMCPBountiesScope    = "mcp:bounties"
 	OAuthMCPDrawingScope     = "mcp:drawing"
 	OAuthMarketDiscoverScope = "market:discover"
@@ -131,7 +132,7 @@ func NewOAuthIntegration(db *gorm.DB, cfg OAuthServerConfig) (*OAuthIntegration,
 	}
 	integration := &OAuthIntegration{DB: db, Issuer: cfg.Issuer, Resource: cfg.Issuer + "/api/oauth2", TrustLoopbackProxy: cfg.TrustLoopbackProxy, groups: groups}
 	clients := []oauthserver.NativeClient{
-		{ID: OAuthPiClientID, Name: OAuthPiClientName, RedirectURIs: []string{OAuthNativeRedirect}, Resources: []string{integration.Resource}, Scopes: scopes},
+		{ID: OAuthPiClientID, Name: OAuthPiClientName, RedirectURIs: []string{OAuthNativeRedirect}, Resources: []string{integration.Resource}, Scopes: append(slices.Clone(scopes), OAuthRemoteControlScope)},
 		{ID: OAuthDshClientID, Name: OAuthDshClientName, RedirectURIs: []string{OAuthNativeRedirect}, Resources: []string{integration.Resource}, Scopes: scopes},
 	}
 	// Editor and coding adapters have no MCP or marketplace integration.
@@ -304,6 +305,13 @@ func (s *OAuthIntegration) ConsentQuery(raw string, user *model.User) (string, [
 	for _, base := range slices.Clone(profiles) {
 		for _, extra := range [][]string{{OAuthMarketDiscoverScope}, {OAuthMarketDiscoverScope, OAuthMarketInvokeScope}, {OAuthMarketDiscoverScope, OAuthMarketManageScope}, {OAuthMarketDiscoverScope, OAuthMarketInvokeScope, OAuthMarketManageScope}} {
 			profiles = append(profiles, append(slices.Clone(base), extra...))
+		}
+	}
+	// Remote control is a separate Pi-only consent. Existing grants and other
+	// native clients keep their exact previous permissions.
+	if query.Get("client_id") == OAuthPiClientID {
+		for _, base := range slices.Clone(profiles) {
+			profiles = append(profiles, append(slices.Clone(base), OAuthRemoteControlScope))
 		}
 	}
 	if query.Get("client_id") == OAuthCLIClientID {
