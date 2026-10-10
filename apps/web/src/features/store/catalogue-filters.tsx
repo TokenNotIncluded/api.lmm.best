@@ -193,7 +193,7 @@ export function StoreCatalogueFiltersPanel({
                     items={[
                       { value: '', label: t('Any stock') },
                       { value: 'in_stock', label: t('In stock') },
-                      { value: 'out_of_stock', label: t('Out of stock') },
+                      { value: 'out_of_stock', label: t('Unavailable for purchase') },
                     ]}
                     onChange={(stock) =>
                       onChange({
