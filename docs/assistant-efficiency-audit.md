@@ -54,7 +54,7 @@
 ## 验证方法
 
 ```sh
-cd apps/api-go
+cd apps/lmm-extensions
 go test ./internal/agent ./setting ./controller -run 'Test(Assistant|SuccessfulRead|FailedRead|LoopGuard|NormalizeCalls)' -count=1
 go test ./controller -run TestAssistantEfficiencyMeasuresDefinitionBytesForEachRole -count=1 -v
 ```

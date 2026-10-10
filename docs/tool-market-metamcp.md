@@ -113,7 +113,7 @@ AI 自己加载、卸载工具仍需要管理权限。AI 创建工具授权仍�
 ## 验证
 
 ```sh
-cd apps/api-go
+cd apps/lmm-extensions
 go test -p 2 ./controller -run 'ToolMarketMeta|ToolMarketMCP|ToolMarketBuiltin' -count=1
 go test -p 2 ./model ./service -run ToolMarket -count=1
 ```

@@ -40,7 +40,7 @@ LMM Forge 是一个开源的 AI 服务控制台。它将模型调用、Remote MC
 
 使用 [Docker 开发栈](deployment/docker/README.md)。通过 `lmm-core-admin init-db` 显式安装空的核心数据库；已有应用对象或重复安装都会拒绝。普通启动不建表、不改表。
 
-`apps/core-rust` 是 Rust 核心，`apps/api-go` 是 Go 扩展服务。Go 目前只接通只读身份模块，商店、助手、支付和原控制台接口尚未接回。模型接口仍不可用。前端源码保留，但不能据此认为整站功能已经完成。
+`apps/lmm-core` 是 Rust 核心，`apps/lmm-extensions` 是 Go 扩展服务。Go 目前只接通只读身份模块，商店、助手、支付和原控制台接口尚未接回。模型接口仍不可用。前端源码保留，但不能据此认为整站功能已经完成。
 
 本地命令和各服务独立的环境配置见[开发指南](docs/development.md)。不要把旧 Go 的数据库配置复制给新的扩展服务。
 

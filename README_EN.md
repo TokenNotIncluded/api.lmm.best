@@ -40,7 +40,7 @@ Visit the [home page](https://api.lmm.best), [model pricing](https://api.lmm.bes
 
 Use the [Docker development stack](deployment/docker/README.md). It explicitly installs an empty core database with `lmm-core-admin init-db`. A second installation or an existing application database is rejected. Normal service startup does not alter tables.
 
-`apps/core-rust` is the Rust core. `apps/api-go` is the Go extension host. Go currently provides only the read-only identity module, not the old shop, assistant, payment or console APIs. Model endpoints remain unavailable. Frontend source is retained, but this branch is not a working replacement for the whole site.
+`apps/lmm-core` is the Rust core. `apps/lmm-extensions` is the Go extension host. Go currently provides only the read-only identity module, not the old shop, assistant, payment or console APIs. Model endpoints remain unavailable. Frontend source is retained, but this branch is not a working replacement for the whole site.
 
 For local commands and separately exported service configuration, use the [development guide](docs/development.md). Do not copy an old Go database environment into the new extension process.
 

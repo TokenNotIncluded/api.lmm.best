@@ -13,7 +13,7 @@ jobs:
     defaults:
       run:
         shell: bash
-        working-directory: apps/core-rust
+        working-directory: apps/lmm-core
     env:
       DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
       CARGO_BUILD_JOBS: "2"

@@ -124,7 +124,7 @@ The test memory repository exists only in `_test.go`.
 
 ## Tests
 
-From `apps/api-go`, with the repository's Go 1.25 toolchain and dependencies:
+From `apps/lmm-extensions`, with the repository's Go 1.25 toolchain and dependencies:
 
 ```sh
 go test -race -count=1 ./internal/modules/store/... ./internal/modules/support/...

@@ -16,7 +16,7 @@ import time
 from urllib.parse import urlsplit, urlunsplit
 
 ROOT = Path(__file__).resolve().parents[3]
-RUST = ROOT / "apps/core-rust/target/debug/examples/protocol-events-fixture"
+RUST = ROOT / "apps/lmm-core/target/debug/examples/protocol-events-fixture"
 GO = Path(os.environ["MK06_GO_FIXTURE"])
 ADMIN = os.environ["DATABASE_URL"]
 URL = urlsplit(ADMIN)

@@ -38,7 +38,7 @@ The Zed bridge can forward OpenAI chat-completions and Responses streams for sup
 
 The API server must register the public clients `lmm-vscode` and `lmm-zed`. Each requests exactly `catalog:read balance:read usage:read models:invoke`, together with the group snapshot explicitly displayed during consent. The editor clients do not grant built-in MCP or marketplace scopes. Their credentials and revocation are isolated from the other editor and other LMM clients.
 
-Both adapters use the LMM authorization-server discovery document and a loopback callback with PKCE. Starting with 0.1.1, each adapter checks its own ID in `lmm_client_ids_supported` before opening browser authorization. If the deployed server does not register the editor, the adapter reports that prerequisite directly. It never substitutes Pi or another client. Authorization and error pages identify the registered client, and each authorization code keeps the exact redirect, resource, client and scope confirmed for that request. The access token is used with the OAuth catalog and relay endpoints, rather than the ordinary API-key endpoints. See the [server OAuth contract](../apps/api-go/service/oauth_contract.md) for the authoritative endpoint and authorization rules.
+Both adapters use the LMM authorization-server discovery document and a loopback callback with PKCE. Starting with 0.1.1, each adapter checks its own ID in `lmm_client_ids_supported` before opening browser authorization. If the deployed server does not register the editor, the adapter reports that prerequisite directly. It never substitutes Pi or another client. Authorization and error pages identify the registered client, and each authorization code keeps the exact redirect, resource, client and scope confirmed for that request. The access token is used with the OAuth catalog and relay endpoints, rather than the ordinary API-key endpoints. See the [server OAuth contract](../apps/lmm-extensions/service/oauth_contract.md) for the authoritative endpoint and authorization rules.
 
 When deploying the authorization-code snapshot migration, unredeemed codes created by the previous server must restart sign-in. Those codes already have a 120-second lifetime; existing access and refresh tokens remain usable.
 
@@ -70,7 +70,7 @@ The VS Code test command compiles and typechecks the extension before running te
 
 The Zed tests execute source TypeScript, while the published package contains built JavaScript so it can run from an installed npm package. CI also opens the VSIX and npm archive to verify their runtime entry points and exclude tests and dependency trees.
 
-The focused server check, from `apps/api-go`, is:
+The focused server check, from `apps/lmm-extensions`, is:
 
 ```sh
 GIN_MODE=release go test ./router ./service ./oauthserver -run 'TestOAuth(Editor|CLI|OpenCode|HTTPDiscovery)|TestCodewhale' -count=1

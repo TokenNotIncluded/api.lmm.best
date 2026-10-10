@@ -7,7 +7,7 @@
 在仓库根目录运行：
 
 ```sh
-cd apps/api-go
+cd apps/lmm-extensions
 go run ./cmd/tool-market-test-mcp -listen 127.0.0.1:8123
 ```
 
@@ -54,7 +54,7 @@ Bearer 或 API Key 认证的服务，需要在 LMM 测试实例配置稳定的 `
 ## 自动验收
 
 ```sh
-cd apps/api-go
+cd apps/lmm-extensions
 GOMAXPROCS=2 go test -race -p 2 ./internal/toolmarketfixture ./cmd/tool-market-test-mcp
 GOMAXPROCS=2 go test -race -p 2 ./service -run 'TestToolMarketPaid' -count=1
 ```

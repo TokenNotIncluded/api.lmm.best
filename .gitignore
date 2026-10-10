@@ -46,8 +46,8 @@ skills-lock.json
 /rust/target/
 
 # Compiled Go server binaries are build artifacts, never sources.
-/apps/api-go/lmm-api
-/apps/api-go/lmm-api-*
+/apps/lmm-extensions/lmm-extensions
+/apps/lmm-extensions/lmm-extensions-*
 /.codegraph/
 /SWAP.md
 /PLAN.md
@@ -75,5 +75,5 @@ __pycache__/
 *.rej
 *.bak
 
-/apps/core-rust/target/
-/apps/extensions-go/out/
+/apps/lmm-core/target/
+/apps/lmm-extensions/out/

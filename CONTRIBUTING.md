@@ -28,7 +28,7 @@ are required by maintainers during review.
 ## Development setup
 
 Follow the [local development guide](docs/development.md) to configure PostgreSQL,
-Valkey, and `apps/api-go/.env`. Start Go with `just dev-go`, then run the frontend
+Valkey, and `apps/lmm-extensions/.env`. Start Go with `just dev-go`, then run the frontend
 in a separate terminal on port 5173 as shown in that guide.
 
 `just dev` requires a locally supplied `docker-compose.dev.yml`;
@@ -49,7 +49,7 @@ For production-facing changes:
 
 - `just build`
 - `just check`
-- Any affected app-level test suite in `apps/api-go`, `apps/core-rust`, `apps/extensions-go`, or `apps/web`.
+- Any affected app-level test suite in `apps/lmm-extensions`, `apps/lmm-core`, `apps/extensions-go`, or `apps/web`.
 
 If checks are skipped, list the reason clearly in PR description.
 

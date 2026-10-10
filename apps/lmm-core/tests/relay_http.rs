@@ -1408,7 +1408,7 @@ impl Drop for Process {
 }
 #[tokio::test]
 async fn stopping_the_actual_go_extension_does_not_cut_a_rust_http_stream() {
-    let binary = std::env::var("LMM_RELAY_EXTENSION_BIN").expect("build apps/api-go/cmd/extensions and set LMM_RELAY_EXTENSION_BIN; this acceptance test must not be skipped");
+    let binary = std::env::var("LMM_RELAY_EXTENSION_BIN").expect("build apps/lmm-extensions/cmd/extensions and set LMM_RELAY_EXTENSION_BIN; this acceptance test must not be skipped");
     let dir = std::env::temp_dir().join(format!(
         "lmm-relay-go-{}-{}",
         std::process::id(),

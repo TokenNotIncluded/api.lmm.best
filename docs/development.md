@@ -4,12 +4,12 @@ This branch is a fresh-install microkernel WIP. Do not connect it to an existing
 
 ## Services
 
-- `apps/core-rust`: authoritative identity, accounts and permissions. Billing and model forwarding are not complete.
-- `apps/api-go`: the Go extension host. Only read-only identity queries are implemented.
+- `apps/lmm-core`: authoritative identity, accounts and permissions. Billing and model forwarding are not complete.
+- `apps/lmm-extensions`: the Go extension host. Only read-only identity queries are implemented.
 - `apps/web`: retained frontend source; the full application APIs are not connected yet.
 - `apps/lmm`: the separate CLI, not the core server.
 
-Rust uses the pinned toolchain in `apps/core-rust/rust-toolchain.toml`. The verification workflow pins Go 1.27.2. Web development uses Bun 1.3.14 and Node.js 22.12 or later.
+Rust uses the pinned toolchain in `apps/lmm-core/rust-toolchain.toml`. The verification workflow pins Go 1.27.2. Web development uses Bun 1.3.14 and Node.js 22.12 or later.
 
 ## Start a development stack
 

@@ -188,7 +188,7 @@ production network policy. No real paid provider was called.
 Local validation used Go 1.23.2 with the package's standard-library-only sources:
 
 ```sh
-cd apps/api-go/internal/modules/toolmarket
+cd apps/lmm-extensions/internal/modules/toolmarket
 GO111MODULE=off GOTOOLCHAIN=local go vet ./...
 GO111MODULE=off GOTOOLCHAIN=local go test -race -count=5 -timeout=60s -cover ./...
 GO111MODULE=off GOTOOLCHAIN=local go test -race -count=1 -json ./...
@@ -210,7 +210,7 @@ validated by the isolated Go 1.23.2 run. At final integration, run the repositor
 checks and at least:
 
 ```sh
-cd apps/api-go
+cd apps/lmm-extensions
 go test -race ./internal/modules/toolmarket -count=1
 go vet ./...
 go test -race ./... -count=1

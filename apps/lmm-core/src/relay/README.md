@@ -129,13 +129,13 @@ account, production database, API key or paid model call is used by these tests.
 
 ```sh
 export GOWORK=off
-(cd apps/api-go && go build -mod=readonly -o /tmp/lmm-relay-extension ./cmd/extensions)
+(cd apps/lmm-extensions && go build -mod=readonly -o /tmp/lmm-relay-extension ./cmd/extensions)
 export LMM_RELAY_EXTENSION_BIN=/tmp/lmm-relay-extension
-cargo +1.99.0 fmt --manifest-path apps/core-rust/Cargo.toml --all --check
-cargo +1.99.0 clippy --manifest-path apps/core-rust/Cargo.toml --locked --all-targets -- -D warnings
-cargo +1.99.0 test --manifest-path apps/core-rust/Cargo.toml --locked --test relay_http -- --nocapture
+cargo +1.99.0 fmt --manifest-path apps/lmm-core/Cargo.toml --all --check
+cargo +1.99.0 clippy --manifest-path apps/lmm-core/Cargo.toml --locked --all-targets -- -D warnings
+cargo +1.99.0 test --manifest-path apps/lmm-core/Cargo.toml --locked --test relay_http -- --nocapture
 # Set DATABASE_URL to an isolated test PostgreSQL instance before all-targets.
-cargo +1.99.0 test --manifest-path apps/core-rust/Cargo.toml --locked --all-targets -- --nocapture
+cargo +1.99.0 test --manifest-path apps/lmm-core/Cargo.toml --locked --all-targets -- --nocapture
 python3 -B scripts/test-core-boundaries.py
 ```
 

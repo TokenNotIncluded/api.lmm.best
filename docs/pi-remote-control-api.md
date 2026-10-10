@@ -91,7 +91,7 @@ Locking/unmounting the production session view cancels requests, removes decrypt
 
 ## Reproducible checks
 
-Backend: `cd apps/api-go && go test ./controller ./router -run 'TestPiRemote|TestOAuthHTTPDiscovery' -count=1`.
+Backend: `cd apps/lmm-extensions && go test ./controller ./router -run 'TestPiRemote|TestOAuthHTTPDiscovery' -count=1`.
 
 Browser protocol: `cd apps/web && bun test src/features/remote-control/*.test.ts`.
 
