@@ -1,0 +1,45 @@
+test_bytes_after_terminal_rejected (test_dp30.ParserAndSafetyTests.test_bytes_after_terminal_rejected) ... ok
+test_complete_terminal_at_every_byte_boundary (test_dp30.ParserAndSafetyTests.test_complete_terminal_at_every_byte_boundary) ... ok
+test_credential_file_must_be_private (test_dp30.ParserAndSafetyTests.test_credential_file_must_be_private) ... ok
+test_crlf_and_multiline_data (test_dp30.ParserAndSafetyTests.test_crlf_and_multiline_data) ... ok
+test_duplicate_json_and_nan_rejected (test_dp30.ParserAndSafetyTests.test_duplicate_json_and_nan_rejected) ... ok
+test_evidence_line_and_partial_write_are_bounded (test_dp30.ParserAndSafetyTests.test_evidence_line_and_partial_write_are_bounded) ... ok
+test_incomplete_terminal_never_flushed_at_eof (test_dp30.ParserAndSafetyTests.test_incomplete_terminal_never_flushed_at_eof) ... ok
+test_no_redirect_followed (test_dp30.ParserAndSafetyTests.test_no_redirect_followed) ... ok
+test_non_loopback_and_credentials_rejected (test_dp30.ParserAndSafetyTests.test_non_loopback_and_credentials_rejected) ... ok
+test_overload_is_recorded_not_silently_delayed (test_dp30.ParserAndSafetyTests.test_overload_is_recorded_not_silently_delayed) ... ok
+test_permit_rejects_an_unrelated_local_service (test_dp30.ParserAndSafetyTests.test_permit_rejects_an_unrelated_local_service) ... ok
+test_plan_does_not_invent_dp21_or_integration_sha (test_dp30.ParserAndSafetyTests.test_plan_does_not_invent_dp21_or_integration_sha) ... ok
+test_safety_limits_cannot_expand_unbounded (test_dp30.ParserAndSafetyTests.test_safety_limits_cannot_expand_unbounded) ... ok
+test_slow_headers_have_a_total_deadline (test_dp30.ParserAndSafetyTests.test_slow_headers_have_a_total_deadline) ... ok
+test_sse_event_bound (test_dp30.ParserAndSafetyTests.test_sse_event_bound) ... ok
+test_test_key_is_not_saved_in_result (test_dp30.ParserAndSafetyTests.test_test_key_is_not_saved_in_result) ... ok
+test_automatic_replay (test_dp30.VerifierTests.test_automatic_replay) ... ok
+test_backlog_not_cleared (test_dp30.VerifierTests.test_backlog_not_cleared) ... ok
+test_cross_node_clocks_not_subtracted (test_dp30.VerifierTests.test_cross_node_clocks_not_subtracted) ... ok
+test_cross_run_rows_rejected (test_dp30.VerifierTests.test_cross_run_rows_rejected) ... ok
+test_cutover_before_ready (test_dp30.VerifierTests.test_cutover_before_ready) ... ok
+test_double_debit_even_when_double_entry_balances (test_dp30.VerifierTests.test_double_debit_even_when_double_entry_balances) ... ok
+test_duplicate_ledger_rows (test_dp30.VerifierTests.test_duplicate_ledger_rows) ... ok
+test_duplicate_request (test_dp30.VerifierTests.test_duplicate_request) ... ok
+test_duplicate_side_effect (test_dp30.VerifierTests.test_duplicate_side_effect) ... ok
+test_empty_requests_do_not_pass (test_dp30.VerifierTests.test_empty_requests_do_not_pass) ... ok
+test_fixture_cannot_become_application_acceptance (test_dp30.VerifierTests.test_fixture_cannot_become_application_acceptance) ... ok
+test_ledger_revision_gap_is_not_hidden_by_final_balance (test_dp30.VerifierTests.test_ledger_revision_gap_is_not_hidden_by_final_balance) ... ok
+test_missing_ledger_remains_unknown (test_dp30.VerifierTests.test_missing_ledger_remains_unknown) ... ok
+test_missing_recovery_is_not_zero (test_dp30.VerifierTests.test_missing_recovery_is_not_zero) ... ok
+test_missing_resource_round (test_dp30.VerifierTests.test_missing_resource_round) ... ok
+test_money_float_forbidden (test_dp30.VerifierTests.test_money_float_forbidden) ... ok
+test_nineteen_is_not_twenty (test_dp30.VerifierTests.test_nineteen_is_not_twenty) ... ok
+test_normal_update_must_not_force_kill (test_dp30.VerifierTests.test_normal_update_must_not_force_kill) ... ok
+test_orphan_account_forbidden (test_dp30.VerifierTests.test_orphan_account_forbidden) ... ok
+test_reordered_content (test_dp30.VerifierTests.test_reordered_content) ... ok
+test_revoked_key_accepted (test_dp30.VerifierTests.test_revoked_key_accepted) ... ok
+test_terminal_frame_missing (test_dp30.VerifierTests.test_terminal_frame_missing) ... ok
+test_upstream_replayed (test_dp30.VerifierTests.test_upstream_replayed) ... ok
+test_waiting_time_not_hidden (test_dp30.VerifierTests.test_waiting_time_not_hidden) ... ok
+
+----------------------------------------------------------------------
+Ran 40 tests in 0.348s
+
+OK

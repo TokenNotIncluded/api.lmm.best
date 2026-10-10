@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "run_id": "REPLACE_WITH_UNIQUE_RUN_ID",
+  "source_sha": "72667564c0431754d4856dc2e0db55f360bd2745",
+  "scope": "application_integration",
+  "scenario": "normal_update",
+  "integration_sha": null,
+  "dp21_workload_sha256": null,
+  "dp21_budget_sha256": null,
+  "environment": {
+    "kind": "container_simulation",
+    "nodes": []
+  },
+  "capabilities": {
+    "rust_model_path": false,
+    "postgres_ledger": false,
+    "isolated_network": false,
+    "no_real_money": false,
+    "no_notifications": false,
+    "immutable_artifacts": false,
+    "node_limits_observed": false
+  },
+  "expected_requests": 20,
+  "wallet_account_id": null,
+  "balances_before": null,
+  "balances_after": null,
+  "account_revisions_before": null,
+  "account_revisions_after": null,
+  "expected_request_wallet_delta": null,
+  "expected_effects": null,
+  "persistence_recovery_evidence": null,
+  "disk_quota_evidence": null,
+  "retention_recovery_evidence": null,
+  "stop_rule_evidence": null,
+  "note": "Incomplete template. Replace source_sha with the actual integrated checkout SHA. Do not mark capabilities true without independently retained observations."
+}
