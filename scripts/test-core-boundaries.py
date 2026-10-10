@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline architectural guards; Docker execution is a separate, required test."""
+"""Offline source boundaries. Runtime, database and Docker tests are separate."""
 import json
 from pathlib import Path
 import tomllib
@@ -7,32 +7,46 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 
+
 class CoreBoundaryTests(unittest.TestCase):
-    def test_retired_backend_and_assets_are_absent(self):
-        for name in ("apps/api-rust", "packaging/aur/lmm-api-rs-git",
-                     "packaging/common/lmm-api/lmm-api-rs.env.example",
-                     "packaging/common/lmm-api/validate-route-gate"):
+    def test_retired_backends_and_migration_entry_points_are_absent(self):
+        for name in ("apps/api-rust", "apps/extensions-go", "apps/core-rust/migrations",
+                     "apps/api-go/model", "apps/api-go/controller", "apps/api-go/relay",
+                     "apps/api-go/router", "apps/api-go/migration", "apps/api-go/internal/appcli"):
             self.assertFalse((ROOT / name).exists(), name)
         self.assertTrue((ROOT / "apps/lmm/Cargo.toml").is_file())
-        self.assertTrue((ROOT / "apps/api-go/main.go").is_file())
+        self.assertTrue((ROOT / "apps/api-go/cmd/extensions/main.go").is_file())
 
-    def test_executable_entries_do_not_reference_retired_source(self):
-        paths = [ROOT / "justfile", ROOT / "package.json"]
-        paths += list((ROOT / ".github/workflows").glob("*.yml"))
-        paths += list((ROOT / "scripts/ci").glob("*.sh"))
-        for path in paths:
-            self.assertNotIn("apps/api-rust", path.read_text(), str(path))
-        for path in (ROOT / "apps/api-go/controller").glob("*.go"):
-            self.assertNotIn("../../api-rust/", path.read_text(), str(path))
+    def test_extension_has_no_core_database_or_authority_dependency(self):
+        module = (ROOT / "apps/api-go/go.mod").read_text()
+        for forbidden in ("gorm.io", "go-sql-driver", "lib/pq", "jackc/pgx", "sqlite"):
+            self.assertNotIn(forbidden, module)
+        for path in (ROOT / "apps/api-go").rglob("*.go"):
+            if path.name.endswith("_test.go"):
+                continue
+            text = path.read_text()
+            for forbidden in ('"database/sql"', "AutoMigrate(", "SQL_DSN", "LMM_CORE_DATABASE_URL"):
+                self.assertNotIn(forbidden, text, str(path))
+        self.assertIn("client", (ROOT / "apps/api-go/internal/modules/identity/identity.go").read_text())
 
-    def test_root_core_commands_use_the_pinned_toolchain_directory(self):
-        scripts = json.loads((ROOT / "package.json").read_text())["scripts"]
-        for name in ("dev", "build", "test", "format", "format-check", "lint", "typecheck"):
-            self.assertTrue(scripts[name + ":core"].startswith("cd apps/core-rust && cargo "), name)
+    def test_fresh_schema_is_explicit_and_relational(self):
+        schema = (ROOT / "apps/core-rust/schema/identity.sql").read_text()
+        for table in ("accounts", "users", "teams", "memberships", "credentials", "key_funding_rules"):
+            self.assertIn("CREATE TABLE core_identity." + table, schema)
+        self.assertNotIn("funding_policy JSONB", schema)
+        self.assertNotIn("DROP ", schema)
+        runtime = (ROOT / "apps/core-rust/src/identity/mod.rs").read_text()
+        self.assertNotIn("MIGRATOR", runtime)
+        self.assertNotIn("sqlx::migrate!", runtime)
+        admin = (ROOT / "apps/core-rust/src/bin/lmm-core-admin.rs").read_text()
+        self.assertIn('"init-db"', admin)
+        self.assertNotIn('"migrate"', admin)
+        self.assertNotIn("init_database", (ROOT / "apps/core-rust/src/main.rs").read_text())
 
     def test_core_has_no_extension_startup_dependency(self):
         cargo = tomllib.loads((ROOT / "apps/core-rust/Cargo.toml").read_text())
         self.assertEqual(cargo["lints"]["rust"]["unsafe_code"], "forbid")
+        self.assertNotIn("migrate", cargo["dependencies"]["sqlx"]["features"])
         for name in cargo["dependencies"]:
             self.assertNotIn("extension", name)
         for name in ("main.rs", "http.rs"):
@@ -55,18 +69,15 @@ class CoreBoundaryTests(unittest.TestCase):
         self.assertIn("external: true", extension)
         self.assertNotIn("SQL_DSN", extension)
         self.assertNotIn("DATABASE_URL", extension)
+        self.assertIn("COPY apps/api-go/", (ROOT / "deployment/docker/extensions.Dockerfile").read_text())
+        self.assertIn("COPY apps/core-rust/schema", (ROOT / "deployment/docker/core.Dockerfile").read_text())
 
-    def test_shared_go_regression_data_survives(self):
-        for name in ("account-balance-parity", "epay-current-go-input", "stripe-subscription-checkout-current-go-input"):
-            self.assertTrue(json.loads((ROOT / "contracts/go-regression" / f"{name}.json").read_text()))
-
-    def test_funding_cases_are_shared_and_named(self):
-        path = ROOT / "contracts/core/v1/funding-cases.json"
-        cases = json.loads(path.read_text())
+    def test_core_owns_the_funding_contract(self):
+        cases = json.loads((ROOT / "contracts/core/v1/funding-cases.json").read_text())
         self.assertGreaterEqual(len(cases), 24)
         self.assertEqual(len({case["name"] for case in cases}), len(cases))
-        for name in ("apps/core-rust/src/funding.rs", "apps/api-go/pkg/accountfunding/contract_test.go"):
-            self.assertIn("funding-cases.json", (ROOT / name).read_text())
+        self.assertIn("funding-cases.json", (ROOT / "apps/core-rust/src/funding.rs").read_text())
+
 
 if __name__ == "__main__":
     unittest.main()
