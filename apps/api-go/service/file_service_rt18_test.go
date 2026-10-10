@@ -15,9 +15,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/LIghtJUNction/api.lmm.best/constant"
 	"github.com/LIghtJUNction/api.lmm.best/relay/channel/ollama"
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
@@ -321,6 +323,88 @@ func TestRT18ParallelSameContextRegistration(t *testing.T) {
 	for err := range errs {
 		t.Error(err)
 	}
-	// Run with -race. Context registration read-modify-write must also be
-	// checked before making this draft PR eligible for merge.
+	registered, ok := c.Get(string(constant.ContextKeyFileSourcesToCleanup))
+	if !ok {
+		t.Fatal("cleanup registry missing")
+	}
+	sources, ok := registered.([]types.FileSource)
+	if !ok || len(sources) != workers {
+		t.Fatalf("lost concurrent cleanup registrations: got=%T len=%d want=%d", registered, len(sources), workers)
+	}
+	seen := map[types.FileSource]bool{}
+	for _, source := range sources {
+		if seen[source] {
+			t.Fatal("source added to cleanup list twice")
+		}
+		seen[source] = true
+	}
+}
+
+func TestRT18SharedSourceCannotCrossActiveRequests(t *testing.T) {
+	files := rt18Images(t)
+	ca := rt18ContextFor(101)
+	cb := rt18ContextFor(202)
+	source := types.NewBase64FileSource(files[0].encoded, "image/jpeg")
+	first, err := service.LoadFileSource(ca, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unexpected, err := service.LoadFileSource(cb, source); err == nil || unexpected != nil {
+		t.Fatalf("active request source was borrowed by a different context: %p %v", unexpected, err)
+	}
+	rt18AssertImage(t, first, files[0])
+	service.CleanupFileSources(ca)
+	service.CleanupFileSources(ca)
+	second, err := service.LoadFileSource(cb, source)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second == first {
+		t.Fatal("closed object escaped from old request")
+	}
+	rt18AssertImage(t, second, files[0])
+	if got, err := service.LoadFileSource(ca, types.NewBase64FileSource(files[1].encoded, "image/jpeg")); err == nil || got != nil {
+		t.Fatalf("load succeeded on closed request: %p %v", got, err)
+	}
+	service.CleanupFileSources(cb)
+}
+
+func TestRT18CleanupRacesAgainstBoundedLoads(t *testing.T) {
+	files := rt18Images(t)
+	for attempt := 0; attempt < 12; attempt++ {
+		c := rt18ContextFor(101)
+		const workers = 8
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		errs := make(chan error, workers)
+		for i := 0; i < workers; i++ {
+			wg.Add(1)
+			go func(index int) {
+				defer wg.Done()
+				<-start
+				f := files[index%2]
+				_, err := service.LoadFileSource(c, types.NewBase64FileSource(f.encoded, "image/jpeg"))
+				if err != nil && !strings.Contains(err.Error(), "after request cleanup") {
+					errs <- err
+				}
+			}(i)
+		}
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			service.CleanupFileSources(c)
+		}()
+		close(start)
+		wg.Wait()
+		close(errs)
+		for err := range errs {
+			t.Error(err)
+		}
+		registered, _ := c.Get(string(constant.ContextKeyFileSourcesToCleanup))
+		sources, _ := registered.([]types.FileSource)
+		if len(sources) != 0 {
+			t.Fatalf("request cleanup left %d registered sources", len(sources))
+		}
+	}
 }
