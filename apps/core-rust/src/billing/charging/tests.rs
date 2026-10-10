@@ -845,10 +845,12 @@ async fn budget_authority_and_issuer_limits_cannot_override_owner(pool: PgPool) 
         .reserve(l6_key, &request("fresh-l6-key", 1), &WORKER)
         .await
         .unwrap();
-    sqlx::query("UPDATE core_identity.memberships SET can_spend=false,version=version+1 WHERE user_id=2")
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(
+        "UPDATE core_identity.memberships SET can_spend=false,version=version+1 WHERE user_id=2",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
     assert_eq!(
         engine
             .reserve(l6_key, &request("no-l6-bypass", 1), &WORKER)
