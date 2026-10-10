@@ -1,0 +1,33 @@
+name: Store source review snapshots
+on:
+  push:
+    branches: [fix/store-claim-refund-sync-20261010]
+    paths: [.github/workflows/store-source-review.yml]
+permissions:
+  contents: read
+jobs:
+  snapshots:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - name: Export only tracked public source at pinned revisions
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/store-review-source"
+          for item in head:HEAD main:3076e01b31a62d18e0c9bf52da4d6b36712c01bf base:7f09e17d68a27c4dd7ada3e43fe0474795f71f6e; do
+            name="${item%%:*}"
+            ref="${item#*:}"
+            if test "$ref" != HEAD; then git fetch --no-tags --depth=1 origin "$ref"; fi
+            git rev-parse "$ref" > "$RUNNER_TEMP/store-review-source/$name.sha"
+            git rev-parse "$ref^{tree}" > "$RUNNER_TEMP/store-review-source/$name.tree"
+            git archive --format=tar "$ref" | gzip > "$RUNNER_TEMP/store-review-source/$name.tar.gz"
+          done
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: store-review-source
+          path: ${{ runner.temp }}/store-review-source
+          retention-days: 2

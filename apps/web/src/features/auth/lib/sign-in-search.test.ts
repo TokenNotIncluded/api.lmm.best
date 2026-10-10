@@ -16,7 +16,10 @@ test('the real router parser accepts a generated purchasing-account sign-in link
   }
   const href = new URL(signInHref(location, true), location.origin)
   const parsed = defaultParseSearch(href.search)
-  assert.equal(parsed.reauth, 1)
+  assert.deepEqual(parsed, {
+    redirect: location.pathname + location.search + location.hash,
+    reauth: 1,
+  })
   assert.deepEqual(signInSearchSchema.parse(parsed), {
     redirect: location.pathname + location.search + location.hash,
     reauth: '1',
