@@ -24,9 +24,9 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 Copyright (C) 2026 LIghtJUNction
 
 This program is free software: you can redistribute it and/or modify
-it under the terms of the GNU Affero General Public License as
-published by the Free Software Foundation, either version 3 of the
-License, or (at your option) any later version.
+it under the terms of the GNU Affero General Public License as published by
+the Free Software Foundation, either version 3 of the License, or
+(at your option) any later version.
 */
 import { Link } from '@tanstack/react-router'
 import { Copy, Check, ArrowDown, RotateCcw } from 'lucide-react'
@@ -57,6 +57,8 @@ import {
   localizeAssistantPreConversationPresets,
 } from '@/features/assistant/assistant-prompt-presets'
 import { getAssistantPromptValidation } from '@/features/assistant/assistant-prompt-validation'
+import { AssistantUIPreferencesCard } from '@/features/assistant/assistant-ui-preferences-card'
+import type { AssistantUIPreferenceAction } from '@/features/assistant/assistant-ui-preferences-contract'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { getL0AccessCopy } from './l0-access-copy'
@@ -122,6 +124,8 @@ export function L0CloudConversation({
     staleTime: 5 * 60_000,
     retry: false,
   })
+  const [uiPreferenceAction, setUIPreferenceAction] =
+    useState<AssistantUIPreferenceAction | undefined>(undefined)
   const [prompt, setPrompt] = useState('')
   const [supportRequired, setSupportRequired] = useState(false)
   const [away, setAway] = useState(false)
@@ -156,6 +160,7 @@ export function L0CloudConversation({
               latest.session?.sid === auth.session?.sid
             )
           }
+          setUIPreferenceAction(undefined)
           const reply = await sendAssistantMessage(
             message,
             history,
@@ -174,10 +179,25 @@ export function L0CloudConversation({
             turnId
           )
           if (!sameAccount()) throw new Error('Account changed')
+          if (signal.aborted) throw new DOMException('Aborted', 'AbortError')
+          const preferenceAction =
+            reply.action?.type === 'workspace_action' &&
+            !reply.action.requires_confirmation
+              ? reply.action
+              : undefined
           setSupportRequired(Boolean(reply.supportRequest))
           // Tool receipts do not replace authorization. Refresh the account from
           // the server after the reply; a failed refresh must not lose the reply.
-          void refreshCurrentAccount().catch(() => undefined)
+          const refresh = refreshCurrentAccount().catch(() => undefined)
+          if (preferenceAction) {
+            // Finish this account read before the preference card can write.
+            // Otherwise a stale profile response could replace its new value.
+            await refresh
+            if (!sameAccount() || signal.aborted) {
+              throw new Error('Account changed or request stopped')
+            }
+            setUIPreferenceAction(preferenceAction)
+          }
           void queryClient.invalidateQueries({
             queryKey: [
               'assistant-registration-state',
@@ -187,7 +207,9 @@ export function L0CloudConversation({
           })
           return {
             ...reply,
-            needsAction: Boolean(reply.action || reply.supportRequest),
+            needsAction: Boolean(
+              (reply.action && !preferenceAction) || reply.supportRequest
+            ),
           }
         },
         (text) => redactAssistantMessageForRequest(text).content
@@ -209,6 +231,7 @@ export function L0CloudConversation({
   const prefix = state.answer.slice(0, tail[0]?.index ?? 0)
 
   useEffect(() => session.subscribe(setState), [session])
+  useEffect(() => setUIPreferenceAction(undefined), [user?.id, sessionId])
   useEffect(() => {
     alive.current = true
     return () => {
@@ -363,6 +386,7 @@ export function L0CloudConversation({
               onClick={() => {
                 flow.current?.clear()
                 session.clear()
+                setUIPreferenceAction(undefined)
                 transcript.current?.latest()
                 setAway(false)
                 input.current?.focus()
@@ -403,6 +427,13 @@ export function L0CloudConversation({
                   </>
                 )}
               </div>
+              {uiPreferenceAction && state.phase === 'done' && (
+                <AssistantUIPreferencesCard
+                  key={uiPreferenceAction.action_id}
+                  action={uiPreferenceAction}
+                  disabled={!active}
+                />
+              )}
               <p className='l0-sr-only' role='status'>
                 {busy
                   ? copy.responding

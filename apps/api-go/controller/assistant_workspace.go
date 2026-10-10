@@ -42,7 +42,7 @@ func assistantWorkspaceTool(name string) bool {
 	case "get_overview_greeting", "set_overview_greeting", "get_site_issues", "create_site_issue", "update_site_issue", "send_invitation", "get_connected_market_tools", "connect_market_tool", "call_market_tool":
 		return true
 	}
-	return false
+	return assistantUIPreferencesTool(name)
 }
 func assistantWorkspaceFailure(status string) map[string]any {
 	return map[string]any{"ok": false, "status": status, "error": "The workspace action could not be completed. Check current permissions, input and record revision."}
@@ -75,6 +75,9 @@ func executeAssistantWorkspaceTool(c *gin.Context, call assistantOpenAIToolCall,
 	level, err := model.AssistantToolLevelDB(model.DB.WithContext(c.Request.Context()), actor)
 	if err != nil || !policy.AllowedAtLevel(name, level) {
 		return assistantWorkspaceFailure("tool_level_denied")
+	}
+	if assistantUIPreferencesTool(name) {
+		return executeAssistantUIPreferences(c, name, input, actor, identity.SessionID)
 	}
 	var draft assistantWorkspaceDraft
 	var preview any
