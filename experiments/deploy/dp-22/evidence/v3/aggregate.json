@@ -1,0 +1,17 @@
+{
+  "scenarios": 17,
+  "upstream_posts": 21,
+  "complete_sse": 19,
+  "repeat_posts": [],
+  "pending_tickets": 0,
+  "remaining_children": 0,
+  "forced_cleanup_kills": [],
+  "request_outcomes": {
+    "transport_complete": 19,
+    "transport_open": 1,
+    "transport_unknown": 1,
+    "transport_ack_failed_before_upstream": 2
+  },
+  "rust_runtime": "NOT_RUN",
+  "financial_settlement": "NOT_CONNECTED_NOT_TESTED"
+}

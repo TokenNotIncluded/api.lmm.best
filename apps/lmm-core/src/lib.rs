@@ -12,4 +12,5 @@ pub mod identity;
 pub mod identity_http;
 #[cfg(unix)]
 pub mod internal_rpc;
+pub mod lifecycle;
 pub mod relay;

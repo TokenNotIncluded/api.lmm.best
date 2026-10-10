@@ -1,0 +1,22 @@
+test_01_control_http1_keepalive (__main__.RolloutTests.test_01_control_http1_keepalive) ... ok
+test_02_control_http2_multiplex (__main__.RolloutTests.test_02_control_http2_multiplex) ... ok
+test_03_rollout_http1_old_keepalive_new_work (__main__.RolloutTests.test_03_rollout_http1_old_keepalive_new_work) ... ok
+test_04_rollout_http2_same_tcp_multiplex (__main__.RolloutTests.test_04_rollout_http2_same_tcp_multiplex) ... ok
+test_05_live_200_is_not_preparation (__main__.RolloutTests.test_05_live_200_is_not_preparation) ... ok
+test_06_cutover_failure_does_not_drain_old (__main__.RolloutTests.test_06_cutover_failure_does_not_drain_old) ... ok
+test_07_generation_and_memory_limits_before_launch (__main__.RolloutTests.test_07_generation_and_memory_limits_before_launch) ... ok
+test_08_http2_cancel_releases_reference_resources (__main__.RolloutTests.test_08_http2_cancel_releases_reference_resources) ... ok
+test_09_completion_barrier_and_drain_deadline_do_not_kill (__main__.RolloutTests.test_09_completion_barrier_and_drain_deadline_do_not_kill) ... ok
+test_10_sigkill_breaks_stream_retains_unknown_without_repost (__main__.RolloutTests.test_10_sigkill_breaks_stream_retains_unknown_without_repost) ... ok
+test_11_socket_paths_and_direct_old_connection_gate (__main__.RolloutTests.test_11_socket_paths_and_direct_old_connection_gate) ... ok
+test_12_uncertain_cutover_keeps_both_instances (__main__.RolloutTests.test_12_uncertain_cutover_keeps_both_instances) ... ok
+test_13_route_authority_loss_no_retry_or_old_stream_kill (__main__.RolloutTests.test_13_route_authority_loss_no_retry_or_old_stream_kill) ... ok
+test_14_preselected_request_stays_admitted_before_old_drain (__main__.RolloutTests.test_14_preselected_request_stays_admitted_before_old_drain) ... ok
+test_15_cancel_before_core_admission_revokes_ticket_without_post (__main__.RolloutTests.test_15_cancel_before_core_admission_revokes_ticket_without_post) ... ok
+test_16_missing_or_forged_direct_ticket_never_calls_upstream (__main__.RolloutTests.test_16_missing_or_forged_direct_ticket_never_calls_upstream) ... ok
+test_17_withdrawn_generation_cannot_be_selected_again (__main__.RolloutTests.test_17_withdrawn_generation_cannot_be_selected_again) ... ok
+
+----------------------------------------------------------------------
+Ran 17 tests in 26.522s
+
+OK
