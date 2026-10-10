@@ -145,13 +145,6 @@ func canonicalTopUpCredit(c *gin.Context) (resolvedTopUpAmount, bool) {
 	return amount, exists && ok
 }
 
-func topUpConfigAmountFromResolved(amount resolvedTopUpAmount) decimal.Decimal {
-	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
-		return decimal.NewFromInt(amount.CreditedQuota)
-	}
-	return amount.LegacyBatch
-}
-
 func quoteTopUpResolvedWithSettlementPricing(amount resolvedTopUpAmount, group string, pricing payMethodSettlementPricing, ratio decimal.Decimal) (decimal.Decimal, error) {
 	_, paid, err := quoteTopUpResolvedSettlementAmounts(amount, group, pricing, ratio)
 	return paid, err
@@ -173,7 +166,19 @@ func quoteTopUpResolvedSettlementAmounts(amount resolvedTopUpAmount, group strin
 	if err != nil {
 		return decimal.Zero, decimal.Zero, err
 	}
-	original, paid := applyTopUpSettlementRatiosWithOriginal(settlement, topUpConfigAmountFromResolved(amount), group, ratio)
+	// Match the same validated CREDIT catalog published to new clients. The
+	// compatibility LegacyBatch projection cannot select a different discount.
+	groupRatio := topUpRechargeGroupFactor(group)
+	tokens := operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens
+	discounts, err := topUpCreditDiscounts(operation_setting.GetPaymentSetting().AmountDiscount, tokens)
+	if err != nil {
+		return decimal.Zero, decimal.Zero, err
+	}
+	discount := 1.0
+	if configured, exists := discounts[strconv.FormatInt(amount.CreditedQuota, 10)]; exists {
+		discount = configured
+	}
+	original, paid := applyTopUpSettlementFactorsWithOriginal(settlement, groupRatio, ratio, decimal.NewFromFloat(discount))
 	return original, paid, nil
 }
 
@@ -222,7 +227,11 @@ func applyDiscountCodeQuoteRequest(c *gin.Context, base decimal.Decimal, amount 
 	var discount *model.DiscountCode
 	var err error
 	if _, canonical := canonicalTopUpCredit(c); canonical {
-		paid, discount, err = applyDiscountCodeQuoteDecimal(base, topUpConfigAmountFromResolved(amount), code, userID)
+		qualification, qualificationErr := topUpCouponAmountForCredits(amount.CreditedQuota)
+		if qualificationErr != nil {
+			return decimal.Zero, nil, qualificationErr
+		}
+		paid, discount, err = applyDiscountCodeQuoteDecimal(base, qualification, code, userID)
 	} else {
 		paid, discount, err = applyDiscountCodeQuoteLegacyDecimal(base, amount.LegacyBatch, code, userID)
 	}
