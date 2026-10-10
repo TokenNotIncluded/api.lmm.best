@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"fmt"
 	"io"
+	"math"
 	"net/http"
 	"regexp"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -22,12 +22,12 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/relay/helper"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
 	"github.com/LIghtJUNction/api.lmm.best/service"
-	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
 	"github.com/LIghtJUNction/api.lmm.best/types"
 
 	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
 	"github.com/samber/lo"
+	"github.com/shopspring/decimal"
 )
 
 // ============================
@@ -502,8 +502,8 @@ func completionBillingRatios(task *model.Task, result responseTask) map[string]f
 }
 
 // AdjustBillingOnComplete corrects capability multipliers inside the existing
-// polling hook. Current model/group configuration and per-call price locks keep
-// the same semantics as service.RecalculateTaskQuotaByTokens.
+// polling hook. Model/group prices stay frozen at submission, just as in
+// service.RecalculateTaskQuotaByTokens. Provider facts change dimensions only.
 func (a *TaskAdaptor) AdjustBillingOnComplete(task *model.Task, taskResult *relaycommon.TaskInfo) int {
 	if task == nil || taskResult == nil || taskResult.Status != model.TaskStatusSuccess {
 		return 0
@@ -534,40 +534,15 @@ func (a *TaskAdaptor) AdjustBillingOnComplete(task *model.Task, taskResult *rela
 	if tokens <= 0 {
 		return 0
 	}
-	name := bc.OriginModelName
-	if name == "" {
-		name = task.Properties.OriginModelName
-	}
-	modelRatio, configured, _ := ratio_setting.GetModelRatio(name)
-	if !configured || modelRatio <= 0 {
+	if bc.PerCallBilling || bc.ModelRatio <= 0 || bc.GroupRatio <= 0 ||
+		math.IsNaN(bc.ModelRatio) || math.IsNaN(bc.GroupRatio) ||
+		math.IsInf(bc.ModelRatio, 0) || math.IsInf(bc.GroupRatio, 0) {
 		return 0
 	}
-	group := task.Group
-	if group == "" {
-		if user, err := model.GetUserById(task.UserId, false); err == nil {
-			group = user.Group
-		}
-	}
-	if group == "" {
-		return 0
-	}
-	groupRatio := ratio_setting.GetGroupRatio(group)
-	if specialRatio, ok := ratio_setting.GetGroupGroupRatio(group, group); ok {
-		groupRatio = specialRatio
-	}
-	priceData := types.PriceData{}
-	priceData.ReplaceOtherRatios(ratios)
-	validRatios := priceData.OtherRatios()
-	keys := make([]string, 0, len(validRatios))
-	for key := range validRatios {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	multiplier := 1.0
-	for _, key := range keys {
-		multiplier *= validRatios[key]
-	}
-	quota, _ := common.QuotaFromFloatChecked(float64(tokens) * modelRatio * groupRatio * multiplier)
+	price := types.PriceData{}
+	price.ReplaceOtherRatios(ratios)
+	amount := decimal.NewFromInt(int64(tokens)).Mul(decimal.NewFromFloat(bc.ModelRatio)).Mul(decimal.NewFromFloat(bc.GroupRatio))
+	quota, _ := common.ChargeQuotaFromDecimalChecked(price.ApplyOtherRatiosToDecimal(amount))
 	return quota
 }
 

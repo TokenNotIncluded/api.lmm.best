@@ -80,7 +80,9 @@ type textQuotaSummary struct {
 // surcharge (e.g. /v1/alpha/search returns no usage but bills one web_search
 // call), so token count alone is not sufficient to decide.
 func (s *textQuotaSummary) hasBillableUsage() bool {
-	return s.BillingExemptReason == "" && (s.TotalTokens > 0 || !s.ToolCallSurchargeQuota.IsZero())
+	return s.BillingExemptReason == "" && (s.TotalTokens > 0 || s.CacheTokens > 0 ||
+		cacheWriteTokensTotal(s.CacheCreationTokens, s.CacheCreationTokens5m, s.CacheCreationTokens1h) > 0 ||
+		s.ImageTokens > 0 || s.AudioTokens > 0 || !s.ToolCallSurchargeQuota.IsZero())
 }
 
 func textBillingExemptReason(ctx *gin.Context, usage *dto.Usage) string {
@@ -92,42 +94,6 @@ func textBillingExemptReason(ctx *gin.Context, usage *dto.Usage) string {
 		return reason
 	}
 	return ""
-}
-
-func nonNegativeTokenCount(value int) int {
-	if value < 0 {
-		return 0
-	}
-	return value
-}
-
-func saturatingTokenCountAdd(left, right int) int {
-	left = nonNegativeTokenCount(left)
-	right = nonNegativeTokenCount(right)
-	if right > math.MaxInt-left {
-		return math.MaxInt
-	}
-	return left + right
-}
-
-func subtractTokenCountFloorZero(total, part int) int {
-	total = nonNegativeTokenCount(total)
-	part = nonNegativeTokenCount(part)
-	if part >= total {
-		return 0
-	}
-	return total - part
-}
-
-func cacheWriteTokensTotal(summary textQuotaSummary) int {
-	if summary.CacheCreationTokens5m > 0 || summary.CacheCreationTokens1h > 0 {
-		splitCacheWriteTokens := saturatingTokenCountAdd(summary.CacheCreationTokens5m, summary.CacheCreationTokens1h)
-		if summary.CacheCreationTokens > splitCacheWriteTokens {
-			return summary.CacheCreationTokens
-		}
-		return splitCacheWriteTokens
-	}
-	return nonNegativeTokenCount(summary.CacheCreationTokens)
 }
 
 func isLegacyClaudeDerivedOpenAIUsage(relayInfo *relaycommon.RelayInfo, usage *dto.Usage) bool {
@@ -254,10 +220,10 @@ func composeTieredTextQuota(relayInfo *relaycommon.RelayInfo, summary textQuotaS
 
 	if tieredResult != nil {
 		if snap := relayInfo.TieredBillingSnapshot; snap != nil {
-			baseQuota, baseClamp := common.QuotaFromDecimalChecked(decimal.NewFromFloat(tieredResult.ActualQuotaBeforeGroup).
-				Mul(decimal.NewFromFloat(snap.GroupRatio)))
-			noteQuotaClamp(relayInfo, baseClamp)
-			quota, clamp := common.QuotaFromDecimalChecked(decimal.NewFromInt(int64(baseQuota)).Add(summary.ToolCallSurchargeQuota))
+			// Compose unrounded components; rounding the base first charges twice.
+			baseQuota := decimal.NewFromFloat(tieredResult.ActualQuotaBeforeGroup).
+				Mul(decimal.NewFromFloat(snap.GroupRatio))
+			quota, clamp := common.ChargeQuotaFromDecimalChecked(baseQuota.Add(summary.ToolCallSurchargeQuota))
 			noteQuotaClamp(relayInfo, clamp)
 			return quota
 		}
@@ -266,7 +232,7 @@ func composeTieredTextQuota(relayInfo *relaycommon.RelayInfo, summary textQuotaS
 	// Saturate the final sum, not just the surcharge: tieredQuota can be near
 	// MaxQuota and adding the surcharge could push the total past the int32
 	// quota policy bound (persisted quota columns are 32-bit).
-	total, clamp := common.QuotaFromDecimalChecked(
+	total, clamp := common.ChargeQuotaFromDecimalChecked(
 		decimal.NewFromInt(int64(tieredQuota)).Add(summary.ToolCallSurchargeQuota),
 	)
 	noteQuotaClamp(relayInfo, clamp)
@@ -312,11 +278,8 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 	summary.CacheTokens = nonNegativeTokenCount(usage.PromptTokensDetails.CachedTokens)
 	summary.CacheCreationTokens5m = nonNegativeTokenCount(usage.ClaudeCacheCreation5mTokens)
 	summary.CacheCreationTokens1h = nonNegativeTokenCount(usage.ClaudeCacheCreation1hTokens)
-	summary.CacheCreationTokens = cacheWriteTokensTotal(textQuotaSummary{
-		CacheCreationTokens:   nonNegativeTokenCount(usage.PromptTokensDetails.CacheCreationTokensTotal()),
-		CacheCreationTokens5m: summary.CacheCreationTokens5m,
-		CacheCreationTokens1h: summary.CacheCreationTokens1h,
-	})
+	summary.CacheCreationTokens = cacheWriteTokensTotal(usage.PromptTokensDetails.CacheCreationTokensTotal(),
+		summary.CacheCreationTokens5m, summary.CacheCreationTokens1h)
 	summary.ImageTokens = nonNegativeTokenCount(usage.PromptTokensDetails.ImageTokens)
 	summary.AudioTokens = nonNegativeTokenCount(usage.PromptTokensDetails.AudioTokens)
 	if summary.BillingExemptReason != "" {
@@ -419,10 +382,7 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 		quotaCalculateDecimal = relayInfo.PriceData.ApplyOtherRatiosToDecimal(quotaCalculateDecimal)
 		quotaCalculateDecimal = quotaCalculateDecimal.Add(summary.ToolCallSurchargeQuota)
 
-		if !ratio.IsZero() && quotaCalculateDecimal.LessThanOrEqual(decimal.Zero) {
-			quotaCalculateDecimal = decimal.NewFromInt(1)
-		}
-		quota, clamp := common.QuotaFromDecimalChecked(quotaCalculateDecimal)
+		quota, clamp := common.ChargeQuotaFromDecimalChecked(quotaCalculateDecimal)
 		summary.Quota = quota
 		noteQuotaClamp(relayInfo, clamp)
 	} else {
@@ -430,15 +390,13 @@ func calculateTextQuotaSummary(ctx *gin.Context, relayInfo *relaycommon.RelayInf
 		quotaCalculateDecimal = quotaCalculateDecimal.Add(audioInputQuota)
 		quotaCalculateDecimal = relayInfo.PriceData.ApplyOtherRatiosToDecimal(quotaCalculateDecimal)
 		quotaCalculateDecimal = quotaCalculateDecimal.Add(summary.ToolCallSurchargeQuota)
-		quota, clamp := common.QuotaFromDecimalChecked(quotaCalculateDecimal)
+		quota, clamp := common.ChargeQuotaFromDecimalChecked(quotaCalculateDecimal)
 		summary.Quota = quota
 		noteQuotaClamp(relayInfo, clamp)
 	}
 
 	if !summary.hasBillableUsage() {
 		summary.Quota = 0
-	} else if !ratio.IsZero() && summary.Quota == 0 {
-		summary.Quota = 1
 	}
 
 	return summary
@@ -504,13 +462,6 @@ func PostTextConsumeQuotaWithResult(ctx *gin.Context, relayInfo *relaycommon.Rel
 			tieredBillingApplied = true
 			tieredResult = tieredRes
 			summary.Quota = composeTieredTextQuota(relayInfo, summary, tieredQuota, tieredRes)
-			if tieredRes != nil {
-				summary.Quota = enforceTieredMinimumQuota(
-					summary.Quota,
-					tieredRes,
-					relayInfo.TieredBillingSnapshot.GroupRatio,
-				)
-			}
 		}
 	}
 
@@ -709,7 +660,7 @@ func PostTextConsumeQuotaWithResult(ctx *gin.Context, relayInfo *relaycommon.Rel
 		other["cache_creation_tokens_1h"] = summary.CacheCreationTokens1h
 		other["cache_creation_ratio_1h"] = summary.CacheCreationRatio1h
 	}
-	cacheWriteTokens := cacheWriteTokensTotal(summary)
+	cacheWriteTokens := cacheWriteTokensTotal(summary.CacheCreationTokens, summary.CacheCreationTokens5m, summary.CacheCreationTokens1h)
 	if cacheWriteTokens > 0 {
 		// cache_write_tokens: normalized cache creation total for UI display.
 		// If split 5m/1h values are present, this is their sum; otherwise it falls back
@@ -763,7 +714,7 @@ func systemOneReportedZeroQuota(info *relaycommon.RelayInfo) int {
 		Mul(decimal.NewFromFloat(common.QuotaPerUnit)).
 		Mul(decimal.NewFromFloat(info.PriceData.GroupRatioInfo.GroupRatio))
 	quota = info.PriceData.ApplyOtherRatiosToDecimal(quota)
-	result, clamp := common.QuotaFromDecimalChecked(quota)
+	result, clamp := common.ChargeQuotaFromDecimalChecked(quota)
 	noteQuotaClamp(info, clamp)
 	return result
 }
