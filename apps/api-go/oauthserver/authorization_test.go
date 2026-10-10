@@ -46,6 +46,47 @@ func TestAuthorizationHappyPathAndMetadata(t *testing.T) {
 	})
 }
 
+func TestValidateAuthorizationRequestHasNoStorageSideEffects(t *testing.T) {
+	forDatabases(t, func(t *testing.T, db, _ *gorm.DB) {
+		s, _, _ := testServer(t, db)
+		require.NoError(t, s.ValidateAuthorizationRequest(authorizationValues().Encode()))
+
+		var count int64
+		require.NoError(t, db.Model(&model.OAuthServerAuthorization{}).Count(&count).Error)
+		require.Zero(t, count)
+
+		values := authorizationValues()
+		values.Set("scope", "admin")
+		expectProtocol(t, s.ValidateAuthorizationRequest(values.Encode()), "invalid_scope")
+		require.NoError(t, db.Model(&model.OAuthServerAuthorization{}).Count(&count).Error)
+		require.Zero(t, count)
+	})
+}
+
+func TestCleanupExpiredOAuthServerArtifacts(t *testing.T) {
+	forDatabases(t, func(t *testing.T, db, _ *gorm.DB) {
+		now := time.Unix(2_000_000_000, 0)
+		expiredAuthorization := model.OAuthServerAuthorization{Digest: strings.Repeat("a", 64), ExpiresAtMs: now.Add(-time.Second).UnixMilli()}
+		liveAuthorization := model.OAuthServerAuthorization{Digest: strings.Repeat("b", 64), ExpiresAtMs: now.Add(time.Second).UnixMilli()}
+		expiredFamily := model.OAuthServerGrant{ID: strings.Repeat("e", 43), AbsoluteExpiresAtMs: now.Add(-time.Second).UnixMilli()}
+		liveFamily := model.OAuthServerGrant{ID: strings.Repeat("l", 43), AbsoluteExpiresAtMs: now.Add(time.Second).UnixMilli()}
+		for _, row := range []any{&expiredAuthorization, &liveAuthorization, &expiredFamily, &liveFamily,
+			&model.OAuthServerToken{Digest: strings.Repeat("t", 64), FamilyID: expiredFamily.ID},
+			&model.OAuthServerCode{Digest: strings.Repeat("c", 64), FamilyID: expiredFamily.ID}} {
+			require.NoError(t, db.Create(row).Error)
+		}
+
+		deleted, err := model.CleanupExpiredOAuthServerArtifacts(context.Background(), db, now, 10)
+		require.NoError(t, err)
+		require.Equal(t, int64(2), deleted)
+		for _, row := range []any{&expiredAuthorization, &expiredFamily, &model.OAuthServerToken{}, &model.OAuthServerCode{}} {
+			require.ErrorIs(t, db.First(row).Error, gorm.ErrRecordNotFound)
+		}
+		require.NoError(t, db.First(&model.OAuthServerAuthorization{}, "digest = ?", liveAuthorization.Digest).Error)
+		require.NoError(t, db.First(&model.OAuthServerGrant{}, "id = ?", liveFamily.ID).Error)
+	})
+}
+
 func TestAuthorizationRejectsAmbiguityAndUnsupportedFlows(t *testing.T) {
 	forDatabases(t, func(t *testing.T, db, _ *gorm.DB) {
 		s, _, _ := testServer(t, db)

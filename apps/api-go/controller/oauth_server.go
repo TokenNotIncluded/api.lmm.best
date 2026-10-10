@@ -278,14 +278,9 @@ func (h *OAuthHTTP) showPreflight(c *gin.Context, raw, language string) {
 
 func (h *OAuthHTTP) Authorize(c *gin.Context) {
 	language := oauthPageLanguage(c.GetHeader("Accept-Language"))
-	binding, err := oauthRandom()
-	if err != nil {
-		h.failed(c, language)
-		return
-	}
-	// Validate raw query including duplicates before presenting any request. This
-	// unbound preflight row is never prepared/approved and expires automatically.
-	if _, err := h.Integration.Core.BeginAuthorization(c.Request.Context(), c.Request.URL.RawQuery, binding); err != nil {
+	// Validate raw query including duplicates without creating a transaction.
+	// Persistence starts only after an authenticated user continues the flow.
+	if err := h.Integration.Core.ValidateAuthorizationRequest(c.Request.URL.RawQuery); err != nil {
 		h.failed(c, language)
 		return
 	}

@@ -1,7 +1,9 @@
 package model
 
 import (
+	"context"
 	"fmt"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -92,4 +94,51 @@ func MigrateOAuthServer(db *gorm.DB) error {
 	default:
 		return fmt.Errorf("oauth server migration: unsupported dialect %q", db.Dialector.Name())
 	}
+}
+
+// CleanupExpiredOAuthServerArtifacts removes short-lived authorization rows
+// and whole token families after they can no longer authorize a request. Family
+// members are retained together until absolute expiry (including revoked
+// families), preserving refresh-replay detection for every live descendant.
+func CleanupExpiredOAuthServerArtifacts(ctx context.Context, db *gorm.DB, now time.Time, batchSize int) (int64, error) {
+	if db == nil || batchSize <= 0 {
+		return 0, fmt.Errorf("oauth server cleanup: a database and positive batch size are required")
+	}
+	cutoff := now.UnixMilli()
+	var authorizationDigests []string
+	if err := db.WithContext(ctx).Model(&OAuthServerAuthorization{}).Where("expires_at_ms <= ?", cutoff).Limit(batchSize).Pluck("digest", &authorizationDigests).Error; err != nil {
+		return 0, err
+	}
+	var familyIDs []string
+	if err := db.WithContext(ctx).Model(&OAuthServerGrant{}).Where("absolute_expires_at_ms <= ?", cutoff).Limit(batchSize).Pluck("id", &familyIDs).Error; err != nil {
+		return 0, err
+	}
+	var deleted int64
+	err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if len(authorizationDigests) != 0 {
+			result := tx.Where("digest IN ? AND expires_at_ms <= ?", authorizationDigests, cutoff).Delete(&OAuthServerAuthorization{})
+			if result.Error != nil {
+				return result.Error
+			}
+			deleted += result.RowsAffected
+		}
+		if len(familyIDs) == 0 {
+			return nil
+		}
+		// Recheck the immutable absolute deadline on the parent delete. Tokens and
+		// codes cannot be issued once that deadline has passed.
+		if err := tx.Where("family_id IN ?", familyIDs).Delete(&OAuthServerToken{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("family_id IN ?", familyIDs).Delete(&OAuthServerCode{}).Error; err != nil {
+			return err
+		}
+		result := tx.Where("id IN ? AND absolute_expires_at_ms <= ?", familyIDs, cutoff).Delete(&OAuthServerGrant{})
+		if result.Error != nil {
+			return result.Error
+		}
+		deleted += result.RowsAffected
+		return nil
+	})
+	return deleted, err
 }

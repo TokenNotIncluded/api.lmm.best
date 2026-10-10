@@ -14,6 +14,8 @@ const authArtifactCleanupInterval = time.Hour
 const (
 	secureCardScrubBatchSize  = 200
 	secureCardScrubMaxBatches = 20
+	oauthCleanupBatchSize     = 1000
+	oauthCleanupMaxBatches    = 20
 )
 
 // StartAuthArtifactCleanup removes expired dashboard Sessions and old
@@ -65,6 +67,18 @@ func cleanupAuthArtifacts() {
 	}
 	if err := model.DeleteExpiredAuthFlows(now); err != nil {
 		common.SysError("failed to delete expired authentication flows: " + err.Error())
+	}
+	if model.DB.Migrator().HasTable(&model.OAuthServerAuthorization{}) && model.DB.Migrator().HasTable(&model.OAuthServerGrant{}) {
+		for batch := 0; batch < oauthCleanupMaxBatches; batch++ {
+			count, err := model.CleanupExpiredOAuthServerArtifacts(context.Background(), model.DB, now, oauthCleanupBatchSize)
+			if err != nil {
+				common.SysError("failed to delete expired OAuth server artifacts: " + err.Error())
+				break
+			}
+			if count < oauthCleanupBatchSize {
+				break
+			}
+		}
 	}
 	// A minimal test database or a node still completing its first migration
 	// may not have assistant storage yet. The next hourly pass will pick it up.

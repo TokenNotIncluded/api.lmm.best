@@ -10,6 +10,44 @@ import (
 	"gorm.io/gorm"
 )
 
+// ValidateAuthorizationRequest validates an authorization request without
+// allocating a transaction or writing to storage. HTTP adapters should use it
+// when they need to render a pre-login page for an untrusted request.
+func (s *Server) ValidateAuthorizationRequest(rawQuery string) error {
+	_, _, err := s.validateAuthorizationRequest(rawQuery)
+	return err
+}
+
+func (s *Server) validateAuthorizationRequest(rawQuery string) (url.Values, NativeClient, error) {
+	values, err := parseForm(rawQuery, "response_type", "client_id", "redirect_uri", "scope", "state", "code_challenge", "code_challenge_method", "resource")
+	if err != nil {
+		return nil, NativeClient{}, err
+	}
+	client, exists := s.clients[values.Get("client_id")]
+	if !exists {
+		return nil, NativeClient{}, protocolError("invalid_client")
+	}
+	redirect, state := values.Get("redirect_uri"), values.Get("state")
+	if !validRedirect(redirect, client) {
+		return nil, NativeClient{}, protocolError("invalid_request")
+	}
+	if values.Get("response_type") != "code" {
+		return nil, NativeClient{}, s.authorizationError("unsupported_response_type", redirect, state)
+	}
+	if values.Get("code_challenge_method") != "S256" || !validChallenge(values.Get("code_challenge")) || len(state) < 16 || len(state) > 512 || !printableASCII(state) {
+		return nil, NativeClient{}, s.authorizationError("invalid_request", redirect, state)
+	}
+	if !contains(client.Resources, values.Get("resource")) {
+		return nil, NativeClient{}, s.authorizationError("invalid_target", redirect, state)
+	}
+	scopes, err := parseScopes(values.Get("scope"))
+	if err != nil || !scopesWithin(scopes, client.Scopes) {
+		return nil, NativeClient{}, s.authorizationError("invalid_scope", redirect, state)
+	}
+	values.Set("scope", strings.Join(scopes, " "))
+	return values, client, nil
+}
+
 // BeginAuthorization validates the raw, unmerged query and opens a five-minute
 // transaction. browserBinding MUST come from the trusted browser session, not
 // a query/body field. It must be high-entropy and remain stable through consent.
@@ -18,30 +56,9 @@ func (s *Server) BeginAuthorization(ctx context.Context, rawQuery, browserBindin
 	if !validBrowserBinding(browserBinding) {
 		return nil, protocolError("invalid_request")
 	}
-	values, err := parseForm(rawQuery, "response_type", "client_id", "redirect_uri", "scope", "state", "code_challenge", "code_challenge_method", "resource")
+	values, client, err := s.validateAuthorizationRequest(rawQuery)
 	if err != nil {
 		return nil, err
-	}
-	client, exists := s.clients[values.Get("client_id")]
-	if !exists {
-		return nil, protocolError("invalid_client")
-	}
-	redirect, state := values.Get("redirect_uri"), values.Get("state")
-	if !validRedirect(redirect, client) {
-		return nil, protocolError("invalid_request")
-	}
-	if values.Get("response_type") != "code" {
-		return nil, s.authorizationError("unsupported_response_type", redirect, state)
-	}
-	if values.Get("code_challenge_method") != "S256" || !validChallenge(values.Get("code_challenge")) || len(state) < 16 || len(state) > 512 || !printableASCII(state) {
-		return nil, s.authorizationError("invalid_request", redirect, state)
-	}
-	if !contains(client.Resources, values.Get("resource")) {
-		return nil, s.authorizationError("invalid_target", redirect, state)
-	}
-	scopes, err := parseScopes(values.Get("scope"))
-	if err != nil || !scopesWithin(scopes, client.Scopes) {
-		return nil, s.authorizationError("invalid_scope", redirect, state)
 	}
 	handle, err := newSecret(transactionPrefix)
 	if err != nil {
@@ -50,7 +67,7 @@ func (s *Server) BeginAuthorization(ctx context.Context, rawQuery, browserBindin
 	now := s.now()
 	row := model.OAuthServerAuthorization{
 		Digest: digest(handle), Issuer: s.issuer, ClientID: client.ID, RedirectURI: values.Get("redirect_uri"),
-		Resource: values.Get("resource"), Scope: strings.Join(scopes, " "), State: state,
+		Resource: values.Get("resource"), Scope: values.Get("scope"), State: values.Get("state"),
 		CodeChallenge: values.Get("code_challenge"), BrowserDigest: browserDigest(browserBinding),
 		CreatedAtMs: now.UnixMilli(), ExpiresAtMs: now.Add(AuthorizationTTL).UnixMilli(),
 	}

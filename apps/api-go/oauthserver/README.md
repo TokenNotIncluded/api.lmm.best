@@ -105,7 +105,7 @@ code TTL 固定 120 秒，单次使用。access TTL 固定 10 分钟，接近 fa
 - 每次 access 检查都联表读取 token/family，并检查当前 Policy；不缓存“仍有效”。撤销不能撤回在其提交前已经通过验证的在途操作。
 - 必须使用主写库，不使用 read replica、读写分离 resolver 或事后可能回滚的外层事务。数据库不可用时 fail closed。生产需要配置连接池、锁/语句超时和可靠时钟。
 
-没有自动清理任务。未来清理应先处理到期 pending，按 family 的绝对期限/撤销与审计保留策略整族删除；**不能只按 used refresh 自身 idle expiry 删除 tombstone**，否则仍存活的后代会失去重放检测。日志不得记录 query、表单、callback code、state 或令牌响应。
+主节点的认证清理任务每小时分批删除到期 pending，并在 family 达到绝对期限后整族删除 grant、code 和 token。撤销 family 也保留到绝对期限；**不能只按 used refresh 自身 idle expiry 删除 tombstone**，否则仍存活的后代会失去重放检测。日志不得记录 query、表单、callback code、state 或令牌响应。
 
 ## DPoP 与未满足事项
 

@@ -226,6 +226,9 @@ func TestOAuthHTTPAuthorizationCSRFAndIdentitySwitch(t *testing.T) {
 	h := setupOAuthHTTP(t)
 	require.Equal(t, 400, h.request("GET", "/api/oauth2/authorize?"+h.query+"&client_id=lmm-pi", "", nil).Code)
 	cookie, csrf := h.begin(t)
+	var authorizationCount int64
+	require.NoError(t, h.db.Model(&model.OAuthServerAuthorization{}).Count(&authorizationCount).Error)
+	require.Zero(t, authorizationCount, "public preflight must not persist an authorization transaction")
 	for _, origin := range []string{"", "null", "https://evil.example"} {
 		response := h.request("POST", "/api/user/auth/oauth2/continue", url.Values{"csrf": {csrf}}.Encode(), map[string]string{"Origin": origin, "Content-Type": "application/x-www-form-urlencoded"}, cookie, &http.Cookie{Name: service.RefreshCookieName, Value: h.login.RefreshToken})
 		require.Equal(t, 400, response.Code)
