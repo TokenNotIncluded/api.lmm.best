@@ -1,0 +1,59 @@
+{
+  "at": "2026-10-10T15:08:17.926021+00:00",
+  "base_commit": "72667564c0431754d4856dc2e0db55f360bd2745",
+  "status": "blocked_database_acceptance",
+  "business_acceptance": false,
+  "deployment_approved": false,
+  "source_scope": "current identity host and named constructors; not all unregistered business modules",
+  "executed_checks": {
+    "python_tool_tests": {
+      "passed": 27,
+      "failed": 0,
+      "log": "python-tests.txt"
+    },
+    "go_proxy_tests": {
+      "passed": 5,
+      "failed": 0,
+      "race_enabled": true,
+      "log": "proxy-tests.txt"
+    },
+    "database_preflight": {
+      "exit_code": 2,
+      "status": "blocked",
+      "report": "preflight/preflight.json"
+    }
+  },
+  "database_tests_executed": false,
+  "postgres_measured": {
+    "peak_client_connections": null,
+    "peak_total_connections": null,
+    "peak_cgroup_memory_bytes": null,
+    "io_bytes": null,
+    "latency_ms": null,
+    "successful_ledger_operations_per_second": null,
+    "crash_recovery_seconds": null,
+    "restore_seconds": null,
+    "acknowledged_writes_lost": null,
+    "ledger_conservation_passed": null
+  },
+  "pgbouncer_comparison_executed": false,
+  "event_backlog_experiment_executed": false,
+  "replication_failover_experiment_executed": false,
+  "independent_nodes_tested": null,
+  "repository_writes": {
+    "local_base_branch_created": false,
+    "remote_branch_created": false,
+    "pull_request_created": false,
+    "remote_ci_invoked": false,
+    "release_or_deploy": false,
+    "merged": false
+  },
+  "delivery": "additions-only local patch; synthetic empty-tree patch validation is not a full source build",
+  "missing": [
+    "local PostgreSQL/Docker/PgBouncer and constrained DB execution",
+    "full baseline checkout for pinned SQL and actual Rust/Go integration",
+    "wired charging/ledger/event/model host",
+    "actual SQLx/Go transaction-pool and reconnect tests",
+    "independent nodes, fenced failover, off-host backup recovery"
+  ]
+}

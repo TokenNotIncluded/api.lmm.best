@@ -1,0 +1,32 @@
+test_cloned_handles_do_not_multiply_pool (test_budget.ConnectionBudgetTests.test_cloned_handles_do_not_multiply_pool) ... ok
+test_duplicate_backend_tuple_rejected (test_budget.ConnectionBudgetTests.test_duplicate_backend_tuple_rejected) ... ok
+test_duplicate_physical_pool_rejected (test_budget.ConnectionBudgetTests.test_duplicate_physical_pool_rejected) ... ok
+test_exact_boundary (test_budget.ConnectionBudgetTests.test_exact_boundary) ... ok
+test_fully_reserved_database_rejected (test_budget.ConnectionBudgetTests.test_fully_reserved_database_rejected) ... ok
+test_inactive_unknown_pool_does_not_claim_enabled (test_budget.ConnectionBudgetTests.test_inactive_unknown_pool_does_not_claim_enabled) ... ok
+test_memory_counts_operators_not_database (test_budget.ConnectionBudgetTests.test_memory_counts_operators_not_database) ... ok
+test_negative_fraction_bool_rejected (test_budget.ConnectionBudgetTests.test_negative_fraction_bool_rejected) ... ok
+test_pgbouncer_identity_required (test_budget.ConnectionBudgetTests.test_pgbouncer_identity_required) ... ok
+test_pgbouncer_reserve_database_user_and_replica_multiplication (test_budget.ConnectionBudgetTests.test_pgbouncer_reserve_database_user_and_replica_multiplication) ... ok
+test_pool_capacity_does_not_claim_open_connections (test_budget.ConnectionBudgetTests.test_pool_capacity_does_not_claim_open_connections) ... ok
+test_single_node_rollout_plus_admin_exceeds_budget (test_budget.ConnectionBudgetTests.test_single_node_rollout_plus_admin_exceeds_budget) ... ok
+test_source_host_static_caps (test_budget.ConnectionBudgetTests.test_source_host_static_caps) ... ok
+test_unknown_active_pool_is_not_zero (test_budget.ConnectionBudgetTests.test_unknown_active_pool_is_not_zero) ... ok
+test_unverified_superuser_role_blocks_even_small_plan (test_budget.ConnectionBudgetTests.test_unverified_superuser_role_blocks_even_small_plan) ... ok
+test_cleanup_refuses_unowned_resource (test_lab.SafetyTests.test_cleanup_refuses_unowned_resource) ... ok
+test_generated_sql_uses_repository_ledger_function (test_lab.SafetyTests.test_generated_sql_uses_repository_ledger_function) ... ok
+test_git_blob_hash_format (test_lab.SafetyTests.test_git_blob_hash_format) ... ok
+test_image_must_be_immutable (test_lab.SafetyTests.test_image_must_be_immutable) ... ok
+test_invalid_operation_keys_rejected (test_lab.SafetyTests.test_invalid_operation_keys_rejected) ... ok
+test_literal_quotes_and_nul (test_lab.SafetyTests.test_literal_quotes_and_nul) ... ok
+test_missing_dependencies_block_without_database_commands (test_lab.SafetyTests.test_missing_dependencies_block_without_database_commands) ... ok
+test_pgbench_does_not_enable_debug_flag (test_lab.SafetyTests.test_pgbench_does_not_enable_debug_flag) ... ok
+test_remote_ci_is_rejected (test_lab.SafetyTests.test_remote_ci_is_rejected) ... ok
+test_remote_docker_is_rejected (test_lab.SafetyTests.test_remote_docker_is_rejected) ... ok
+test_same_operation_key_reconstructs_same_request (test_lab.SafetyTests.test_same_operation_key_reconstructs_same_request) ... ok
+test_wrong_source_cannot_be_run (test_lab.SafetyTests.test_wrong_source_cannot_be_run) ... ok
+
+----------------------------------------------------------------------
+Ran 27 tests in 0.006s
+
+OK

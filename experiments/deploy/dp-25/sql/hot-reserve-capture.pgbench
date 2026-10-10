@@ -1,0 +1,25 @@
+-- One pgbench iteration = two committed, real ledger operations on one hot account.
+-- IDs are allocated by a test-only sequence; the balance implementation is unchanged.
+SELECT nextval('dp25_lab.operation_seq') AS ticket \gset
+BEGIN;
+SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
+SET LOCAL synchronous_commit = on;
+SET LOCAL lock_timeout = '3s';
+SET LOCAL statement_timeout = '10s';
+SELECT (core_billing.post_ledger(jsonb_build_object(
+    'scope','dp25','operation_key','reserve:'||:ticket::text,'actor_user_id',NULL,
+    'reason','isolated database load',
+    'action',jsonb_build_object('kind','reserve','account_id',1,'amount_units',2)
+)) ->> 'journal_id')::bigint AS reservation \gset
+COMMIT;
+BEGIN;
+SET TRANSACTION ISOLATION LEVEL READ COMMITTED;
+SET LOCAL synchronous_commit = on;
+SET LOCAL lock_timeout = '3s';
+SET LOCAL statement_timeout = '10s';
+SELECT core_billing.post_ledger(jsonb_build_object(
+    'scope','dp25','operation_key','capture:'||:ticket::text,'actor_user_id',NULL,
+    'reason','isolated database load',
+    'action',jsonb_build_object('kind','capture','reservation_journal_id',:reservation::bigint,'amount_units',1)
+));
+COMMIT;

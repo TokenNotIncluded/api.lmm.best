@@ -1,0 +1,28 @@
+{
+  "at": "2026-10-10T15:08:17.926021+00:00",
+  "scope": "tool execution environment, NOT a PostgreSQL measurement",
+  "os": "Linux",
+  "machine": "x86_64",
+  "python": "3.13.5",
+  "go": "go version go1.23.2 linux/amd64",
+  "executables": {
+    "docker": false,
+    "postgres": false,
+    "initdb": false,
+    "psql": false,
+    "pgbench": false,
+    "pgbouncer": false,
+    "cargo": false,
+    "rustc": false
+  },
+  "python_database_drivers": {
+    "psycopg": false,
+    "psycopg2": false
+  },
+  "memory_max_bytes": 4294967296,
+  "cpu_max": "400000 100000",
+  "cgroup_mount_options": "ro,nosuid,nodev,noexec,relatime,nsdelegate",
+  "full_repository_checkout_available": false,
+  "repository_source_read_via": "connected GitHub, pinned commit and file excerpts",
+  "base_commit": "72667564c0431754d4856dc2e0db55f360bd2745"
+}
