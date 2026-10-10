@@ -1,5 +1,5 @@
-# Combine with compose.core.yml. This does not change the Go deployment.
-# Run core-admin migrate explicitly before starting core for the first time.
+# Combine with compose.core.yml for a fresh-install core database.
+# Run core-admin init-db once. Startup never creates or upgrades tables.
 services:
   core:
     environment:
@@ -40,7 +40,7 @@ services:
     profiles: [tools]
     image: lmm-core:${LMM_CORE_IMAGE_TAG:-dev}
     entrypoint: [/usr/local/bin/lmm-core-admin]
-    command: [migrate]
+    command: [init-db]
     environment:
       LMM_CORE_DATABASE_URL_FILE: /run/secrets/core_database_url
     secrets: [core_database_url]

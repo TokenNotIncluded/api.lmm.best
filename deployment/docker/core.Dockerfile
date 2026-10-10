@@ -3,7 +3,7 @@ WORKDIR /src/apps/core-rust
 COPY apps/core-rust/Cargo.toml apps/core-rust/Cargo.lock apps/core-rust/build.rs ./
 COPY contracts/proto /src/contracts/proto
 COPY apps/core-rust/src ./src
-COPY apps/core-rust/migrations ./migrations
+COPY apps/core-rust/schema ./schema
 RUN cargo build --locked --release --bins
 
 FROM debian:bookworm-slim
