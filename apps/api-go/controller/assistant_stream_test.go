@@ -79,6 +79,9 @@ func TestAssistantStreamingRelayWriterTreatsGinRenderSentinelAsOK(t *testing.T) 
 	assert.False(t, writer.Written())
 
 	context.Render(-1, common.CustomEvent{Data: `data: {"choices":[{"delta":{"content":"rendered answer"}}]}`})
+	// This is a complete successful stream, not an EOF-without-terminal fixture.
+	_, writeErr := writer.Write([]byte("data: [DONE]\n\n"))
+	require.NoError(t, writeErr)
 
 	assert.Equal(t, http.StatusOK, writer.Status())
 	assert.True(t, writer.Written())
