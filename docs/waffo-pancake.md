@@ -40,6 +40,7 @@ bun run waffo:pancake:smoke -- \
 ## 端点
 
 - 已登录用户创建钱包 checkout：`POST /api/user/self/waffo-pancake/pay`
+- 客户门户免邮箱验证登录：`POST /api/user/self/waffo-pancake/portal`，见[接入与验收](waffo-pancake-portal.md)。
 - 测试 webhook：`POST /api/waffo-pancake/webhook/test`
 - 正式 webhook：`POST /api/waffo-pancake/webhook/prod`
 
@@ -78,10 +79,11 @@ Go 后端固定使用 SDK `v0.17.0`。本节核对范围为 2026-09-10 至 2026-
 原有本地流水校验，不能只检查一份回调。金额未知时不得入账或冲销余额。
 
 保留可选的 `periodNumber`，不把它当成成功扣款次数或回调防重键。值为零的
-授权阶段不能触发付款发放。现有账期关联仍按下节所述使用付款日期；本次没有
-增加按 `orderId + periodNumber` 关联的数据库迁移。
+授权阶段不能触发付款发放。当前 Go 后端分别记录实收和订阅周期，不根据付款日期
+猜测现代付款事件缺失的账期；本次没有增加按 `orderId + periodNumber` 关联的数据库迁移。
 
-SDK 新增的换套餐入口和免邮箱验证客户门户不在本次更新中启用。
+免邮箱验证客户门户已增加服务端入口，详见[客户门户](waffo-pancake-portal.md)。
+本次没有增加前端按钮，也没有启用自助换套餐或改变套餐权益映射。
 收银台继续显式使用 45 分钟有效期，不采用新文档中的 24 小时默认值。
 本次不改变币种、金额快照、计费倍率或其他支付商的行为。
 
@@ -93,8 +95,8 @@ SDK 新增的换套餐入口和免邮箱验证客户门户不在本次更新中�
 
 | 付款类型 | 周期事件 | 处理条件 |
 | --- | --- | --- |
-| 首次付款 | `subscription.activated` | 与同一订单的 `subscription.payment_succeeded` 关联后开通 |
-| 续费付款 | `subscription.renewed` | 与同一订单对应账期的 `subscription.payment_succeeded` 关联后续期 |
+| 首次付款 | `subscription.activated` | 已验签并绑定本地订单的生命周期事件开通权益；付款另行记账 |
+| 续费付款 | `subscription.renewed` | 已验签并绑定本地订单的生命周期事件更新周期；付款另行记账 |
 
 **上线时必须在商户后台「Webhook 设置」勾选 `subscription.renewed`。**
 仅部署代码不会开启商户后台的事件投递；未勾选时，新续费的周期信息无法到达。
@@ -104,9 +106,11 @@ SDK 新增的换套餐入口和免邮箱验证客户门户不在本次更新中�
 `apps/api-rust/migrations/0008_waffo_subscription_webhooks.sql`，再启动新版 API。
 该迁移新增付款与周期凭据表及幂等索引；Go 的迁移与 `verify` 模式也要求这两张表。
 
-后端持久化已经验签并绑定本地订单的付款凭据和生命周期周期记录，使用 `orderId`
-关联订阅，并使用付款的 `paymentDate` 匹配对应周期。回调可以乱序到达；缺少配对
-证据时保留待处理记录，另一事件到达后再结算。单独收到生命周期事件不会发放权益。
+当前 Go 后端分别持久化已经验签并绑定本地订单的付款凭据和生命周期周期记录。
+`subscription.payment_succeeded` 记录实收，不推算缺失的账期；
+`subscription.activated`、`subscription.renewed`、`subscription.recovered` 更新对应权益。
+两条路径独立处理，不把生命周期事件当作实收凭据，也不等待按付款日期配对。
+实现见 `apps/api-go/model/waffo_pancake_subscription_apply.go`；不要把旧版配对流程当作当前行为。
 重复投递保持幂等；迟到的旧周期不会覆盖更新的订阅周期。历史周期独立保存，不依赖
 订单表中滚动更新的当前周期。日期字段同时接受 RFC3339 时间戳和 `YYYY-MM-DD`；
 仅日期格式按 UTC 零点解释，避免服务器时区改变账期。
@@ -126,8 +130,8 @@ SDK 新增的换套餐入口和免邮箱验证客户门户不在本次更新中�
 测试模式使用 Visa `4576 7500 0000 0110`，任意未来有效期和三位 CVC。成功后应看到：
 
 1. checkout session 返回 `checkout_url`；
-2. 钱包充值处理 `order.completed` 后，本地订单变为成功；订阅首次付款需收到
-   `subscription.activated` 和 `subscription.payment_succeeded` 后完成开通；
+2. 钱包充值处理 `order.completed` 后，本地订单变为成功；订阅的
+   `subscription.activated` 更新权益，`subscription.payment_succeeded` 独立记账，两者均需验收；
 3. 退款成功事件写入幂等的财务收入冲销记录；退款失败只记录审计，不扣用户额度；
 4. 重复投递不会重复记账或重复写入退款审计日志（包括 `refund.failed`）。
 
@@ -155,8 +159,8 @@ go test ./model ./service ./controller -run 'WaffoPancake|PaymentWebhook|Merchan
 保存表单时按需调用现有的商品创建接口，已绑定且价格、币种、周期未变化的商品不重复创建。
 此配置只属于 Waffo Pancake，不改变 Stripe、Creem、ePay 或余额支付。
 
-一次性购买只发放一次套餐权益，到期不会再次扣费。自动续费沿用现有的付款与账期事件
-配对流程。关闭某种购买方式只限制新订单，不取消已有自动续费合同。
+一次性购买只发放一次套餐权益，到期不会再次扣费。自动续费沿用现有的付款记账与生命周期权益
+更新流程。关闭某种购买方式只限制新订单，不取消已有自动续费合同。
 
 购买接口 `POST /api/subscription/waffo-pancake/pay` 新增 `product_type`。
 两种方式都启用时必须传入选择；只有一种方式时仍兼容旧客户端省略参数。
