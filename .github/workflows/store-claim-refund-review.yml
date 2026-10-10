@@ -1,8 +1,5 @@
 name: Store claim and refund review
 on:
-  push:
-    branches: [fix/store-claim-refund-sync-20261010]
-    paths: ['apps/api-go/**', 'apps/web/**', '.github/workflows/store-claim-refund-review.yml']
   workflow_dispatch:
 permissions:
   contents: read
