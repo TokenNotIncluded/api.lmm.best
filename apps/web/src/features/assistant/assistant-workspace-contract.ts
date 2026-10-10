@@ -1,6 +1,11 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import { z } from 'zod'
 
+import {
+  parseAssistantUIPreferenceAction,
+  type AssistantUIPreferenceAction,
+} from './assistant-ui-preferences-contract'
+
 export const OVERVIEW_LANGUAGES = [
   'en',
   'zh',
@@ -97,10 +102,15 @@ const schema = z.discriminatedUnion('tool', [
     }),
   }),
 ])
-export type AssistantWorkspaceAction = z.infer<typeof schema>
+export type AssistantWorkspaceConfirmationAction = z.infer<typeof schema>
+export type AssistantWorkspaceAction =
+  | AssistantWorkspaceConfirmationAction
+  | AssistantUIPreferenceAction
 export function parseAssistantWorkspaceAction(
   value: unknown
 ): AssistantWorkspaceAction | undefined {
+  const preference = parseAssistantUIPreferenceAction(value)
+  if (preference) return preference
   const parsed = schema.safeParse(value)
   return parsed.success ? parsed.data : undefined
 }
@@ -109,6 +119,8 @@ export function workspaceActionTitle(
 ): string {
   return {
     set_overview_greeting: 'Edit overview greeting',
+    set_ui_preferences: 'Change display preferences',
+    restore_ui_preferences: 'Restore display preferences',
     create_site_issue: 'Create a site issue',
     update_site_issue: 'Update a site issue',
     send_invitation: 'Send an invitation',
