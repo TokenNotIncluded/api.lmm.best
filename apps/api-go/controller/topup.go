@@ -1010,19 +1010,27 @@ func applyTopUpSettlementRatios(settlementAmount, discountAmount decimal.Decimal
 }
 
 func applyTopUpSettlementRatiosWithOriginal(settlementAmount, discountAmount decimal.Decimal, group string, dPaymentRatio decimal.Decimal) (decimal.Decimal, decimal.Decimal) {
-	topupGroupRatio := common.GetTopupGroupRatio(group)
-	if topupGroupRatio == 0 {
-		topupGroupRatio = 1
-	}
-
-	dTopupGroupRatio := decimal.NewFromFloat(topupGroupRatio)
-	// apply optional preset discount by the original request amount (if configured), default 1.0
+	// Read old request-unit configuration only at this compatibility boundary.
+	groupRatio := topUpRechargeGroupFactor(group)
 	discount := 1.0
 	if ds, exists := operation_setting.GetPaymentSetting().AmountDiscount[discountAmount.String()]; exists && ds > 0 {
 		discount = ds
 	}
-	dDiscount := decimal.NewFromFloat(discount)
+	return applyTopUpSettlementFactorsWithOriginal(settlementAmount, groupRatio, dPaymentRatio, decimal.NewFromFloat(discount))
+}
 
+func topUpRechargeGroupFactor(group string) decimal.Decimal {
+	topupGroupRatio := common.GetTopupGroupRatio(group)
+	if topupGroupRatio == 0 {
+		topupGroupRatio = 1
+	}
+	return decimal.NewFromFloat(topupGroupRatio)
+}
+
+// applyTopUpSettlementFactorsWithOriginal accepts only money and dimensionless
+// factors. It reads no configuration. New CREDIT and compatibility callers
+// share this one rounding policy.
+func applyTopUpSettlementFactorsWithOriginal(settlementAmount, dTopupGroupRatio, dPaymentRatio, dDiscount decimal.Decimal) (decimal.Decimal, decimal.Decimal) {
 	// Group/payment pricing and fees belong to both sides of the comparison.
 	// Only an eligible amount preset and then a coupon can reduce this basis.
 	base := settlementAmount.
