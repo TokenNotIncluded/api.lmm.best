@@ -6,7 +6,7 @@ it under the terms of the GNU Affero General Public License as
 published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
   AlertCircle,
   ChevronDown,
@@ -15,7 +15,7 @@ import {
   MonitorCog,
   RefreshCw,
 } from 'lucide-react'
-import { type FormEvent, useState } from 'react'
+import { type FormEvent, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
@@ -31,6 +31,9 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Markdown } from '@/components/ui/markdown'
 import { api } from '@/lib/api'
+import { RemoteComposer, RemoteQuestionCard } from './controls'
+import { latestRemoteState, remoteConversation } from './commands'
+import { useRemoteCommands } from './use-remote-commands'
 import { formatTimestampToDate } from '@/lib/format'
 
 import {
@@ -108,7 +111,7 @@ export function SessionMessages({
           return (
             <details
               key={message.id || `${message.type}-${index}`}
-              className='border p-3'
+              className='bg-muted/30 rounded-xl p-3'
             >
               <summary className='flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-medium'>
                 <span>{title}</span>
@@ -123,7 +126,7 @@ export function SessionMessages({
         return (
           <div
             key={message.id || `${message.type}-${index}`}
-            className='border p-3'
+            className='bg-muted/30 rounded-xl p-3'
           >
             <div className='text-muted-foreground mb-2 text-xs font-medium uppercase'>
               {title}
@@ -148,26 +151,41 @@ function SessionDetail({
   onLock: () => void
 }) {
   const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  useEffect(() => () => {
+    const queryKey = ['remote-control', 'pi', 'messages', session.id, unlockRevision]
+    void queryClient.cancelQueries({ queryKey, exact: true })
+    queryClient.removeQueries({ queryKey, exact: true })
+  }, [queryClient, session.id, unlockRevision])
   const messagesQuery = useQuery({
     queryKey: ['remote-control', 'pi', 'messages', session.id, unlockRevision],
-    queryFn: async () => {
+    queryFn: async ({ signal }) => {
       const response = await api.get<PiMessagesResponse>(
         `/api/remote-control/v1/pi/sessions/${encodeURIComponent(session.id)}/messages?after=0`,
-        { skipBusinessError: true }
+        { skipBusinessError: true, signal }
       )
-      if (!response.data.success) {
-        throw new Error(response.data.message || 'Unable to load messages')
+      if (!response.data.success) throw new Error(response.data.message || 'Unable to load messages')
+      const results = await Promise.allSettled(
+        normalizePiMessageEnvelopes(response.data.data)
+          .filter((message) => message.sender === 'plugin')
+          .map((message) => decryptPiRemoteMessage(session.id, message, sessionKey))
+      )
+      signal.throwIfAborted()
+      return {
+        messages: results.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []),
+        failed: results.filter((result) => result.status === 'rejected').length,
       }
-      return Promise.all(
-        normalizePiMessageEnvelopes(response.data.data).map((message) =>
-          decryptPiRemoteMessage(session.id, message, sessionKey)
-        )
-      )
     },
-    refetchInterval: 2_500,
+    refetchInterval: 1_000,
     gcTime: 0,
   })
-  const messages = [...session.messages, ...(messagesQuery.data ?? [])]
+  const messages = [...session.messages, ...(messagesQuery.data?.messages ?? [])]
+  const state = latestRemoteState(messages)
+  const { send, pending } = useRemoteCommands(session.id, sessionKey, messages)
+  const stateTime = typeof state?.created_at === 'number' ? state.created_at : 0
+  const stale = !stateTime || Date.now() - stateTime > 45_000 || messagesQuery.isError
+  const questions = state?.requests ?? []
+  const canControl = session.capabilities?.includes('prompt') === true
 
   return (
     <div className='min-w-0 space-y-4'>
@@ -192,22 +210,32 @@ function SessionDetail({
         </Button>
       </div>
       <div className='grid gap-3 sm:grid-cols-2'>
-        <div className='border p-3'>
+        <div className='bg-muted/30 rounded-xl p-3'>
           <div className='text-muted-foreground text-xs'>ID</div>
           <code className='text-sm break-all'>{session.id}</code>
         </div>
-        <div className='border p-3'>
+        <div className='bg-muted/30 rounded-xl p-3'>
           <div className='text-muted-foreground text-xs'>{t('Runtime')}</div>
           <div className='text-sm'>{session.runtime || t('Unknown')}</div>
         </div>
-        <div className='border p-3 sm:col-span-2'>
+        <div className='bg-muted/30 rounded-xl p-3 sm:col-span-2'>
           <div className='text-muted-foreground text-xs'>{t('Started')}</div>
           <div className='text-sm'>
             {displayTime(session.startedAt) || t('Unknown')}
           </div>
         </div>
       </div>
-      {session.summary ? <Markdown>{session.summary}</Markdown> : null}
+      <p className='text-muted-foreground text-sm' role='status'>
+        {stale ? t('Waiting for Pi connection') : state?.busy ? t('Pi is working') : t('Pi is ready')}
+        {state?.provider ? ` · ${state.provider} / ${state.model ?? ''}` : ''}
+      </p>
+      {canControl ? (
+        <>
+          {questions.map((question) => <RemoteQuestionCard key={question.request_id} question={question} send={send} disabled={stale || pending} />)}
+          <RemoteComposer send={send} disabled={stale} busy={state?.busy === true} hasQuestion={questions.length > 0} />
+        </>
+      ) : <p className='text-muted-foreground text-sm'>{t('Update the Pi plugin to send tasks and answer questions.')}</p>}
+      {messagesQuery.data?.failed ? <p role='alert' className='text-destructive text-sm'>{t('Some messages could not be decrypted. Other messages are still available.')}</p> : null}
       {messagesQuery.isPending ? (
         <p className='text-muted-foreground text-sm'>{t('Loading...')}</p>
       ) : messagesQuery.isError ? (
@@ -229,7 +257,7 @@ function SessionDetail({
           </Button>
         </Alert>
       ) : (
-        <SessionMessages messages={messages} />
+        <SessionMessages messages={remoteConversation(messages)} />
       )}
     </div>
   )
@@ -352,6 +380,17 @@ export function RemoteControl() {
       <SectionPageLayout.Title>{t('Remote control')}</SectionPageLayout.Title>
       <SectionPageLayout.Content>
         <div className='mx-auto w-full max-w-6xl pb-16'>
+          <div className='mb-6 max-w-2xl space-y-2'>
+            <p className='text-muted-foreground text-sm'>{t('Control Pi with any model. LMM login is only used to connect your account.')}</p>
+            <details className='text-sm'>
+              <summary className='cursor-pointer font-medium'>{t('Connect a Pi session')}</summary>
+              <div className='text-muted-foreground mt-3 space-y-2'>
+                <p>{t('Install or update the LMM Pi plugin. In Pi, sign in and approve remote control, then enable it locally.')}</p>
+                <pre className='bg-muted rounded-xl p-3 text-xs'>/login lmm{'\n'}/lmm-remote on</pre>
+                <p>{t('Use the same LMM account here and enter the session PIN. Stop sharing with /lmm-remote off. Locking this page does not stop Pi.')}</p>
+              </div>
+            </details>
+          </div>
           <div className='pt-1'>
             <div
               className={`grid gap-6 ${sessions.length > 0 ? 'lg:grid-cols-[minmax(16rem,0.36fr)_minmax(0,1fr)]' : ''}`}
