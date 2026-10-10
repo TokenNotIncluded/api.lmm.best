@@ -1,0 +1,447 @@
+{
+  "scope": "real Go host and handoff packages; synthetic modules and external effects",
+  "base": "72667564c0431754d4856dc2e0db55f360bd2745",
+  "production_main_built": false,
+  "rust_core_tested": false,
+  "rollback_scope": "two binaries from the same source with different build IDs; format 1 only; not a historical production downgrade",
+  "postgres_tested": false,
+  "docker_tested": false,
+  "source": {
+    "apps/lmm-extensions/internal/modules/host.go": "c776a81549904243ad24d462764917a3e65f0364254f466cc175bb04aef5ef45",
+    "apps/lmm-extensions/internal/modules/selection.go": "516a629f442a2d781c3cec627b082120fc4b49405a85d834e3b33dfc131a3832",
+    "apps/lmm-extensions/internal/modules/lifecycle.go": "fce7880588694b18490513a5f29506a0f05486595674bd574af25895bffde949",
+    "apps/lmm-extensions/internal/modules/lifecycle_test.go": "20598458a1ed68f8b47f908a63ceb92ba1bb3e237533e5d0a26ccabe06561f64",
+    "apps/lmm-extensions/internal/handoff/store_linux.go": "c7b56666845eaeb1adea00c20a59572178142db28201fd31608558ca948afbce",
+    "apps/lmm-extensions/internal/handoff/store_linux_test.go": "0a53992b5642d29647b27797cde5d099c253bbbf7baf0db38fde28b7ac57dcb7",
+    "experiments/deploy/dp-23/probe.go": "2b5e348a1ca4c0795a2b120acbad16807f2064d991e74b97d36faf44894e1c3b"
+  },
+  "rounds": [
+    {
+      "round": 1,
+      "version": "v2",
+      "old": {
+        "pid": 6988,
+        "start_ticks": 108843
+      },
+      "new": {
+        "pid": 6999,
+        "start_ticks": 108849
+      },
+      "old_exit_code": 0,
+      "backlog_before": 1,
+      "backlog_after": 0,
+      "retired_alive": 0,
+      "new_ready_ms": 29.696116999957667,
+      "total_handoff_ms": 1154.6002320001207,
+      "memory_peak": {
+        "samples": 104,
+        "rss_kib": 15228,
+        "pss_kib": 14044,
+        "processes": 2
+      },
+      "stream": {
+        "data_frames": 81,
+        "max_gap_ms": 15.384491000077105
+      },
+      "mock_effect_count": 1
+    },
+    {
+      "round": 2,
+      "version": "v2",
+      "old": {
+        "pid": 6999,
+        "start_ticks": 108849
+      },
+      "new": {
+        "pid": 7039,
+        "start_ticks": 108967
+      },
+      "old_exit_code": 0,
+      "backlog_before": 1,
+      "backlog_after": 0,
+      "retired_alive": 0,
+      "new_ready_ms": 16.963745999873936,
+      "total_handoff_ms": 1187.728117000006,
+      "memory_peak": {
+        "samples": 104,
+        "rss_kib": 15900,
+        "pss_kib": 9020,
+        "processes": 2
+      },
+      "stream": {
+        "data_frames": 81,
+        "max_gap_ms": 68.27374799991048
+      },
+      "mock_effect_count": 1
+    },
+    {
+      "round": 3,
+      "version": "v2",
+      "old": {
+        "pid": 7039,
+        "start_ticks": 108967
+      },
+      "new": {
+        "pid": 7082,
+        "start_ticks": 109101
+      },
+      "old_exit_code": 0,
+      "backlog_before": 1,
+      "backlog_after": 0,
+      "retired_alive": 0,
+      "new_ready_ms": 25.602560999914203,
+      "total_handoff_ms": 1200.792619999902,
+      "memory_peak": {
+        "samples": 111,
+        "rss_kib": 16004,
+        "pss_kib": 11974,
+        "processes": 2
+      },
+      "stream": {
+        "data_frames": 81,
+        "max_gap_ms": 16.28291099996204
+      },
+      "mock_effect_count": 1
+    },
+    {
+      "round": 4,
+      "version": "v1",
+      "old": {
+        "pid": 7082,
+        "start_ticks": 109101
+      },
+      "new": {
+        "pid": 7124,
+        "start_ticks": 109225
+      },
+      "old_exit_code": 0,
+      "backlog_before": 1,
+      "backlog_after": 0,
+      "retired_alive": 0,
+      "new_ready_ms": 42.91097999998783,
+      "total_handoff_ms": 1399.6237599999404,
+      "memory_peak": {
+        "samples": 114,
+        "rss_kib": 15952,
+        "pss_kib": 14765,
+        "processes": 2
+      },
+      "stream": {
+        "data_frames": 81,
+        "max_gap_ms": 62.635439999894515
+      },
+      "mock_effect_count": 1
+    },
+    {
+      "round": 5,
+      "version": "v2",
+      "old": {
+        "pid": 7124,
+        "start_ticks": 109225
+      },
+      "new": {
+        "pid": 7168,
+        "start_ticks": 109366
+      },
+      "old_exit_code": 0,
+      "backlog_before": 1,
+      "backlog_after": 0,
+      "retired_alive": 0,
+      "new_ready_ms": 16.12427200007005,
+      "total_handoff_ms": 1145.2778630000466,
+      "memory_peak": {
+        "samples": 104,
+        "rss_kib": 15988,
+        "pss_kib": 14804,
+        "processes": 2
+      },
+      "stream": {
+        "data_frames": 81,
+        "max_gap_ms": 30.749689000003855
+      },
+      "mock_effect_count": 1
+    },
+    {
+      "round": 6,
+      "version": "v2",
+      "old": {
+        "pid": 7168,
+        "start_ticks": 109366
+      },
+      "new": {
+        "pid": 7207,
+        "start_ticks": 109485
+      },
+      "old_exit_code": 0,
+      "backlog_before": 1,
+      "backlog_after": 0,
+      "retired_alive": 0,
+      "new_ready_ms": 14.433023000037792,
+      "total_handoff_ms": 1135.5803740000283,
+      "memory_peak": {
+        "samples": 101,
+        "rss_kib": 16040,
+        "pss_kib": 9160,
+        "processes": 2
+      },
+      "stream": {
+        "data_frames": 81,
+        "max_gap_ms": 43.647171999964485
+      },
+      "mock_effect_count": 1
+    },
+    {
+      "round": 7,
+      "version": "v2",
+      "old": {
+        "pid": 7207,
+        "start_ticks": 109485
+      },
+      "new": {
+        "pid": 7253,
+        "start_ticks": 109604
+      },
+      "old_exit_code": 0,
+      "backlog_before": 1,
+      "backlog_after": 0,
+      "retired_alive": 0,
+      "new_ready_ms": 16.48129699992751,
+      "total_handoff_ms": 1156.9169169999896,
+      "memory_peak": {
+        "samples": 101,
+        "rss_kib": 16128,
+        "pss_kib": 9248,
+        "processes": 2
+      },
+      "stream": {
+        "data_frames": 81,
+        "max_gap_ms": 40.65942399984124
+      },
+      "mock_effect_count": 1
+    },
+    {
+      "round": 8,
+      "version": "v1",
+      "old": {
+        "pid": 7253,
+        "start_ticks": 109604
+      },
+      "new": {
+        "pid": 7292,
+        "start_ticks": 109721
+      },
+      "old_exit_code": 0,
+      "backlog_before": 1,
+      "backlog_after": 0,
+      "retired_alive": 0,
+      "new_ready_ms": 23.48223100011637,
+      "total_handoff_ms": 1173.6744350000663,
+      "memory_peak": {
+        "samples": 111,
+        "rss_kib": 16200,
+        "pss_kib": 15016,
+        "processes": 2
+      },
+      "stream": {
+        "data_frames": 81,
+        "max_gap_ms": 11.334168000075806
+      },
+      "mock_effect_count": 1
+    },
+    {
+      "round": 9,
+      "version": "v2",
+      "old": {
+        "pid": 7292,
+        "start_ticks": 109721
+      },
+      "new": {
+        "pid": 7336,
+        "start_ticks": 109852
+      },
+      "old_exit_code": 0,
+      "backlog_before": 1,
+      "backlog_after": 0,
+      "retired_alive": 0,
+      "new_ready_ms": 24.984195000115506,
+      "total_handoff_ms": 1244.7980280001048,
+      "memory_peak": {
+        "samples": 105,
+        "rss_kib": 16292,
+        "pss_kib": 15108,
+        "processes": 2
+      },
+      "stream": {
+        "data_frames": 81,
+        "max_gap_ms": 11.20300299999144
+      },
+      "mock_effect_count": 1
+    },
+    {
+      "round": 10,
+      "version": "v1",
+      "old": {
+        "pid": 7336,
+        "start_ticks": 109852
+      },
+      "new": {
+        "pid": 7378,
+        "start_ticks": 109968
+      },
+      "old_exit_code": 0,
+      "backlog_before": 1,
+      "backlog_after": 0,
+      "retired_alive": 0,
+      "new_ready_ms": 18.063903999973263,
+      "total_handoff_ms": 1183.1577639998159,
+      "memory_peak": {
+        "samples": 108,
+        "rss_kib": 16312,
+        "pss_kib": 15128,
+        "processes": 2
+      },
+      "stream": {
+        "data_frames": 81,
+        "max_gap_ms": 25.832566999952178
+      },
+      "mock_effect_count": 1
+    }
+  ],
+  "crash_tests": [
+    {
+      "point": "after_callback_commit",
+      "killed": 7417,
+      "recovered": 7423,
+      "mock_effect_count": 1,
+      "state": "done",
+      "recovery_check_ms": 51.318682000101035
+    },
+    {
+      "point": "after_claim_before_start",
+      "killed": 7430,
+      "recovered": 7436,
+      "mock_effect_count": 1,
+      "state": "done",
+      "recovery_check_ms": 114.40546299991183
+    },
+    {
+      "point": "after_start_before_effect",
+      "killed": 7444,
+      "recovered": 7450,
+      "mock_effect_count": 0,
+      "state": "uncertain",
+      "recovery_check_ms": 70.10486800004401
+    },
+    {
+      "point": "after_effect_before_commit",
+      "killed": 7457,
+      "recovered": 7465,
+      "mock_effect_count": 1,
+      "state": "done",
+      "recovery_check_ms": 74.63259899986951
+    },
+    {
+      "point": "after_commit_before_ack",
+      "killed": 7472,
+      "recovered": 7479,
+      "mock_effect_count": 1,
+      "state": "done",
+      "recovery_check_ms": 50.379287999930966
+    },
+    {
+      "point": "stale-resumed",
+      "old_pid": 7485,
+      "new_pid": 7493,
+      "stale_http_status": 409,
+      "new_result_unchanged": true,
+      "mock_effect_count": 1
+    },
+    {
+      "point": "corrupt-callback-storage",
+      "http_status": 503,
+      "mock_effect_count": 0
+    }
+  ],
+  "failed_candidates": [
+    {
+      "pid": 7075,
+      "exit_code": 1,
+      "elapsed_ms": 15.893894000100772,
+      "round": 3
+    },
+    {
+      "pid": 7246,
+      "exit_code": 1,
+      "elapsed_ms": 4.026538000061919,
+      "round": 7
+    }
+  ],
+  "runtime_limits": {
+    "GOMAXPROCS": 1,
+    "GOMEMLIMIT": "64MiB",
+    "sampler_ms": 10,
+    "note": "Go memory limit is not a cgroup hard limit"
+  },
+  "go_version": "go version go1.23.2 linux/amd64",
+  "probe_binaries": {
+    "v1": {
+      "sha256": "a48a48d3b07946897125fee98a5f3a28d4549767186f0e17eaa4c25cb6593e1a",
+      "bytes": 6275332
+    },
+    "v2": {
+      "sha256": "88a570cf7b132be1980cddfbc1ed6c46155325251f2d3d02a74c184bf91d16c5",
+      "bytes": 6275332
+    }
+  },
+  "production_go_mod_unchanged": true,
+  "entry": {
+    "pid": 6726,
+    "start_ticks": 108319,
+    "url": "http://127.0.0.1:45373",
+    "kind": "Python test entry, NOT Rust"
+  },
+  "group_profile": {
+    "single": {
+      "pid": 6971,
+      "rss_kib": 7224,
+      "hwm_kib": 7224,
+      "pss_kib": 6634
+    },
+    "split": [
+      {
+        "pid": 6977,
+        "rss_kib": 7128,
+        "hwm_kib": 7128,
+        "pss_kib": 3880
+      },
+      {
+        "pid": 6982,
+        "rss_kib": 7152,
+        "hwm_kib": 7152,
+        "pss_kib": 3904
+      }
+    ],
+    "other_group_survived_sigkill": true,
+    "single_peak": {
+      "samples": 43,
+      "rss_kib": 7224,
+      "pss_kib": 6634,
+      "processes": 1
+    },
+    "split_peak": {
+      "samples": 42,
+      "rss_kib": 14280,
+      "pss_kib": 7784,
+      "processes": 2
+    },
+    "scope": "empty synthetic module handlers; lower bound on host overhead, not business memory"
+  },
+  "continuous_requests": {
+    "completed": 298,
+    "failures": [],
+    "proxy_retries": 0
+  },
+  "status": "passed_with_explicit_unverified_integration_gates",
+  "remaining_children": [],
+  "process_count_started": 29
+}

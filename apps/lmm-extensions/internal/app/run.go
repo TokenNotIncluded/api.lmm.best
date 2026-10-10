@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -63,7 +64,7 @@ func Run() error {
 			registered = append(registered, identity.New(client))
 		}
 	}
-	handler, err := modules.New(registered, credential)
+	host, err := modules.NewHost(registered, credential)
 	if err != nil {
 		return err
 	}
@@ -71,7 +72,7 @@ func Run() error {
 	if err != nil {
 		return err
 	}
-	handler = policies.Mount(handler)
+	handler := policies.Mount(host)
 	address := os.Getenv("LMM_EXTENSION_LISTEN")
 	if address == "" {
 		address = "0.0.0.0:8081"
@@ -83,8 +84,20 @@ func Run() error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
+	listener, err := net.Listen("tcp", address)
+	if err != nil {
+		return fmt.Errorf("bind extension listener: %w", err)
+	}
+	defer listener.Close()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if err := host.MarkReady(); err != nil {
+		return err
+	}
+	defer host.BeginDrain()
 	result := make(chan error, 1)
-	go func() { result <- server.ListenAndServe() }()
+	go func() { result <- server.Serve(listener) }()
 	select {
 	case err := <-result:
 		if !errors.Is(err, http.ErrServerClosed) {
@@ -92,10 +105,14 @@ func Run() error {
 		}
 		return nil
 	case <-ctx.Done():
+		host.BeginDrain()
 		shutdown, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
 		if err := server.Shutdown(shutdown); err != nil {
 			return errors.Join(err, server.Close())
+		}
+		if err := host.Wait(shutdown); err != nil {
+			return err
 		}
 		err := <-result
 		if !errors.Is(err, http.ErrServerClosed) {
