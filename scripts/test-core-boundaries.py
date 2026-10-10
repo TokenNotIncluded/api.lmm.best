@@ -27,8 +27,17 @@ class CoreBoundaryTests(unittest.TestCase):
             if path.name.endswith("_test.go"):
                 continue
             text = path.read_text()
-            for forbidden in ('"database/sql"', "AutoMigrate("):
-                self.assertNotIn(forbidden, text, str(path))
+            self.assertNotIn("AutoMigrate(", text, str(path))
+            if path.relative_to(ROOT).as_posix() == "apps/api-go/internal/coreclient/sqlinbox.go":
+                # Caller-owned extension DB only. No connection creation, core
+                # tables, credentials or network address belongs in this adapter.
+                self.assertNotIn("sql.Open(", text)
+                self.assertNotIn("sql.OpenDB(", text)
+                self.assertNotIn("core_identity.", text)
+                self.assertNotIn("core_events.", text)
+                self.assertIn("extension_events.inbox", text)
+            else:
+                self.assertNotIn('"database/sql"', text, str(path))
             if path.name != "environment.go":
                 for forbidden in ("SQL_DSN", "LMM_CORE_DATABASE_URL"):
                     self.assertNotIn(forbidden, text, str(path))
