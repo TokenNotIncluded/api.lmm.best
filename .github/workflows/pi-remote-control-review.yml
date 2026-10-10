@@ -2,7 +2,7 @@ name: Pi remote control review
 on:
   push:
     branches: [feat/pi-remote-control-commands]
-    paths: [.remote-control-change.b64]
+    paths: [.remote-control-change.b64, .github/workflows/pi-remote-control-review.yml]
   pull_request:
 permissions:
   contents: read
@@ -55,10 +55,11 @@ jobs:
     needs: source
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env:
-      REMOTE_BROWSER_ROOT: ${{ runner.temp }}/remote-browser
-      PLAYWRIGHT_MODULE: ${{ runner.temp }}/remote-tools/node_modules/playwright/index.mjs
     steps:
+      - name: Set isolated browser paths
+        run: |
+          echo "REMOTE_BROWSER_ROOT=$RUNNER_TEMP/remote-browser" >> "$GITHUB_ENV"
+          echo "PLAYWRIGHT_MODULE=$RUNNER_TEMP/remote-tools/node_modules/playwright/index.mjs" >> "$GITHUB_ENV"
       - uses: actions/checkout@v4
         with:
           ref: ${{ needs.source.outputs.sha }}
@@ -67,7 +68,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: TokenNotIncluded/pi-lmm-provider
-          ref: feat/model-independent-remote-control
+          ref: 58f0d8b311433053983092b7a66ddfb835f3d5f8
           path: plugin
           persist-credentials: false
       - uses: actions/setup-node@v4
