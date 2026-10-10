@@ -26,8 +26,7 @@ for (const file of paths.filter(file => !file.startsWith(localeDirectory))) {
   mkdirSync(path.dirname(file), { recursive: true })
   writeFileSync(file, show(SOURCE, file))
 }
-// Restore the existing workflow-topology contract for recently merged review
-// entry points. Keep every job intact; do not disable or weaken any test.
+// Preserve the existing manual-review contract without removing any test job.
 for (const name of ['pi-remote-control-review.yml', 'task-drawing-logs-review.yml']) {
   const file = `.github/workflows/${name}`
   const before = show(BASE, file)
@@ -68,19 +67,14 @@ for (const file of changes) {
   assert.equal(blob.sha, git('hash-object', file))
   tree.push({ path: file, mode: '100644', type: 'blob', sha: blob.sha })
 }
-const createdTree = api('trees', { base_tree: git('rev-parse', `${BASE}^{tree}`), tree })
-assert.equal(createdTree.sha, expectedTree)
-const commit = api('commits', {
-  message: 'fix(store): retain concurrent main changes and finalize checked stock regressions',
-  tree: createdTree.sha,
-  parents: [SOURCE, BASE],
-})
-// Store content objects only. The review workflow never changes a branch ref.
-git('fetch', '--depth=1', 'origin', commit.sha)
-git('checkout', '--detach', commit.sha)
+// The Actions token cannot create a tree that modifies workflows. Do not try
+// that write here. Test the local tree and hand its checked blobs to the user-
+// authorized connector for a normal commit and PR merge.
+const localCommit = git('-c', 'user.name=Stock regression review', '-c', 'user.email=stock-review@users.noreply.github.com', 'commit-tree', expectedTree, '-p', SOURCE, '-p', BASE, '-m', 'Local stock qualification candidate')
+git('checkout', '--detach', localCommit)
 assert.equal(git('rev-parse', 'HEAD^{tree}'), expectedTree)
-writeFileSync(path.join(output, 'candidate.json'), JSON.stringify({ sha: commit.sha, tree: expectedTree, source: SOURCE, base: BASE, files: tree }, null, 2) + '\n')
+writeFileSync(path.join(output, 'candidate.json'), JSON.stringify({ localCommit, tree: expectedTree, source: SOURCE, base: BASE, baseTree: git('rev-parse', `${BASE}^{tree}`), files: tree }, null, 2) + '\n')
 writeFileSync(path.join(output, 'translation-audit.json'), JSON.stringify(audit, null, 2) + '\n')
-writeFileSync(path.join(output, 'revision.txt'), commit.sha + '\n')
+writeFileSync(path.join(output, 'revision.txt'), localCommit + '\n')
 writeFileSync(path.join(output, 'change-stat.txt'), git('diff', '--stat', BASE, 'HEAD') + '\n')
-console.log(`Candidate ${commit.sha}; no branch updated`)
+console.log(`Local tree ${expectedTree}; no repository branch or workflow updated`)
