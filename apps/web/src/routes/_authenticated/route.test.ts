@@ -126,6 +126,8 @@ describe('authenticated route access', () => {
     })
 
     assert.equal(await runBeforeLoad('/wallet'), undefined)
+    assert.equal(await runBeforeLoad('/keys'), undefined)
+    assert.equal(await runBeforeLoad('/profile'), undefined)
     const oldPageRedirect = await runBeforeLoad('/getting-started')
     assert.ok(isRedirect(oldPageRedirect))
     assert.equal(oldPageRedirect.options.to, '/wallet')

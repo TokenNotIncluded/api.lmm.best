@@ -123,13 +123,13 @@ export function ProfileDropdown() {
             </DropdownMenuItem>
           ) : null}
 
+          <DropdownMenuItem onClick={() => navigate({ to: '/profile' })}>
+            <User className='size-4' />
+            {t('Profile')}
+          </DropdownMenuItem>
+
           {consoleActivated ? (
             <>
-              <DropdownMenuItem onClick={() => navigate({ to: '/profile' })}>
-                <User className='size-4' />
-                {t('Profile')}
-              </DropdownMenuItem>
-
               {isWalletVisible ? (
                 <>
                   <DropdownMenuItem onClick={() => navigate({ to: '/wallet' })}>
