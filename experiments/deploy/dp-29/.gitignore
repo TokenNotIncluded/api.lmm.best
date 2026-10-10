@@ -1,0 +1,6 @@
+__pycache__/
+*.py[cod]
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
