@@ -837,7 +837,6 @@ const ASSISTANT_NAVIGATION_QUERY_KEYS: Partial<
   Record<AssistantNavigationPath, readonly string[]>
 > = {
   '/': [],
-  '/getting-started': [],
   '/pricing': [],
   '/wallet': [],
   '/usage-logs/common': ['username'],

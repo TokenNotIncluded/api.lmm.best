@@ -158,8 +158,16 @@ func TestAssistantCurrencyUnrepresentableProjectionKeepsJSONFinite(t *testing.T)
 			rewards := executeAssistantInvitationTool(user.Id)
 			require.Equal(t, true, rewards["ok"])
 			assert.Equal(t, tc.credits, rewards["pending_reward_credit"])
-			for _, field := range []string{"pending_reward_usd", "total_reward_usd", "reward_per_inviter_usd", "reward_per_invitee_usd"} {
+			for _, field := range []string{"pending_reward_usd", "total_reward_usd", "reward_per_inviter_usd"} {
 				assert.Nil(t, rewards[field])
+			}
+			// The retired invitee award is zero, which can remain representable
+			// even when nonzero balances exceed the public USD range.
+			zeroUSD, _, zeroErr := assistantFiatProjection(0)
+			if zeroErr != nil {
+				assert.Nil(t, rewards["reward_per_invitee_usd"])
+			} else {
+				assert.Equal(t, zeroUSD, rewards["reward_per_invitee_usd"])
 			}
 			_, err = json.Marshal(rewards)
 			require.NoError(t, err)

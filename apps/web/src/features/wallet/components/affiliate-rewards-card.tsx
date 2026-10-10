@@ -85,7 +85,9 @@ export function AffiliateRewardsCard({
         <div className='grid grid-cols-3 gap-1.5 text-center'>
           {[
             [
-              (user?.aff_debt ?? 0) > 0 ? t('Reward debt') : t('Available Rewards'),
+              (user?.aff_debt ?? 0) > 0
+                ? t('Reward debt')
+                : t('Available Rewards'),
               formatQuota(
                 (user?.aff_debt ?? 0) > 0
                   ? (user?.aff_debt ?? 0)

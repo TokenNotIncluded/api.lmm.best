@@ -201,7 +201,9 @@ export function ReferralHistoryDialog() {
           </div>
           {history.policy && (
             <div className='bg-muted/25 rounded-2xl px-4 py-3'>
-              <p className='text-muted-foreground text-xs'>{t('Registration advance reward')}</p>
+              <p className='text-muted-foreground text-xs'>
+                {t('Registration advance reward')}
+              </p>
               <p className='mt-1 text-xl font-semibold tabular-nums'>
                 {formatQuota(history.policy.registration_reward_quota ?? 0)}
               </p>
@@ -222,14 +224,22 @@ export function ReferralHistoryDialog() {
 
       {history?.policy?.min_top_up_amounts && (
         <div className='bg-muted/20 space-y-2 rounded-2xl p-4 text-sm'>
-          <p className='font-medium'>{t('Minimum first cash payment by currency')}</p>
+          <p className='font-medium'>
+            {t('Minimum first cash payment by currency')}
+          </p>
           <div className='flex flex-wrap gap-4'>
-            {Object.entries(history.policy.min_top_up_amounts).map(([currency, amount]) => (
-              <span key={currency} className='tabular-nums'>{currency} ≥ {amount}</span>
-            ))}
+            {Object.entries(history.policy.min_top_up_amounts).map(
+              ([currency, amount]) => (
+                <span key={currency} className='tabular-nums'>
+                  {currency} ≥ {amount}
+                </span>
+              )
+            )}
           </div>
           <p className='text-muted-foreground text-xs'>
-            {t('Only the first verified cash payment can earn the tail. A smaller first payment cannot be topped up later to qualify. Lifetime earnings are not your current wallet balance.')}
+            {t(
+              'Only the first verified cash payment can earn the tail. A smaller first payment cannot be topped up later to qualify. Lifetime earnings are not your current wallet balance.'
+            )}
           </p>
         </div>
       )}

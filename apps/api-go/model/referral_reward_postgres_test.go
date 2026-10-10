@@ -175,3 +175,9 @@ func TestReferralStagesPostgresConcurrentCallbacks(t *testing.T) {
 	require.NoError(t, db.Model(&ReferralLedgerEntry{}).Count(&count).Error)
 	require.EqualValues(t, 2, count)
 }
+
+func TestReferralStagesPostgresUpgrade(t *testing.T) {
+	usePostgresDatabaseType(t)
+	db := openIsolatedPostgresCacheTestDB(t, &referralRequiredOrderFixture{})
+	checkReferralStagesUpgrade(t, db)
+}

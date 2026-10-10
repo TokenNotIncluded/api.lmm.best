@@ -259,3 +259,33 @@ test('application-level failure retries the first page rather than a stale curso
     await ctx.cleanup()
   }
 })
+
+test('shows both stages and real cash floors without calling earned rewards pending', async () => {
+  const ctx = await setup()
+  try {
+    await ctx.open()
+    const response = page(40)
+    await act(async () =>
+      ctx.pending[0].resolve({
+        ...response,
+        data: {
+          ...response.data,
+          policy: {
+            reward_quota: 450000,
+            registration_reward_quota: 50000,
+            min_top_up_amounts: { USD: '10', CNY: '70' },
+          },
+        },
+      } as Result)
+    )
+    const text = document.body.textContent ?? ''
+    assert.match(text, /Registration advance reward/)
+    assert.match(text, /First top-up tail reward/)
+    assert.match(text, /USD ≥ 10/)
+    assert.match(text, /CNY ≥ 70/)
+    assert.match(text, /A smaller first payment cannot be topped up later/)
+    assert.doesNotMatch(text, /Pending/)
+  } finally {
+    await ctx.cleanup()
+  }
+})

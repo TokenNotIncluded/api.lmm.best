@@ -62,8 +62,11 @@ describe('AffiliateRewardsCard referral description', () => {
 
     assert.match(
       markup,
-      /Earn a reward after an invited user completes their first real paid top-up/
+      /Registration advance and first-payment tail are separate rewards/
     )
+    assert.match(markup, /Available Rewards/)
+    assert.match(markup, /Lifetime earnings are not the current balance/)
+    assert.doesNotMatch(markup, /Pending/)
     assert.doesNotMatch(markup, /line-clamp-1/)
   })
 })

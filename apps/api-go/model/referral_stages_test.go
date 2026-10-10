@@ -161,9 +161,16 @@ func (referralRequiredOrderFixture) TableName() string { return "referral_reward
 
 func TestReferralStagesUpgradeAllowsUnpaidRows(t *testing.T) {
 	db := setupExternalTopUpSettlementDB(t, 1)
+	checkReferralStagesUpgrade(t, db)
+}
+
+func checkReferralStagesUpgrade(t *testing.T, db *gorm.DB) {
+	t.Helper()
 	require.NoError(t, db.AutoMigrate(&referralRequiredOrderFixture{}))
 	require.NoError(t, db.Create(&referralRequiredOrderFixture{InviteeId: 1, InviterId: 9, TopUpId: 7, Quota: 10, Status: "earned"}).Error)
+	require.NoError(t, migrateReferralOrderNullability(db))
 	require.NoError(t, db.AutoMigrate(&ReferralReward{}))
+	require.NoError(t, migrateReferralOrderNullability(db))
 	for _, id := range []int{2, 3} {
 		reward := ReferralReward{InviteeId: id, InviterId: 9, Quota: 1, Status: "earned"}
 		require.NoError(t, db.Create(&reward).Error)
@@ -175,4 +182,7 @@ func TestReferralStagesUpgradeAllowsUnpaidRows(t *testing.T) {
 	require.NotNil(t, historical.TopUpId)
 	require.Equal(t, 7, *historical.TopUpId)
 	require.Equal(t, 10, historical.Quota)
+	require.True(t, db.Migrator().HasIndex(&ReferralReward{}, "idx_referral_rewards_top_up_id"))
+	require.Error(t, db.Create(&ReferralReward{InviteeId: 4, InviterId: 9, TopUpId: referralTestTopUpID(7), Quota: 1, Status: "earned"}).Error)
+	require.Error(t, db.Create(&ReferralReward{InviteeId: 1, InviterId: 9, Quota: 1, Status: "earned"}).Error)
 }
