@@ -43,14 +43,50 @@ function normalizeIntlLocales(
   return locales
 }
 
+type NumberFormatKind = 'number' | 'compact' | 'percent'
+
+const numberFormatOptions: Record<NumberFormatKind, Intl.NumberFormatOptions> = {
+  number: { maximumFractionDigits: 2 },
+  compact: { notation: 'compact', maximumFractionDigits: 1 },
+  percent: { style: 'percent', maximumFractionDigits: 2 },
+}
+const numberFormatters = new Map<
+  string,
+  { formatter: Intl.NumberFormat; expiresAt: number }
+>()
+
+function getNumberFormatter(
+  kind: NumberFormatKind,
+  locales?: Intl.LocalesArgument
+): Intl.NumberFormat {
+  const normalized = normalizeIntlLocales(locales)
+  const options = numberFormatOptions[kind]
+  // Preserve Intl's array/object locale handling without retaining caller data.
+  if (normalized !== undefined && typeof normalized !== 'string') {
+    return new Intl.NumberFormat(normalized, options)
+  }
+  // Only immutable formatters are cached, never values or formatted amounts.
+  // Locale and format changes select a new key; expiry is lazy, with no timer.
+  const key = `${kind}:${normalized ?? ''}`
+  const now = Date.now()
+  const cached = numberFormatters.get(key)
+  if (cached && now < cached.expiresAt) return cached.formatter
+  const formatter = new Intl.NumberFormat(normalized, options)
+  numberFormatters.delete(key)
+  if (numberFormatters.size >= 24) {
+    const oldest = numberFormatters.keys().next().value
+    if (oldest !== undefined) numberFormatters.delete(oldest)
+  }
+  numberFormatters.set(key, { formatter, expiresAt: now + 5 * 60_000 })
+  return formatter
+}
+
 export function formatNumber(
   value: number | null | undefined,
   locales?: Intl.LocalesArgument
 ): string {
   if (value == null || Number.isNaN(value as number)) return '-'
-  return Intl.NumberFormat(normalizeIntlLocales(locales), {
-    maximumFractionDigits: 2,
-  }).format(value as number)
+  return getNumberFormatter('number', locales).format(value as number)
 }
 
 export function formatCompactNumber(
@@ -58,18 +94,12 @@ export function formatCompactNumber(
   locales?: Intl.LocalesArgument
 ): string {
   if (value == null || Number.isNaN(value as number)) return '-'
-  return Intl.NumberFormat(normalizeIntlLocales(locales), {
-    notation: 'compact',
-    maximumFractionDigits: 1,
-  }).format(value as number)
+  return getNumberFormatter('compact', locales).format(value as number)
 }
 
 export function formatPercent(value: number | null | undefined): string {
   if (value == null || Number.isNaN(value as number)) return '-'
-  return Intl.NumberFormat(undefined, {
-    style: 'percent',
-    maximumFractionDigits: 2,
-  }).format((value as number) / 100)
+  return getNumberFormatter('percent').format((value as number) / 100)
 }
 
 // ============================================================================
