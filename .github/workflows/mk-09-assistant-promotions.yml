@@ -1,0 +1,57 @@
+name: Assistant and promotions checks
+on:
+  push:
+    branches: [wip/mk-09-assistant-promotions]
+  workflow_dispatch:
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+concurrency:
+  group: mk09-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  extensions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      GOWORK: 'off'
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version: '1.27.2'
+          cache-dependency-path: apps/lmm-extensions/go.sum
+      - name: Record source and offline verification inputs
+        run: |
+          git rev-parse HEAD > "$RUNNER_TEMP/tested-sha.txt"
+          git archive --format=tar HEAD > "$RUNNER_TEMP/mk09-source.tar"
+          (cd apps/lmm-extensions && go mod vendor)
+          tar -rf "$RUNNER_TEMP/mk09-source.tar" apps/lmm-extensions/vendor
+          gzip "$RUNNER_TEMP/mk09-source.tar"
+          tar -C "$(go env GOROOT)" -czf "$RUNNER_TEMP/mk09-go.tar.gz" .
+      - name: Source boundaries
+        run: python3 -B scripts/test-core-boundaries.py
+      - name: Go checks
+        working-directory: apps/lmm-extensions
+        run: |
+          bash ../../scripts/check-go-format.sh .
+          go mod verify
+          go vet -mod=readonly ./...
+          go test -mod=readonly -race -count=1 -json ./... | tee "$RUNNER_TEMP/extension-tests.jsonl"
+          CGO_ENABLED=0 go build -mod=readonly -trimpath ./cmd/extensions
+      - name: Preserve evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: mk09-evidence-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/tested-sha.txt
+            ${{ runner.temp }}/extension-tests.jsonl
+            ${{ runner.temp }}/mk09-source.tar.gz
+            ${{ runner.temp }}/mk09-go.tar.gz
+          retention-days: 3
+          if-no-files-found: error
