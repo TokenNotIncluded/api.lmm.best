@@ -14,6 +14,7 @@ func TestMerchantStoreSignedMarkerPackageContractPreservesExactCanonicalBytes(t 
 		wantPass               bool
 	}{
 		{name: "exact", signed: "4\n", packaged: "4\n", wantPass: true},
+		{name: "refund sync capability", signed: "8\n", packaged: "8\n", wantPass: true},
 		{name: "unsigned change", signed: "4\n", packaged: "3\n"},
 		{name: "missing package member", signed: "4\n", omit: true},
 		{name: "duplicate package member", signed: "4\n", packaged: "4\n", duplicate: true},

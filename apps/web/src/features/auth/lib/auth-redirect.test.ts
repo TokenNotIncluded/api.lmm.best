@@ -21,7 +21,11 @@ import { describe, test } from 'node:test'
 
 import type { AuthUser } from '@/stores/auth-store'
 
-import { getSavedLanguage, sanitizeAuthRedirect } from './auth-redirect'
+import {
+  getSavedLanguage,
+  sanitizeAuthRedirect,
+  signInHref,
+} from './auth-redirect'
 
 const origin = 'https://dashboard.example.com'
 
@@ -103,6 +107,48 @@ describe('saved authentication language', () => {
     assert.equal(
       getSavedLanguage({ ...user, setting: { language: 123 } }),
       undefined
+    )
+  })
+})
+
+describe('store pickup login returns', () => {
+  test('preserves the complete internal pickup URL and explicitly permits account correction', () => {
+    const location = {
+      origin,
+      pathname: '/store/claim/' + 'x'.repeat(43),
+      search: '?source=mail%2Breceipt',
+      hash: '#refunds',
+    }
+    const href = new URL(signInHref(location, true), origin)
+    assert.equal(href.pathname, '/sign-in')
+    assert.equal(
+      href.searchParams.get('redirect'),
+      location.pathname + location.search + location.hash
+    )
+    assert.equal(href.searchParams.get('reauth'), '1')
+    assert.equal(
+      new URL(signInHref(location), origin).searchParams.has('reauth'),
+      false
+    )
+  })
+  test('does not accept an external return or a login loop', () => {
+    assert.equal(
+      signInHref({
+        origin,
+        pathname: '//attacker.example',
+        search: '',
+        hash: '',
+      }),
+      '/sign-in'
+    )
+    assert.equal(
+      signInHref({
+        origin,
+        pathname: '/sign-in',
+        search: '?redirect=/dashboard',
+        hash: '',
+      }),
+      '/sign-in'
     )
   })
 })

@@ -61,6 +61,8 @@ const orderRoot = (id: string) =>
   `${root}/orders/${encodeURIComponent(id)}/refunds`
 
 export const storeRefundApi = {
+  sync: (id: string) =>
+    unwrap<StoreRefundView>(api.post(`${orderRoot(id)}/sync`, {}, options)),
   read: (id: string) =>
     unwrap<StoreRefundView>(api.get(orderRoot(id), options)),
   request: (id: string, input: StoreRefundInput) =>

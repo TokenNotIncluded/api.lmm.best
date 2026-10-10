@@ -7,9 +7,10 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Markdown } from '@/components/ui/markdown'
+import { signInHref } from '@/features/auth/lib/auth-redirect'
 import { useAuthStore } from '@/stores/auth-store'
 
-import { storeApi } from './api'
+import { storeApi, StoreAPIError } from './api'
 import { StoreClaimItems } from './claim-items'
 import { STORE_FIXED_CONTENT_COPY as copy } from './fixed-content-copy'
 import { StorePickupRefunds } from './refund-panel'
@@ -63,10 +64,17 @@ function StoreClaimContent({ token }: { token: string }) {
   if (query.isPending) return <StoreLoading />
   if (!query.data) {
     return (
-      <StoreError
-        error={query.error || new Error('Pickup link is unavailable')}
-        retry={() => void query.refetch()}
-      />
+      <div className='space-y-4'>
+        <StoreError
+          error={query.error || new Error('Pickup link is unavailable')}
+          retry={() => void query.refetch()}
+        />
+        {query.error instanceof StoreAPIError && query.error.status === 401 && (
+          <Button render={<a href={signInHref(window.location, true)} />}>
+            {t('Sign in with the purchasing account')}
+          </Button>
+        )}
+      </div>
     )
   }
   const metadata = query.data
@@ -95,6 +103,13 @@ function StoreClaimContent({ token }: { token: string }) {
         </p>
       </div>
       <StoreError error={error} />
+      {error instanceof StoreAPIError &&
+        (error.status === 401 ||
+          error.code === 'STORE_PICKUP_ACCOUNT_REQUIRED') && (
+          <Button render={<a href={signInHref(window.location, true)} />}>
+            {t('Sign in with the purchasing account')}
+          </Button>
+        )}
       {!['paid', 'refund_pending'].includes(metadata.status) ? (
         <p className='rounded-lg border p-4 text-sm'>
           {t(
@@ -117,13 +132,7 @@ function StoreClaimContent({ token }: { token: string }) {
             value={window.location.href}
             label='Copy collection link'
           />
-          <Button
-            render={
-              <a
-                href={`/sign-in?redirect=${encodeURIComponent(window.location.pathname)}`}
-              />
-            }
-          >
+          <Button render={<a href={signInHref(window.location, true)} />}>
             {t('Sign in')}
           </Button>
         </div>

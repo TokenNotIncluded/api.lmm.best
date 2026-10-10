@@ -72,7 +72,7 @@ func storeRefundDispatchTx(id string, fn func(*gorm.DB, *MerchantStoreOrder, *Me
 		if b == nil || r.AmountMinor <= 0 || b.EvidenceHash == "" {
 			return ErrMerchantStoreRefundUnsupported
 		}
-		if r.Status != "awaiting_provider" && r.Status != "reconciliation_required" && r.Status != "completed" && r.Status != "rejected" {
+		if r.Status != "awaiting_provider" && r.Status != "reconciliation_required" && r.Status != "completed" && r.Status != "rejected" && r.Status != "provider_review" {
 			return ErrMerchantStoreConflict
 		}
 		return fn(tx, o, r, b)
@@ -87,11 +87,11 @@ func PrepareMerchantStoreRefundDispatch(id string, now int64) (*MerchantStoreRef
 		var a MerchantStoreRefundProviderAttempt
 		e := tx.First(&a, "refund_id = ?", id).Error
 		if errors.Is(e, gorm.ErrRecordNotFound) {
-			if r.Status != "awaiting_provider" && r.Status != "reconciliation_required" {
+			if r.Status != "awaiting_provider" && r.Status != "reconciliation_required" && r.Status != "provider_review" {
 				return ErrMerchantStoreConflict
 			}
 			a = MerchantStoreRefundProviderAttempt{RefundID: id, OrderID: o.ID, RequestHash: storeRefundDispatchHash(o, r, b), State: "ready", Code: "ready", CreatedAt: now, UpdatedAt: now}
-			if r.Status == "reconciliation_required" {
+			if r.Status == "reconciliation_required" || r.Status == "provider_review" {
 				if r.ProviderRefundReference == nil || r.ProviderEvidenceHash == "" {
 					return ErrMerchantStoreConflict
 				}
@@ -142,6 +142,9 @@ func ClaimMerchantStoreRefundSubmit(id, lease, hash string, now int64) (bool, er
 		}
 		if a.SubmitCount == 1 {
 			return nil
+		}
+		if err := storeRefundRequireNoExternalReview(tx, o.ID); err != nil {
+			return err
 		}
 		if a.SubmitCount != 0 || a.State != "ready" || r.Status != "awaiting_provider" {
 			return ErrMerchantStoreConflict
@@ -202,7 +205,7 @@ func DueMerchantStoreRefundDispatches(ctx context.Context, now int64, limit int)
 			}
 			return e
 		}
-		return tx.Model(&MerchantStoreRefund{}).Select("merchant_store_refunds.id").Joins("JOIN merchant_store_refund_payment_bases AS basis ON basis.order_id = merchant_store_refunds.order_id").Joins("LEFT JOIN merchant_store_refund_provider_attempts AS attempt ON attempt.refund_id = merchant_store_refunds.id").Where("merchant_store_refunds.status IN ?", []string{"awaiting_provider", "reconciliation_required"}).Where("merchant_store_refunds.amount_minor > 0").Where("attempt.refund_id IS NULL OR (attempt.next_check_at <= ? AND attempt.lease_until <= ?)", now, now).Order("merchant_store_refunds.created_at ASC,merchant_store_refunds.id ASC").Limit(limit).Pluck("merchant_store_refunds.id", &ids).Error
+		return tx.Model(&MerchantStoreRefund{}).Select("merchant_store_refunds.id").Joins("JOIN merchant_store_refund_payment_bases AS basis ON basis.order_id = merchant_store_refunds.order_id").Joins("LEFT JOIN merchant_store_refund_provider_attempts AS attempt ON attempt.refund_id = merchant_store_refunds.id").Where("merchant_store_refunds.status IN ?", []string{"awaiting_provider", "reconciliation_required", "provider_review"}).Where("merchant_store_refunds.amount_minor > 0").Where("attempt.refund_id IS NULL OR (attempt.next_check_at <= ? AND attempt.lease_until <= ?)", now, now).Order("merchant_store_refunds.created_at ASC,merchant_store_refunds.id ASC").Limit(limit).Pluck("merchant_store_refunds.id", &ids).Error
 	})
 	return ids, e
 }

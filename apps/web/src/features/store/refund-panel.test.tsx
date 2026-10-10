@@ -946,3 +946,52 @@ test('buyer can cancel only a requested refund using its existing refund identit
   assert.match(document.body.textContent || '', /Refund request cancelled/)
   assert.equal(hasButton('Cancel refund request'), false)
 })
+
+test('seller synchronizes gateway receipts without supplying an amount or initiating another refund', async () => {
+  const reviewed = {
+    ...view,
+    payment_method: 'platform:waffo_pancake',
+    supports_provider_sync: true,
+    provider_reconciliation_pending: true,
+    refunds: [
+      {
+        ...refund,
+        status: 'provider_review',
+        requested_role: 'provider',
+        amount_minor: 25,
+      },
+    ],
+  }
+  const records = requests(() => envelope(reviewed))
+  await mount(
+    <StoreRefundPanel orderId={orderId} audience='seller' initiallyOpen />
+  )
+  assert.match(
+    document.body.textContent || '',
+    /Refund issued by the payment provider/
+  )
+  assert.equal(hasButton('Issue refund'), false)
+  assert.equal(hasButton('Approve'), false)
+  await click(button('Sync with payment provider'))
+  const posts = records.filter((request) => request.method === 'POST')
+  assert.equal(posts.length, 1)
+  assert.ok(posts[0].url.endsWith('/refunds/sync'))
+  assert.deepEqual(posts[0].body, {})
+  assert.ok(records.some((request) => request.method === 'GET'))
+})
+
+test('buyer cannot trigger provider synchronization or create a refund while provider receipts need review', async () => {
+  requests(() =>
+    envelope({
+      ...view,
+      supports_provider_sync: true,
+      provider_reconciliation_pending: true,
+    })
+  )
+  await mount(
+    <StoreRefundPanel orderId={orderId} audience='buyer' initiallyOpen />
+  )
+  assert.equal(hasButton('Sync with payment provider'), false)
+  assert.equal(hasButton('Request refund'), false)
+  assert.match(document.body.textContent || '', /do not issue another refund/)
+})

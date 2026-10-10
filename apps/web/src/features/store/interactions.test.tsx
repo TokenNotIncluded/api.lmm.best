@@ -2361,7 +2361,7 @@ test('cold-open collection uses only order-scoped cookie authentication without 
   const refundLogin = document.querySelector('a[href^="/sign-in?redirect="]')
   assert.equal(
     refundLogin?.getAttribute('href'),
-    `/sign-in?redirect=${encodeURIComponent(window.location.pathname)}`
+    `/sign-in?redirect=${encodeURIComponent(window.location.pathname)}&reauth=1`
   )
   assert.equal(
     document.querySelectorAll('a[href^="/sign-in?redirect="]').length,

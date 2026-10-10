@@ -26,6 +26,9 @@ func merchantStoreDispatchNative(d *model.MerchantStoreRefundDispatch) MerchantS
 func merchantStoreReconcileSavedRefund(d *model.MerchantStoreRefundDispatch) error {
 	a := d.Attempt
 	if a.State == "succeeded" && a.RefundReference != "" && a.EvidenceHash != "" {
+		if d.Refund.RequestedRole == "provider" {
+			return model.ReconcileMerchantStoreExternalRefund(d.Refund.ID)
+		}
 		return model.CompleteMerchantStoreVerifiedRefund(d.Refund.ID, model.MerchantStoreVerifiedRefundEvidence{PaymentReference: d.Basis.PaymentReference, RefundReference: a.RefundReference, AmountMinor: d.Refund.AmountMinor, Currency: d.Refund.Currency, EvidenceHash: a.EvidenceHash})
 	}
 	if a.State == "failed" && a.RefundReference != "" && a.EvidenceHash != "" {

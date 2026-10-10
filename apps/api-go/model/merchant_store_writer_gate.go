@@ -17,7 +17,7 @@ import (
 	"gorm.io/gorm/logger"
 )
 
-const MerchantStoreWriterCapability = 7
+const MerchantStoreWriterCapability = 8
 const MerchantStoreWriterCapabilityOption = "MerchantStoreMinimumWriterCapability"
 
 var ErrMerchantStoreWriterFrozen = errors.New("merchant store writer is unavailable during an upgrade")
@@ -64,6 +64,8 @@ func storeWriterGateRow(db *gorm.DB, lock string) (int, error) {
 		return 6, nil
 	case "7":
 		return 7, nil
+	case "8":
+		return 8, nil
 	default:
 		return 0, ErrMerchantStoreWriterFrozen
 	}

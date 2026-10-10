@@ -315,6 +315,17 @@ func storeRefundView(tx *gorm.DB, o *MerchantStoreOrder) (*MerchantStoreRefundVi
 		v.RefundedAmountMinor = &done
 		v.RemainingAmountMinor = &left
 	}
+	floor, err := storeWriterGateRow(tx, "")
+	if err != nil {
+		return nil, err
+	}
+	v.SupportsProviderSync = floor >= 8 && b != nil && (o.PaymentMethod == "platform:waffo_pancake" || o.PaymentMethod == "external:waffo_pancake")
+	for _, r := range rows {
+		if r.Status == "provider_review" {
+			v.ProviderReconciliationPending = true
+			break
+		}
+	}
 	return v, nil
 }
 func GetMerchantStoreRefunds(actor int, id string) (*MerchantStoreRefundView, error) {
@@ -360,6 +371,9 @@ func storeRefundCreate(tx *gorm.DB, o *MerchantStoreOrder, actor int, role strin
 		return &existing, e
 	} else if !errors.Is(e, gorm.ErrRecordNotFound) {
 		return nil, e
+	}
+	if err := storeRefundRequireNoExternalReview(tx, o.ID); err != nil {
+		return nil, err
 	}
 	if !storeRefundPaid(o) || o.Status == "refunded" {
 		return nil, ErrMerchantStoreConflict
@@ -709,10 +723,16 @@ func storeRefundOrderStatus(tx *gorm.DB, o *MerchantStoreOrder) error {
 		}
 	} else {
 		for _, r := range rows {
-			if r.Status == "awaiting_provider" || r.Status == "reconciliation_required" {
+			if r.Status == "awaiting_provider" || r.Status == "reconciliation_required" || r.Status == "provider_review" {
 				status = "refund_pending"
 				break
 			}
+		}
+	}
+	for _, r := range rows {
+		if r.Status == "provider_review" {
+			status = "refund_pending"
+			break
 		}
 	}
 	o.Status = status
@@ -737,6 +757,11 @@ func storeRefundDecision(tx *gorm.DB, o *MerchantStoreOrder, r *MerchantStoreRef
 	}
 	if r.Status != "requested" || !storeRefundPaid(o) {
 		return ErrMerchantStoreConflict
+	}
+	if in.Decision == "approve" {
+		if err := storeRefundRequireNoExternalReview(tx, o.ID); err != nil {
+			return err
+		}
 	}
 	r.DecisionBy = actor
 	r.DecisionReason = in.Reason
