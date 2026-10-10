@@ -159,6 +159,43 @@ func QuotaFromDecimalStrict(d decimal.Decimal) (int, error) {
 	return strictQuota(QuotaFromDecimalChecked(d))
 }
 
+// ChargeQuotaFromDecimalChecked converts a non-negative consumption amount.
+// Sum all billable dimensions and apply prices before this final conversion.
+// Ceiling prevents a positive fraction from being silently discarded. Keep
+// recharge, refund and signed-delta conversions on their existing policies.
+func ChargeQuotaFromDecimalChecked(value decimal.Decimal) (int, *QuotaClamp) {
+	if value.IsNegative() {
+		clamp := &QuotaClamp{Op: "ChargeQuotaFromDecimal", Kind: QuotaClampUnderflow,
+			Original: value.InexactFloat64(), Clamped: 0}
+		SysError(clamp.Error())
+		return 0, clamp
+	}
+	return saturateQuota(value.Ceil().InexactFloat64(), "ChargeQuotaFromDecimal")
+}
+
+func ChargeQuotaFromDecimalStrict(value decimal.Decimal) (int, error) {
+	return strictQuota(ChargeQuotaFromDecimalChecked(value))
+}
+
+// ChargeQuotaFromFloatChecked is for prices produced by a float expression
+// engine. Prefer decimal arithmetic when the individual price inputs exist.
+func ChargeQuotaFromFloatChecked(value float64) (int, *QuotaClamp) {
+	if math.IsNaN(value) || math.IsInf(value, 1) {
+		return saturateQuota(value, "ChargeQuotaFromFloat")
+	}
+	if math.IsInf(value, -1) {
+		clamp := &QuotaClamp{Op: "ChargeQuotaFromFloat", Kind: QuotaClampUnderflow,
+			Original: value, Clamped: 0}
+		SysError(clamp.Error())
+		return 0, clamp
+	}
+	return ChargeQuotaFromDecimalChecked(decimal.NewFromFloat(value))
+}
+
+func ChargeQuotaFromFloatStrict(value float64) (int, error) {
+	return strictQuota(ChargeQuotaFromFloatChecked(value))
+}
+
 // ValidateWalletQuota rejects values outside the symmetric JavaScript-safe
 // wallet domain. External wallet inputs (including administrator overrides)
 // must pass through this function before being persisted or returned as JSON.

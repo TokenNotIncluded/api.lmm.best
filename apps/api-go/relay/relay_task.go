@@ -266,7 +266,7 @@ func taskSubmitQuotaWithRatios(info *relaycommon.RelayInfo, modelName string) (i
 	if !common.StringsContains(constant.TaskPricePatches, modelName) {
 		quota = info.PriceData.ApplyOtherRatiosToFloat(quota)
 	}
-	return common.QuotaFromFloatChecked(quota)
+	return common.ChargeQuotaFromFloatChecked(quota)
 }
 
 // checkAdvancedSecurityTaskPrompt closes the gap between the normal model
@@ -316,7 +316,7 @@ func recalcQuotaFromRatios(info *relaycommon.RelayInfo, ratios map[string]float6
 	}
 	// 应用新的 ratios
 	result := priceData.ApplyOtherRatiosToFloat(baseQuota)
-	quota, clamp := common.QuotaFromFloatChecked(result)
+	quota, clamp := common.ChargeQuotaFromFloatChecked(result)
 	noteTaskQuotaClamp(info, clamp)
 	return quota, true
 }

@@ -1,6 +1,9 @@
 package billingexpr
 
-import "github.com/LIghtJUNction/api.lmm.best/common"
+import (
+	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/shopspring/decimal"
+)
 
 // quotaConversion converts raw expression output to quota based on the
 // expression version. This is the central dispatch point for future versions
@@ -8,7 +11,7 @@ import "github.com/LIghtJUNction/api.lmm.best/common"
 func quotaConversion(exprOutput float64, snap *BillingSnapshot) float64 {
 	switch snap.ExprVersion {
 	default: // v1: coefficients are $/1M tokens prices
-		return exprOutput / 1_000_000 * snap.QuotaPerUnit
+		return decimal.NewFromFloat(exprOutput).Mul(decimal.NewFromFloat(snap.QuotaPerUnit)).Div(decimal.NewFromInt(1_000_000)).InexactFloat64()
 	}
 }
 
@@ -25,7 +28,7 @@ func ComputeTieredQuotaWithRequest(snap *BillingSnapshot, params TokenParams, re
 	}
 
 	quotaBeforeGroup := quotaConversion(cost, snap)
-	afterGroup, clamp := common.QuotaRoundChecked(quotaBeforeGroup * snap.GroupRatio)
+	afterGroup, clamp := common.ChargeQuotaFromDecimalChecked(decimal.NewFromFloat(quotaBeforeGroup).Mul(decimal.NewFromFloat(snap.GroupRatio)))
 	crossed := trace.MatchedTier != snap.EstimatedTier
 
 	return TieredResult{

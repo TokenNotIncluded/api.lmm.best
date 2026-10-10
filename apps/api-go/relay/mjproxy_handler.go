@@ -35,7 +35,7 @@ func applyMidjourneyPriceRatios(priceData *hosttypes.PriceData) error {
 	if priceData == nil || priceData.Quota <= 0 {
 		return nil
 	}
-	quota, err := common.QuotaFromFloatStrict(priceData.ApplyOtherRatiosToFloat(float64(priceData.Quota)))
+	quota, err := common.ChargeQuotaFromFloatStrict(priceData.ApplyOtherRatiosToFloat(float64(priceData.Quota)))
 	if err != nil {
 		return err
 	}

@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
@@ -13,6 +14,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/setting/ratio_setting"
 	"github.com/LIghtJUNction/api.lmm.best/types"
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 )
 
 // LogTaskConsumption 记录任务消费日志和统计信息（仅记录，不涉及实际扣费）。
@@ -304,45 +306,48 @@ func RecalculateTaskQuotaByTokens(ctx context.Context, task *model.Task, totalTo
 		return
 	}
 
-	modelName := taskModelName(task)
-
-	// 获取模型价格和倍率
-	modelRatio, hasRatioSetting, _ := ratio_setting.GetModelRatio(modelName)
-	// 只有配置了倍率(非固定价格)时才按 token 重新计费
-	if !hasRatioSetting || modelRatio <= 0 {
-		return
-	}
-
-	// 获取用户和组的倍率信息
-	group := task.Group
-	if group == "" {
-		user, err := model.GetUserById(task.UserId, false)
-		if err == nil {
-			group = user.Group
+	var modelRatio, finalGroupRatio float64
+	context := task.PrivateData.BillingContext
+	if context != nil {
+		if context.PerCallBilling {
+			return
+		}
+		modelRatio, finalGroupRatio = context.ModelRatio, context.GroupRatio
+	} else {
+		// Only tasks created before price snapshots existed use legacy lookup.
+		var configured bool
+		modelRatio, configured, _ = ratio_setting.GetModelRatio(taskModelName(task))
+		if !configured {
+			return
+		}
+		group := task.Group
+		if group == "" {
+			if user, err := model.GetUserById(task.UserId, false); err == nil {
+				group = user.Group
+			}
+		}
+		if group == "" {
+			return
+		}
+		finalGroupRatio = ratio_setting.GetGroupRatio(group)
+		if special, ok := ratio_setting.GetGroupGroupRatio(group, group); ok {
+			finalGroupRatio = special
 		}
 	}
-	if group == "" {
-		return
+	for _, value := range []float64{modelRatio, finalGroupRatio} {
+		if value < 0 || math.IsNaN(value) || math.IsInf(value, 0) {
+			logger.LogError(ctx, "invalid task billing price snapshot: "+task.TaskID)
+			return
+		}
 	}
-
-	groupRatio := ratio_setting.GetGroupRatio(group)
-	userGroupRatio, hasUserGroupRatio := ratio_setting.GetGroupGroupRatio(group, group)
-
-	var finalGroupRatio float64
-	if hasUserGroupRatio {
-		finalGroupRatio = userGroupRatio
-	} else {
-		finalGroupRatio = groupRatio
-	}
-
-	// 计算 OtherRatios 乘积（视频折扣、时长等）
+	// Explicit zero prices/groups stay free; they must not fall back to live rates.
+	amount := decimal.NewFromInt(int64(totalTokens)).Mul(decimal.NewFromFloat(modelRatio)).Mul(decimal.NewFromFloat(finalGroupRatio))
 	otherMultiplier := 1.0
-	if priceData := taskBillingContextPriceData(task.PrivateData.BillingContext); priceData != nil {
-		otherMultiplier = priceData.OtherRatioMultiplier()
+	if price := taskBillingContextPriceData(context); price != nil {
+		amount = price.ApplyOtherRatiosToDecimal(amount)
+		otherMultiplier = price.OtherRatioMultiplier()
 	}
-
-	// 计算实际应扣费额度: totalTokens * modelRatio * groupRatio * otherMultiplier（饱和转换，防止溢出成负数）
-	actualQuota, clamp := common.QuotaFromFloatChecked(float64(totalTokens) * modelRatio * finalGroupRatio * otherMultiplier)
+	actualQuota, clamp := common.ChargeQuotaFromDecimalChecked(amount)
 
 	reason := fmt.Sprintf("token重算：tokens=%d, modelRatio=%.2f, groupRatio=%.2f, otherMultiplier=%.4f", totalTokens, modelRatio, finalGroupRatio, otherMultiplier)
 	RecalculateTaskQuota(ctx, task, actualQuota, reason, clamp)

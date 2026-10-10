@@ -71,7 +71,7 @@ func ModelPriceDecisions(c *gin.Context, info *relaycommon.RelayInfo, promptToke
 	}
 	// Keep the existing minimum input reservation even when counting is disabled.
 	// No generated-output allowance is added to this input-only endpoint.
-	quota, err := common.QuotaFromFloatStrict(float64(reservedTokens) * ratio * group.GroupRatio)
+	quota, err := common.ChargeQuotaFromFloatStrict(float64(reservedTokens) * ratio * group.GroupRatio)
 	if err != nil {
 		return hosttypes.PriceData{}, err
 	}
@@ -137,7 +137,7 @@ func RefreshDecisionsChannelPrice(info *relaycommon.RelayInfo) error {
 		return err
 	}
 	before := cost / 1_000_000 * snap.QuotaPerUnit
-	quota, err := billingexpr.QuotaRoundStrict(before * snap.GroupRatio)
+	quota, err := common.ChargeQuotaFromFloatStrict(before * snap.GroupRatio)
 	if err != nil {
 		return err
 	}

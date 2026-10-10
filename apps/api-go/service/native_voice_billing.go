@@ -196,14 +196,11 @@ func (b *NativeVoiceBilling) quotaFor(seconds float64) (int, *billingexpr.Tiered
 		if result.ActualQuotaBeforeGroup < 0 || result.ActualQuotaAfterGroup < 0 {
 			return 0, nil, errors.New("native voice billing expression produced a negative price")
 		}
-		return enforceTieredMinimumQuota(result.ActualQuotaAfterGroup, &result, b.groupRatio), &result, nil
+		return result.ActualQuotaAfterGroup, &result, nil
 	}
 	dollars := decimal.NewFromFloat(b.fixedPrice)
 	amount := dollars.Mul(decimal.NewFromFloat(b.quotaPerUnit)).Mul(decimal.NewFromFloat(b.groupRatio))
-	quota, err := common.QuotaFromDecimalStrict(amount)
-	if err == nil && quota == 0 && amount.IsPositive() {
-		quota = 1
-	}
+	quota, err := common.ChargeQuotaFromDecimalStrict(amount)
 	return quota, nil, err
 }
 
