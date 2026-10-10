@@ -26,13 +26,11 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
     let mut identity_keepalive = None;
     let mut app = lmm_core::http::router();
     if let Some(url) = database_url.as_deref() {
-        let store = IdentityStore::connect_with_max_connections(
-            url,
-            config::database_connections()?,
-        )
-        .await?
-            .with_auth_from_env()?
-            .with_password_slots(config::password_slots()?)?;
+        let store =
+            IdentityStore::connect_with_max_connections(url, config::database_connections()?)
+                .await?
+                .with_auth_from_env()?
+                .with_password_slots(config::password_slots()?)?;
         store.check_schema().await?;
         identity_keepalive = Some(store.clone());
         app = app.merge(lmm_core::identity_http::router(store));

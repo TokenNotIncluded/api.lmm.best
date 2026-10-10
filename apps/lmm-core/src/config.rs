@@ -35,9 +35,10 @@ fn configured_limit(name: &str, default: u32, maximum: u32) -> io::Result<u32> {
     match env::var(name) {
         Ok(value) => parse_limit(name, Some(&value), default, maximum),
         Err(env::VarError::NotPresent) => parse_limit(name, None, default, maximum),
-        Err(env::VarError::NotUnicode(_)) => {
-            Err(io::Error::new(io::ErrorKind::InvalidInput, format!("invalid {name}")))
-        }
+        Err(env::VarError::NotUnicode(_)) => Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            format!("invalid {name}"),
+        )),
     }
 }
 

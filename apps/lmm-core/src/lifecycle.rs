@@ -168,11 +168,7 @@ impl HttpBody for LeasedBody {
 
 /// Apply to the outside of the native router, so existing connections also
 /// pass admission for EVERY new request/HTTP2 stream, not only on TCP accept.
-pub async fn admit(
-    State(policy): State<Admission>,
-    mut request: Request,
-    next: Next,
-) -> Response {
+pub async fn admit(State(policy): State<Admission>, mut request: Request, next: Next) -> Response {
     if request.uri().path() == "/health/live" {
         return next.run(request).await;
     }
@@ -212,10 +208,13 @@ fn unavailable(version: Version, code: &'static str) -> Response {
         StatusCode::SERVICE_UNAVAILABLE,
         [(header::CACHE_CONTROL, "no-store")],
         axum::Json(serde_json::json!({"error":{"code":code}})),
-    ).into_response();
+    )
+        .into_response();
     // Never emit HTTP/1 connection headers on an HTTP/2 stream.
     if matches!(version, Version::HTTP_10 | Version::HTTP_11) {
-        response.headers_mut().insert(header::CONNECTION, "close".parse().expect("static header"));
+        response
+            .headers_mut()
+            .insert(header::CONNECTION, "close".parse().expect("static header"));
     }
     response
 }
@@ -286,7 +285,10 @@ mod tests {
         assert!(lifecycle.mark_ready());
         let app = Router::new()
             .route("/stream", get(|| async { Body::from("not yet consumed") }))
-            .layer(middleware::from_fn_with_state(Admission::new(lifecycle.clone(), None), admit));
+            .layer(middleware::from_fn_with_state(
+                Admission::new(lifecycle.clone(), None),
+                admit,
+            ));
         let response = app
             .clone()
             .oneshot(

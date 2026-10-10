@@ -51,14 +51,18 @@ impl IngressAcks {
             || endpoint.query().is_some()
             || endpoint.fragment().is_some()
         {
-            return Err(invalid("ingress ACK must be an explicit loopback HTTP /__ack endpoint").into());
+            return Err(
+                invalid("ingress ACK must be an explicit loopback HTTP /__ack endpoint").into(),
+            );
         }
         if !(32..=256).contains(&token.len()) || !token.iter().all(u8::is_ascii_graphic) {
             return Err(invalid("invalid ingress service credential").into());
         }
         if instance.is_empty()
             || instance.len() > 64
-            || !instance.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
+            || !instance
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_'))
         {
             return Err(invalid("invalid core instance name").into());
         }
@@ -96,12 +100,18 @@ impl IngressAcks {
                 }
                 let token = std::str::from_utf8(&bytes)?.trim().as_bytes();
                 Ok(Some(Self::new(
-                    endpoint.to_str().ok_or_else(|| invalid("ACK URL is not UTF-8"))?,
+                    endpoint
+                        .to_str()
+                        .ok_or_else(|| invalid("ACK URL is not UTF-8"))?,
                     token,
-                    instance.to_str().ok_or_else(|| invalid("instance name is not UTF-8"))?,
+                    instance
+                        .to_str()
+                        .ok_or_else(|| invalid("instance name is not UTF-8"))?,
                 )?))
             }
-            _ => Err(invalid("configure ACK URL, ingress credential file and instance together").into()),
+            _ => Err(
+                invalid("configure ACK URL, ingress credential file and instance together").into(),
+            ),
         }
     }
 
@@ -109,7 +119,9 @@ impl IngressAcks {
     /// business handler. A failed/unknown confirmation must not reach upstream.
     pub async fn confirm(&self, ticket: &str) -> bool {
         if ticket.len() != 32
-            || !ticket.bytes().all(|b| b.is_ascii_digit() || matches!(b, b'a'..=b'f'))
+            || !ticket
+                .bytes()
+                .all(|b| b.is_ascii_digit() || matches!(b, b'a'..=b'f'))
         {
             return false;
         }
@@ -133,8 +145,11 @@ mod tests {
     use super::*;
     use crate::lifecycle::{Admission, Lifecycle, Phase, admit};
     use axum::{
-        Router, body::Body, http::{HeaderMap, Request, StatusCode},
-        middleware, routing::post,
+        Router,
+        body::Body,
+        http::{HeaderMap, Request, StatusCode},
+        middleware,
+        routing::post,
     };
     use std::sync::atomic::{AtomicUsize, Ordering};
     use tower::ServiceExt;
@@ -151,28 +166,46 @@ mod tests {
 
     fn business(lifecycle: Lifecycle, acks: IngressAcks, calls: Arc<AtomicUsize>) -> Router {
         Router::new()
-            .route("/transport", post(move || {
-                let calls = calls.clone();
-                async move { calls.fetch_add(1, Ordering::SeqCst); "body" }
-            }))
-            .layer(middleware::from_fn_with_state(Admission::new(lifecycle, Some(acks)), admit))
+            .route(
+                "/transport",
+                post(move || {
+                    let calls = calls.clone();
+                    async move {
+                        calls.fetch_add(1, Ordering::SeqCst);
+                        "body"
+                    }
+                }),
+            )
+            .layer(middleware::from_fn_with_state(
+                Admission::new(lifecycle, Some(acks)),
+                admit,
+            ))
     }
 
     fn call(ticket: Option<&str>) -> Request<Body> {
         let mut request = Request::builder().method("POST").uri("/transport");
-        if let Some(ticket) = ticket { request = request.header(TICKET_HEADER, ticket); }
+        if let Some(ticket) = ticket {
+            request = request.header(TICKET_HEADER, ticket);
+        }
         request.body(Body::empty()).unwrap()
     }
 
     #[test]
     fn service_credential_cannot_leave_the_loopback_ack_endpoint() {
         for endpoint in [
-            "http://example.invalid:8800/__ack", "https://127.0.0.1:8800/__ack",
-            "http://192.0.2.1:8800/__ack", "http://127.0.0.1/__ack",
-            "http://127.0.0.1:8800/wrong", "http://user@127.0.0.1:8800/__ack",
-            "http://127.0.0.1:8800/__ack?ticket=x", "http://127.0.0.1:8800/__ack#x",
+            "http://example.invalid:8800/__ack",
+            "https://127.0.0.1:8800/__ack",
+            "http://192.0.2.1:8800/__ack",
+            "http://127.0.0.1/__ack",
+            "http://127.0.0.1:8800/wrong",
+            "http://user@127.0.0.1:8800/__ack",
+            "http://127.0.0.1:8800/__ack?ticket=x",
+            "http://127.0.0.1:8800/__ack#x",
         ] {
-            assert!(IngressAcks::new(endpoint, TOKEN, "a").is_err(), "{endpoint}");
+            assert!(
+                IngressAcks::new(endpoint, TOKEN, "a").is_err(),
+                "{endpoint}"
+            );
         }
         assert!(IngressAcks::new("http://127.0.0.1:8800/__ack", TOKEN, "bad\nname").is_err());
         assert!(IngressAcks::new("http://127.0.0.1:8800/__ack", b"short", "a").is_err());
@@ -183,42 +216,57 @@ mod tests {
         let lifecycle = Lifecycle::default();
         assert!(lifecycle.mark_ready());
         let observed = lifecycle.clone();
-        let (endpoint, task) = authority(Router::new().route("/__ack", post(move |headers: HeaderMap| {
-            let observed = observed.clone();
-            async move {
-                assert_eq!(observed.snapshot(), (Phase::Ready, 1));
-                assert_eq!(headers[TICKET_HEADER], TICKET);
-                assert_eq!(headers["x-dp22-admin"].as_bytes(), TOKEN);
-                assert_eq!(headers["x-dp22-instance"], "a");
-                observed.begin_drain();
-                StatusCode::NO_CONTENT
-            }
-        }))).await;
+        let (endpoint, task) = authority(Router::new().route(
+            "/__ack",
+            post(move |headers: HeaderMap| {
+                let observed = observed.clone();
+                async move {
+                    assert_eq!(observed.snapshot(), (Phase::Ready, 1));
+                    assert_eq!(headers[TICKET_HEADER], TICKET);
+                    assert_eq!(headers["x-dp22-admin"].as_bytes(), TOKEN);
+                    assert_eq!(headers["x-dp22-instance"], "a");
+                    observed.begin_drain();
+                    StatusCode::NO_CONTENT
+                }
+            }),
+        ))
+        .await;
         let calls = Arc::new(AtomicUsize::new(0));
-        let app = business(lifecycle.clone(), IngressAcks::new(&endpoint, TOKEN, "a").unwrap(), calls.clone());
+        let app = business(
+            lifecycle.clone(),
+            IngressAcks::new(&endpoint, TOKEN, "a").unwrap(),
+            calls.clone(),
+        );
         let response = app.oneshot(call(Some(TICKET))).await.unwrap();
         assert_eq!(response.status(), StatusCode::OK);
         assert_eq!(calls.load(Ordering::SeqCst), 1);
         assert_eq!(lifecycle.snapshot(), (Phase::Draining, 1));
         drop(response);
         lifecycle.wait_idle().await;
-        task.abort(); let _ = task.await;
+        task.abort();
+        let _ = task.await;
     }
 
     #[tokio::test]
     async fn denied_or_unknown_ack_never_enters_business_handler() {
         for status in [StatusCode::FORBIDDEN, StatusCode::SERVICE_UNAVAILABLE] {
-            let (endpoint, task) = authority(Router::new().route("/__ack", post(move || async move { status }))).await;
+            let (endpoint, task) =
+                authority(Router::new().route("/__ack", post(move || async move { status }))).await;
             let lifecycle = Lifecycle::default();
             assert!(lifecycle.mark_ready());
             let calls = Arc::new(AtomicUsize::new(0));
-            let app = business(lifecycle.clone(), IngressAcks::new(&endpoint, TOKEN, "a").unwrap(), calls.clone());
+            let app = business(
+                lifecycle.clone(),
+                IngressAcks::new(&endpoint, TOKEN, "a").unwrap(),
+                calls.clone(),
+            );
             let response = app.oneshot(call(Some(TICKET))).await.unwrap();
             assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
             assert_eq!(calls.load(Ordering::SeqCst), 0);
             assert_eq!(lifecycle.snapshot().1, 0);
             assert_eq!(response.headers()["connection"], "close");
-            task.abort(); let _ = task.await;
+            task.abort();
+            let _ = task.await;
         }
     }
 
@@ -226,16 +274,29 @@ mod tests {
     async fn missing_duplicate_or_malformed_ticket_is_not_ordinary_admission() {
         let ack_calls = Arc::new(AtomicUsize::new(0));
         let observed = ack_calls.clone();
-        let (endpoint, task) = authority(Router::new().route("/__ack", post(move || {
-            let observed = observed.clone();
-            async move { observed.fetch_add(1, Ordering::SeqCst); StatusCode::NO_CONTENT }
-        }))).await;
+        let (endpoint, task) = authority(Router::new().route(
+            "/__ack",
+            post(move || {
+                let observed = observed.clone();
+                async move {
+                    observed.fetch_add(1, Ordering::SeqCst);
+                    StatusCode::NO_CONTENT
+                }
+            }),
+        ))
+        .await;
         let lifecycle = Lifecycle::default();
         assert!(lifecycle.mark_ready());
         let calls = Arc::new(AtomicUsize::new(0));
-        let app = business(lifecycle.clone(), IngressAcks::new(&endpoint, TOKEN, "a").unwrap(), calls.clone());
+        let app = business(
+            lifecycle.clone(),
+            IngressAcks::new(&endpoint, TOKEN, "a").unwrap(),
+            calls.clone(),
+        );
         let mut duplicate = call(Some(TICKET));
-        duplicate.headers_mut().append(TICKET_HEADER, HeaderValue::from_static(TICKET));
+        duplicate
+            .headers_mut()
+            .append(TICKET_HEADER, HeaderValue::from_static(TICKET));
         for request in [call(None), call(Some("not-a-ticket")), duplicate] {
             let response = app.clone().oneshot(request).await.unwrap();
             assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
@@ -243,31 +304,51 @@ mod tests {
         assert_eq!(calls.load(Ordering::SeqCst), 0);
         assert_eq!(ack_calls.load(Ordering::SeqCst), 0);
         assert_eq!(lifecycle.snapshot().1, 0);
-        task.abort(); let _ = task.await;
+        task.abort();
+        let _ = task.await;
     }
 
     #[tokio::test]
     async fn redirects_are_not_confirmation_and_are_not_followed() {
         let redirected_calls = Arc::new(AtomicUsize::new(0));
         let observed = redirected_calls.clone();
-        let (target, target_task) = authority(Router::new().route("/__ack", post(move || {
-            let observed = observed.clone();
-            async move { observed.fetch_add(1, Ordering::SeqCst); StatusCode::NO_CONTENT }
-        }))).await;
-        let (endpoint, task) = authority(Router::new().route("/__ack", post(move || {
-            let target = target.clone();
-            async move { (StatusCode::TEMPORARY_REDIRECT, [("location", target)]) }
-        }))).await;
+        let (target, target_task) = authority(Router::new().route(
+            "/__ack",
+            post(move || {
+                let observed = observed.clone();
+                async move {
+                    observed.fetch_add(1, Ordering::SeqCst);
+                    StatusCode::NO_CONTENT
+                }
+            }),
+        ))
+        .await;
+        let (endpoint, task) = authority(Router::new().route(
+            "/__ack",
+            post(move || {
+                let target = target.clone();
+                async move { (StatusCode::TEMPORARY_REDIRECT, [("location", target)]) }
+            }),
+        ))
+        .await;
         let acks = IngressAcks::new(&endpoint, TOKEN, "a").unwrap();
         assert!(!acks.confirm(TICKET).await);
         assert_eq!(redirected_calls.load(Ordering::SeqCst), 0);
-        task.abort(); target_task.abort(); let _ = task.await; let _ = target_task.await;
+        task.abort();
+        target_task.abort();
+        let _ = task.await;
+        let _ = target_task.await;
     }
 
     #[tokio::test]
     async fn busy_ack_budget_rejects_without_unbounded_waiters() {
         let acks = IngressAcks::new("http://127.0.0.1:8800/__ack", TOKEN, "a").unwrap();
-        let _all = acks.slots.clone().acquire_many_owned(MAX_ACKS as u32).await.unwrap();
+        let _all = acks
+            .slots
+            .clone()
+            .acquire_many_owned(MAX_ACKS as u32)
+            .await
+            .unwrap();
         assert!(!acks.confirm(TICKET).await);
     }
 }
