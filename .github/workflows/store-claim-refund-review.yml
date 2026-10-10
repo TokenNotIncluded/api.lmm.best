@@ -67,24 +67,28 @@ jobs:
         run: bun install --frozen-lockfile
       - name: Check frontend types
         working-directory: apps/web
-        run: bun run typecheck
+        run: |
+          set -o pipefail
+          bun run typecheck 2>&1 | tee "$RUNNER_TEMP/store-web-typecheck.log"
       - name: Store and login regression (isolated test processes)
         if: ${{ !cancelled() }}
         working-directory: apps/web
         run: |
           set -o pipefail
           {
+            status=0
             while IFS= read -r -d '' file; do
-              bun test --preload ./scripts/test-preload.mjs --timeout 15000 "$file" || exit 1
+              bun test --preload ./scripts/test-preload.mjs --timeout 15000 "$file" || status=1
             done < <(find src/features/store src/features/auth/lib -type f \( -name '*.test.ts' -o -name '*.test.tsx' \) -print0 | sort -z)
-            bun test --preload ./scripts/test-preload.mjs --timeout 15000 src/lib/http-client.test.ts
-            bun test --preload ./scripts/test-preload.mjs --timeout 15000 src/features/forge/home-directory-gesture.test.ts
+            bun test --preload ./scripts/test-preload.mjs --timeout 15000 src/lib/http-client.test.ts || status=1
+            bun test --preload ./scripts/test-preload.mjs --timeout 15000 src/features/forge/home-directory-gesture.test.ts || status=1
+            exit "$status"
           } 2>&1 | tee "$RUNNER_TEMP/store-web-tests.log"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: store-refund-frontend-results
-          path: ${{ runner.temp }}/store-web-tests.log
+          path: ${{ runner.temp }}/store-web-*.log
           retention-days: 7
   browser:
     runs-on: ubuntu-24.04
