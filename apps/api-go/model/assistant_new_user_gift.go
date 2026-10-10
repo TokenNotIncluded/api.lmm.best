@@ -104,8 +104,8 @@ func (AssistantGiftRiskMemory) TableName() string { return "assistant_gift_risk_
 // AssistantNewUserGift is a one-time, user-scoped decision. AmountCents and
 // Quota are both persisted so a later exchange-rate change cannot alter an
 // already presented gift. AmountCents are LEGACY_CENTS, not US cents; Quota is
-// the immutable Credit grant. A zero-credit decision is retained as declined and
-// consumes the same single opportunity.
+// the immutable Credit grant. Historical declined rows remain unchanged. New
+// zero-credit choices are not persisted and do not consume an opportunity.
 type AssistantNewUserGift struct {
 	Id             int64  `json:"id" gorm:"primaryKey"`
 	UserId         int    `json:"-" gorm:"not null;uniqueIndex"`
@@ -173,18 +173,29 @@ func decideAssistantNewUserGiftCredits(userID int, conversationID int64, quota, 
 	if userID <= 0 || conversationID < 0 || quota < 0 {
 		return nil, false, assistantGiftError("invalid_decision", ErrAssistantGiftInvalid)
 	}
-	// A detailed first message can establish a legitimate purpose. Keep the
-	// trusted user-authored evidence floor without requiring an artificial
-	// follow-up turn; category labels or a client name alone remain insufficient.
-	if substantiveTurns < 1 || substantiveRunes < 24 {
-		return nil, false, assistantGiftError("insufficient_conversation", ErrAssistantGiftInvalid)
-	}
+	// Retain evidence arguments for source compatibility, not eligibility gates.
+	// The assistant judges the conversation; storage checks account eligibility.
 	reason = strings.TrimSpace(redactAssistantHandoffMessage(reason))
-	// A model must provide a concrete purpose, not a one-word acknowledgement
-	// or an amount-only request. This check is intentionally in the model layer
-	// so direct tool/API callers cannot bypass the product eligibility policy.
-	if len([]rune(reason)) < 8 || len([]rune(reason)) > 240 {
-		return nil, false, assistantGiftError("invalid_decision", ErrAssistantGiftInvalid)
+	if reason == "" {
+		reason = "Welcome gift"
+	}
+	if text := []rune(reason); len(text) > 240 {
+		reason = string(text[:240])
+	}
+	if quota == 0 {
+		// A no-op request must not erase the status of an earlier decision.
+		if existing, err := GetAssistantNewUserGift(userID); err != nil || existing != nil {
+			return existing, false, err
+		}
+		cap, err := AssistantGiftMaxCreditsDB(DB)
+		if err != nil {
+			return nil, false, err
+		}
+		if err := CheckAssistantGiftCreditLimit(quota, cap); err != nil {
+			return nil, false, err
+		}
+		// Do not store an empty decision or reserve a risk identity.
+		return &AssistantNewUserGift{UserId: userID, ConversationId: conversationID, Status: AssistantGiftDeclined, Reason: reason}, false, nil
 	}
 
 	if existing, err := GetAssistantNewUserGift(userID); err != nil || existing != nil {
@@ -431,7 +442,7 @@ func ClaimAssistantNewUserGift(userID int) (*AssistantNewUserGift, bool, error) 
 		if err != nil {
 			return err
 		}
-		if err := checkAssistantGiftLimitTx(tx, creditedQuota); err != nil {
+		if err := checkAssistantExistingGiftLimitTx(tx, creditedQuota); err != nil {
 			return err
 		}
 		result := UpdateWalletQuotaByDelta(

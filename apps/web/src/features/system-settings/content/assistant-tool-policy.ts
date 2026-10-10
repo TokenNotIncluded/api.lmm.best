@@ -1,5 +1,11 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import * as z from 'zod'
+import {
+  mergeAssistantToolText,
+  validAssistantToolTextFields,
+  validAssistantToolTextSchema,
+  type AssistantToolTextSchema,
+} from './assistant-tool-text'
 
 export const DEFAULT_ASSISTANT_TOOL_POLICY =
   '{"version":1,"groups":{},"tools":{}}'
@@ -11,6 +17,8 @@ export type AssistantToolPolicy = {
   rules?: Record<string, AssistantToolRule>
 }
 export type AssistantToolRule = {
+  description?: string
+  parameter_descriptions?: Record<string, string>
   min_level: number
   max_level: number
   discount_percent_by_level?: Record<string, number>
@@ -31,6 +39,7 @@ export type AssistantToolAccess =
   | 'root'
   | 'mixed'
 export type AssistantCatalogTool = {
+  text_schema?: AssistantToolTextSchema
   name: string
   label: string
   description: string
@@ -101,7 +110,7 @@ function booleanMap(value: unknown): Record<string, boolean> | null {
 export function parseAssistantToolPolicy(
   raw: string
 ): AssistantToolPolicy | null {
-  if (new TextEncoder().encode(raw).length > 16_384) return null
+  if (new TextEncoder().encode(raw).length > 262_144) return null
   if (!raw.trim()) return { version: 1, groups: {}, tools: {} }
   try {
     const value = record(JSON.parse(raw))
@@ -177,6 +186,7 @@ export function parseAssistantToolCatalog(
       ) {
         return null
       }
+      if ('text_schema' in tool && !validAssistantToolTextSchema(tool.text_schema)) return null
       toolNames.add(tool.name)
       tools.push(tool as AssistantCatalogTool)
     }
@@ -228,7 +238,10 @@ export function assistantPolicyMatchesBackendCatalog(
   return (
     groups !== null &&
     assistantPolicyMatchesCatalog(policy, groups) &&
-    (policy.rules === undefined || supportsAssistantToolPolicyRules(payload))
+    (policy.rules === undefined || supportsAssistantToolPolicyRules(payload)) &&
+    (!Object.values(policy.rules ?? {}).some((rule) =>
+      rule.description !== undefined || rule.parameter_descriptions !== undefined
+    ) || record(record(record(payload)?.data)?.capabilities)?.tool_descriptions === true)
   )
 }
 
@@ -373,6 +386,8 @@ function parseAssistantToolRules(
       Object.keys(rule).some(
         (key) =>
           ![
+            'description',
+            'parameter_descriptions',
             'min_level',
             'max_level',
             'discount_percent_by_level',
@@ -383,6 +398,7 @@ function parseAssistantToolRules(
     ) {
       return null
     }
+    if (!validAssistantToolTextFields(rule)) return null
     if ('discount_percent_by_level' in rule) {
       const limits = record(rule.discount_percent_by_level)
       if (
@@ -491,6 +507,7 @@ function mergeRuleMaps(
           ? 'admin'
           : 'user'
     }
+    Object.assign(merged, mergeAssistantToolText(b, l, r))
     rules[name] = merged
   }
   return Object.keys(rules).length ? { rules } : {}

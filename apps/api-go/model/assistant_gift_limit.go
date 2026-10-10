@@ -33,11 +33,37 @@ func checkAssistantGiftLimitTx(tx *gorm.DB, credits int) error {
 	return CheckAssistantGiftCreditLimit(credits, cap)
 }
 
-func CheckAssistantGiftCreditLimit(credits, cap int) error {
-	if cap == 0 {
+// Old offers used an inclusive limit. This helper cannot issue a new gift.
+func checkAssistantExistingGiftLimitTx(tx *gorm.DB, credits int) error {
+	cap, err := AssistantGiftMaxCreditsDB(tx)
+	if err != nil {
+		return err
+	}
+	return CheckAssistantExistingGiftCreditLimit(credits, cap)
+}
+
+func CheckAssistantExistingGiftCreditLimit(credits, cap int) error {
+	if credits < 0 {
+		return assistantGiftError("invalid_decision", ErrAssistantGiftInvalid)
+	}
+	if cap <= 0 {
 		return assistantGiftError("gift_disabled", ErrAssistantGiftDisabled)
 	}
 	if credits > cap {
+		return assistantGiftError("gift_limit_exceeded", ErrAssistantGiftLimit)
+	}
+	return nil
+}
+
+// The administrator's upper bound is exclusive. Check again at claim time.
+func CheckAssistantGiftCreditLimit(credits, cap int) error {
+	if credits < 0 {
+		return assistantGiftError("invalid_decision", ErrAssistantGiftInvalid)
+	}
+	if cap <= 0 {
+		return assistantGiftError("gift_disabled", ErrAssistantGiftDisabled)
+	}
+	if credits >= cap {
 		return assistantGiftError("gift_limit_exceeded", ErrAssistantGiftLimit)
 	}
 	return nil

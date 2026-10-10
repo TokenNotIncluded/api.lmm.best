@@ -24,8 +24,8 @@ func TestAssistantGiftCreditCapLowerHigherAndDisabled(t *testing.T) {
 		cap, grant int
 		accepted   bool
 	}{
-		{"lower_at_limit", 100000, 100000, true}, {"lower_over_limit", 100000, 100001, false},
-		{"higher_than_old_cap", 10000000, 9000000, true}, {"one_credit", 1, 1, true},
+		{"lower_at_limit", 100000, 100000, false}, {"lower_over_limit", 100000, 100001, false},
+		{"higher_than_old_cap", 10000000, 9000000, true}, {"one_credit", 1, 1, false}, {"one_credit_below_bound", 2, 1, true},
 		{"disabled_positive", 0, 1, false}, {"disabled_decline", 0, 0, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -89,7 +89,7 @@ func TestAssistantGiftClaimRechecksDurableLoweredCapWithoutRewritingOffer(t *tes
 		require.NoError(t, db.First(&account, user.Id).Error)
 		require.Zero(t, account.Quota)
 	}
-	putAssistantGiftCap(t, db, 7000000)
+	putAssistantGiftCap(t, db, 7000000) // Allow redemption of an older exact-cap offer.
 	claimed, _, err := ClaimAssistantNewUserGift(user.Id)
 	require.NoError(t, err)
 	putAssistantGiftCap(t, db, 0)
@@ -109,7 +109,7 @@ func TestAssistantGiftCapChecksEffectiveHistoricalCreditsOnceAndLeavesNewCredits
 	require.NoError(t, db.Create(&gift).Error)
 	cutoff := time.Now().Unix() - 1
 	putFutureCreditAudit(t, db, []int{user.Id}, cutoff, []map[string]any{{"kind": "assistant_gift", "source_id": strconv.FormatInt(gift.Id, 10), "user_id": user.Id, "original_quota": gift.Quota, "rebased_quota": 1000000, "source": map[string]any{"quota": gift.Quota}}})
-	putAssistantGiftCap(t, db, 1000000)
+	putAssistantGiftCap(t, db, 1000001)
 	_, _, err := ClaimAssistantNewUserGift(user.Id)
 	require.NoError(t, err)
 	_, already, err := ClaimAssistantNewUserGift(user.Id)

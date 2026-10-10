@@ -19,11 +19,12 @@ function fixture() {
   Object.defineProperty(doc, 'hidden', { value: false })
   const entry = doc.querySelector('aside')!
   entry.getBoundingClientRect = () => new view.DOMRect(0, 64, 800, 64)
-  const frames = new Map<number, FrameRequestCallback>()
+  const frames = new Map<ReturnType<typeof view.requestAnimationFrame>, FrameRequestCallback>()
   let nextFrame = 0
   view.requestAnimationFrame = (callback) => {
-    frames.set(++nextFrame, callback)
-    return nextFrame
+    const frameID = (++nextFrame) as unknown as ReturnType<typeof view.requestAnimationFrame>
+    frames.set(frameID, callback)
+    return frameID
   }
   view.cancelAnimationFrame = (id) => {
     frames.delete(id)
@@ -48,7 +49,7 @@ function fixture() {
       cancelable: true,
       deltaY,
       ...options,
-    })
+    } as ConstructorParameters<typeof view.WheelEvent>[1])
     target.dispatchEvent(event)
     return event
   }
