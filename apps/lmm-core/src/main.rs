@@ -1,4 +1,4 @@
-use lmm_core::{config, identity::IdentityStore};
+use lmm_core::{config, identity::IdentityStore, lifecycle::{Admission, Lifecycle, ingress::IngressAcks}};
 use std::{env, error::Error, net::SocketAddr};
 
 #[tokio::main]
@@ -7,14 +7,21 @@ async fn main() -> Result<(), Box<dyn Error>> {
         .unwrap_or_else(|_| "0.0.0.0:8080".to_owned())
         .parse()?;
     let database_url = config::database_url()?;
+    let lifecycle = Lifecycle::default();
+    let ingress = IngressAcks::from_env()?;
+    let mut identity_keepalive = None;
     let mut app = lmm_core::http::router();
     if let Some(url) = database_url.as_deref() {
         let store = IdentityStore::connect(url).await?.with_auth_from_env()?;
         store.check_schema().await?;
+        identity_keepalive = Some(store.clone());
         app = app.merge(lmm_core::identity_http::router(store));
         eprintln!("native identity is enabled; billing and model forwarding remain disabled");
     }
     let (stop, stopped) = tokio::sync::watch::channel(false);
+    // RPC remains usable while accepted public requests and completions drain.
+    #[cfg(unix)]
+    let (rpc_stop, rpc_stopped) = tokio::sync::watch::channel(false);
     #[cfg(unix)]
     let rpc = match (
         env::var_os("LMM_CORE_RPC_SOCKET"),
@@ -45,7 +52,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let listener = tokio::net::TcpListener::bind(address).await?;
     #[cfg(unix)]
     let rpc_task = rpc.map(|server| {
-        let stopped = stopped.clone();
+        let stopped = rpc_stopped;
         tokio::spawn(async move {
             if server.serve(stopped).await.is_err() {
                 eprintln!("internal RPC stopped; public core remains independent");
@@ -54,6 +61,14 @@ async fn main() -> Result<(), Box<dyn Error>> {
     });
     #[cfg(unix)]
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    app = app.layer(axum::middleware::from_fn_with_state(
+        Admission::new(lifecycle.clone(), ingress),
+        lmm_core::lifecycle::admit,
+    ));
+    // All currently enabled route checks and listener binds have succeeded.
+    // The model-readiness endpoint intentionally remains unavailable.
+    assert!(lifecycle.mark_ready());
+    let signal_lifecycle = lifecycle.clone();
     let signal_stop = stop.clone();
     let signal = tokio::spawn(async move {
         #[cfg(unix)]
@@ -63,6 +78,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
         #[cfg(not(unix))]
         let _ = tokio::signal::ctrl_c().await;
+        signal_lifecycle.begin_drain();
         let _ = signal_stop.send(true);
     });
     eprintln!(
@@ -82,15 +98,19 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     })
     .await;
+    lifecycle.begin_drain();
     let _ = stop.send(true);
+    // HTTP EOF/cancellation is not proof that asynchronous completion is done.
+    // Completion tasks must own a WorkLease and write their durable outcome.
+    lifecycle.wait_idle().await;
     #[cfg(unix)]
-    if let Some(mut task) = rpc_task
-        && tokio::time::timeout(std::time::Duration::from_secs(5), &mut task)
-            .await
-            .is_err()
     {
-        task.abort();
+        let _ = rpc_stop.send(true);
+        if let Some(task) = rpc_task {
+            task.await?;
+        }
     }
+    drop(identity_keepalive);
     signal.abort();
     result?;
     Ok(())

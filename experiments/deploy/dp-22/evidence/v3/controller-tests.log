@@ -1,0 +1,13 @@
+test_ack_racing_completion_signals_only_once (test_controller.ControllerTests.test_ack_racing_completion_signals_only_once) ... ok
+test_cancel_revokes_only_unclaimed_selection_once (test_controller.ControllerTests.test_cancel_revokes_only_unclaimed_selection_once) ... ok
+test_incomplete_or_invalid_completion_record_does_not_retire (test_controller.ControllerTests.test_incomplete_or_invalid_completion_record_does_not_retire) ... ok
+test_missing_completion_source_does_not_expire_unknown_ticket (test_controller.ControllerTests.test_missing_completion_source_does_not_expire_unknown_ticket) ... ok
+test_other_pending_request_still_blocks_drain (test_controller.ControllerTests.test_other_pending_request_still_blocks_drain) ... ok
+test_selection_storage_has_a_hard_limit (test_controller.ControllerTests.test_selection_storage_has_a_hard_limit) ... ok
+test_withdrawal_cannot_race_reselection (test_controller.ControllerTests.test_withdrawal_cannot_race_reselection) ... ok
+test_wrong_instance_and_duplicate_ack_do_not_reuse_ticket (test_controller.ControllerTests.test_wrong_instance_and_duplicate_ack_do_not_reuse_ticket) ... ok
+
+----------------------------------------------------------------------
+Ran 8 tests in 0.084s
+
+OK

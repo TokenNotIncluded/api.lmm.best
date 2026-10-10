@@ -971,6 +971,7 @@ dependencies = [
  "axum",
  "base64 0.22.1",
  "fs2",
+ "http-body",
  "jsonwebtoken",
  "prost",
  "protoc-bin-vendored",
