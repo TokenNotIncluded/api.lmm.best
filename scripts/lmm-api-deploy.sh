@@ -40,7 +40,7 @@ Package-owned installation:
 
 Developer/native operator commands:
   package                         Build a local package once (workspace required)
-  build|frontend|production ...    Delegate to the selected provider
+  build|frontend|production ...    Run the standalone deployment tool
 
 See docs/deployment-workflow.md, docs/manual-systemd-deployment.md and docs/seamless-upgrades.md.
 USAGE
@@ -120,7 +120,7 @@ if [[ ${1:-} == shared-postgres ]]; then
   exec python3 -B "$SCRIPT_DIR/deploy-shared-postgres.py" "$@"
 fi
 
-# The native build command already builds BOTH artifacts. Bootstrap only its
+# The native build command already builds BOTH artifacts. Bootstrap only the deployment
 # CLI when missing, rather than running `just build` before rebuilding them.
 package_build=false
 if [[ ${1:-} == package ]]; then
@@ -133,18 +133,18 @@ if [[ ${1:-} == package ]]; then
   set -- build --repo "$REPO_ROOT" --workspace "$LMM_API_BUILD_WORKSPACE"
 fi
 
-# Public development entrypoint. Installed packages use the locked-down script
-# in packaging/common/lmm-api instead.
-provider=${LMM_API_PROVIDER_BINARY:-$REPO_ROOT/apps/api-go/out/lmm-api}
-if [[ -z ${LMM_API_PROVIDER_BINARY:-} && ! -x $provider ]]; then
-  provider=/usr/bin/lmm-api
+# The deployment tool is independent of the API provider. Never try the API
+# binary after a missing tool or an error; that can start the wrong process.
+engine=${LMM_API_DEPLOY_BINARY:-$REPO_ROOT/apps/api-go/out/lmm-api-deploy-engine}
+if [[ -z ${LMM_API_DEPLOY_BINARY:-} && ! -x $engine ]]; then
+  engine=/usr/lib/lmm-api-deploy/engine
 fi
-if [[ ! -x $provider && $package_build == true && -z ${LMM_API_PROVIDER_BINARY:-} ]]; then
-  (cd -- "$REPO_ROOT" && bun run build:go)
-  provider=$REPO_ROOT/apps/api-go/out/lmm-api
+if [[ ! -x $engine && $package_build == true && -z ${LMM_API_DEPLOY_BINARY:-} ]]; then
+  (cd -- "$REPO_ROOT" && bun run build:deploy)
+  engine=$REPO_ROOT/apps/api-go/out/lmm-api-deploy-engine
 fi
-if [[ ! -x $provider ]]; then
-  printf 'Provider not executable: %s\nUse --help for deployment paths; build or select LMM_API_PROVIDER_BINARY for native commands.\n' "$provider" >&2
+if [[ ! -x $engine ]]; then
+  printf 'Deployment tool not executable: %s\nBuild with bun run build:deploy or set LMM_API_DEPLOY_BINARY. The API backend cannot deploy.\n' "$engine" >&2
   exit 127
 fi
-exec "$provider" operator "$@"
+exec "$engine" "$@"

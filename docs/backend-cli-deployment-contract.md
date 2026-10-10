@@ -11,7 +11,7 @@ The backend providers are real, independently packaged executables:
 /usr/bin/lmm-api-rs
 ```
 
-The public backend and operator entry point is always a relative symbolic link:
+The public backend entry point is a relative symbolic link:
 
 ```text
 /usr/bin/lmm-api -> lmm-api-go
@@ -30,9 +30,12 @@ reporting success. Symlink chains, absolute targets, missing targets, writable
 provider binaries, and provider binaries without verified package ownership are
 hard failures.
 
-## Invocation invariant
+## Separate deployment executable
 
-Production services and operator actions MUST invoke `/usr/bin/lmm-api`:
+Services, migration and API probes use the backend entry. Deployment actions use
+`/usr/bin/lmm-api-deploy`, a fixed script that executes
+`/usr/lib/lmm-api-deploy/engine`. The Go backend rejects `operator` and `deploy`;
+it does not link the deployment implementation or fall back to executing it.
 
 ```text
 /usr/bin/lmm-api serve
@@ -42,27 +45,21 @@ Production services and operator actions MUST invoke `/usr/bin/lmm-api`:
 /usr/bin/lmm-api-deploy production rollback ...
 ```
 
-Deployment code MUST NOT directly execute `/usr/bin/lmm-api-go` or
-`/usr/bin/lmm-api-rs`. Candidate validation uses a release-scoped symlink named
-`lmm-api` whose one-hop target is the staged provider binary. Package inspection
-may refer to provider filenames but may not use them as an operator entry point.
+The shared Go release includes two separately built executables: `lmm-api-go`
+and `lmm-api-deploy-engine`. Signed archive/package parity covers both. Modern
+plans bind `deploy_engine_sha256` independently from the backend payload hash.
+The operator must match the tool hash; the HTTP/migration probe must match the
+backend hash. A missing or different tool is an error, not permission to use the
+backend as a substitute. Candidate backend validation still uses a verified
+release-scoped one-hop `lmm-api` symlink.
 
-## CLI parity
+The API owns `serve`, `version`, `status`, `doctor`, `request`, explicit migrations
+and the merchant writer gate. The separate tool owns publication, transactions,
+backups, recovery, edge policy and package construction. Provider selection must
+not change an unfinished transaction's retained tool identity. This change does
+not claim Rust deployment parity or authorize a Rust production switch.
 
-`lmm-api-go` and `lmm-api-rs` MUST implement the same public command contract,
-exit codes, deployment-state formats, and safety checks. At minimum this covers:
-
-- `serve`, `version`, `status`, `doctor`, and `request`;
-- `migrate --apply|--verify`;
-- frontend publication and rollback;
-- production planning, staging, promotion, status, confirmation, and rollback;
-- backup creation, export, verification, and restore preflight;
-- edge-policy installation and verification;
-- build/release validation needed by packaging and CI.
-
-A provider switch can occur while a deployment is awaiting confirmation.
-Therefore either provider MUST be able to read, validate, confirm, or manually
-roll back a transaction created by the other provider.
+See [build, installation and transition steps](standalone-deployment-tool.md).
 
 ## Optional production backups
 
@@ -70,8 +67,8 @@ Release-plan format 6 requires an explicit `disabled` or `controller-only` backu
 mode. Go-only, Web-only, and combined releases may disable backups. Selected
 controller-only backups require authenticated verification of the complete local
 collection; target hosts receive signed metadata rather than archives or keys.
-Both providers MUST validate evidence format 3 and retain legacy readers for
-existing transactions. Optional backups do not replace verified N-1 packages or
+The deployment tool MUST validate evidence format 3 and retain legacy readers
+for existing transactions. Optional backups do not replace verified N-1 packages or
 configuration rollback state.
 
 [Controller-only backup evidence](controller-only-backup-format.md) defines the
@@ -99,15 +96,15 @@ recovery evidence.
 
 ## Repository layout
 
-The root `deploy/` directory is not part of the target architecture. Runtime,
-release, validation, migration, and recovery behavior belongs in both backend
-CLIs or their provider-owned libraries. Immutable service/configuration assets
-belong under packaging-owned directories. Shell-only deployment logic and shell
-contract tests must be replaced by Go and Rust tests before `deploy/` is removed.
+The API dispatcher lives in `apps/api-go/internal/appcli`. Deployment code and
+its existing safety tests live in `apps/api-go/internal/deploycli`; only
+`apps/api-go/cmd/lmm-api-deploy` links that implementation. External scripts
+remain in `scripts/` and immutable service/configuration assets remain in
+`packaging/`. The removed root `deploy/` directory is not reintroduced.
 
-CI MUST fail if tracked code, workflows, packages, or documentation reintroduce
-a runtime dependency on the removed `deploy/` path or invokes a provider binary
-as the production operator entry point.
+`scripts/check-deploy-isolation.sh` checks the API's actual Go dependency graph,
+removed command exit codes, separate capabilities, and local frontend
+publication/rollback. Deployment tests must run for both command packages.
 
 ## Public outage information
 
@@ -118,7 +115,7 @@ The document does not depend on the application, its JavaScript bundle, or fonts
 Its readable source is `packaging/common/lmm-api/edge-policy/service-unavailable.html`;
 run `node scripts/generate-nginx-error-page.mjs` after editing it.
 
-The Go production operator publishes only a small public status document beside
+The separate deployment tool publishes only a small public status document beside
 the frontend releases. It never copies private failure messages, credentials,
 configuration, or transaction manifests into that document. Deployment phases
 update the explanation automatically. An estimate is absent unless an operator
@@ -147,7 +144,7 @@ or executable directives still fail closed before the service is stopped.
 
 ## Legacy refund migration acceptance
 
-The Go operator can consume a one-instance acknowledgement at
+The deployment tool can consume a one-instance acknowledgement at
 `<workspace>/state/legacy-refund-risk.json` for the historical
 `lmm-api-go-bin 0.2.17-1` writer. It requires an explicit user decision and a
 fresh, verified controller backup. The private, root-owned acknowledgement binds
@@ -179,8 +176,9 @@ private `operator` protocol. Before creating a workspace it verifies the
 installed one-hop provider link, root ownership, safe mode and exact frozen
 rollback payload hash. For signed Go 0.2.52 through 0.2.62 releases, it selects
 the entry point from the exact release tag and Git revision in the already
-verified package metadata. An unfamiliar release must provide the read-only
-`/usr/bin/lmm-api operator capabilities` command. Its JSON format 1 response is
+verified package metadata. An unfamiliar retained legacy release must provide its read-only
+`/usr/bin/lmm-api operator capabilities` command. Modern signed releases instead
+use the independently verified deployment tool for that capability read. Its JSON format 1 response is
 `{"format":1,"workspace_create":"operator"}`. The controller rejects missing,
 oversized, malformed, duplicate, or unknown capability fields before creating
 a workspace. Human-readable help is not a capability contract. The public

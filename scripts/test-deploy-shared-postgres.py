@@ -268,7 +268,7 @@ class PeerTests(unittest.TestCase):
                 agent=c.NodeAgent.__new__(c.NodeAgent);agent.p=plan();agent.n=agent.p['nodes'][0]
                 agent.peer=peer;agent.backup_binding={};agent.db_env={};agent.guard=lambda *v:None;agent.dump_sha=None
                 original=c.peer_output
-                def short(args,output,log,timeout,*v,**kw):return original(args,output,log,0.1 if mode=='timeout' else timeout,*v,**kw)
+                def short(args,output,log,timeout,*v,**kw):return original(args,output,log,1.0 if mode=='timeout' else timeout,*v,**kw)
                 with patch.object(peer,'verify'),patch.object(c,'no_database_clients'),patch.object(c,'peer_output',side_effect=short),\
                      patch.object(c,'command',side_effect=c.GateFailed('invalid-custom-list') if mode=='list' else None) as listing:
                     with self.assertRaises(c.GateFailed):agent.action('backup',None)

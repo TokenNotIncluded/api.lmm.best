@@ -11,9 +11,10 @@ Its software rollback does not restore a database. The standalone workflow and
 signed package controller have separate transaction and recovery contracts.
 
 Packages install a real `lmm-api-go` or `lmm-api-rs` provider and a one-hop
-`/usr/bin/lmm-api` symlink. Service and native operator actions enter through
-that symlink. The reviewed `/usr/bin/lmm-api-deploy` package script is the public
-deployment entry; it dispatches native operator actions through `lmm-api`.
+`/usr/bin/lmm-api` symlink for service and API commands. The reviewed
+`/usr/bin/lmm-api-deploy` package script invokes the separately signed
+`/usr/lib/lmm-api-deploy/engine`, not the backend. See the
+[tool separation and retained recovery rules](standalone-deployment-tool.md).
 Backend and frontend release versions remain independent.
 
 Use the native CLI for application-level server control:

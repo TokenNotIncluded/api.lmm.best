@@ -44,7 +44,7 @@ class EntrypointTests(unittest.TestCase):
         self.log = self.root / 'commands.jsonl'
         self.env = dict(os.environ, PATH=str(self.bin) + os.pathsep + os.environ['PATH'],
                         COMMAND_LOG=str(self.log), FAKE_EXIT='0')
-        for key in ('LMM_API_PROVIDER_BINARY', 'LMM_API_BUILD_WORKSPACE',
+        for key in ('LMM_API_DEPLOY_BINARY', 'LMM_API_BUILD_WORKSPACE',
                     'LMM_API_GITHUB_REPOSITORY'):
             self.env.pop(key, None)
         self.fake = f'#!{sys.executable}\n' + textwrap.dedent('''\
@@ -54,7 +54,7 @@ class EntrypointTests(unittest.TestCase):
                 output.write(json.dumps([name, *sys.argv[1:]]) + '\\n')
             code = int(os.environ['FAKE_EXIT'])
             if name == 'bun' and code == 0:
-                target = pathlib.Path.cwd() / 'apps/api-go/out/lmm-api'
+                target = pathlib.Path.cwd() / 'apps/api-go/out/lmm-api-deploy-engine'
                 target.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copyfile(__file__, target)
                 target.chmod(0o755)
@@ -76,7 +76,7 @@ class EntrypointTests(unittest.TestCase):
         return [json.loads(line) for line in self.log.read_text().splitlines()] if self.log.exists() else []
 
     def test_help_never_needs_provider_or_authentication(self):
-        self.env['LMM_API_PROVIDER_BINARY'] = '/missing/provider'
+        self.env['LMM_API_DEPLOY_BINARY'] = '/missing/provider'
         for args in ((), ('--help',), ('web', '--help')):
             with self.subTest(args=args):
                 result = self.call(*args)
@@ -85,7 +85,7 @@ class EntrypointTests(unittest.TestCase):
         self.assertEqual([], self.calls())
 
     def test_web_dispatch_uses_main_once_without_provider(self):
-        self.env['LMM_API_PROVIDER_BINARY'] = '/missing/provider'
+        self.env['LMM_API_DEPLOY_BINARY'] = '/missing/provider'
         result = self.call('web', 'deploy', TAG)
         self.assertEqual(0, result.returncode, result.stderr)
         self.assertEqual([['gh', 'workflow', 'run', 'deploy-web-frontend.yml',
@@ -129,46 +129,46 @@ class EntrypointTests(unittest.TestCase):
         self.assertEqual(['gh', 'run', 'list'], self.calls()[0][:3])
         self.assertIn('deploy-web-frontend.yml', self.calls()[0])
 
-    def test_package_reuses_provider_and_builds_artifacts_once(self):
-        self.make_tool(self.root / 'apps/api-go/out/lmm-api')
+    def test_package_reuses_tool_and_builds_artifacts_once(self):
+        self.make_tool(self.root / 'apps/api-go/out/lmm-api-deploy-engine')
         self.env['LMM_API_BUILD_WORKSPACE'] = str(self.root / 'workspace with spaces')
         result = self.call('package')
         self.assertEqual(0, result.returncode, result.stderr)
-        self.assertEqual([['lmm-api', 'operator', 'build', '--repo', str(self.root),
+        self.assertEqual([['lmm-api-deploy-engine', 'build', '--repo', str(self.root),
                           '--workspace', self.env['LMM_API_BUILD_WORKSPACE']]], self.calls())
 
-    @unittest.skipIf(Path('/usr/bin/lmm-api').exists(), 'Do not invoke an installed provider')
-    def test_fresh_package_bootstraps_only_go_not_frontend(self):
+    @unittest.skipIf(Path('/usr/lib/lmm-api-deploy/engine').exists(), 'Do not invoke an installed provider')
+    def test_fresh_package_bootstraps_only_deployment_tool(self):
         self.env['LMM_API_BUILD_WORKSPACE'] = str(self.root / 'workspace')
         result = self.call('package')
         self.assertEqual(0, result.returncode, result.stderr)
-        self.assertEqual(['bun', 'run', 'build:go'], self.calls()[0])
-        self.assertEqual(['lmm-api', 'operator', 'build'], self.calls()[1][:3])
+        self.assertEqual(['bun', 'run', 'build:deploy'], self.calls()[0])
+        self.assertEqual(['lmm-api-deploy-engine', 'build'], self.calls()[1][:2])
         self.assertEqual(2, len(self.calls()))
 
-    @unittest.skipIf(Path('/usr/bin/lmm-api').exists(), 'Do not invoke an installed provider')
+    @unittest.skipIf(Path('/usr/lib/lmm-api-deploy/engine').exists(), 'Do not invoke an installed provider')
     def test_bootstrap_failure_stops_before_package(self):
         self.env['LMM_API_BUILD_WORKSPACE'] = str(self.root / 'workspace')
         self.env['FAKE_EXIT'] = '7'
         self.assertEqual(7, self.call('package').returncode)
-        self.assertEqual([['bun', 'run', 'build:go']], self.calls())
+        self.assertEqual([['bun', 'run', 'build:deploy']], self.calls())
 
     def test_package_missing_workspace_does_no_work(self):
         self.assertEqual(2, self.call('package').returncode)
         self.assertEqual([], self.calls())
 
-    def test_explicit_broken_provider_never_falls_back_or_builds(self):
+    def test_explicit_broken_tool_never_falls_back_or_builds(self):
         self.env['LMM_API_BUILD_WORKSPACE'] = str(self.root / 'workspace')
-        self.env['LMM_API_PROVIDER_BINARY'] = str(self.root / 'missing')
+        self.env['LMM_API_DEPLOY_BINARY'] = str(self.root / 'missing')
         self.assertEqual(127, self.call('package').returncode)
         self.assertEqual([], self.calls())
 
     def test_native_and_python_routes_preserve_arguments(self):
         provider = self.root / 'custom provider'
         self.make_tool(provider)
-        self.env['LMM_API_PROVIDER_BINARY'] = str(provider)
+        self.env['LMM_API_DEPLOY_BINARY'] = str(provider)
         self.assertEqual(0, self.call('production', 'status', '--plan', 'plan with spaces').returncode)
-        self.assertEqual(['custom provider', 'operator', 'production', 'status', '--plan', 'plan with spaces'], self.calls()[-1])
+        self.assertEqual(['custom provider', 'production', 'status', '--plan', 'plan with spaces'], self.calls()[-1])
         self.assertEqual(0, self.call('systemd', 'doctor', '--json').returncode)
         self.assertEqual(['python3', str(self.script.with_name('deploy-systemd.py')), 'doctor', '--json'], self.calls()[-1])
         self.assertEqual(0, self.call('shared-postgres', 'validate', '--plan', 'plan with spaces').returncode)

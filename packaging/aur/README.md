@@ -1,7 +1,8 @@
 # AUR packages
 
 The backend providers are independently versioned real executables. Production
-and operator actions enter through a separately managed one-hop provider link.
+services enter through a separately managed one-hop provider link. Deployment
+actions use the separately built and signed `/usr/lib/lmm-api-deploy/engine`.
 
 | Role | Stable source | Prebuilt release | Build from Git | Installed payload |
 | --- | --- | --- | --- | --- |
@@ -16,18 +17,21 @@ the link and do not conflict merely because the other provider is installed.
 They provide the virtual `lmm-api-provider` capability for packages that require
 a working backend CLI.
 
-Production services, package hooks, and operator commands invoke only
-`/usr/bin/lmm-api`. Package inspection may name provider files, and a release
-candidate may construct a verified workspace symlink named `lmm-api`, but no
-deployment command directly executes `lmm-api-go` or `lmm-api-rs`.
+Production services use `/usr/bin/lmm-api`. Deployment and Web package hooks
+use `/usr/bin/lmm-api-deploy`, whose modern signed wrapper runs the separate
+tool. Modern Go bundles carry `lmm-api-deploy-engine`; recipes install it at
+`/usr/lib/lmm-api-deploy/engine` from the same signed bundle. Missing tool bytes
+must not be replaced by a local backend. See
+[tool separation](../../docs/standalone-deployment-tool.md).
 
 ## Legacy migration
 
 The signed `lmm-api-go-bin 0.1.69-1` layout may own a real
 `/usr/bin/lmm-api` and expose `lmm-api-go -> lmm-api`. Accept that exact layout
 only as N-1 migration or rollback evidence. A package at or above 0.2.0 must
-contain only the real provider executable and must not contain
-`CLI_TRANSITION_PHASE`, a generic executable, reverse alias, or deploy-only CLI.
+contain the real provider, plus the separate deployment tool when its signed
+release contains one. It must not contain `CLI_TRANSITION_PHASE`, a generic
+provider executable or reverse alias. Old rollback bundles stay unchanged.
 
 The first 0.2.x upgrade runs from a signed workspace symlink, upgrades the Go
 package, then atomically creates `/usr/bin/lmm-api -> lmm-api-go` before service
@@ -54,7 +58,7 @@ Those releases do not package `frontend-release.sh`, `lmm-api-web-activate`, or
 another shell publisher. The pinned 0.1.51 recipe remains an explicit immutable
 legacy reproduction until 0.1.52 is published; the post-release pin commit then
 replaces its local hook and removes its legacy publishers. Frontend activation
-and explicit rollback otherwise belong to provider CLIs with shared contracts.
+and explicit rollback otherwise belong to the separate deployment tool with retained transaction contracts.
 
 Go production packages must not contain `.INSTALL`. Web releases include
 `lmm-api-web.install` in the signed release and the local AUR hook must match it

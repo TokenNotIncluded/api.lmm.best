@@ -148,12 +148,14 @@ class CleanupTests(unittest.TestCase):
         self.stack.enter_context(patch.object(deploy.time, 'time', return_value=self.now))
         paths = {'ROOT': self.base / 'work', 'BINARY': self.base / 'bin' / 'lmm-api-go',
                  'ENTRY': self.base / 'bin' / 'lmm-api', 'FRONTEND': self.base / 'web',
-                 'ENVIRONMENT': self.base / 'service.env', 'NGINX_LOCATIONS': self.base / 'locations'}
+                 'ENVIRONMENT': self.base / 'service.env', 'NGINX_LOCATIONS': self.base / 'locations',
+                 'DEPLOY_ENGINE': self.base / 'deployment-engine'}
         for name, value in paths.items():
             self.stack.enter_context(patch.object(deploy, name, value))
         deploy.ROOT.mkdir(mode=0o700)
         deploy.BINARY.parent.mkdir(mode=0o700)
         self.write(deploy.BINARY, b'canonical bridge', 0o755)
+        self.write(deploy.DEPLOY_ENGINE, b'isolated deployment tool fixture', 0o700)
         deploy.ENTRY.symlink_to('lmm-api-go')
         self.write(deploy.ENVIRONMENT, b'SQL_DSN=postgresql://fixture/database\n')
         self.original_ingress = b'location @lmm_api_backend { proxy_pass http://127.0.0.1:3000; }\n'
@@ -605,7 +607,7 @@ class CleanupTests(unittest.TestCase):
         state = deploy.read_state(self.current)
         state.update(phase='STAGED', migrate=False, backup_exclude_tables=[], maintenance_admission_reopened=False)
         self.state(self.current, state)
-        with patch.object(deploy.os, 'geteuid', return_value=0), patch.object(deploy, 'check_layout'), patch.object(deploy, 'check_tools'), patch.object(deploy, 'deployment_lock', side_effect=self.fake_lease), patch.object(deploy, 'verify_maintenance_database'), patch.object(deploy, 'run', return_value='bridge-v1'), patch.object(deploy, 'configure_maintenance_service'), patch.object(deploy, 'close_maintenance_admission'), patch.object(deploy, 'maintenance_admission'):
+        with patch.object(deploy.os, 'geteuid', return_value=0), patch.object(deploy, 'check_layout'), patch.object(deploy, 'check_tools'), patch.object(deploy, 'deployment_lock', side_effect=self.fake_lease), patch.object(deploy, 'verify_maintenance_database'), patch.object(deploy, 'run', side_effect=lambda *args, **kw: json.dumps({'format': 1, 'workspace_create': 'operator'}) if args[-1] == 'capabilities' else 'bridge-v1'), patch.object(deploy, 'configure_maintenance_service'), patch.object(deploy, 'close_maintenance_admission'), patch.object(deploy, 'maintenance_admission'):
             result = self.cli('apply', '--release', 'current', '--confirm', 'api.lmm.best', '--json')
         self.assertEqual('AWAITING_CONFIRMATION', result['phase'])
         self.assertEqual('FROZEN', deploy.read_state(deploy.ROOT / 'capture')['phase'])
@@ -698,7 +700,7 @@ class CleanupTests(unittest.TestCase):
         handoff['stopped_writer'] = {'pid': 123}
         path = self.write(self.base / 'stopped-handoff.json', json.dumps(handoff).encode())
         source = self.write(self.base / 'source-provider', deploy.BINARY.read_bytes(), 0o755)
-        with patch.object(deploy.os, 'geteuid', return_value=0), patch.object(deploy, 'check_layout'), patch.object(deploy, 'check_tools'), patch.object(deploy, 'deployment_lock', side_effect=self.fake_lease), patch.object(deploy, 'run', return_value='bridge-v1'), patch.object(deploy, 'verify_stopped_maintenance', return_value={'sealed': 'environment'}) as stopped, patch.object(deploy, 'database_environment', side_effect=AssertionError('running service read is forbidden')) as running, patch.object(deploy, 'backup') as backup:
+        with patch.object(deploy.os, 'geteuid', return_value=0), patch.object(deploy, 'check_layout'), patch.object(deploy, 'check_tools'), patch.object(deploy, 'deployment_lock', side_effect=self.fake_lease), patch.object(deploy, 'run', side_effect=lambda *args, **kw: json.dumps({'format': 1, 'workspace_create': 'operator'}) if args[-1] == 'capabilities' else 'bridge-v1'), patch.object(deploy, 'verify_stopped_maintenance', return_value={'sealed': 'environment'}) as stopped, patch.object(deploy, 'database_environment', side_effect=AssertionError('running service read is forbidden')) as running, patch.object(deploy, 'backup') as backup:
             self.cli('stage', '--release', 'stopped-stage', '--binary', str(source), '--frontend', str(self.current / 'frontend'), '--maintenance-handoff', str(path), '--maintenance-handoff-sha256', deploy.digest(path), '--migrate', '--json')
         stopped.assert_called_once()
         running.assert_not_called()
@@ -802,7 +804,7 @@ class CleanupTests(unittest.TestCase):
                 '--maintenance-handoff', str(path), '--maintenance-handoff-sha256', deploy.digest(path), '--json']
         if migrate:
             argv.append('--migrate')
-        with patch.object(deploy.os, 'geteuid', return_value=0), patch.object(deploy, 'check_layout'), patch.object(deploy, 'check_tools'), patch.object(deploy, 'deployment_lock', side_effect=self.fake_lease), patch.object(deploy, 'run', return_value='bridge-v1'), patch.object(deploy, 'database_environment', side_effect=AssertionError('intent cannot inspect a live DB')), patch.object(deploy, 'verify_stopped_maintenance', side_effect=AssertionError('intent has no frozen proof')), patch.object(deploy, 'backup', side_effect=AssertionError('intent cannot dump a live DB')), patch.object(deploy, 'healthy', side_effect=AssertionError('intent cannot make business probes')):
+        with patch.object(deploy.os, 'geteuid', return_value=0), patch.object(deploy, 'check_layout'), patch.object(deploy, 'check_tools'), patch.object(deploy, 'deployment_lock', side_effect=self.fake_lease), patch.object(deploy, 'run', side_effect=lambda *args, **kw: json.dumps({'format': 1, 'workspace_create': 'operator'}) if args[-1] == 'capabilities' else 'bridge-v1'), patch.object(deploy, 'database_environment', side_effect=AssertionError('intent cannot inspect a live DB')), patch.object(deploy, 'verify_stopped_maintenance', side_effect=AssertionError('intent has no frozen proof')), patch.object(deploy, 'backup', side_effect=AssertionError('intent cannot dump a live DB')), patch.object(deploy, 'healthy', side_effect=AssertionError('intent cannot make business probes')):
             result = self.cli(*argv)
         return deploy.ROOT / 'intent', result, {'path': str(path), 'sha256': deploy.digest(path)}
 
@@ -812,7 +814,7 @@ class CleanupTests(unittest.TestCase):
         self.assertTrue(result['migrate'])
         self.assertEqual(binding, result['maintenance_staging_intent'])
         self.assertEqual(binding, result['maintenance_handoff'])
-        self.assertEqual({'lmm-api', 'lmm-api-go', 'frontend', 'state.json'}, {path.name for path in work.iterdir()})
+        self.assertEqual({'lmm-api', 'lmm-api-go', 'lmm-api-deploy-engine', 'frontend', 'state.json'}, {path.name for path in work.iterdir()})
 
     def test_post_staging_intent_rejects_seeded_fake_freezing_evidence_in_stage_and_status(self):
         work, state, binding = self.post_intent_stage()
@@ -877,7 +879,7 @@ class CleanupTests(unittest.TestCase):
     def test_official_apply_consumes_sealed_refinement_and_retains_immutable_staging_base(self):
         work, state, base = self.post_intent_stage()
         sealed = self.handoffs['current']
-        with patch.object(deploy.os, 'geteuid', return_value=0), patch.object(deploy, 'check_layout'), patch.object(deploy, 'check_tools'), patch.object(deploy, 'deployment_lock', side_effect=self.fake_lease), patch.object(deploy, 'verify_maintenance_database'), patch.object(deploy, 'run', return_value='bridge-v1'), patch.object(deploy, 'configure_maintenance_service'), patch.object(deploy, 'close_maintenance_admission'), patch.object(deploy, 'maintenance_admission'):
+        with patch.object(deploy.os, 'geteuid', return_value=0), patch.object(deploy, 'check_layout'), patch.object(deploy, 'check_tools'), patch.object(deploy, 'deployment_lock', side_effect=self.fake_lease), patch.object(deploy, 'verify_maintenance_database'), patch.object(deploy, 'run', side_effect=lambda *args, **kw: json.dumps({'format': 1, 'workspace_create': 'operator'}) if args[-1] == 'capabilities' else 'bridge-v1'), patch.object(deploy, 'configure_maintenance_service'), patch.object(deploy, 'close_maintenance_admission'), patch.object(deploy, 'maintenance_admission'):
             result = self.cli('apply', '--release', 'intent', '--maintenance-handoff', sealed['path'], '--maintenance-handoff-sha256', sealed['sha256'], '--confirm', 'api.lmm.best', '--json')
         self.assertEqual('AWAITING_CONFIRMATION', result['phase'])
         self.assertEqual(sealed, result['maintenance_handoff'])
@@ -1042,7 +1044,7 @@ class OrdinaryHistoryTests(unittest.TestCase):
         state.update(migrate=False, backup_exclude_tables=[])
         self.state(next_work, state)
         unknown = self.workspace('unknown', 'FROZEN')
-        with patch.object(deploy.os, 'geteuid', return_value=0), patch.object(deploy, 'check_layout'), patch.object(deploy, 'check_tools'), patch.object(deploy, 'verify'), patch.object(deploy, 'run', return_value='bridge-v1'), patch.object(deploy, 'stop') as stop:
+        with patch.object(deploy.os, 'geteuid', return_value=0), patch.object(deploy, 'check_layout'), patch.object(deploy, 'check_tools'), patch.object(deploy, 'verify'), patch.object(deploy, 'run', side_effect=lambda *args, **kw: json.dumps({'format': 1, 'workspace_create': 'operator'}) if args[-1] == 'capabilities' else 'bridge-v1'), patch.object(deploy, 'stop') as stop:
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
                 code = deploy.main(['apply', '--release', 'next', '--confirm', 'api.lmm.best', '--json'])

@@ -31,6 +31,8 @@ import urllib.parse
 
 ROOT = Path('/var/lib/lmm-api-deploy-systemd')
 BINARY = Path('/usr/bin/lmm-api-go')
+DEPLOY_ENGINE = Path('/usr/lib/lmm-api-deploy/engine')
+DEPLOY_ENGINE_NAME = 'lmm-api-deploy-engine'
 ENTRY = Path('/usr/bin/lmm-api')
 FRONTEND = Path('/srv/lmm-api-frontend')
 SERVICE = 'lmm-api.service'
@@ -60,6 +62,41 @@ def run(*args, log=None):
 def digest(path):
     with path.open('rb') as source:
         return hashlib.file_digest(source, 'sha256').hexdigest()
+
+
+def validate_deploy_engine(path, expected=None):
+    path = Path(path)
+    info = path.lstat()
+    if not stat.S_ISREG(info.st_mode) or info.st_nlink != 1 or info.st_uid != os.getuid() or not info.st_mode & 0o100 or info.st_mode & 0o022:
+        raise RuntimeError('deployment tool must be an owned, protected regular executable')
+    if expected is not None and (not isinstance(expected, str) or not re.fullmatch(r'[0-9a-f]{64}', expected) or digest(path) != expected):
+        raise RuntimeError('staged deployment tool changed')
+    return path
+
+
+def check_deploy_engine_capabilities(path):
+    # An API binary also accepts "help". Require the separate tool's read-only
+    # contract before this transaction is allowed to stop a service.
+    value = history_json(run(str(path), 'capabilities'))
+    if value != {'format': 1, 'workspace_create': 'operator'} or type(value['format']) is not int:
+        raise RuntimeError('deployment tool has an unsupported capability contract')
+
+
+def deployment_command(work, state):
+    """New transactions use a separately bound tool; never fall back on error."""
+    if 'deploy_engine_sha256' in state:
+        return [str(validate_deploy_engine(work / DEPLOY_ENGINE_NAME, state['deploy_engine_sha256']))]
+    # Only an immutable pre-split transaction can use its retained old provider.
+    # The installed/new API is never used to infer a deployment implementation.
+    provider = validate_deploy_engine(work / 'lmm-api-go', state['sha256'])
+    entry = work / 'lmm-api'
+    if not entry.is_symlink() or os.readlink(entry) != provider.name:
+        raise RuntimeError('retained legacy deployment entry changed')
+    return [str(entry), 'operator']
+
+
+def run_deployment(work, state, *args, log=None):
+    return run(*deployment_command(work, state), *args, log=log)
 
 
 def tree_digest(root):
@@ -558,6 +595,9 @@ def maintenance_dispatch_status(work, state, uid=0, handoff_path=None, handoff_s
             # No apply mutation marker may exist. Read-only stage schema dumps
             # and verification logs are preparation evidence, not a dispatch.
             prepared_names = {'state.json', 'lmm-api-go', 'lmm-api', 'frontend', 'preflight-schema.sql', 'backup.log', 'verify-stage.log'}
+            if 'deploy_engine_sha256' in state:
+                validate_deploy_engine(work / DEPLOY_ENGINE_NAME, state['deploy_engine_sha256'])
+                prepared_names.add(DEPLOY_ENGINE_NAME)
             if any(path.name not in prepared_names for path in work.iterdir()):
                 raise RuntimeError('staged workspace contains dispatch or unknown mutation evidence')
             if maintenance.get('stopped_writer'):
@@ -573,7 +613,7 @@ def maintenance_dispatch_status(work, state, uid=0, handoff_path=None, handoff_s
     return result
 
 
-CLEANUP_PAYLOADS = ('lmm-api-go', 'lmm-api', 'frontend', 'previous-binary', 'tmp', 'cache')
+CLEANUP_PAYLOADS = ('lmm-api-go', DEPLOY_ENGINE_NAME, 'lmm-api', 'frontend', 'previous-binary', 'tmp', 'cache')
 
 
 def cleanup_path(path, private_file=False, uid=0):
@@ -1018,7 +1058,10 @@ def later_signed_archive(asset, bundle, asset_sha, bundle_sha, version, componen
         prefix = next(iter(roots)) + '/'
         if prefix + 'lmm-api-go' not in files:
             raise RuntimeError('later-provider signed Go payload is missing')
-        return {'source_revision': revision, 'payload_sha256': files[prefix + 'lmm-api-go']}
+        result = {'source_revision': revision, 'payload_sha256': files[prefix + 'lmm-api-go']}
+        if prefix + DEPLOY_ENGINE_NAME in files:
+            result['deploy_engine_sha256'] = files[prefix + DEPLOY_ENGINE_NAME]
+        return result
     frontend = {name.removeprefix('dist/'): sha for name, sha in files.items() if name.startswith('dist/')}
     if 'index.html' not in frontend:
         raise RuntimeError('later-provider signed frontend payload is missing')
@@ -1151,13 +1194,18 @@ def qualify_later_provider(manifest_raw, post):
     candidate = capsule['candidate']; root = Path(capsule['root'])
     backend = later_signed_archive(root / candidate['release_asset'], root / candidate['signature_bundle'],
                                    candidate['release_asset_sha256'], candidate['signature_bundle_sha256'], state['version'], 'go')
-    if backend != {'source_revision': candidate['git_revision'], 'payload_sha256': state['sha256']} or digest(BINARY) != state['sha256']:
+    expected_backend = {'source_revision': candidate['git_revision'], 'payload_sha256': state['sha256']}
+    if candidate.get('deploy_engine_sha256'):
+        expected_backend['deploy_engine_sha256'] = candidate['deploy_engine_sha256']
+    if backend != expected_backend or digest(BINARY) != state['sha256']:
         raise RuntimeError('later-provider installed ELF is not the signed origin candidate')
     entry = later_entry(manifest, capsule, state)
     generation = later_generation(manifest)
     if generation['running_sha256'] != state['sha256']:
         raise RuntimeError('later-provider running ELF differs from its signed origin')
-    result = subprocess.run([str(BINARY), 'operator', 'production', 'writer-capsule', 'check', '--capsule',
+    operator = (validate_deploy_engine(DEPLOY_ENGINE, candidate['deploy_engine_sha256'])
+                if candidate.get('deploy_engine_sha256') else BINARY)
+    result = subprocess.run([str(operator), 'operator', 'production', 'writer-capsule', 'check', '--capsule',
                              manifest['capsule_path'], '--capsule-sha256', manifest['capsule_sha256']],
                             capture_output=True, timeout=900)
     if result.returncode or b'merchant_store_capsule=qualified' not in result.stdout:
@@ -1292,7 +1340,7 @@ def incomplete_inventory(work):
     cleanup_path(work)
     if (work / 'state.json').exists() or (work / 'state.json').is_symlink():
         raise RuntimeError('archive-incomplete cannot archive an owner state')
-    allowed = {'lmm-api', 'lmm-api-go', 'frontend', 'logs', 'verify-stage.log', 'preflight-schema.sql', 'backup.log'}
+    allowed = {'lmm-api', 'lmm-api-go', DEPLOY_ENGINE_NAME, 'frontend', 'logs', 'verify-stage.log', 'preflight-schema.sql', 'backup.log'}
     if any(p.name not in allowed for p in work.iterdir()):
         raise RuntimeError('incomplete workspace has unknown or mutation evidence')
     rows = []
@@ -1425,13 +1473,16 @@ def staged_inventory(work, release, state_sha256):
             value[key] = item
         return value
     state = json.loads(raw, object_pairs_hook=unique_fields)
-    if (not isinstance(state, dict) or set(state) != STAGED_STATE_FIELDS or
+    if (not isinstance(state, dict) or set(state) not in (STAGED_STATE_FIELDS, STAGED_STATE_FIELDS | {'deploy_engine_sha256'}) or
             state.get('release') != release or state.get('phase') != 'STAGED' or
             state.get('migrate') is not False or state.get('backup_exclude_tables') != [] or
             not isinstance(state.get('version'), str) or not state['version'] or
             any(not re.fullmatch(r'[0-9a-f]{64}', state.get(key, '') if isinstance(state.get(key), str) else '') for key in ('sha256', 'frontend_sha256'))):
         raise RuntimeError('archive-staged requires an exact ordinary, unmutated STAGED owner without migrations')
     allowed = {'state.json', 'lmm-api', 'lmm-api-go', 'frontend', 'logs', 'verify-stage.log'}
+    if 'deploy_engine_sha256' in state:
+        validate_deploy_engine(work / DEPLOY_ENGINE_NAME, state['deploy_engine_sha256'])
+        allowed.add(DEPLOY_ENGINE_NAME)
     if any(path.name not in allowed for path in work.iterdir()):
         raise RuntimeError('STAGED workspace contains unknown or mutation evidence')
     rows = []
@@ -1601,7 +1652,7 @@ def cleanup_payload_inventory(work, uid=0):
                 raise RuntimeError('historical lmm-api is not the fixed provider symlink')
             paths = [path]
         else:
-            if path.is_symlink() or (name in ('lmm-api-go', 'previous-binary') and not path.is_file()) or (name in ('frontend', 'tmp', 'cache') and not path.is_dir()):
+            if path.is_symlink() or (name in ('lmm-api-go', DEPLOY_ENGINE_NAME, 'previous-binary') and not path.is_file()) or (name in ('frontend', 'tmp', 'cache') and not path.is_dir()):
                 raise RuntimeError('historical cleanup payload has an unexpected type')
             paths = [path, *sorted(path.rglob('*'))] if path.is_dir() else [path]
         for item in paths:
@@ -1953,6 +2004,7 @@ def main(argv=None):
     parser.add_argument('--staged-state-sha256')
     parser.add_argument('--owner-source-sha256')
     parser.add_argument('--binary', type=Path)
+    parser.add_argument('--deploy-engine', type=Path, help='separate tool from the reviewed signed release; default: installed deployment engine')
     parser.add_argument('--frontend', type=Path)
     parser.add_argument('--confirm')
     parser.add_argument('--maintenance-handoff', type=Path)
@@ -1984,7 +2036,7 @@ def main(argv=None):
         parser.error('--release is required for this action')
     if args.action in ('upgrade', 'apply', 'confirm', 'rollback', 'cleanup', 'maintenance-release', 'maintenance-capture', 'maintenance-close', 'maintenance-stop', 'register-released-history', 'archive-incomplete', 'archive-staged') and args.confirm != 'api.lmm.best':
         parser.error('mutations require --confirm api.lmm.best')
-    if args.action not in ('stage', 'upgrade') and (args.binary or args.frontend or args.backup_exclude_table):
+    if args.action not in ('stage', 'upgrade') and (args.binary or args.deploy_engine or args.frontend or args.backup_exclude_table):
         parser.error('artifact and backup-exclusion arguments are only valid for stage/upgrade')
     if args.backup_exclude_table and not args.migrate:
         parser.error('--backup-exclude-table requires --migrate')
@@ -2102,13 +2154,19 @@ def execute(args, parser):
                 raise RuntimeError('artifacts must be a regular binary and a real frontend directory')
             if any(p.is_symlink() for p in args.frontend.rglob('*')):
                 raise RuntimeError('frontend may not contain symlinks')
+            try:
+                engine = validate_deploy_engine(args.deploy_engine or DEPLOY_ENGINE)
+            except FileNotFoundError as error:
+                raise RuntimeError('separate deployment tool is missing; install the reviewed tool or supply --deploy-engine FILE') from error
             work.mkdir(mode=0o700)
+            shutil.copy2(engine, work / DEPLOY_ENGINE_NAME)
+            (work / DEPLOY_ENGINE_NAME).chmod(0o755)
             shutil.copy2(args.binary, work / 'lmm-api-go')
             (work / 'lmm-api-go').chmod(0o755)
             (work / 'lmm-api').symlink_to('lmm-api-go')
             shutil.copytree(args.frontend, work / 'frontend')
             version = run(str(work / 'lmm-api'), 'version')
-            run(str(work / 'lmm-api'), 'operator', 'help')
+            check_deploy_engine_capabilities(work / DEPLOY_ENGINE_NAME)
             if args.migrate:
                 if not (maintenance and maintenance['stage'] == 'post' and not maintenance.get('stopped_writer')):
                     db_env = verify_stopped_maintenance(maintenance) if maintenance and maintenance.get('stopped_writer') else database_environment()
@@ -2116,7 +2174,7 @@ def execute(args, parser):
             elif not maintenance:
                 verify(work, 'stage')
             state = {'release': args.release, 'version': version, 'sha256': digest(work / 'lmm-api-go'),
-                     'frontend_sha256': tree_digest(work / 'frontend'), 'migrate': args.migrate,
+                     'frontend_sha256': tree_digest(work / 'frontend'), 'deploy_engine_sha256': digest(work / DEPLOY_ENGINE_NAME), 'migrate': args.migrate,
                      'backup_exclude_tables': args.backup_exclude_table, 'phase': 'STAGED'}
             if maintenance:
                 if tree_digest(FRONTEND / 'current') != state['frontend_sha256']:
@@ -2144,6 +2202,8 @@ def execute(args, parser):
                     state['maintenance_handoff'] = {'path': maintenance['_handoff_path'], 'sha256': handoff_sha}
                 state.update(maintenance_stage=maintenance['stage'], transition_id=maintenance['transition_id'], transition_intent_sha256=maintenance['transition_intent_sha256'], provider_sha256=maintenance['provider_sha256'], prepare_config_sha256=maintenance['prepare_config_sha256'])
             check_layout()
+            if 'deploy_engine_sha256' in state:
+                validate_deploy_engine(work / DEPLOY_ENGINE_NAME, state['deploy_engine_sha256'])
             if digest(work / 'lmm-api-go') != state['sha256']:
                 raise RuntimeError('staged binary changed')
             if tree_digest(work / 'frontend') != state['frontend_sha256']:
@@ -2261,7 +2321,7 @@ def execute(args, parser):
                     verify(work, 'prepare-verify', maintenance=maintenance)
                 install(work / 'lmm-api-go', BINARY)
                 if not maintenance:
-                    run(str(ENTRY), 'operator', 'frontend', 'publish', '--source', str(work / 'frontend'),
+                    run_deployment(work, state, 'frontend', 'publish', '--source', str(work / 'frontend'),
                         '--release', args.release, '--keep', '10', log=work / 'frontend.log')
                 elif tree_digest(FRONTEND / 'current') != state['frontend_sha256']:
                     raise RuntimeError('frozen active frontend tree changed')
@@ -2339,7 +2399,7 @@ def execute(args, parser):
                     else:
                         stop(work)
                 if not maintenance:
-                    run(str(work / 'lmm-api'), 'operator', 'frontend', 'rollback', '--release', state['previous_frontend'],
+                    run_deployment(work, state, 'frontend', 'rollback', '--release', state['previous_frontend'],
                         '--keep', '10', log=work / 'rollback-frontend.log')
                 elif tree_digest(FRONTEND / 'current') != state['frontend_sha256']:
                     raise RuntimeError('frozen frontend changed before rollback')

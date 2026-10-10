@@ -40,7 +40,9 @@ class CapsuleHooks:
     def __init__(self, capsule_path, capsule_sha, capsule, native_runner=None):
         self.path, self.sha, self.capsule = str(capsule_path), capsule_sha, capsule
         self.root = Path(capsule['root'])
-        self.operator = self.root / 'tmp/migrations/merchant-store-candidate/lmm-api'
+        self.provider_entry = self.root / 'tmp/migrations/merchant-store-candidate/lmm-api'
+        self.operator = (self.provider_entry.with_name('lmm-api-deploy-engine')
+                         if capsule['candidate'].get('deploy_engine_sha256') else self.provider_entry)
         self.native_runner = native_runner or self._native_run
         self.held = False
 
@@ -51,11 +53,11 @@ class CapsuleHooks:
             info = parent.lstat()
             if not stat.S_ISDIR(info.st_mode) or info.st_uid != 0 or info.st_mode & 0o022:
                 raise RuntimeError('native provider ancestor is replaceable or a symlink')
-        entry = self.operator.lstat()
+        entry = self.provider_entry.lstat()
         if entry.st_uid != 0:
             raise RuntimeError('native provider entry is not root owned')
-        if self.operator.is_symlink() and os.readlink(self.operator) == 'lmm-api-go':
-            provider = self.operator.with_name('lmm-api-go')
+        if self.provider_entry.is_symlink() and os.readlink(self.provider_entry) == 'lmm-api-go':
+            provider = self.provider_entry.with_name('lmm-api-go')
         else:
             raise RuntimeError('native qualified provider entry is missing or changed')
         info = provider.lstat()
@@ -63,6 +65,11 @@ class CapsuleHooks:
             raise RuntimeError('native provider file is unsafe')
         if hashlib.sha256(provider.read_bytes()).hexdigest() != self.capsule['candidate']['payload_sha256']:
             raise RuntimeError('native provider differs from official candidate ELF')
+        engine_sha = self.capsule['candidate'].get('deploy_engine_sha256')
+        if engine_sha:
+            info = self.operator.lstat()
+            if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_nlink != 1 or stat.S_IMODE(info.st_mode) != 0o700 or hashlib.sha256(self.operator.read_bytes()).hexdigest() != engine_sha:
+                raise RuntimeError('native deployment tool differs from the signed capsule')
         result = subprocess.run([str(self.operator), 'operator', 'production', 'writer-capsule', action,
                                 '--capsule', self.path, '--capsule-sha256', self.sha],
                                 stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
@@ -139,6 +146,11 @@ class CapsuleHooks:
                 raise RuntimeError('ordinary command differs from the immutable capsule scope')
             if args.binary and module.digest(args.binary) != self.capsule['candidate']['payload_sha256']:
                 raise RuntimeError('staged ELF differs from the exact official candidate')
+            engine_sha = self.capsule['candidate'].get('deploy_engine_sha256')
+            if engine_sha and args.action in ('stage', 'upgrade'):
+                if args.deploy_engine and module.digest(args.deploy_engine) != engine_sha:
+                    raise RuntimeError('staged deployment tool differs from official capsule')
+                args.deploy_engine = self.operator
             self.native('check')  # Unsupported retained CLI blocks before any mutation.
             if args.action != 'stage':
                 self.native('ensure')

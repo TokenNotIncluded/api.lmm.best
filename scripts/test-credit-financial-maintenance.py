@@ -550,7 +550,7 @@ class LatePrebridgeTests(unittest.TestCase):
                            'package_sha256': runner.flag_value(argv, hf)}
         actual['go_candidate'].update(git_revision=candidate['source_sha'], payload_sha256=candidate['provider']['sha256'])
         for key, flag in (('probe_binary', '--probe-binary'), ('operator_binary', '--operator-binary')):
-            actual[key] = {'path': '/local/provider', 'sha256': runner.flag_value(argv, flag + '-sha256')}
+            actual[key] = {'path': '/local/lmm-api-go', 'sha256': runner.flag_value(argv, flag + '-sha256')}
         # Exactly the normal-owner target argument order from its sealed plan.
         normalized = runner.encode(actual)
         stage['staged_plan']['sha256'] = runner.digest(normalized)

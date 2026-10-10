@@ -4,6 +4,8 @@ import sys
 sys.dont_write_bytecode = True
 
 import copy
+import gzip
+import atexit
 import hashlib
 import importlib.util
 import json
@@ -31,7 +33,13 @@ PLAN_SHA = '095347319e48ce3e2400fb1031a611455ed1230b2ad80606e7e5cc7b702617ce'
 PROVIDER_SHA = '19dd6ff9d514cfea8338ba0c37b9a62d8ed1e10ddf77c7ba0f41d69a4eacdec9'
 ORIGINAL_SHA = '8e5a894f3ca806a1c9f86641e3ac96d2b0de310acc251d5f30a5439b285c611b'
 SEALED_SOURCE = Path('/home/lightjunction/.cache/api-release-preparation-20261006/final/source/scripts/run-credit-financial-maintenance.py')
-ORIGINAL_SOURCE = SEALED_SOURCE if SEALED_SOURCE.is_file() else Path(__file__).with_name('run-credit-financial-maintenance.py')
+# Recovery authority is immutable. Never substitute the current live runner or
+# change the adapter's fixed hash when new deployment support changes that file.
+_fixture_dir = tempfile.TemporaryDirectory(prefix='sealed-financial-source-')
+atexit.register(_fixture_dir.cleanup)
+ORIGINAL_SOURCE = Path(_fixture_dir.name) / 'original.py'
+ORIGINAL_SOURCE.write_bytes(gzip.decompress((Path(__file__).parent / 'fixtures/financial-runner-8e5a894f.py.gz').read_bytes()))
+ORIGINAL_SOURCE.chmod(0o600)
 original = adapter.load_original(ORIGINAL_SOURCE, ORIGINAL_SHA)
 AdaptedController = adapter.adapter_controller(original)
 OPERATIONS = ('post_apply', 'post_confirm')

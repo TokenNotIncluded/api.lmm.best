@@ -9,6 +9,7 @@ readonly REPO_ROOT
 
 WORKSPACE=${LMM_API_BUILD_WORKSPACE:-}
 GO_BINARY=${LMM_API_GO_BINARY:-}
+DEPLOY_ENGINE=${LMM_API_DEPLOY_BINARY:-}
 FRONTEND_DIST=${LMM_API_FRONTEND_DIST:-$REPO_ROOT/apps/web/dist}
 OUTPUT_DIR=${LMM_API_PKGDEST:-}
 
@@ -29,6 +30,11 @@ while (($#)); do
     GO_BINARY=$2
     shift 2
     ;;
+  --deploy-engine)
+    (($# >= 2)) || die '--deploy-engine requires a path'
+    DEPLOY_ENGINE=$2
+    shift 2
+    ;;
   --frontend)
     (($# >= 2)) || die '--frontend requires a path'
     FRONTEND_DIST=$2
@@ -40,7 +46,7 @@ while (($#)); do
     shift 2
     ;;
   -h | --help)
-    printf '%s\n' 'Usage: build-local-package.sh --workspace PATH --binary PATH [--frontend PATH] [--output-dir PATH]'
+    printf '%s\n' 'Usage: build-local-package.sh --workspace PATH --binary PATH --deploy-engine PATH [--frontend PATH] [--output-dir PATH]'
     exit 0
     ;;
   *) die "unknown argument: $1" ;;
@@ -53,6 +59,9 @@ done
 [[ $(realpath -e -- "$WORKSPACE") == "$WORKSPACE" ]] || die 'workspace must be canonical'
 [[ -n $GO_BINARY && $GO_BINARY == /* && -x $GO_BINARY && ! -L $GO_BINARY ]] ||
   die '--binary must be an absolute executable regular file'
+[[ -n $DEPLOY_ENGINE && $DEPLOY_ENGINE == /* && -f $DEPLOY_ENGINE && -x $DEPLOY_ENGINE && ! -L $DEPLOY_ENGINE ]] ||
+  die '--deploy-engine must be a separate absolute executable regular file'
+[[ $DEPLOY_ENGINE != "$GO_BINARY" ]] || die 'deployment tool must not be the backend'
 [[ -d $FRONTEND_DIST && ! -L $FRONTEND_DIST && -f $FRONTEND_DIST/index.html && ! -L $FRONTEND_DIST/index.html ]] ||
   die 'frontend dist is missing, unsafe, or lacks index.html'
 OUTPUT_DIR=${OUTPUT_DIR:-$WORKSPACE/artifacts}
@@ -66,9 +75,14 @@ done
 file -Lb "$GO_BINARY" | grep -Eq '^ELF 64-bit LSB (pie )?executable, x86-64,' ||
   die 'Go binary is not an x86-64 ELF executable'
 
+file -Lb "$DEPLOY_ENGINE" | grep -Eq '^ELF 64-bit LSB (pie )?executable, x86-64,' ||
+  die 'deployment tool is not an x86-64 ELF executable'
+
 pkgver=$({ "$GO_BINARY" version || true; } | head -n1)
 pkgver=${pkgver#v}
 [[ $pkgver =~ ^[0-9][0-9A-Za-z._+]*$ ]] || die 'Go binary returned an invalid package version'
+
+[[ $("$DEPLOY_ENGINE" version) == "$pkgver" ]] || die 'deployment tool version differs from backend'
 
 build_dir=$(mktemp -d "$WORKSPACE/tmp/lmm-api-go-package.XXXXXXXX")
 pkgdest=$(mktemp -d "$WORKSPACE/tmp/lmm-api-go-pkgdest.XXXXXXXX")
@@ -80,6 +94,7 @@ install -Dm0644 "$SCRIPT_DIR/PKGBUILD" "$build_dir/PKGBUILD"
 install -Dm0644 "$REPO_ROOT/packaging/common/lmm-api/lmm-api-go-package.sh" \
   "$build_dir/lmm-api-go-package.sh"
 install -Dm0755 "$GO_BINARY" "$build_dir/lmm-api-go"
+install -Dm0755 "$DEPLOY_ENGINE" "$build_dir/lmm-api-deploy-engine"
 install -Dm0755 "$REPO_ROOT/packaging/common/lmm-api/lmm-api-deploy" "$build_dir/lmm-api-deploy"
 install -Dm0644 "$REPO_ROOT/packaging/common/lmm-api/lmm-api.service" "$build_dir/lmm-api.service"
 install -Dm0600 "$REPO_ROOT/packaging/common/lmm-api/lmm-api-go.env" "$build_dir/lmm-api-go.env"

@@ -151,7 +151,7 @@ jobs:
           set -euo pipefail
           evidence="$GITHUB_WORKSPACE/qualification-artifacts/go/native-libpq"
           mkdir -p "$evidence"
-          GOMAXPROCS=2 go test -race -p 1 -count=1 -v ./internal/appcli \
+          GOMAXPROCS=2 go test -race -p 1 -count=1 -v ./internal/appcli ./internal/deploycli \
             -run '^(TestExistingSchemaPostgresCatalogAndReadOnlyFence|TestProductionMerchantStartupBaselineActualPostgres)$' -timeout 180s \
             | tee "$evidence/tests.log"
           test "$(grep -Ec '^--- PASS: TestExistingSchemaPostgresCatalogAndReadOnlyFence \(' "$evidence/tests.log")" -eq 1
@@ -192,7 +192,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p ../../qualification-artifacts/go/incident343
-          go test -race -count=1 -v ./internal/appcli ./cmd/incident343-recovery -run TestIncident343 -timeout 180s | tee ../../qualification-artifacts/go/incident343/tests.log
+          go test -race -count=1 -v ./internal/appcli ./internal/deploycli ./cmd/incident343-recovery -run TestIncident343 -timeout 180s | tee ../../qualification-artifacts/go/incident343/tests.log
       - name: Protect referral and red-packet accounting under PostgreSQL concurrency
         working-directory: apps/api-go
         env:

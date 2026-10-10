@@ -55,11 +55,6 @@ func Dispatch(args []string, version string, stdout, stderr io.Writer) Result {
 		return Result{ExitCode: ExitUsage}
 	case "request":
 		return Result{ExitCode: RunRequest(args[1:], version, stdout, stderr)}
-	case "operator":
-		// Deployment is exposed through the packaged lmm-api-deploy script.
-		// Keep the operator protocol private so remote recovery can execute the
-		// same verified provider without restoring a public deploy subcommand.
-		return Result{ExitCode: RunDeploy(args[1:], stdout, stderr)}
 	case "backend":
 		return Result{ExitCode: RunBackend(args[1:], stdout, stderr)}
 	case "geoip":
@@ -120,7 +115,6 @@ func WriteUsage(output io.Writer) {
   lmm-api migrate --apply|--verify
   lmm-api merchant-store-writer-gate capability|status|bootstrap|activate|activate-lifecycle|activate-refunds|prepare-schema|activate-access|activate-phase-six|prepare-fixed-content|verify-fixed-content|activate-fixed-content [operator options]
   lmm-api request [request options] [URL-or-path]
-  /usr/bin/lmm-api-deploy build|frontend|production ...
   lmm-api geoip update
   lmm-api backend status
   lmm-api backend select go|rust
@@ -134,6 +128,6 @@ installed as lmm-api-go; backend status/select validates and atomically manages
 the canonical link. Migration mode is explicit: --apply may change the database,
 while --verify is read-only. The request, status, and doctor commands use the
 binary's native HTTP client and do not initialize the server, database, or cache.
-Production deployment is intentionally exposed through the reviewed
-/usr/bin/lmm-api-deploy script.`)
+Deployment is a separate tool. Use scripts/lmm-api-deploy.sh or the installed
+/usr/bin/lmm-api-deploy script; this backend does not implement operator commands.`)
 }

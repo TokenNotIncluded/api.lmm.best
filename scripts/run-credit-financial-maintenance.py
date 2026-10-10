@@ -121,6 +121,10 @@ def validate_plan(plan):
             intent.get('provider_sha256') == plan['provider']['sha256'], 'intent-source-provider-binding')
     read_bound(plan['controller'])
     read_bound(plan['provider'])
+    if 'deployment_engine' in plan:
+        read_bound(plan['deployment_engine'])
+        require(Path(plan['deployment_engine']['path']).name == 'lmm-api-deploy-engine' and
+                plan['deployment_engine']['sha256'] != plan['provider']['sha256'], 'separate-deployment-tool-binding')
     read_bound(plan['verifier'])
     read_bound(plan['generator'])
     read_bound(plan['fingerprint_generator'])
@@ -140,7 +144,7 @@ def validate_plan(plan):
         require(node['writers'] == ['lmm-api.service'], 'supported-complete-writer-inventory-required')
         late = node.get('prebridge_stage')
         if late is not None:
-            validate_prebridge_stage(node, staging, plan['provider']['sha256'])
+            validate_prebridge_stage(node, staging, plan['provider']['sha256'], plan.get('deployment_engine', {}).get('sha256'))
             late_nodes += 1
         expected = set(NODE_OPERATIONS)
         if late is not None and staging == 'pending':
@@ -226,7 +230,7 @@ def prebridge_commands(stage):
     }
 
 
-def validate_prebridge_stage(node, staging, provider_sha):
+def validate_prebridge_stage(node, staging, provider_sha, engine_sha=None):
     stage = node['prebridge_stage']
     require(node['deployment_tool'] == 'native' and staging in ('pending', 'bound') and
             set(stage) == {'workspace', 'capture_workspace', 'apply_contract', 'operator', 'staged_plan', 'stage_handoff'},
@@ -238,14 +242,17 @@ def validate_prebridge_stage(node, staging, provider_sha):
     contract = stage['apply_contract']
     validate_operation(contract)
     argv = contract['argv']
-    require(argv[:4] == [workspace + '/staging/lmm-api', 'operator', 'production', 'apply'] and
+    operator_entry = workspace + '/staging/' + ('lmm-api-deploy-engine' if engine_sha else 'lmm-api')
+    operator_file = workspace + '/staging/' + ('lmm-api-deploy-engine' if engine_sha else 'lmm-api-go')
+    operator_sha = engine_sha or provider_sha
+    require(argv[:4] == [operator_entry, 'operator', 'production', 'apply'] and
             flag_value(argv, '--workspace') == workspace and
             flag_value(argv, '--maintenance-handoff') == '{handoff_path}' and
             flag_value(argv, '--maintenance-handoff-sha256') == '{handoff_sha256}' and
             flag_value(argv, '--probe-binary-sha256') == provider_sha and
-            flag_value(argv, '--operator-binary-sha256') == provider_sha and
+            flag_value(argv, '--operator-binary-sha256') == operator_sha and
             flag_value(argv, '--probe-binary') == workspace + '/staging/lmm-api-go' and
-            flag_value(argv, '--operator-binary') == workspace + '/staging/lmm-api-go' and
+            flag_value(argv, '--operator-binary') == operator_file and
             '--plan' not in argv and not any(arg.split('=', 1)[0] in
                 ('--with-backups', '--backup-dir', '--controller-backup-public-key', '--release-plan-sha256',
                  '--controller-backup-receipt', '--controller-backup-receipt-sha256') for arg in argv),
@@ -264,7 +271,7 @@ def validate_prebridge_stage(node, staging, provider_sha):
     else:
         for key in ('operator', 'staged_plan', 'stage_handoff'):
             remote_binding(stage[key])
-        require(stage['operator'] == {'path': workspace + '/staging/lmm-api', 'sha256': provider_sha} and
+        require(stage['operator'] == {'path': operator_entry, 'sha256': operator_sha} and
                 stage['staged_plan']['path'] == workspace + '/staging/release-plan.json' and
                 stage['stage_handoff']['path'] == '/var/lib/lmm-api-go-deploy/handoffs/' + stage['stage_handoff']['sha256'] + '.json',
                 'actual-native-prebridge-stage-paths')
@@ -602,7 +609,8 @@ sys.stdout.buffer.write(b)
                 actual.get('target_alias') == node['ssh'] and actual.get('expected_host') == node['hostname'] and
                 actual.get('go_changed') is True and actual.get('web_changed') is False and
                 actual.get('with_backups') is False and actual.get('go_candidate', {}).get('git_revision') == self.plan['source_sha'] and
-                actual.get('go_candidate', {}).get('payload_sha256') == self.plan['provider']['sha256'],
+                actual.get('go_candidate', {}).get('payload_sha256') == self.plan['provider']['sha256'] and
+                actual.get('go_candidate', {}).get('deploy_engine_sha256') == self.plan.get('deployment_engine', {}).get('sha256'),
                 'prebridge-normal-stage-source-node-package-selection')
         embedded = actual.get('maintenance_handoff', {})
         require({key: value for key, value in embedded.items() if key not in ('path', 'sha256')} == stopped and
@@ -610,7 +618,8 @@ sys.stdout.buffer.write(b)
         # Reproduce productionApplyArguments' fixed target suffix from the real
         # sealed normal plan. No guessed receipt, state or mutable --plan input.
         workspace = stage['workspace']
-        argv = [workspace + '/staging/lmm-api', 'operator', 'production', 'apply', '--workspace', workspace,
+        operator_name = 'lmm-api-deploy-engine' if 'deployment_engine' in self.plan else 'lmm-api'
+        argv = [workspace + '/staging/' + operator_name, 'operator', 'production', 'apply', '--workspace', workspace,
                 '--operator-user', actual['operator_user']]
         for key, package_flag, digest_flag in (
                 ('go_candidate', '--go-package', '--go-package-sha256'),
@@ -621,7 +630,10 @@ sys.stdout.buffer.write(b)
             argv += [package_flag, workspace + '/staging/' + Path(package['package_path']).name,
                      digest_flag, package['package_sha256']]
         for key, flag in (('probe_binary', '--probe-binary'), ('operator_binary', '--operator-binary')):
-            argv += [flag, workspace + '/staging/lmm-api-go', flag + '-sha256', actual[key]['sha256']]
+            target = 'lmm-api-deploy-engine' if key == 'operator_binary' and 'deployment_engine' in self.plan else 'lmm-api-go'
+            expected_sha = self.plan.get('deployment_engine', self.plan['provider'])['sha256'] if key == 'operator_binary' else self.plan['provider']['sha256']
+            require(actual[key]['sha256'] == expected_sha and Path(actual[key]['path']).name == target, 'prebridge-signed-provider-tool-binding')
+            argv += [flag, workspace + '/staging/' + target, flag + '-sha256', actual[key]['sha256']]
         argv += ['--expected-version', actual['expected_version'], '--observation-seconds', str(actual['observation_seconds']),
                  '--maintenance-handoff', '{handoff_path}', '--maintenance-handoff-sha256', '{handoff_sha256}', '--go-changed']
         if actual['preserve_edge_policy']:

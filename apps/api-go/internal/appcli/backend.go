@@ -250,3 +250,19 @@ func (runtime *backendRuntime) selectProvider(selection string) (backendProvider
 	}
 	return runtime.status()
 }
+
+// BackendPaths describes the canonical service link and its provider files.
+type BackendPaths = backendPaths
+
+// VerifyBackendProvider checks the link and its package ownership without mutation.
+func VerifyBackendProvider(paths BackendPaths, owner backendOwnershipRunner, requiredUID uint32) (backendProvider, error) {
+	runtime := backendRuntime{paths: paths, owner: owner, requiredUID: requiredUID}
+	return runtime.status()
+}
+
+// SelectBackendProvider changes only the verified canonical provider link.
+func SelectBackendProvider(paths BackendPaths, owner backendOwnershipRunner, effectiveID func() int, requiredUID uint32, target string) error {
+	runtime := backendRuntime{paths: paths, owner: owner, effectiveID: effectiveID, requiredUID: requiredUID}
+	_, err := runtime.selectProvider(target)
+	return err
+}

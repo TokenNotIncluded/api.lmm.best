@@ -40,6 +40,9 @@ class WorkflowTests(unittest.TestCase):
         deploy.ENVIRONMENT.write_text('fixture configuration, not a real credential')
         self.binary = self.base / 'candidate'
         self.binary.write_bytes(b'new-provider')
+        self.engine = self.base / 'deploy-engine'
+        self.engine.write_bytes(b'separate-deployment-tool')
+        self.engine.chmod(0o700)
         self.frontend = self.base / 'candidate-web'
         self.frontend.mkdir()
         (self.frontend / 'index.html').write_text('new')
@@ -57,10 +60,41 @@ class WorkflowTests(unittest.TestCase):
         self.database = self.stack.enter_context(patch.object(deploy, 'database_environment', return_value={}))
         self.backup = self.stack.enter_context(patch.object(deploy, 'backup', side_effect=self.fake_backup))
 
+    def test_stage_rejects_backend_help_instead_of_tool_capabilities(self):
+        original = self.native_command
+        def wrong_tool(*args, **kwargs):
+            return 'Usage: API server' if args[-1] == 'capabilities' else original(*args, **kwargs)
+        with patch.object(deploy, 'run', side_effect=wrong_tool):
+            code, out, errors = self.call(*self.stage_args())
+        self.assertNotEqual(0, code)
+        self.assertNotIn('stop', self.events)
+        self.assertEqual(b'old-provider', deploy.BINARY.read_bytes())
+
+    def test_changed_or_missing_staged_tool_never_falls_back_to_backend(self):
+        code, out, errors = self.call(*self.stage_args())
+        self.assertEqual(0, code, errors + out)
+        work = deploy.ROOT / 'r1'
+        state = deploy.read_state(work)
+        self.assertEqual(deploy.digest(self.engine), state['deploy_engine_sha256'])
+        tool = work / deploy.DEPLOY_ENGINE_NAME
+        tool.write_bytes(b'changed')
+        with self.assertRaisesRegex(RuntimeError, 'changed'):
+            deploy.deployment_command(work, state)
+        tool.unlink()
+        with self.assertRaises(OSError):
+            deploy.deployment_command(work, state)
+        tool.symlink_to(work / 'lmm-api-go')
+        with self.assertRaises(RuntimeError):
+            deploy.deployment_command(work, state)
+        self.assertNotIn('stop', self.events)
+        self.assertEqual(b'old-provider', deploy.BINARY.read_bytes())
+
     def native_command(self, *args, log=None):
+        if args[-1] == 'capabilities':
+            return json.dumps({'format': 1, 'workspace_create': 'operator'})
         if args[-1] == 'version':
             return 'old-v1' if args[0] == str(deploy.ENTRY) else 'candidate-v2'
-        if args[:3] == (str(deploy.ENTRY), 'operator', 'frontend') or 'rollback' in args:
+        if 'frontend' in args and ('publish' in args or 'rollback' in args):
             release = args[args.index('--release') + 1]
             if 'publish' in args:
                 source = args[args.index('--source') + 1]
@@ -88,7 +122,7 @@ class WorkflowTests(unittest.TestCase):
         return code, output.getvalue(), errors.getvalue()
 
     def stage_args(self, action='stage', release='r1', migrate=False):
-        args = [action, '--release', release, '--binary', str(self.binary), '--frontend', str(self.frontend)]
+        args = [action, '--release', release, '--binary', str(self.binary), '--deploy-engine', str(self.engine), '--frontend', str(self.frontend)]
         if action == 'upgrade':
             args += ['--confirm', 'api.lmm.best']
         if migrate:
@@ -413,7 +447,7 @@ class WorkflowTests(unittest.TestCase):
 class EntrypointTests(unittest.TestCase):
     def test_help_without_provider(self):
         launcher = Path(__file__).with_name('lmm-api-deploy.sh')
-        env = dict(os.environ, LMM_API_PROVIDER_BINARY='/nonexistent-fixture-provider')
+        env = dict(os.environ, LMM_API_DEPLOY_BINARY='/nonexistent-fixture-provider')
         for args in ([], ['help'], ['--help'], ['-h'], ['systemd', '--help']):
             with self.subTest(args=args):
                 result = subprocess.run(['bash', str(launcher), *args], env=env, capture_output=True, text=True)
@@ -427,14 +461,14 @@ class EntrypointTests(unittest.TestCase):
             provider = Path(directory) / 'provider with spaces'
             provider.write_text('#!/usr/bin/env bash\nprintf "%s\\n" "$@"\n')
             provider.chmod(0o755)
-            env = dict(os.environ, LMM_API_PROVIDER_BINARY=str(provider))
+            env = dict(os.environ, LMM_API_DEPLOY_BINARY=str(provider))
             result = subprocess.run(['bash', str(launcher), 'production', 'plan', 'a b'], env=env, capture_output=True, text=True)
             self.assertEqual(0, result.returncode, result.stderr)
-            self.assertEqual(['operator', 'production', 'plan', 'a b'], result.stdout.splitlines())
+            self.assertEqual(['production', 'plan', 'a b'], result.stdout.splitlines())
             provider.unlink()
             result = subprocess.run(['bash', str(launcher), 'build'], env=env, capture_output=True, text=True)
             self.assertEqual(127, result.returncode)
-            self.assertIn('Use --help', result.stderr)
+            self.assertIn('build:deploy', result.stderr)
 
 
 if __name__ == '__main__':
