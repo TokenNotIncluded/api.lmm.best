@@ -18,7 +18,9 @@ pub(super) struct Payer {
 }
 pub(super) fn digest(secret: &str) -> Result<Vec<u8>> {
     if !(32..=256).contains(&secret.len())
-        || !secret.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+        || !secret
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
     {
         return Err(Error::Unauthorized);
     }
@@ -159,7 +161,11 @@ async fn role(c: &mut PgConnection, account: i64, user: i64) -> Result<String> {
     .ok_or(Error::Forbidden)
 }
 
-pub(super) async fn manage_budget(c: &mut PgConnection, actor: &Actor, budget: &Budget) -> Result<()> {
+pub(super) async fn manage_budget(
+    c: &mut PgConnection,
+    actor: &Actor,
+    budget: &Budget,
+) -> Result<()> {
     if actor.kind != "session" {
         return Err(Error::Forbidden);
     }
@@ -177,8 +183,9 @@ pub(super) async fn manage_budget(c: &mut PgConnection, actor: &Actor, budget: &
             let account = budget.account_id.ok_or(Error::Invalid)?;
             let subject = budget.user_id.ok_or(Error::Invalid)?;
             let actor_role = role(c, account, actor.user).await?;
-            if actor_role == "owner" || (actor_role == "admin"
-                && (subject == actor.user || role(c, account, subject).await? == "member"))
+            if actor_role == "owner"
+                || (actor_role == "admin"
+                    && (subject == actor.user || role(c, account, subject).await? == "member"))
             {
                 Ok(())
             } else {
@@ -200,8 +207,9 @@ pub(super) async fn manage_budget(c: &mut PgConnection, actor: &Actor, budget: &
                 return Ok(());
             }
             let actor_role = role(c, account, actor.user).await?;
-            if actor_role == "owner" || (actor_role == "admin"
-                && (subject == actor.user || role(c, account, subject).await? == "member"))
+            if actor_role == "owner"
+                || (actor_role == "admin"
+                    && (subject == actor.user || role(c, account, subject).await? == "member"))
             {
                 Ok(())
             } else {

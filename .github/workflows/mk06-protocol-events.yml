@@ -1,16 +1,6 @@
 name: Task 06 protocol and events
 on:
-  push:
-    branches: [wip/mk-06-protocol-events]
-  pull_request:
-    branches: [wip/rust-core-go-extensions]
-    paths:
-      - 'apps/core-rust/**'
-      - 'apps/api-go/**'
-      - 'contracts/proto/**'
-      - 'scripts/generate-core-protocol.sh'
-      - 'scripts/test-core-boundaries.py'
-      - '.github/workflows/mk06-protocol-events.yml'
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:

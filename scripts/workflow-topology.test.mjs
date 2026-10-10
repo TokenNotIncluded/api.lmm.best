@@ -98,7 +98,9 @@ test('manual checks reuse the exact core and extension verification pipeline', (
   const source = workflow('core-protocol');
   for (const command of ['cargo clippy --locked --all-targets -- -D warnings', 'cargo test --locked --all-targets',
     'go mod verify', 'go vet ./...', 'go test -race', 'scripts/test-core-rpc-docker.py', 'scripts/test-core-boundaries.py',
-    'scripts/test-local-release-tests.py', 'scripts/generate-core-protocol.sh --check']) {
+    'scripts/test-local-release-tests.py', 'scripts/generate-core-protocol.sh --check',
+    'apps/api-go/internal/modules/store/pgtest', 'go test -mod=readonly -race',
+    'contracts/proto/tests/process_recovery.py']) {
     assert.ok(source.includes(command), command);
   }
   assert.match(source, /services:\n      postgres:/);

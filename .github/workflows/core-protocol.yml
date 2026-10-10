@@ -59,7 +59,7 @@ jobs:
           rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
           sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
           sudo apt-get update
-          sudo apt-get install --no-install-recommends --yes protobuf-compiler
+          sudo apt-get install --no-install-recommends --yes protobuf-compiler postgresql-client
       - name: Lint workflows
         run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
       - name: Workflow and source boundaries
@@ -87,6 +87,23 @@ jobs:
           go vet ./...
           go test -race ./... -count=1 -json | tee "$RUNNER_TEMP/extension-tests.jsonl"
           CGO_ENABLED=0 go build -mod=readonly -trimpath -o "$RUNNER_TEMP/lmm-extensions" ./cmd/extensions
+      - name: Store and support real PostgreSQL acceptance
+        if: ${{ !cancelled() }}
+        env:
+          LMM_STORE_TEST_DSN: postgres://postgres:postgres@127.0.0.1:5432/lmm_store_test?sslmode=disable
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE lmm_store_test'
+          trap 'psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS lmm_store_test"' EXIT
+          cd apps/api-go/internal/modules/store/pgtest
+          go mod verify
+          go vet -mod=readonly ./...
+          go test -mod=readonly -race -count=1 -json ./... | tee "$RUNNER_TEMP/store-postgres.jsonl"
+      - name: Durable cross-language event process recovery
+        if: ${{ !cancelled() }}
+        run: |
+          (cd apps/core-rust && cargo build --locked --example protocol-events-fixture)
+          (cd contracts/proto/tests/go && go vet -mod=readonly ./... && go build -mod=readonly -o "$RUNNER_TEMP/mk06-go-fixture" .)
+          MK06_GO_FIXTURE="$RUNNER_TEMP/mk06-go-fixture" python3 contracts/proto/tests/process_recovery.py 2>&1 | tee "$RUNNER_TEMP/events-process.log"
       - name: Native protobuf round trips and failure recovery
         if: ${{ !cancelled() }}
         run: python3 -B scripts/test-core-rpc-docker.py 2>&1 | tee "$RUNNER_TEMP/core-rpc-docker.log"
@@ -102,5 +119,7 @@ jobs:
             ${{ runner.temp }}/core-tests.log
             ${{ runner.temp }}/extension-tests.jsonl
             ${{ runner.temp }}/core-rpc-docker.log
+            ${{ runner.temp }}/store-postgres.jsonl
+            ${{ runner.temp }}/events-process.log
           if-no-files-found: warn
           retention-days: 7

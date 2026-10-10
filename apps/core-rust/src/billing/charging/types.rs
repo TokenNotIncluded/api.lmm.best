@@ -87,13 +87,16 @@ impl Price {
         if !usage.valid() {
             return Err(Error::Invalid);
         }
-        let sum = [(usage.input - usage.cached, self.input_per_million),
-            (usage.cached, self.cached_per_million), (usage.output, self.output_per_million)]
-            .into_iter()
-            .try_fold(0_i128, |total, (count, rate)| {
-                total.checked_add(i128::from(count) * i128::from(rate))
-            })
-            .ok_or(Error::Invalid)?;
+        let sum = [
+            (usage.input - usage.cached, self.input_per_million),
+            (usage.cached, self.cached_per_million),
+            (usage.output, self.output_per_million),
+        ]
+        .into_iter()
+        .try_fold(0_i128, |total, (count, rate)| {
+            total.checked_add(i128::from(count) * i128::from(rate))
+        })
+        .ok_or(Error::Invalid)?;
         i64::try_from(sum.checked_add(999_999).ok_or(Error::Invalid)? / 1_000_000)
             .map_err(|_| Error::Invalid)
     }
@@ -112,7 +115,9 @@ pub struct Request {
 impl Request {
     pub(super) fn validate(&self) -> Result<()> {
         self.price.validate()?;
-        if !valid_id(&self.id) || self.fingerprint == [0; 32] || self.reserve < 0
+        if !valid_id(&self.id)
+            || self.fingerprint == [0; 32]
+            || self.reserve < 0
             || !(1..=300).contains(&self.lease_seconds)
             || !(self.lease_seconds..=86_400).contains(&self.maximum_seconds)
         {
@@ -169,11 +174,17 @@ impl Outcome {
 #[serde(tag = "operation", rename_all = "snake_case")]
 pub enum Change {
     /// Absolute ceiling, not a delta. Replays must not reserve twice.
-    Reserve { total: i64 },
+    Reserve {
+        total: i64,
+    },
     /// Capture actual cost AND release unused reservation atomically.
-    Settle { amount: i64 },
+    Settle {
+        amount: i64,
+    },
     Release,
-    Refund { amount: i64 },
+    Refund {
+        amount: i64,
+    },
 }
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 pub struct LedgerCommand {
@@ -204,7 +215,8 @@ impl From<LedgerError> for Error {
         }
     }
 }
-pub type LedgerFuture<'a> = Pin<Box<dyn Future<Output = std::result::Result<(), LedgerError>> + Send + 'a>>;
+pub type LedgerFuture<'a> =
+    Pin<Box<dyn Future<Output = std::result::Result<(), LedgerError>> + Send + 'a>>;
 
 /// Task 02 integration contract. ALL changes must use `connection`, which is
 /// inside the charging transaction. No COMMIT, other pool, network side effect,
@@ -213,7 +225,11 @@ pub type LedgerFuture<'a> = Pin<Box<dyn Future<Output = std::result::Result<(), 
 /// subscription command records entitlement-funded consumption, NOT wallet cash.
 /// An adapter that cannot satisfy this contract MUST NOT implement this trait.
 pub trait Ledger: Send + Sync {
-    fn apply<'a>(&'a self, connection: &'a mut PgConnection, command: LedgerCommand) -> LedgerFuture<'a>;
+    fn apply<'a>(
+        &'a self,
+        connection: &'a mut PgConnection,
+        command: LedgerCommand,
+    ) -> LedgerFuture<'a>;
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -230,20 +246,31 @@ pub struct Budget {
 impl Budget {
     pub(super) fn validate(&self) -> Result<()> {
         let target = match self.scope.as_str() {
-            "account" => self.account_id.is_some() && self.user_id.is_none() && self.key_id.is_none(),
-            "member" => self.account_id.is_some() && self.user_id.is_some() && self.key_id.is_none(),
+            "account" => {
+                self.account_id.is_some() && self.user_id.is_none() && self.key_id.is_none()
+            }
+            "member" => {
+                self.account_id.is_some() && self.user_id.is_some() && self.key_id.is_none()
+            }
             "self" => self.account_id.is_none() && self.user_id.is_some() && self.key_id.is_none(),
             "key" => self.account_id.is_none() && self.user_id.is_none() && self.key_id.is_some(),
             _ => false,
         };
         let cycle = match self.period.as_str() {
             "day" | "week" | "month" => self.anchor == 0 && self.seconds == 0,
-            "custom" => (-62_135_596_800..=253_402_300_799).contains(&self.anchor)
-                && (1..=315_576_000).contains(&self.seconds),
+            "custom" => {
+                (-62_135_596_800..=253_402_300_799).contains(&self.anchor)
+                    && (1..=315_576_000).contains(&self.seconds)
+            }
             _ => false,
         };
-        if !target || !cycle || self.limit < 0
-            || [self.account_id, self.user_id, self.key_id].into_iter().flatten().any(|id| id <= 0)
+        if !target
+            || !cycle
+            || self.limit < 0
+            || [self.account_id, self.user_id, self.key_id]
+                .into_iter()
+                .flatten()
+                .any(|id| id <= 0)
         {
             return Err(Error::Invalid);
         }
@@ -252,6 +279,9 @@ impl Budget {
 }
 
 pub(super) fn valid_id(value: &str) -> bool {
-    !value.is_empty() && value.len() <= 128
-        && value.bytes().all(|b| b.is_ascii_alphanumeric() || b"-_.:/".contains(&b))
+    !value.is_empty()
+        && value.len() <= 128
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"-_.:/".contains(&b))
 }

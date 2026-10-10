@@ -1,31 +1,11 @@
+# Fresh-install branch: retained frontend/client coverage only.
+# The removed monolith backend is not a verified extension implementation.
 name: Pi remote control review
 on:
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
-  backend:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@v6
-        with:
-          go-version-file: apps/api-go/go.mod
-          cache-dependency-path: apps/api-go/go.sum
-      - name: Remote relay, ownership, explicit consent and OAuth regression
-        working-directory: apps/api-go
-        run: |
-          set -o pipefail
-          go test ./controller ./router ./service -run 'TestPiRemote|TestOAuth' -count=1 -v | tee "$RUNNER_TEMP/pi-remote-go.log"
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: pi-remote-go-proof
-          path: ${{ runner.temp }}/pi-remote-go.log
-          retention-days: 7
   browser:
     runs-on: ubuntu-latest
     timeout-minutes: 20

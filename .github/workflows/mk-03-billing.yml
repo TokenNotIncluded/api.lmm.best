@@ -1,18 +1,6 @@
 name: Task 03 charging contract tests
 on:
-  push:
-    branches: [wip/mk-03-billing]
-    paths:
-      - apps/core-rust/src/billing/charging/**
-      - apps/core-rust/schema/charging.sql
-      - apps/core-rust/tests/charging.rs
-      - .github/workflows/mk-03-billing.yml
-  pull_request:
-    branches: [wip/rust-core-go-extensions]
-    paths:
-      - apps/core-rust/src/billing/charging/**
-      - apps/core-rust/schema/charging.sql
-      - apps/core-rust/tests/charging.rs
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:

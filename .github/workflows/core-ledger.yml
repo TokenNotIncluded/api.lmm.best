@@ -1,10 +1,6 @@
 name: Rust ledger PostgreSQL checks
 on:
-  push:
-    branches: [wip/mk-02-ledger]
-    paths:
-      - apps/core-rust/**
-      - .github/workflows/core-ledger.yml
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:
