@@ -169,21 +169,20 @@ func TestAssistantNewUserGiftClaimDoesNotConsumeGiftForDisabledUser(t *testing.T
 	assert.Zero(t, stored.Quota)
 }
 
-func TestAssistantNewUserGiftRejectsIneligibleOrShallowDecisions(t *testing.T) {
+func TestAssistantNewUserGiftAcceptsShortReasonsButRejectsIneligibleAccounts(t *testing.T) {
 	db := setupAssistantGiftTestDB(t)
 	user := newAssistantGiftUser(t, db, "shallow-gift-user", "shallow@example.com")
-	_, _, err := DecideAssistantNewUserGift(user.Id, 0, 100, "No user-authored evidence.", 0, 100, "198.51.100.20")
-	assert.ErrorIs(t, err, ErrAssistantGiftInvalid)
-	assert.Equal(t, "insufficient_conversation", AssistantGiftErrorCode(err))
+	gift, created, err := DecideAssistantNewUserGift(user.Id, 0, 100, "软件开发", 0, 0, "198.51.100.20")
+	require.NoError(t, err)
+	assert.True(t, created)
+	assert.Equal(t, AssistantGiftOffered, gift.Status)
 	shortReasonUser := newAssistantGiftUser(t, db, "short-reason-user", "short-reason@example.com")
-	_, _, err = DecideAssistantNewUserGift(shortReasonUser.Id, 1, 100, "please", 2, 24, "198.51.100.25")
-	assert.ErrorIs(t, err, ErrAssistantGiftInvalid)
-	assert.Equal(t, "invalid_decision", AssistantGiftErrorCode(err))
+	gift, created, err = DecideAssistantNewUserGift(shortReasonUser.Id, 1, 100, "please", 2, 24, "198.51.100.25")
+	require.NoError(t, err)
+	assert.True(t, created)
 
 	concise := newAssistantGiftUser(t, db, "concise-gift-user", "concise@example.com")
-	// Two substantive turns are sufficient even when the language uses fewer
-	// than the old, arbitrary 24-rune aggregate threshold.
-	gift, created, err := DecideAssistantNewUserGift(concise.Id, 1, 100, "软件开发与编程辅助。", 1, 24, "198.51.100.23")
+	gift, created, err = DecideAssistantNewUserGift(concise.Id, 1, 100, "软件开发与编程辅助。", 1, 24, "198.51.100.23")
 	require.NoError(t, err)
 	assert.True(t, created)
 	assert.Equal(t, AssistantGiftOffered, gift.Status)
@@ -193,12 +192,21 @@ func TestAssistantNewUserGiftRejectsIneligibleOrShallowDecisions(t *testing.T) {
 	assert.ErrorIs(t, err, ErrAssistantGiftIneligible)
 	assert.Equal(t, "account_not_eligible", AssistantGiftErrorCode(err))
 
-	zero, created, err := DecideAssistantNewUserGift(user.Id, 0, 0, "No gift was earned in this conversation.", 2, 40, "198.51.100.20")
+	zeroUser := newAssistantGiftUser(t, db, "zero-gift-user", "zero@example.com")
+	zero, created, err := DecideAssistantNewUserGift(zeroUser.Id, 0, 0, "", 0, 0, "198.51.100.27")
+	require.NoError(t, err)
+	assert.False(t, created)
+	assert.Equal(t, AssistantGiftDeclined, zero.Status)
+	assert.Zero(t, zero.Id)
+	var count int64
+	require.NoError(t, db.Model(&AssistantNewUserGift{}).Where("user_id = ?", zeroUser.Id).Count(&count).Error)
+	assert.Zero(t, count)
+	_, _, err = ClaimAssistantNewUserGift(zeroUser.Id)
+	assert.ErrorIs(t, err, ErrAssistantGiftUnavailable)
+	gift, created, err = DecideAssistantNewUserGift(zeroUser.Id, 1, 100, "写自己的项目", 0, 0, "198.51.100.27")
 	require.NoError(t, err)
 	assert.True(t, created)
-	assert.Equal(t, AssistantGiftDeclined, zero.Status)
-	_, _, err = ClaimAssistantNewUserGift(user.Id)
-	assert.ErrorIs(t, err, ErrAssistantGiftUnavailable)
+	assert.Equal(t, AssistantGiftOffered, gift.Status)
 }
 
 func TestAssistantGiftGlobalRiskMemoryBlocksAliasesAndBulkNetworks(t *testing.T) {
@@ -312,7 +320,7 @@ func TestAssistantNewUserGiftPreservesFractionalLegacyCreditRounding(t *testing.
 				return
 			}
 			require.NoError(t, err)
-			assert.True(t, created)
+			assert.Equal(t, tc.cents != 0, created)
 			assert.Equal(t, tc.credits, gift.Quota)
 			assert.Equal(t, tc.cents, gift.AmountCents)
 			if tc.cents == 0 {

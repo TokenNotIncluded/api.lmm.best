@@ -183,6 +183,10 @@ func decideAssistantNewUserGiftCredits(userID int, conversationID int64, quota, 
 		reason = string(text[:240])
 	}
 	if quota == 0 {
+		// A no-op request must not erase the status of an earlier decision.
+		if existing, err := GetAssistantNewUserGift(userID); err != nil || existing != nil {
+			return existing, false, err
+		}
 		cap, err := AssistantGiftMaxCreditsDB(DB)
 		if err != nil {
 			return nil, false, err
