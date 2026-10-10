@@ -1,7 +1,13 @@
 //! Core-owned users, accounts and authority. The store never calls Go.
 //! Identity checks are not reservations: billing must recheck authority in its
 //! own transaction before taking funds. Model routes remain unavailable.
+mod auth;
 mod credentials;
+mod lifecycle;
+mod oauth;
+pub use auth::{CredentialSummary, LoginRequest};
+pub use lifecycle::{InviteSummary, MemberSummary, MemberUpdate};
+pub use oauth::GoogleOAuth;
 mod schema;
 mod teams;
 pub use teams::{InviteRequest, TeamSummary};
@@ -54,6 +60,9 @@ type Result<T> = std::result::Result<T, IdentityError>;
 #[derive(Clone)]
 pub struct IdentityStore {
     pool: PgPool,
+    registration_enabled: bool,
+    password_slots: std::sync::Arc<tokio::sync::Semaphore>,
+    google: Option<std::sync::Arc<GoogleOAuth>>,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -263,7 +272,7 @@ async fn session(c: &mut PgConnection, secret: &str) -> Result<Principal> {
     Ok(actor)
 }
 async fn lock_team(c: &mut PgConnection, team_id: i64) -> Result<PgRow> {
-    sqlx::query("SELECT t.owner_user_id,t.version FROM core_identity.teams t JOIN core_identity.accounts a ON a.id=t.account_id WHERE t.id=$1 AND t.active AND a.active FOR UPDATE OF t FOR SHARE OF a")
+    sqlx::query("SELECT t.owner_user_id,t.created_by_user_id,t.account_id,t.name,t.version FROM core_identity.teams t JOIN core_identity.accounts a ON a.id=t.account_id WHERE t.id=$1 AND t.active AND a.active FOR UPDATE OF t FOR SHARE OF a")
         .bind(team_id).fetch_optional(c).await?.ok_or(IdentityError::Forbidden)
 }
 async fn team_role(
@@ -285,7 +294,12 @@ async fn team_role(
 
 impl IdentityStore {
     pub fn from_pool(pool: PgPool) -> Self {
-        Self { pool }
+        Self {
+            pool,
+            registration_enabled: false,
+            password_slots: std::sync::Arc::new(tokio::sync::Semaphore::new(2)),
+            google: None,
+        }
     }
     pub async fn connect(url: &str) -> Result<Self> {
         let pool = PgPoolOptions::new()
@@ -304,7 +318,7 @@ impl IdentityStore {
             })
             .connect(url)
             .await?;
-        Ok(Self { pool })
+        Ok(Self::from_pool(pool))
     }
     /// Offline development bootstrap, not registration or an old-user import.
     pub async fn bootstrap_user(&self, user_id: i64, level: i16) -> Result<IssuedCredential> {
@@ -313,6 +327,7 @@ impl IdentityStore {
         }
         let secret = new_secret("lmms_")?;
         let mut tx = self.pool.begin().await?;
+        auth::lock_registration(&mut tx).await?;
         let role = match level {
             6 => "superadmin",
             5 => "admin",
@@ -322,6 +337,8 @@ impl IdentityStore {
         let account_id = new_account(&mut tx, "personal", service_level).await?;
         sqlx::query("INSERT INTO core_identity.users(id,personal_account_id,platform_role) VALUES ($1,$2,$3)")
             .bind(user_id).bind(account_id).bind(role).execute(&mut *tx).await?;
+        sqlx::query("SELECT setval('core_identity.users_id_seq', GREATEST((SELECT last_value FROM core_identity.users_id_seq), $1))")
+            .bind(user_id).execute(&mut *tx).await?;
         let id: i64 = sqlx::query_scalar("INSERT INTO core_identity.credentials(digest,kind,user_id,user_version,owner_account_id,expires_at) VALUES ($1,'session',$2,1,$3,clock_timestamp()+$4::bigint*interval '1 second') RETURNING id")
             .bind(digest(&secret)?).bind(user_id).bind(account_id).bind(SESSION_TTL).fetch_one(&mut *tx).await?;
         let actor = authenticate(&mut tx, &secret, false).await?;

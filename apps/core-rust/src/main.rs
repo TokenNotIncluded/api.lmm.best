@@ -9,7 +9,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let database_url = config::database_url()?;
     let mut app = lmm_core::http::router();
     if let Some(url) = database_url.as_deref() {
-        let store = IdentityStore::connect(url).await?;
+        let store = IdentityStore::connect(url).await?.with_auth_from_env()?;
         store.check_schema().await?;
         app = app.merge(lmm_core::identity_http::router(store));
         eprintln!("native identity is enabled; billing and model forwarding remain disabled");
@@ -72,13 +72,16 @@ async fn main() -> Result<(), Box<dyn Error>> {
     );
     let mut public_stop = stopped;
     // Deliberately no total timeout on a future model/SSE stream here.
-    let result = axum::serve(listener, app)
-        .with_graceful_shutdown(async move {
-            if !*public_stop.borrow() {
-                let _ = public_stop.changed().await;
-            }
-        })
-        .await;
+    let result = axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<SocketAddr>(),
+    )
+    .with_graceful_shutdown(async move {
+        if !*public_stop.borrow() {
+            let _ = public_stop.changed().await;
+        }
+    })
+    .await;
     let _ = stop.send(true);
     #[cfg(unix)]
     if let Some(mut task) = rpc_task

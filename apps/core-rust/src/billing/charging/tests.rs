@@ -77,7 +77,7 @@ async fn fixture(pool: &PgPool) -> (Charging, Arc<RecordingLedger>) {
          INSERT INTO core_identity.accounts(id,kind) OVERRIDING SYSTEM VALUE VALUES \
          (101,'personal'),(102,'personal'),(103,'personal'),(501,'team'); \
          INSERT INTO core_identity.users(id,personal_account_id) VALUES (1,101),(2,102),(3,103); \
-         INSERT INTO core_identity.teams(id,account_id,owner_user_id) OVERRIDING SYSTEM VALUE VALUES (77,501,1); \
+         INSERT INTO core_identity.teams(id,account_id,owner_user_id,created_by_user_id) OVERRIDING SYSTEM VALUE VALUES (77,501,1,1); \
          INSERT INTO core_identity.memberships(team_id,user_id,role,can_spend) VALUES (77,2,'member',true),(77,3,'admin',true); \
          INSERT INTO core_billing.account_policies(account_id) VALUES (101),(102),(103),(501);",
     ).execute(pool).await.unwrap();
@@ -396,7 +396,7 @@ async fn authorized_fallback_and_team_wallet_isolation(pool: PgPool) {
             .is_err()
     );
     sqlx::query(
-        "UPDATE core_identity.memberships SET can_spend=false WHERE team_id=77 AND user_id=2",
+        "UPDATE core_identity.memberships SET can_spend=false,version=version+1 WHERE team_id=77 AND user_id=2",
     )
     .execute(&pool)
     .await
@@ -825,13 +825,35 @@ async fn budget_authority_and_issuer_limits_cannot_override_owner(pool: PgPool) 
         .execute(&pool)
         .await
         .unwrap();
-    sqlx::query("UPDATE core_identity.memberships SET can_spend=false WHERE user_id=2")
-        .execute(&pool)
-        .await
-        .unwrap();
+    // Role changes invalidate old credentials. Issue a fresh key at the new
+    // user generation before testing team spending revocation independently.
     assert_eq!(
         engine
-            .reserve(TEAM, &request("no-l6-bypass", 1), &WORKER)
+            .reserve(TEAM, &request("old-role-key", 1), &WORKER)
+            .await
+            .unwrap_err(),
+        Error::Unauthorized
+    );
+    let l6_key = "lmmk_superadmin_88888888888888888888888888888888";
+    let new_id: i64 = sqlx::query_scalar("INSERT INTO core_identity.credentials(digest,kind,user_id,user_version,owner_account_id,expires_at) SELECT $1,c.kind,c.user_id,u.auth_version,c.owner_account_id,c.expires_at FROM core_identity.credentials c JOIN core_identity.users u ON u.id=c.user_id WHERE c.id=13 RETURNING id")
+        .bind(Sha256::digest(l6_key.as_bytes()).to_vec()).fetch_one(&pool).await.unwrap();
+    sqlx::query("INSERT INTO core_identity.key_funding_rules SELECT $1,position,payer_account_id FROM core_identity.key_funding_rules WHERE credential_id=13")
+        .bind(new_id).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO core_identity.credential_grants SELECT $1,team_id,team_version,membership_version FROM core_identity.credential_grants WHERE credential_id=13")
+        .bind(new_id).execute(&pool).await.unwrap();
+    engine
+        .reserve(l6_key, &request("fresh-l6-key", 1), &WORKER)
+        .await
+        .unwrap();
+    sqlx::query(
+        "UPDATE core_identity.memberships SET can_spend=false,version=version+1 WHERE user_id=2",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        engine
+            .reserve(l6_key, &request("no-l6-bypass", 1), &WORKER)
             .await
             .unwrap_err(),
         Error::Forbidden

@@ -1,0 +1,83 @@
+name: MK-01 identity and teams
+on:
+  push:
+    branches: [wip/mk-01-identity-teams]
+  pull_request:
+    branches: [wip/rust-core-go-extensions]
+    paths:
+      - apps/core-rust/**
+      - .github/workflows/mk-01-identity.yml
+permissions:
+  contents: read
+concurrency:
+  group: mk-01-verified-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: false
+defaults:
+  run:
+    shell: bash
+jobs:
+  identity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+      CARGO_BUILD_JOBS: '2'
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
+          --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        id: checkout
+        with:
+          persist-credentials: false
+      - name: Install pinned Rust
+        id: rust
+        run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+      - name: Build disposable extension for relay independence acceptance
+        working-directory: apps/api-go
+        run: |
+          go build -o "$RUNNER_TEMP/lmm-relay-extension" ./cmd/extensions
+          echo "LMM_RELAY_EXTENSION_BIN=$RUNNER_TEMP/lmm-relay-extension" >> "$GITHUB_ENV"
+      - name: Check formatting
+        working-directory: apps/core-rust
+        run: cargo fmt --all --check 2>&1 | tee "$RUNNER_TEMP/identity-format.log"
+      - name: Check Rust with locked dependencies
+        if: ${{ !cancelled() && steps.rust.outcome == 'success' }}
+        working-directory: apps/core-rust
+        run: cargo clippy --locked --all-targets -- -D warnings 2>&1 | tee "$RUNNER_TEMP/identity-clippy.log"
+      - name: Test against isolated PostgreSQL databases
+        if: ${{ !cancelled() && steps.rust.outcome == 'success' }}
+        working-directory: apps/core-rust
+        run: cargo test --locked --all-targets --no-fail-fast 2>&1 | tee "$RUNNER_TEMP/identity-tests.log"
+      - name: Repeat rejected event acknowledgement regression
+        if: ${{ !cancelled() && steps.rust.outcome == 'success' }}
+        working-directory: apps/core-rust
+        run: |
+          for attempt in {1..10}; do
+            echo "Regression run $attempt/10" | tee -a "$RUNNER_TEMP/identity-events-repeated.log"
+            cargo test --locked --lib events::tests::service_scope_and_consumer_backlog_limit_cannot_be_bypassed -- --exact 2>&1 | tee -a "$RUNNER_TEMP/identity-events-repeated.log"
+          done
+      - name: Preserve exact sources and test evidence
+        if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}
+        run: |
+          git rev-parse HEAD > "$RUNNER_TEMP/identity-commit.txt"
+          tar -czf "$RUNNER_TEMP/identity-source.tar.gz" apps/core-rust/Cargo.* apps/core-rust/rust-toolchain.toml apps/core-rust/build.rs apps/core-rust/src apps/core-rust/schema apps/core-rust/tests contracts
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}
+        with:
+          name: mk-01-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/identity-*.log
+            ${{ runner.temp }}/identity-commit.txt
+            ${{ runner.temp }}/identity-source.tar.gz
+          if-no-files-found: warn
+          retention-days: 7
