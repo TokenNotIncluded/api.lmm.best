@@ -37,6 +37,10 @@ result does not prove schema compatibility or validate candidate artifacts.
 `status` without an ID lists transactions; `--release ID` inspects one.
 Neither command creates a deployment root, lock, or transaction.
 
+New transactions require the [separate deployment tool](standalone-deployment-tool.md).
+Stage a reviewed tool with `--deploy-engine`; without that flag the fixed
+installed tool must exist. The backend is not a deployment-tool substitute.
+
 ## Upgrade, then confirm
 
 Build or obtain reviewed backend and frontend artifacts and transfer them to a
@@ -50,6 +54,7 @@ must not be converted to this path to avoid their verification gates.
 sudo bash scripts/lmm-api-deploy.sh systemd upgrade \
   --release deployment-001 \
   --binary /absolute/path/lmm-api-go \
+  --deploy-engine /absolute/path/lmm-api-deploy-engine \
   --frontend /absolute/path/frontend \
   --confirm api.lmm.best
 ```
