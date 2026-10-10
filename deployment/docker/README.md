@@ -1,97 +1,100 @@
-# Rust 核心与 Go 扩展：Docker 开发栈（WIP）
+# 全新微内核 Docker 开发栈（WIP）
 
-这不是当前 Go 后端的生产替代品。基础栈提供领域规则、健康检查和安全关闭。
-可选身份栈已支持 PostgreSQL 用户、会话、Key、团队、邀请与权限验证。
-`/health/live` 返回 200；`/health/ready` 和模型接口仍返回 503。
-Go 扩展宿主支持显式模块注册、独立路径和服务凭证，**尚未迁入工具市场等业务模块**。
-默认不读取生产用户、连接生产数据库、扣款或转发模型请求。
+本分支只面向新安装，不升级、导入或转换旧数据库。不要连接生产数据，不要把本栈部署成现有网站的替代品。
 
-## 启用原生身份
+Rust 位于 `apps/core-rust`。Go 扩展的唯一目录为 `apps/api-go`，不再有 `apps/extensions-go` 或旧单体运行入口。目前可用的是身份、账号、团队与只读内部查询；商店、工具市场、助手、客服、支付等业务尚未接回。账本、预算、模型转发和协议转换也尚未完成。
 
-需要持久化身份时，按 [身份开发指南](../../docs/core-identity.md) 组合
-`compose.core.yml` 和 `compose.identity.yml`，显式创建隔离数据库并执行迁移。
-身份栈使用独立数据卷、内部数据库网络和文件密钥，Go 扩展不加入数据库网络。
-此后管理核心必须继续组合相同文件，不能用下面的纯基础栈命令重建身份核心。
+核心 `/health/live` 返回 200；`/health/ready` 和模型接口仍返回 503。身份校验成功不等于允许收费或接入模型流量。扩展健康检查只证明宿主可响应，不保证每项业务已经实现。
 
-## 启用 Protobuf 内部通信
+## 在隔离开发机创建新栈
 
-按 [核心通信指南](../../docs/core-protocol.md) 分别叠加 `compose.rpc-core.yml`
-和 `compose.rpc-extensions.yml`。Go 使用同一份 Protobuf 契约查询 Rust 的原生身份和团队，
-通过私有 Unix socket 通信，不直接访问数据库。两个服务仍属于独立 Compose 项目。
-Go 只读挂载 socket 目录，更新扩展不会删除该外部卷。
-配置内部通信后，更新或停止服务必须继续使用通信指南中的完整文件组合。
+以下命令从仓库根目录执行，要求 Docker Engine、Compose v2、Bash 和 Python 3。使用空闲的本地 8080/8081 端口。本指南不使用现有生产 Compose 项目、数据库或密钥。
 
-## 只启动基础栈
-
-在仓库根目录执行。需要 Docker Engine 和 Compose v2。
-先生成仅用于这个开发栈的服务凭证。不要覆盖已有凭证，不要复制生产密钥：
+生成四份新凭证，已有文件时拒绝覆盖。宿主目录限制为 0700，文件只读以供容器专用 UID 读取。文件型 secret 不是加密密钥库；不要将此目录提交到 Git。
 
 ```sh
-python3 - <<'PYTHON'
+umask 077
+python3 - <<'PY'
 from pathlib import Path
-import os, secrets
-p = Path('deployment/docker/.secrets/extensions-token')
-p.parent.mkdir(mode=0o700, parents=True, exist_ok=True)
-with p.open('x') as f:
-    f.write(secrets.token_hex(32) + '\n')
-os.chmod(p, 0o444)
-PYTHON
+import secrets
+root = Path('deployment/docker/.secrets')
+root.mkdir(mode=0o700, parents=True, exist_ok=True)
+root.chmod(0o700)
+password = secrets.token_hex(32)
+values = {
+    'identity-password': password,
+    'identity-url': f'postgres://lmm_core:{password}@core-db:5432/lmm_core',
+    'core-rpc-token': secrets.token_hex(32),
+    'extensions-token': secrets.token_hex(32),
+}
+if any((root / name).exists() for name in values):
+    raise SystemExit('Credential file already exists; nothing was overwritten.')
+for name, value in values.items():
+    path = root / name
+    with path.open('x') as file:
+        file.write(value + '\n')
+    path.chmod(0o444)
+PY
+export LMM_CORE_DATABASE_PASSWORD_SECRET_FILE="$PWD/deployment/docker/.secrets/identity-password"
+export LMM_CORE_DATABASE_URL_SECRET_FILE="$PWD/deployment/docker/.secrets/identity-url"
+export LMM_CORE_RPC_TOKEN_SECRET_FILE="$PWD/deployment/docker/.secrets/core-rpc-token"
 
-docker compose -f deployment/docker/compose.core.yml up -d --build core
-docker compose -f deployment/docker/compose.extensions.yml up -d --build extensions
-curl -f http://127.0.0.1:18080/health/live
-curl -f http://127.0.0.1:18081/health/live
-# 预期 503：未具备模型流量接入条件。
-curl -i http://127.0.0.1:18080/health/ready
+dc() {
+  docker compose -f deployment/docker/compose.core.yml \
+    -f deployment/docker/compose.identity.yml \
+    -f deployment/docker/compose.rpc-core.yml "$@"
+}
+de() {
+  docker compose -f deployment/docker/compose.extensions.yml \
+    -f deployment/docker/compose.rpc-extensions.yml "$@"
+}
+
+dc build core
+dc up -d --wait core-db
+# 一次性空库安装；不是可重复执行的升级命令。
+dc --profile tools run --rm -T core-admin init-db
+dc up -d core
+de up -d --build extensions
+curl -f http://127.0.0.1:8080/health/live
+curl -f http://127.0.0.1:8081/health/live
+# 预期为 503。
+curl -i http://127.0.0.1:8080/health/ready
 ```
 
-目录 0700 限制宿主机访问；只读文件使容器内非 root 用户能够读取。
-Compose 本地文件型 secret 不是加密密钥库。生产应使用部署平台的密钥管理，
-不得提交 `.secrets`、密钥、真实用户数据或 `.env`。服务间凭证不是用户消费授权。
+`init-db` 在一个事务中安装 `schema/identity.sql`。数据库已有应用对象时拒绝，第二次执行同样拒绝，不会删表或清空数据。普通启动只检查结构版本和定义指纹，不自动安装、升级或修复。
 
-## 只更新 Go 扩展
+数据库只加入内部 `identity` 网络，不映射宿主端口。只有核心和离线管理命令可以访问。Go 不获得数据库网络、密码或数据卷。开发 Compose 使用单一数据库角色；生产权限拆分仍需专门实现和验证，不能把此配置当成已经完成最小权限部署。
 
-以下 `--build` 命令仅用于开发机。生产发布应在独立构建机生成镜像，再按固定摘要更新。
-不要在资源紧张的核心宿主机编译 Go；运行时的资源上限不约束 Docker 构建过程。
+核心与扩展是两个独立 Compose 项目。共同网络名称是 `lmm-core-backplane`；核心先创建网络与 socket 卷，扩展只引用外部资源。socket 目录在 Go 容器中只读。详细接口见 [身份指南](../../docs/core-identity.md) 和 [通信指南](../../docs/core-protocol.md)。
+
+## 只更新扩展
+
+保持上面 `dc`、`de` 的完整文件组合。不要为了更新 Go 重建核心或数据库。
 
 ```sh
-docker compose -f deployment/docker/compose.extensions.yml up -d --build --no-deps extensions
+de up -d --build --no-deps extensions
 ```
 
-扩展是独立 Compose 项目，配置中没有核心、数据库或核心数据卷，因此不会重建它们。
-不要合并核心与扩展项目，不要为更新扩展执行核心项目的 `down`。
-Go 有独立 CPU、内存和进程限制；核心不等待 Go 健康检查，也不向 Go 查询身份或账务。
-示例内存值是开发默认值，未经过生产负载测试，应按实测调整。
+`--build` 只用于开发机。之后的发布应使用独立构建机和固定镜像摘要，不在资源紧张的核心主机编译。运行容器的资源限制不限制镜像构建过程。
 
-两者共享 `lmm-core-runtime` 网络，先启动核心创建网络。共享网络不代表可信调用方，
-核心身份接口仍需有效用户凭证。模块服务凭证不能代替用户会话。
-主机端口默认只绑定 127.0.0.1。未接入生产反向代理或自动发布。
+Go 的 CPU、内存和进程名额独立配置。单个模块最多同时处理 8 个请求，满额立即返回 503；其他模块和健康检查不排在它后面。这不是不可信代码沙箱，也不能隔离宿主机或共享数据库的全部故障。
 
-## 停止纯基础栈
+只停止开发服务、保留数据：
 
 ```sh
-docker compose -f deployment/docker/compose.extensions.yml down
-docker compose -f deployment/docker/compose.core.yml down
+de down
+dc down
 ```
 
-开启身份栈的核心请用身份指南的 `dc down`，保持相同 Compose 文件组合。
-不要添加 `--volumes`，除非明确要删除开发数据。
+不要添加 `--volumes`。不要用缺少身份或 RPC 覆盖文件的基础命令重建已经启用这些功能的核心。
 
-## 核心升级与长连接
+## 验证与剩余边界
 
-单个容器重启不能保证正在输出的 token 不断。30 分钟 `stop_grace_period` 只是等待上限，
-不是无损保证。生产切换前必须实现两个核心实例、真实业务就绪检查、停止旧实例接收新请求，
-并等待已有 SSE/WebSocket 请求与结算完成，以及超时后的人工处置。
-不能将“进程还活着”当作“可以接流量”。这份 Compose 不提供主机或数据库自动容错。
+```sh
+python3 -B scripts/test-core-boundaries.py
+python3 -B scripts/test-core-rpc-docker.py
+```
 
-`python3 -B scripts/test-core-docker.py` 实际构建两个镜像，检查进程健康、模型请求拒绝、
-模块服务认证，以及扩展崩溃、重启和重建前后的核心容器 ID、启动时间和运行状态。
+Docker 脚本只操作随机命名的临时测试项目，检查新库安装、重复安装拒绝、实际 Protobuf 查询、团队权限、扩展独立重建、核心重启重连、数据库故障与恢复、Key 撤销。脚本最后仅清理自己创建的测试数据卷。
 
-`python3 -B scripts/test-core-identity-docker.py` 使用实际身份配置检查迁移、持久化凭证、
-扩展故障隔离、数据库失效与恢复、Key 撤销。测试只清理随机命名的测试资源。
-
-`python3 -B scripts/test-core-rpc-docker.py` 验证 Go 到 Rust 的实际 Protobuf 请求、
-团队授权、扩展独立重建、核心重启后的重连，以及数据库故障恢复。
-这些测试不是模型流、旧 API Key 迁移或真实账务验收。
-
-完整阶段与上线门槛见 [迁移计划](../../docs/core-migration.md)。
+单容器重启无法保证正在输出的 token 不断。当前核心停止等待上限为 120 秒，扩展为 30 秒；这些只是等待上限，不是无损承诺。双核心切换、真实长流、结算排空、数据库故障恢复和性能测试仍是上线前的独立验收项目。本栈未接入生产反向代理或自动发布。

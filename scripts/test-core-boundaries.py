@@ -27,7 +27,11 @@ class CoreBoundaryTests(unittest.TestCase):
             text = path.read_text()
             for forbidden in ('"database/sql"', "AutoMigrate(", "SQL_DSN", "LMM_CORE_DATABASE_URL"):
                 self.assertNotIn(forbidden, text, str(path))
-        self.assertIn("client", (ROOT / "apps/api-go/internal/modules/identity/identity.go").read_text())
+        identity = (ROOT / "apps/api-go/internal/modules/identity/identity.go").read_text()
+        self.assertIn("type Core interface", identity)
+        for operation in ("Capabilities", "Authorize", "ListTeams"):
+            self.assertIn(operation, identity)
+        self.assertIn("corepb", identity)
 
     def test_fresh_schema_is_explicit_and_relational(self):
         schema = (ROOT / "apps/core-rust/schema/identity.sql").read_text()
