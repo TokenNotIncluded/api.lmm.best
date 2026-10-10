@@ -1,52 +1,60 @@
 # GitHub Actions 入口
 
-GitHub Actions 负责构建、测试、签名和发布产物；后端服务器部署与运维由操作者手动执行。前端部署也需要操作者手动触发受限工作流。
+[文档目录](README.md) · [贡献指南](../CONTRIBUTING.md) · [部署流程](deployment-workflow.md)
 
-| 文件 | 职责 |
+本文说明默认分支的入口。修改工作流后，以该提交的 `on`、输入参数、权限和
+被调用脚本为准。不要从旧说明、工作流名称或残留注释推断触发方式。
+
+## 测试、发布与部署分开
+
+测试在本地运行并记录结果。当前 [ci.yml](../.github/workflows/ci.yml) 只有
+`workflow_dispatch` 入口，可用于明确选择的手动诊断；不能宣称打开 PR、推送
+main 或标签就会自动运行这套测试。其他辅助工作流应逐个检查其实际触发条件，
+不能用 `ci.yml` 的条件代替它们，也不能把残留的自动触发条件写成统一政策。
+
+| 入口 | 作用和边界 |
 | --- | --- |
-| `ci.yml` | PR 按改动范围检查；main、标签、手动运行和合并队列全量检查；每日 RustSec 扫描 |
-| `server-release-qualification.yml` | 保留生产形态 Go、PostgreSQL、Valkey、迁移和恢复验收，以及每日验收 |
-| `release-go.yml` | 手动触发 Go 签名发布，不连接服务器 |
-| `release-web.yml` | 手动触发 Web 签名发布，不连接服务器 |
-| `deploy-web-frontend.yml` | 操作者确认与两台现役 Go 后端兼容后，手动将已签名 Web 发布到两台生产 origin；配套 Go/Web 变更走原生组合事务 |
-| `billing-safety.yml` | Go `service`/`model` 改动时运行计费安全回归 |
-| `standalone-deployment-tests.yml` | 部署脚本改动时运行 systemd 部署测试 |
-| `lmm.yml` | `apps/lmm` CLI 与 OAuth 改动时运行 |
-| `codewhale-lmm-provider.yml`、`coweft-identity.yml` | Codewhale provider 与 OIDC 身份边界的 PR 检查 |
-| `opencode-lmm-auth.yml` | OpenCode 子仓库构建、类型检查、包检查，以及真实宿主 OAuth 和三种流式协议验收 |
-| `console-page-review.yml`、`console-navigation-review.yml`、`settings-design-review.yml`、`ui-foundation-review.yml` | 前端页面、导航、设置和 UI 基础组件的 PR 视觉/交互检查 |
+| [ci.yml](../.github/workflows/ci.yml) | 手动诊断。检查任务的成功、失败、取消和跳过情况，不只看汇总颜色。 |
+| [release-go.yml](../.github/workflows/release-go.yml) | 在 Go 组件标签上手动构建、签名和发布；要求 `local_test_evidence`。 |
+| [release-web.yml](../.github/workflows/release-web.yml) | 在 Web 组件标签上手动构建、签名和发布；要求 `local_test_evidence`。 |
+| [deploy-web-frontend.yml](../.github/workflows/deploy-web-frontend.yml) | 单独授权、单独触发的前端部署。不是签名发布的自动后续步骤。 |
 
-以上辅助工作流只按路径触发，不持有服务器凭据，也不属于发布门禁。
+Go/Web 发布前须有与目标代码匹配的真实本地测试记录。发布工作流读取
+`local_test_evidence`，不是等待 PR 检查全部变绿。记录格式和来源校验以
+[local-release-tests.py](../scripts/local-release-tests.py) 和
+[verify-release-commit-checks.sh](../scripts/verify-release-commit-checks.sh) 为准。
+不能伪造记录、套用不同源码的旧结果，或把本地测试脚本退出成功当成产物已发布。
 
-PR 描述和格式检查已移除，PR 仍执行与代码改动相关的测试。
+## 诊断计划不是触发条件
 
-GitHub 默认配置的 CodeQL 是仓库设置管理的动态工作流，不是这里额外生成的 YAML；本次不修改它的扫描或权限。
+[ci_plan.py](../scripts/ci_plan.py) 负责选择检查任务。它处理哪些事件或路径，
+不等于当前工作流已为这些事件启用自动触发。任务汇总规则仍需检查：未选择的
+任务可以跳过；要求执行的任务失败、取消或缺失，不能解释为验收完成。
 
-## CI 的选择规则
+新增组件或修改检查计划时，核对计划脚本及其测试。修改工作流名称、路径或
+调用关系时，同时核对 [workflow-topology.test.mjs](../scripts/workflow-topology.test.mjs)。
+Go/Web 签名工作流路径属于签名身份，不为整理文件而随意改名或合并。
 
-`ci_plan.py` 直接读取完整 Git diff，重命名按删除旧路径和添加新路径处理，不依赖 API 分页。PR 的前端、Go、Rust 和 Pi provider 改动只选择有关的 CI 任务；共享脚本、工作区依赖、打包、未知目录或无法可靠读取 diff 时运行全量。跨组件改动取并集。仓库文档仍检查仓库契约；组件内部文档仍按组件处理。
+## 生产边界
 
-`CI Quality Gate` 必须收到全部任务结果。只有计划明确未选择的任务允许 `skipped`；失败、取消、缺失、计划错误和未知结果一律失败。main、标签、手动检查和合并队列不得使用 PR 的缩减计划。每日 CI 只运行安全扫描及其计划/汇总，不额外启动全部构建。完整服务器验收仍是独立工作流，不受 PR 的 CI 组件选择影响。
+发版与部署是两件事。先按目标机器的安装方式选择
+[部署流程](deployment-workflow.md)，核对当前版本和兼容性，保留签名校验、
+备份、锁、确认和恢复步骤。包管理安装与压缩包安装不能混用更新路径。
 
-人工支持确认测试移入已有 Web 环境，保留逐个运行和 15 秒超时。独立 Rust root-route 锁文件检查与 RustSec 移入 CI，原先的锁文件校验、`cargo fetch --locked`、测试和固定版本审计 action 均保留。发布清单中的 root-route 检查名称不变，仅来源工作流改为 `ci.yml`。
+手动触发成功只表示请求被接受。需要记录准确的运行 ID、提交、标签、结果和
+目标环境验收，才能声明发布或部署完成。不要查询“最新一次运行”来替代本次运行。
+文档修改不应触发发版、服务器访问或自动恢复，也不应改变测试触发策略。
 
-## 队列与生产隔离
+## 修改后验证
 
-同一 PR 或 main 上被新提交替代的测试可以取消；手动检查与标签检查保留独立运行。后端服务器部署不属于 Actions 队列：除 `deploy-web-frontend.yml` 外，工作流没有生产 SSH 凭据或部署 job；服务器迁移和恢复验收只使用 runner 内的隔离测试环境。
+在仓库根目录运行相关本地检查：
 
-`deploy-web-frontend.yml` 是唯一持有生产凭据的工作流，只能通过 `workflow_dispatch` 手动触发。Web 签名发布本身不部署；在区分配套发布与独立热修的兼容契约实现前，操作者须先核两台现役 Go 后端，再手动发布独立兼容的 Web 更新。它的密钥在服务器侧被 `authorized_keys` 的强制命令 `/usr/local/sbin/lmm-web-deploy` 限制，只能执行前端 `frontend publish`，无法开 shell、无法执行任意命令、无法触达后端。撤销该密钥并在两台服务器移除对应的 `authorized_keys` 行即可关闭前端部署工作流。
-
-`release-go.yml` 和 `release-web.yml` 的路径是签名身份的一部分，因此不为减少文件数量而合并。它们显式选择 Go/Web 发布清单：所有 Go/Web CI 任务、混合路由契约、非 Rust CodeQL 和 `Server release qualification gate` 仍需真实通过，不能用 PR 的部分检查、旧提交或手动绿色状态替代。纯 Rust 检查不阻断 Go/Web 发布；默认的完整发布检查与 `CI Quality Gate` 继续要求原有全部组件通过。
-
-## 修改和验证
-
-新增组件时先更新 `ci_plan.py` 和测试；未分类的路径默认全量，不能默认跳过。新增/移除工作流时同步更新 topology 测试，迁移检查来源时同步更新 `.github/required-release-checks.txt`，不能直接删除发布要求。
-
-```sh
+```bash
 python3 -B -m unittest discover -s scripts -p test_ci_plan.py
 python3 -B -m unittest discover -s scripts -p test_ci_quality_gate.py
 node --test scripts/workflow-topology.test.mjs
 bash scripts/test-verify-release-commit-checks.sh
 ```
 
-正式 CI 继续执行 actionlint、原质量门禁和生产形态验收。局部脚本测试通过不代表整仓 CI 或线上恢复完成。
+仅修改本文时，运行文档检查即可；这些命令用于工作流或配套脚本改动。隔离
+测试通过不等于生产数据库恢复、服务器部署或全部应用测试已经完成。
