@@ -20,20 +20,19 @@ jobs:
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
       - id: apply
-        name: Verify and commit only the reviewed source patch
+        name: Apply the reviewed follow-up patch
         run: |
           set -euo pipefail
-          if test -d .github/rewards-transfer; then
-            cat .github/rewards-transfer/patch-{0,1,2,3,4,5}.diff > "$RUNNER_TEMP/rewards.patch"
-            echo "fe574e453de1450cf3166071d89ec1e6e11a7d728ea32475ee935bf8c34b1197  $RUNNER_TEMP/rewards.patch" | sha256sum -c -
-            git apply --unidiff-zero --check "$RUNNER_TEMP/rewards.patch"
-            git apply --unidiff-zero "$RUNNER_TEMP/rewards.patch"
-            rm -rf .github/rewards-transfer
-            git add apps/api-go apps/web docs .github/rewards-transfer
+          if test -f .github/rewards-followup.diff; then
+            echo '92a11a31b5f1f44db176e65eda58f3fb4ba42e0e55379c6dfce2ecb58a392be7  .github/rewards-followup.diff' | sha256sum -c -
+            git apply --unidiff-zero --check .github/rewards-followup.diff
+            git apply --unidiff-zero .github/rewards-followup.diff
+            rm .github/rewards-followup.diff
+            git add apps/api-go apps/web .github/rewards-followup.diff
             git diff --cached --check
             git config user.name 'LIghtJUNction'
             git config user.email '106986785+LIghtJUNction@users.noreply.github.com'
-            git commit -m 'fix: split referral rewards and repair coupon requests'
+            git commit -m 'fix: migrate unpaid referral orders and validate reward views'
             git push origin HEAD:refs/heads/fix/referral-stages-weekly-coupons
           fi
           echo "revision=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
@@ -95,15 +94,11 @@ jobs:
         if: success() || failure()
         working-directory: apps/web
         run: bun test --preload ./scripts/test-preload.mjs --timeout 15000 ./src/features/system-settings/general/quota-settings-section.test.tsx
-      - name: Collect protected-header-safe formatting changes
+      - name: Reward card regression
         if: success() || failure()
         working-directory: apps/web
-        run: |
-          bun run format
-          git diff -- src/features/profile/components/referral-overview-card.tsx src/features/system-settings/billing/index.tsx src/features/system-settings/billing/section-registry.tsx src/features/system-settings/general/quota-settings-section.test.tsx src/features/system-settings/general/quota-settings-section.tsx src/features/system-settings/types.ts src/features/wallet/components/affiliate-rewards-card.tsx src/features/wallet/components/referral-history-dialog.tsx src/i18n/locales/en.json src/i18n/locales/zh.json > "$RUNNER_TEMP/rewards-format.patch"
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: rewards-format
-          path: ${{ runner.temp }}/rewards-format.patch
-          retention-days: 3
+        run: bun test --preload ./scripts/test-preload.mjs --timeout 15000 ./src/features/wallet/components/affiliate-rewards-card.test.tsx
+      - name: Reward history regression
+        if: success() || failure()
+        working-directory: apps/web
+        run: bun test --preload ./scripts/test-preload.mjs --timeout 15000 ./src/features/wallet/components/referral-history-dialog.test.tsx
