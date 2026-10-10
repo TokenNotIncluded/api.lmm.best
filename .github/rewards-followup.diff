@@ -1,0 +1,271 @@
+diff --git a/apps/api-go/controller/assistant_currency_test.go b/apps/api-go/controller/assistant_currency_test.go
+index eb5f66c..8591c86 100644
+--- a/apps/api-go/controller/assistant_currency_test.go
++++ b/apps/api-go/controller/assistant_currency_test.go
+@@ -161 +161 @@ func TestAssistantCurrencyUnrepresentableProjectionKeepsJSONFinite(t *testing.T)
+-			for _, field := range []string{"pending_reward_usd", "total_reward_usd", "reward_per_inviter_usd", "reward_per_invitee_usd"} {
++			for _, field := range []string{"pending_reward_usd", "total_reward_usd", "reward_per_inviter_usd"} {
+@@ -163,0 +164,8 @@ func TestAssistantCurrencyUnrepresentableProjectionKeepsJSONFinite(t *testing.T)
++			// The retired invitee award is zero, which can remain representable
++			// even when nonzero balances exceed the public USD range.
++			zeroUSD, _, zeroErr := assistantFiatProjection(0)
++			if zeroErr != nil {
++				assert.Nil(t, rewards["reward_per_invitee_usd"])
++			} else {
++				assert.Equal(t, zeroUSD, rewards["reward_per_invitee_usd"])
++			}
+diff --git a/apps/api-go/model/main.go b/apps/api-go/model/main.go
+index 2b3e60a..2a70053 100644
+--- a/apps/api-go/model/main.go
++++ b/apps/api-go/model/main.go
+@@ -373,0 +374,3 @@ func migrateDB() error {
++	if err := migrateReferralOrderNullability(DB); err != nil {
++		return err
++	}
+@@ -474,0 +478,3 @@ func migrateDBFast() error {
++	if err := migrateReferralOrderNullability(DB); err != nil {
++		return err
++	}
+diff --git a/apps/api-go/model/referral_reward_postgres_test.go b/apps/api-go/model/referral_reward_postgres_test.go
+index e3cd47f..3e5cfda 100644
+--- a/apps/api-go/model/referral_reward_postgres_test.go
++++ b/apps/api-go/model/referral_reward_postgres_test.go
+@@ -177,0 +178,6 @@ func TestReferralStagesPostgresConcurrentCallbacks(t *testing.T) {
++
++func TestReferralStagesPostgresUpgrade(t *testing.T) {
++	usePostgresDatabaseType(t)
++	db := openIsolatedPostgresCacheTestDB(t, &referralRequiredOrderFixture{})
++	checkReferralStagesUpgrade(t, db)
++}
+diff --git a/apps/api-go/model/referral_stage_migration.go b/apps/api-go/model/referral_stage_migration.go
+new file mode 100644
+index 0000000..6502cdb
+--- /dev/null
++++ b/apps/api-go/model/referral_stage_migration.go
+@@ -0,0 +1,45 @@
++package model
++
++import (
++	"fmt"
++	"gorm.io/gorm"
++)
++
++// Older SQLite tables retain NOT NULL despite AutoMigrate. Upgrade the order
++// link explicitly before accepting unpaid advances. Do not rebuild on each boot.
++func migrateReferralOrderNullability(db *gorm.DB) error {
++	if !db.Migrator().HasTable(&ReferralReward{}) {
++		return nil
++	}
++	columns, err := db.Migrator().ColumnTypes(&ReferralReward{})
++	if err != nil {
++		return err
++	}
++	for _, column := range columns {
++		if column.Name() != "top_up_id" {
++			continue
++		}
++		if nullable, known := column.Nullable(); known && nullable {
++			return nil
++		}
++		return db.Transaction(func(tx *gorm.DB) error {
++			// SQLite rebuilds the table; retain its indexes and triggers too.
++			var definitions []string
++			if tx.Dialector.Name() == "sqlite" {
++				if err := tx.Raw("SELECT sql FROM sqlite_master WHERE tbl_name = ? AND type IN ('index', 'trigger') AND sql IS NOT NULL", "referral_rewards").Scan(&definitions).Error; err != nil {
++					return err
++				}
++			}
++			if err := tx.Migrator().AlterColumn(&ReferralReward{}, "TopUpId"); err != nil {
++				return err
++			}
++			for _, definition := range definitions {
++				if err := tx.Exec(definition).Error; err != nil {
++					return err
++				}
++			}
++			return nil
++		})
++	}
++	return fmt.Errorf("referral rewards order column is missing")
++}
+diff --git a/apps/api-go/model/referral_stages_test.go b/apps/api-go/model/referral_stages_test.go
+index 3906e53..5843a3b 100644
+--- a/apps/api-go/model/referral_stages_test.go
++++ b/apps/api-go/model/referral_stages_test.go
+@@ -163,0 +164,5 @@ func TestReferralStagesUpgradeAllowsUnpaidRows(t *testing.T) {
++	checkReferralStagesUpgrade(t, db)
++}
++
++func checkReferralStagesUpgrade(t *testing.T, db *gorm.DB) {
++	t.Helper()
+@@ -165,0 +171 @@ func TestReferralStagesUpgradeAllowsUnpaidRows(t *testing.T) {
++	require.NoError(t, migrateReferralOrderNullability(db))
+@@ -166,0 +173 @@ func TestReferralStagesUpgradeAllowsUnpaidRows(t *testing.T) {
++	require.NoError(t, migrateReferralOrderNullability(db))
+@@ -177,0 +185,3 @@ func TestReferralStagesUpgradeAllowsUnpaidRows(t *testing.T) {
++	require.True(t, db.Migrator().HasIndex(&ReferralReward{}, "idx_referral_rewards_top_up_id"))
++	require.Error(t, db.Create(&ReferralReward{InviteeId: 4, InviterId: 9, TopUpId: referralTestTopUpID(7), Quota: 1, Status: "earned"}).Error)
++	require.Error(t, db.Create(&ReferralReward{InviteeId: 1, InviterId: 9, Quota: 1, Status: "earned"}).Error)
+diff --git a/apps/web/src/features/assistant/api.ts b/apps/web/src/features/assistant/api.ts
+index c700b3d..4950d53 100644
+--- a/apps/web/src/features/assistant/api.ts
++++ b/apps/web/src/features/assistant/api.ts
+@@ -840 +839,0 @@ const ASSISTANT_NAVIGATION_QUERY_KEYS: Partial<
+-  '/getting-started': [],
+diff --git a/apps/web/src/features/system-settings/billing/section-registry.tsx b/apps/web/src/features/system-settings/billing/section-registry.tsx
+index d5d34c7..1a76ce9 100644
+--- a/apps/web/src/features/system-settings/billing/section-registry.tsx
++++ b/apps/web/src/features/system-settings/billing/section-registry.tsx
+@@ -94,2 +94,4 @@ const BILLING_SECTIONS = [
+-          ReferralRegistrationRewardQuota: settings.ReferralRegistrationRewardQuota ?? 0,
+-          ReferralMinTopUpAmounts: settings.ReferralMinTopUpAmounts ?? '{"USD":"10","CNY":"70"}',
++          ReferralRegistrationRewardQuota:
++            settings.ReferralRegistrationRewardQuota ?? 0,
++          ReferralMinTopUpAmounts:
++            settings.ReferralMinTopUpAmounts ?? '{"USD":"10","CNY":"70"}',
+diff --git a/apps/web/src/features/system-settings/general/quota-settings-section.tsx b/apps/web/src/features/system-settings/general/quota-settings-section.tsx
+index fcf61e8..2203036 100644
+--- a/apps/web/src/features/system-settings/general/quota-settings-section.tsx
++++ b/apps/web/src/features/system-settings/general/quota-settings-section.tsx
+@@ -58 +58,5 @@ const quotaSchema = z.object({
+-  ReferralRegistrationRewardQuota: z.coerce.number().int().min(0).max(Number.MAX_SAFE_INTEGER),
++  ReferralRegistrationRewardQuota: z.coerce
++    .number()
++    .int()
++    .min(0)
++    .max(Number.MAX_SAFE_INTEGER),
+@@ -62 +66,2 @@ const quotaSchema = z.object({
+-      if (!amounts || typeof amounts !== 'object' || Array.isArray(amounts)) return false
++      if (!amounts || typeof amounts !== 'object' || Array.isArray(amounts))
++        return false
+@@ -64,3 +69,13 @@ const quotaSchema = z.object({
+-      return entries.length > 0 && entries.length <= 32 && entries.every(([currency, amount]) =>
+-        /^[A-Z]{3}$/.test(currency) && /^(?:[0-9]{1,10})(?:\.[0-9]{1,6})?$/.test(String(amount)) && Number(amount) > 0)
+-    } catch { return false }
++      return (
++        entries.length > 0 &&
++        entries.length <= 32 &&
++        entries.every(
++          ([currency, amount]) =>
++            /^[A-Z]{3}$/.test(currency) &&
++            /^(?:[0-9]{1,10})(?:\.[0-9]{1,6})?$/.test(String(amount)) &&
++            Number(amount) > 0
++        )
++      )
++    } catch {
++      return false
++    }
+@@ -249 +264,3 @@ export function QuotaSettingsSection({
+-                  <FormLabel>{t('Minimum first cash payment by currency')}</FormLabel>
++                  <FormLabel>
++                    {t('Minimum first cash payment by currency')}
++                  </FormLabel>
+@@ -251 +268,6 @@ export function QuotaSettingsSection({
+-                    <Textarea {...field} rows={3} spellCheck={false} className='font-mono' />
++                    <Textarea
++                      {...field}
++                      rows={3}
++                      spellCheck={false}
++                      className='font-mono'
++                    />
+@@ -254 +276,3 @@ export function QuotaSettingsSection({
+-                    {t('Amounts are actual payments in each currency, not credits or exchange rates. A payment equal to the minimum qualifies. Unlisted currencies do not earn a tail reward.')}
++                    {t(
++                      'Amounts are actual payments in each currency, not credits or exchange rates. A payment equal to the minimum qualifies. Unlisted currencies do not earn a tail reward.'
++                    )}
+@@ -263,2 +287,8 @@ export function QuotaSettingsSection({
+-                ['ReferralRegistrationRewardQuota', 'Registration advance reward (0 = disabled)'],
+-                ['ReferralMinTopUpQuota', 'Additional first top-up credit floor'],
++                [
++                  'ReferralRegistrationRewardQuota',
++                  'Registration advance reward (0 = disabled)',
++                ],
++                [
++                  'ReferralMinTopUpQuota',
++                  'Additional first top-up credit floor',
++                ],
+diff --git a/apps/web/src/features/wallet/components/affiliate-rewards-card.test.tsx b/apps/web/src/features/wallet/components/affiliate-rewards-card.test.tsx
+index b2de158..3c5f0d1 100644
+--- a/apps/web/src/features/wallet/components/affiliate-rewards-card.test.tsx
++++ b/apps/web/src/features/wallet/components/affiliate-rewards-card.test.tsx
+@@ -65 +65 @@ describe('AffiliateRewardsCard referral description', () => {
+-      /Earn a reward after an invited user completes their first real paid top-up/
++      /Registration advance and first-payment tail are separate rewards/
+@@ -66,0 +67,3 @@ describe('AffiliateRewardsCard referral description', () => {
++    assert.match(markup, /Available Rewards/)
++    assert.match(markup, /Lifetime earnings are not the current balance/)
++    assert.doesNotMatch(markup, /Pending/)
+diff --git a/apps/web/src/features/wallet/components/affiliate-rewards-card.tsx b/apps/web/src/features/wallet/components/affiliate-rewards-card.tsx
+index 9a4316f..c6a0c3b 100644
+--- a/apps/web/src/features/wallet/components/affiliate-rewards-card.tsx
++++ b/apps/web/src/features/wallet/components/affiliate-rewards-card.tsx
+@@ -88 +88,3 @@ export function AffiliateRewardsCard({
+-              (user?.aff_debt ?? 0) > 0 ? t('Reward debt') : t('Available Rewards'),
++              (user?.aff_debt ?? 0) > 0
++                ? t('Reward debt')
++                : t('Available Rewards'),
+diff --git a/apps/web/src/features/wallet/components/referral-history-dialog.test.tsx b/apps/web/src/features/wallet/components/referral-history-dialog.test.tsx
+index 80f0006..effb78d 100644
+--- a/apps/web/src/features/wallet/components/referral-history-dialog.test.tsx
++++ b/apps/web/src/features/wallet/components/referral-history-dialog.test.tsx
+@@ -261,0 +262,30 @@ test('application-level failure retries the first page rather than a stale curso
++
++test('shows both stages and real cash floors without calling earned rewards pending', async () => {
++  const ctx = await setup()
++  try {
++    await ctx.open()
++    const response = page(40)
++    await act(async () =>
++      ctx.pending[0].resolve({
++        ...response,
++        data: {
++          ...response.data,
++          policy: {
++            reward_quota: 450000,
++            registration_reward_quota: 50000,
++            min_top_up_amounts: { USD: '10', CNY: '70' },
++          },
++        },
++      } as Result)
++    )
++    const text = document.body.textContent ?? ''
++    assert.match(text, /Registration advance reward/)
++    assert.match(text, /First top-up tail reward/)
++    assert.match(text, /USD ≥ 10/)
++    assert.match(text, /CNY ≥ 70/)
++    assert.match(text, /A smaller first payment cannot be topped up later/)
++    assert.doesNotMatch(text, /Pending/)
++  } finally {
++    await ctx.cleanup()
++  }
++})
+diff --git a/apps/web/src/features/wallet/components/referral-history-dialog.tsx b/apps/web/src/features/wallet/components/referral-history-dialog.tsx
+index 9c86692..2cdf1c1 100644
+--- a/apps/web/src/features/wallet/components/referral-history-dialog.tsx
++++ b/apps/web/src/features/wallet/components/referral-history-dialog.tsx
+@@ -204 +204,3 @@ export function ReferralHistoryDialog() {
+-              <p className='text-muted-foreground text-xs'>{t('Registration advance reward')}</p>
++              <p className='text-muted-foreground text-xs'>
++                {t('Registration advance reward')}
++              </p>
+@@ -225 +227,3 @@ export function ReferralHistoryDialog() {
+-          <p className='font-medium'>{t('Minimum first cash payment by currency')}</p>
++          <p className='font-medium'>
++            {t('Minimum first cash payment by currency')}
++          </p>
+@@ -227,3 +231,7 @@ export function ReferralHistoryDialog() {
+-            {Object.entries(history.policy.min_top_up_amounts).map(([currency, amount]) => (
+-              <span key={currency} className='tabular-nums'>{currency} ≥ {amount}</span>
+-            ))}
++            {Object.entries(history.policy.min_top_up_amounts).map(
++              ([currency, amount]) => (
++                <span key={currency} className='tabular-nums'>
++                  {currency} ≥ {amount}
++                </span>
++              )
++            )}
+@@ -232 +240,3 @@ export function ReferralHistoryDialog() {
+-            {t('Only the first verified cash payment can earn the tail. A smaller first payment cannot be topped up later to qualify. Lifetime earnings are not your current wallet balance.')}
++            {t(
++              'Only the first verified cash payment can earn the tail. A smaller first payment cannot be topped up later to qualify. Lifetime earnings are not your current wallet balance.'
++            )}
