@@ -60,6 +60,9 @@ export function useStatus() {
     refetch,
   } = useQuery({
     queryKey: ['status', statusScope],
+    // Do not pause an unverified capability read behind an endless loading UI.
+    // getStatus bounds each attempt; the existing retry limit still applies.
+    networkMode: 'always',
     queryFn: async () => {
       const rawStatus = await getStatus()
       const status = rawStatus

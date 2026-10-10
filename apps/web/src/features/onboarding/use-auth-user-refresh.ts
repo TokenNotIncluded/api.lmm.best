@@ -96,10 +96,12 @@ export function useAuthUserRefresh() {
     }
 
     window.addEventListener('focus', handleFocus)
+    window.addEventListener('online', handleFocus)
     document.addEventListener('visibilitychange', handleVisibilityChange)
 
     return () => {
       window.removeEventListener('focus', handleFocus)
+      window.removeEventListener('online', handleFocus)
       document.removeEventListener('visibilitychange', handleVisibilityChange)
     }
   }, [refreshUser])
