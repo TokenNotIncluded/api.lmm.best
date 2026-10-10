@@ -38,8 +38,8 @@ func TestRT17RelayCatalogRawIdentityBoundaries(t *testing.T) {
 	setupRelayRouterTestDB(t)
 	level := model.TrustLevelMinUser + 1
 	users := []model.User{
-		{Username: "rt17-user-a", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Group: "default", Quota: 100000, TrustLevelOverride: &level, ConsoleActivatedAt: 1},
-		{Username: "rt17-user-b", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Group: "default", Quota: 100000, TrustLevelOverride: &level, ConsoleActivatedAt: 1},
+		{Username: "rt17-user-a", AffCode: "rt17-user-a", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Group: "default", Quota: 100000, TrustLevelOverride: &level, ConsoleActivatedAt: 1},
+		{Username: "rt17-user-b", AffCode: "rt17-user-b", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Group: "default", Quota: 100000, TrustLevelOverride: &level, ConsoleActivatedAt: 1},
 	}
 	keys := []string{"rt17localtestkeya", "rt17localtestkeyb"}
 	tokens := make([]model.Token, 2)
