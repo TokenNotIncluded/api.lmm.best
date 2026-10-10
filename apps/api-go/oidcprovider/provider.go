@@ -241,7 +241,19 @@ func (p *Provider) transport(r *http.Request) bool {
 }
 func (p *Provider) allowed(r *http.Request) bool {
 	host, _, _ := net.SplitHostPort(r.RemoteAddr)
-	key := host + ":" + r.URL.Path
+	peer := net.ParseIP(host)
+	client := host
+	for _, network := range p.config.TrustedProxies {
+		if network.Contains(peer) && len(r.Header.Values("X-Forwarded-For")) == 1 {
+			// Trusted terminators must replace rather than append this header.
+			// Rejecting chains keeps clients from choosing arbitrary rate buckets.
+			if forwarded := net.ParseIP(strings.TrimSpace(r.Header.Get("X-Forwarded-For"))); forwarded != nil {
+				client = forwarded.String()
+			}
+			break
+		}
+	}
+	key := client + ":" + r.URL.Path
 	now := time.Now()
 	p.mu.Lock()
 	defer p.mu.Unlock()
