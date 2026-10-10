@@ -1,6 +1,9 @@
 package model
 
-import "github.com/LIghtJUNction/api.lmm.best/constant"
+import (
+	"github.com/LIghtJUNction/api.lmm.best/constant"
+	"gorm.io/gorm"
+)
 
 type Midjourney struct {
 	Id          int    `json:"id"`
@@ -34,64 +37,51 @@ type Midjourney struct {
 type TaskQueryParams struct {
 	ChannelID      string
 	MjID           string
+	Status         string
+	Action         string
 	StartTimestamp string
 	EndTimestamp   string
 }
 
+// midjourneyLogQuery keeps list and count filters identical. The owner scope
+// is applied by callers and cannot be replaced with a query-string user ID.
+func midjourneyLogQuery(query *gorm.DB, params TaskQueryParams, includeChannel bool) *gorm.DB {
+	if includeChannel && params.ChannelID != "" {
+		query = query.Where("channel_id = ?", params.ChannelID)
+	}
+	if params.MjID != "" {
+		query = query.Where("mj_id = ?", params.MjID)
+	}
+	if params.Status != "" {
+		query = query.Where("status = ?", params.Status)
+	}
+	if params.Action != "" {
+		query = query.Where("action = ?", params.Action)
+	}
+	if params.StartTimestamp != "" {
+		query = query.Where("submit_time >= ?", params.StartTimestamp)
+	}
+	if params.EndTimestamp != "" {
+		query = query.Where("submit_time <= ?", params.EndTimestamp)
+	}
+	return query
+}
+
 func GetAllUserTask(userId int, startIdx int, num int, queryParams TaskQueryParams) []*Midjourney {
 	var tasks []*Midjourney
-	var err error
-
-	// 初始化查询构建器
-	query := DB.Where("user_id = ?", userId)
-
-	if queryParams.MjID != "" {
-		query = query.Where("mj_id = ?", queryParams.MjID)
-	}
-	if queryParams.StartTimestamp != "" {
-		// 假设您已将前端传来的时间戳转换为数据库所需的时间格式，并处理了时间戳的验证和解析
-		query = query.Where("submit_time >= ?", queryParams.StartTimestamp)
-	}
-	if queryParams.EndTimestamp != "" {
-		query = query.Where("submit_time <= ?", queryParams.EndTimestamp)
-	}
-
-	// 获取数据
-	err = query.Order("id desc").Limit(num).Offset(startIdx).Find(&tasks).Error
-	if err != nil {
+	query := midjourneyLogQuery(DB.Where("user_id = ?", userId), queryParams, false)
+	if err := query.Order("id desc").Limit(num).Offset(startIdx).Find(&tasks).Error; err != nil {
 		return nil
 	}
-
 	return tasks
 }
 
 func GetAllTasks(startIdx int, num int, queryParams TaskQueryParams) []*Midjourney {
 	var tasks []*Midjourney
-	var err error
-
-	// 初始化查询构建器
-	query := DB
-
-	// 添加过滤条件
-	if queryParams.ChannelID != "" {
-		query = query.Where("channel_id = ?", queryParams.ChannelID)
-	}
-	if queryParams.MjID != "" {
-		query = query.Where("mj_id = ?", queryParams.MjID)
-	}
-	if queryParams.StartTimestamp != "" {
-		query = query.Where("submit_time >= ?", queryParams.StartTimestamp)
-	}
-	if queryParams.EndTimestamp != "" {
-		query = query.Where("submit_time <= ?", queryParams.EndTimestamp)
-	}
-
-	// 获取数据
-	err = query.Order("id desc").Limit(num).Offset(startIdx).Find(&tasks).Error
-	if err != nil {
+	query := midjourneyLogQuery(DB, queryParams, true)
+	if err := query.Order("id desc").Limit(num).Offset(startIdx).Find(&tasks).Error; err != nil {
 		return nil
 	}
-
 	return tasks
 }
 
@@ -223,39 +213,18 @@ func MjBulkUpdateByTaskIds(taskIDs []int, params map[string]any) error {
 		Updates(params).Error
 }
 
-// CountAllTasks returns total midjourney tasks for admin query
+// CountAllTasks returns total midjourney tasks for admin query.
 func CountAllTasks(queryParams TaskQueryParams) int64 {
 	var total int64
-	query := DB.Model(&Midjourney{})
-	if queryParams.ChannelID != "" {
-		query = query.Where("channel_id = ?", queryParams.ChannelID)
-	}
-	if queryParams.MjID != "" {
-		query = query.Where("mj_id = ?", queryParams.MjID)
-	}
-	if queryParams.StartTimestamp != "" {
-		query = query.Where("submit_time >= ?", queryParams.StartTimestamp)
-	}
-	if queryParams.EndTimestamp != "" {
-		query = query.Where("submit_time <= ?", queryParams.EndTimestamp)
-	}
+	query := midjourneyLogQuery(DB.Model(&Midjourney{}), queryParams, true)
 	_ = query.Count(&total).Error
 	return total
 }
 
-// CountAllUserTask returns total midjourney tasks for user
+// CountAllUserTask returns total midjourney tasks for user.
 func CountAllUserTask(userId int, queryParams TaskQueryParams) int64 {
 	var total int64
-	query := DB.Model(&Midjourney{}).Where("user_id = ?", userId)
-	if queryParams.MjID != "" {
-		query = query.Where("mj_id = ?", queryParams.MjID)
-	}
-	if queryParams.StartTimestamp != "" {
-		query = query.Where("submit_time >= ?", queryParams.StartTimestamp)
-	}
-	if queryParams.EndTimestamp != "" {
-		query = query.Where("submit_time <= ?", queryParams.EndTimestamp)
-	}
+	query := midjourneyLogQuery(DB.Model(&Midjourney{}).Where("user_id = ?", userId), queryParams, false)
 	_ = query.Count(&total).Error
 	return total
 }
