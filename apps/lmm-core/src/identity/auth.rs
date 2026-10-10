@@ -96,6 +96,15 @@ impl IdentityStore {
         self.registration_enabled = enabled;
         self
     }
+    /// Limit simultaneous Argon2 jobs without reducing password hash strength.
+    /// Each active job allocates about 19 MiB with the current Argon2 policy.
+    pub fn with_password_slots(mut self, slots: usize) -> Result<Self> {
+        if !(1..=2).contains(&slots) {
+            return Err(IdentityError::Invalid);
+        }
+        self.password_slots = std::sync::Arc::new(tokio::sync::Semaphore::new(slots));
+        Ok(self)
+    }
     pub fn with_google_oauth(mut self, config: GoogleOAuth) -> Self {
         self.google = Some(std::sync::Arc::new(config));
         self

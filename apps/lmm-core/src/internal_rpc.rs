@@ -68,6 +68,8 @@ pub fn read_service_token(path: &Path) -> io::Result<Vec<u8>> {
 pub async fn readonly_store(url: &str) -> Result<IdentityStore, IdentityError> {
     let pool = PgPoolOptions::new()
         .max_connections(2)
+        .min_connections(0)
+        .idle_timeout(Some(Duration::from_secs(30)))
         .acquire_timeout(Duration::from_millis(400))
         .after_connect(|c, _| {
             Box::pin(async move {

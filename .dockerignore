@@ -17,6 +17,8 @@ docs
 **/.env.*
 **/.secrets
 qualification-artifacts
+# Research and saved evidence are not inputs to runtime images.
+experiments/
 
 # External policy drafts are runtime resources, never operator configuration.
 !config/legal/templates/**/*.md

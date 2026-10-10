@@ -162,6 +162,25 @@ class CoreBoundaryTests(unittest.TestCase):
                                ("tool-market-provider-verify.yml", "working-directory: apps/web")):
             self.assertIn(expected, (ROOT / ".github/workflows" / name).read_text())
 
+    def test_standalone_core_has_bounded_resources_and_no_go_runtime(self):
+        ignore = (ROOT / ".dockerignore").read_text().splitlines()
+        self.assertIn("experiments/", ignore)
+        compose = (ROOT / "deployment/docker/compose.core-standalone.yml").read_text()
+        for expected in ("LMM_CORE_WORKER_THREADS: \"1\"",
+                         "LMM_CORE_DB_CONNECTIONS: \"2\"",
+                         "LMM_CORE_PASSWORD_SLOTS: \"1\"",
+                         "LMM_CORE_MAX_INFLIGHT: \"16\"",
+                         "LMM_CORE_DATABASE_URL_FILE: /run/secrets/core_database_url"):
+            self.assertIn(expected, compose)
+        self.assertNotIn("extensions:", compose)
+        self.assertNotIn("core-db:", compose)
+        self.assertIn("lmm-core-standalone-runtime", compose)
+        core = (ROOT / "apps/lmm-core/src/main.rs").read_text()
+        self.assertIn("connect_with_max_connections", core)
+        self.assertIn("Lifecycle::with_capacity", core)
+        self.assertIn("with_password_slots", core)
+        self.assertNotIn("lmm_extensions", core)
+
     def test_core_owns_the_funding_contract(self):
         cases = json.loads((ROOT / "contracts/core/v1/funding-cases.json").read_text())
         self.assertGreaterEqual(len(cases), 24)
