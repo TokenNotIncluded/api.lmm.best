@@ -1,0 +1,21 @@
+{
+  "date_utc": "2026-10-10T16:03:17.897725+00:00",
+  "scope": "real_nginx_with_python_mock_core_only",
+  "tests": {
+    "run": 14,
+    "failures": 0,
+    "errors": 0,
+    "elapsed_seconds": 101.451
+  },
+  "upstream_posts": 19,
+  "all_upstream_request_ids_called_exactly_once": true,
+  "complete_sse_responses_verified_by_bytes": 17,
+  "any_unexpected_forced_cleanup": false,
+  "any_remaining_child_processes": false,
+  "race_case_status": 200,
+  "race_case_upstream_post_count": 1,
+  "rust_compilation": "NOT_RUN",
+  "model_billing_integration": "NOT_RUN",
+  "merge_acceptance": "BLOCKED_NOT_SAFE",
+  "reason": "Rust not compiled and Rust/native proxy/ledger admission ACK not connected; model forwarding disabled"
+}

@@ -1,0 +1,17 @@
+{
+  "tests_run": 14,
+  "failures": 0,
+  "errors": 0,
+  "elapsed_seconds": 101.451,
+  "scope": "real_nginx_python_transport_reference",
+  "rust_runtime": "NOT_RUN_NO_TOOLCHAIN",
+  "billing": "NOT_CONNECTED_NOT_TESTED",
+  "normal_rollout_acceptance": "NOT_PASSED_REAL_RUST_AND_SETTLEMENT_NOT_TESTED",
+  "known_gaps": [
+    "route ticket ACK protocol is implemented only in Python fixture, not integrated with Rust or production proxy",
+    "unacknowledged selected requests can indefinitely block drain"
+  ],
+  "base": "72667564c0431754d4856dc2e0db55f360bd2745",
+  "nginx": "nginx version: nginx/1.26.3",
+  "details": []
+}
