@@ -1,0 +1,16 @@
+{
+  "client_namespace": "net:[4026532177]",
+  "client_routes": "10.203.24.0/30 dev dxa proto kernel scope link src 10.203.24.1 \n10.203.25.0/30 dev dxb proto kernel scope link src 10.203.25.1 \n",
+  "nodes": {
+    "a": {
+      "ip": "10.203.24.2",
+      "netns": "net:[4026532244]",
+      "routes": "10.203.24.0/30 dev dca proto kernel scope link src 10.203.24.2 \n"
+    },
+    "b": {
+      "ip": "10.203.25.2",
+      "netns": "net:[4026532313]",
+      "routes": "10.203.25.0/30 dev dcb proto kernel scope link src 10.203.25.2 \n"
+    }
+  }
+}
