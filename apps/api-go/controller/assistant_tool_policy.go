@@ -46,7 +46,7 @@ func AdminGetAssistantToolCatalogue(c *gin.Context) {
 		return
 	}
 	common.ApiSuccess(c, gin.H{
-		"groups": assistantToolCatalogueWithText(policy),
+		"groups":       assistantToolCatalogueWithText(policy),
 		"capabilities": gin.H{"policy_rules": true, "tool_descriptions": true},
 	})
 }
