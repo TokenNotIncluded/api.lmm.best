@@ -11803,6 +11803,17 @@
     "Read the published user agreement, privacy policy or refund policy with language, revision and page cursors.": "Read the published user agreement, privacy policy or refund policy with language, revision and page cursors.",
     "Search the site's configured policy text without fetching external URLs.": "Search the site's configured policy text without fetching external URLs.",
     "Prepare an exact policy edit; root authority, a fresh revision and explicit browser confirmation are required.": "Prepare an exact policy edit; root authority, a fresh revision and explicit browser confirmation are required.",
-    "A separate refund policy at /refund-policy. Existing user agreement and service terms are not changed. An empty English version uses the primary language.": "A separate refund policy at /refund-policy. Existing user agreement and service terms are not changed. An empty English version uses the primary language."
+    "A separate refund policy at /refund-policy. Existing user agreement and service terms are not changed. An empty English version uses the primary language.": "A separate refund policy at /refund-policy. Existing user agreement and service terms are not changed. An empty English version uses the primary language.",
+    "Registration advance reward (0 = disabled)": "Registration advance reward (0 = disabled)",
+    "Registration advance reward": "Registration advance reward",
+    "First top-up tail reward": "First top-up tail reward",
+    "Valid invited registration": "Valid invited registration",
+    "Additional first top-up credit floor": "Additional first top-up credit floor",
+    "Minimum first cash payment by currency": "Minimum first cash payment by currency",
+    "Amounts are actual payments in each currency, not credits or exchange rates. A payment equal to the minimum qualifies. Unlisted currencies do not earn a tail reward.": "Amounts are actual payments in each currency, not credits or exchange rates. A payment equal to the minimum qualifies. Unlisted currencies do not earn a tail reward.",
+    "Tail reward after the invited user’s first cash payment meets the minimum ({{formattedQuota}})": "Tail reward after the invited user’s first cash payment meets the minimum ({{formattedQuota}})",
+    "A small registration advance can be enabled. The tail reward requires a qualifying first cash payment. Confirmed abuse or a full refund can revoke rewards. Reward debt never deducts purchased balance.": "A small registration advance can be enabled. The tail reward requires a qualifying first cash payment. Confirmed abuse or a full refund can revoke rewards. Reward debt never deducts purchased balance.",
+    "Only the first verified cash payment can earn the tail. A smaller first payment cannot be topped up later to qualify. Lifetime earnings are not your current wallet balance.": "Only the first verified cash payment can earn the tail. A smaller first payment cannot be topped up later to qualify. Lifetime earnings are not your current wallet balance.",
+    "Registration advance and first-payment tail are separate rewards. Available rewards can be transferred to balance. Lifetime earnings are not the current balance.": "Registration advance and first-payment tail are separate rewards. Available rewards can be transferred to balance. Lifetime earnings are not the current balance."
   }
 }

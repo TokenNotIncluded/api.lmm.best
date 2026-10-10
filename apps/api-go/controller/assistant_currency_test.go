@@ -100,7 +100,10 @@ func TestAssistantInvitationRewardsUseActualUSDWithoutChangingCreditRewards(t *t
 		assert.Equal(t, float64(7), result["pending_reward_usd"])
 		assert.Equal(t, float64(14), result["total_reward_usd"])
 		assert.Equal(t, float64(3.5), result["reward_per_inviter_usd"])
-		assert.Equal(t, float64(7), result["reward_per_invitee_usd"])
+		assert.Equal(t, float64(0), result["reward_per_invitee_usd"])
+		assert.Equal(t, 3500000, result["available_reward_credit"])
+		assert.Equal(t, 0, result["reward_debt_credit"])
+		assert.Contains(t, result["accounting_note"], "earned and transferable")
 	}
 	common.ClearCreditsPerUSD()
 	result := executeAssistantInvitationTool(user.Id)

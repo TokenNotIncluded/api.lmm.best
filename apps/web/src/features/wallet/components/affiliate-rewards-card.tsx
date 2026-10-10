@@ -76,7 +76,7 @@ export function AffiliateRewardsCard({
             </h3>
             <p className='text-muted-foreground text-xs'>
               {t(
-                'Earn a reward after an invited user completes their first real paid top-up. Rewards may be revoked for confirmed abuse or a full refund.'
+                'Registration advance and first-payment tail are separate rewards. Available rewards can be transferred to balance. Lifetime earnings are not the current balance.'
               )}
             </p>
           </div>
@@ -85,7 +85,7 @@ export function AffiliateRewardsCard({
         <div className='grid grid-cols-3 gap-1.5 text-center'>
           {[
             [
-              (user?.aff_debt ?? 0) > 0 ? t('Reward debt') : t('Pending'),
+              (user?.aff_debt ?? 0) > 0 ? t('Reward debt') : t('Available Rewards'),
               formatQuota(
                 (user?.aff_debt ?? 0) > 0
                   ? (user?.aff_debt ?? 0)

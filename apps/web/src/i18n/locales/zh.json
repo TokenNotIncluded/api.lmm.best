@@ -11804,6 +11804,17 @@
     "Search the site's configured policy text without fetching external URLs.": "Search the site's configured policy text without fetching external URLs.",
     "Prepare an exact policy edit; root authority, a fresh revision and explicit browser confirmation are required.": "准备精确的政策修改。需要超级管理员权限、最新版本和明确的浏览器确认。",
     "A separate refund policy at /refund-policy. Existing user agreement and service terms are not changed. An empty English version uses the primary language.": "在 /refund-policy 页面发布独立退款政策，不会修改现有用户协议和服务条款。英文版本留空时使用主文档。",
-    "Search configured policies using literal text and bounded excerpts; do not fetch external policy links.": "搜索已配置的政策并返回相关片段，不读取外部政策链接。"
+    "Search configured policies using literal text and bounded excerpts; do not fetch external policy links.": "搜索已配置的政策并返回相关片段，不读取外部政策链接。",
+    "Registration advance reward (0 = disabled)": "邀请注册首款（0 表示关闭）",
+    "Registration advance reward": "邀请注册首款",
+    "First top-up tail reward": "首充达标尾款",
+    "Valid invited registration": "有效邀请注册",
+    "Additional first top-up credit floor": "附加首充额度门槛",
+    "Minimum first cash payment by currency": "首次实付金额门槛（按币种）",
+    "Amounts are actual payments in each currency, not credits or exchange rates. A payment equal to the minimum qualifies. Unlisted currencies do not earn a tail reward.": "填写各币种的真实付款金额，不是点数，也不是汇率。实付金额达到门槛即可；未配置的币种不发尾款。",
+    "Tail reward after the invited user’s first cash payment meets the minimum ({{formattedQuota}})": "被邀请用户首次真实付款达标后发放尾款（{{formattedQuota}}）",
+    "A small registration advance can be enabled. The tail reward requires a qualifying first cash payment. Confirmed abuse or a full refund can revoke rewards. Reward debt never deducts purchased balance.": "可配置少量注册首款。尾款仅在首次真实付款达标后发放。确认违规或全额退款可追回奖励；奖励欠额不扣自充余额。",
+    "Only the first verified cash payment can earn the tail. A smaller first payment cannot be topped up later to qualify. Lifetime earnings are not your current wallet balance.": "仅首次真实付款参与尾款奖励。首笔未达标，后续充值不补发。累计收益不等于当前钱包余额。",
+    "Registration advance and first-payment tail are separate rewards. Available rewards can be transferred to balance. Lifetime earnings are not the current balance.": "注册首款与首充尾款分开发放。可用奖励可转入余额；累计收益不是当前余额。"
   }
 }

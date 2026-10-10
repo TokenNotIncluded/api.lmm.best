@@ -14,20 +14,24 @@ import (
 // A reward is permanently tied to the first real-money top-up. Neither a
 // refund nor an overturned ban deletes this fact or reopens first-top-up eligibility.
 type ReferralReward struct {
-	Id              int    `json:"id"`
-	InviteeId       int    `json:"invitee_id" gorm:"uniqueIndex;not null"`
-	InviterId       int    `json:"inviter_id" gorm:"index;not null"`
-	TopUpId         int    `json:"top_up_id" gorm:"uniqueIndex;not null"`
-	Quota           int    `json:"quota" gorm:"type:bigint;not null"`
-	Status          string `json:"status" gorm:"type:varchar(24);not null"`
-	RevokedQuota    int    `json:"revoked_quota" gorm:"type:bigint;not null;default:0"`
-	PenaltyQuota    int    `json:"penalty_quota" gorm:"type:bigint;not null;default:0"`
-	PenaltyPercent  int    `json:"penalty_percent" gorm:"not null;default:0"`
-	MaxPenaltyQuota int    `json:"max_penalty_quota" gorm:"type:bigint;not null;default:0"`
-	Revision        int    `json:"revision" gorm:"not null;default:0"`
-	Reason          string `json:"reason" gorm:"type:varchar(32);not null;default:''"`
-	CreatedAt       int64  `json:"created_at"`
-	UpdatedAt       int64  `json:"updated_at"`
+	Id        int `json:"id"`
+	InviteeId int `json:"invitee_id" gorm:"uniqueIndex;not null"`
+	InviterId int `json:"inviter_id" gorm:"index;not null"`
+	// NULL until a verified first payment is attached; unpaid awards have no order.
+	TopUpId           *int   `json:"top_up_id" gorm:"uniqueIndex;default:null"`
+	RegistrationQuota int    `json:"registration_quota" gorm:"type:bigint;not null;default:0"`
+	Stage             string `json:"stage" gorm:"type:varchar(32);not null;default:''"`
+	PolicySnapshot    string `json:"-" gorm:"type:text"`
+	Quota             int    `json:"quota" gorm:"type:bigint;not null"`
+	Status            string `json:"status" gorm:"type:varchar(24);not null"`
+	RevokedQuota      int    `json:"revoked_quota" gorm:"type:bigint;not null;default:0"`
+	PenaltyQuota      int    `json:"penalty_quota" gorm:"type:bigint;not null;default:0"`
+	PenaltyPercent    int    `json:"penalty_percent" gorm:"not null;default:0"`
+	MaxPenaltyQuota   int    `json:"max_penalty_quota" gorm:"type:bigint;not null;default:0"`
+	Revision          int    `json:"revision" gorm:"not null;default:0"`
+	Reason            string `json:"reason" gorm:"type:varchar(32);not null;default:''"`
+	CreatedAt         int64  `json:"created_at"`
+	UpdatedAt         int64  `json:"updated_at"`
 }
 
 // These entries are append-only. Do not put moderation evidence, payment
@@ -95,8 +99,11 @@ func createUserWithInviterTx(tx *gorm.DB, user *User, inviterId int) error {
 		return err
 	}
 	if user.InviterId > 0 && promotionRewardsAllowedForUser(user) {
-		return tx.Model(&User{}).Where("id = ?", user.InviterId).
-			UpdateColumn("aff_count", boundedInt32CounterExpr("aff_count", 1)).Error
+		if err := tx.Model(&User{}).Where("id = ?", user.InviterId).
+			UpdateColumn("aff_count", boundedInt32CounterExpr("aff_count", 1)).Error; err != nil {
+			return err
+		}
+		return grantRegistrationReferralTx(tx, user)
 	}
 	return nil
 }
@@ -143,46 +150,7 @@ func grantFirstTopUpReferralTx(tx *gorm.DB, topUp *TopUp) error {
 		Where("("+expression+") > 0", args...).Count(&prior).Error; err != nil {
 		return err
 	}
-	policy := GetReferralPolicy()
-	if prior > 0 || invitee.InviterId <= 0 || invitee.InviterId == invitee.Id ||
-		invitee.Status != common.UserStatusEnabled || !promotionRewardsAllowedForUser(&invitee) ||
-		!operation_setting.IsPaymentComplianceConfirmed() || policy.RewardQuota <= 0 ||
-		topUp.CreditedQuota < int64(policy.MinTopUpQuota) {
-		return nil
-	}
-	var inviter User
-	err := lockForUpdate(tx).First(&inviter, invitee.InviterId).Error
-	if errors.Is(err, gorm.ErrRecordNotFound) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-	if inviter.Status != common.UserStatusEnabled || !promotionRewardsAllowedForUser(&inviter) ||
-		(invitee.Email != "" && NormalizeEmail(invitee.Email) == NormalizeEmail(inviter.Email)) ||
-		(invitee.StripeCustomer != "" && invitee.StripeCustomer == inviter.StripeCustomer) {
-		return nil
-	}
-	quota := policy.RewardQuota
-	if policy.MaxRewardQuota > 0 {
-		quota = min(quota, policy.MaxRewardQuota)
-	}
-	// Never silently saturate the ledger or block a paid order at a reward ceiling.
-	quota = min(quota, common.MaxWalletQuota-max(inviter.AffQuota, 0), common.MaxWalletQuota-max(inviter.AffHistoryQuota, 0))
-	if quota <= 0 {
-		return nil
-	}
-	reward := ReferralReward{InviteeId: invitee.Id, InviterId: inviter.Id, TopUpId: topUp.Id,
-		Quota: quota, Status: "earned", PenaltyPercent: policy.PenaltyPercent,
-		MaxPenaltyQuota: policy.MaxPenaltyQuota, CreatedAt: common.GetTimestamp()}
-	if err := tx.Create(&reward).Error; err != nil {
-		return err
-	}
-	if err := applyReferralDeltaTx(tx, &reward, "reward", "first_top_up", quota); err != nil {
-		return err
-	}
-	return tx.Model(&User{}).Where("id = ?", inviter.Id).
-		UpdateColumn("aff_history", gorm.Expr("aff_history + ?", quota)).Error
+	return completeFirstTopUpReferralStageTx(tx, &invitee, topUp, prior)
 }
 
 // The signed affiliate balance is independent of the user's purchased wallet.

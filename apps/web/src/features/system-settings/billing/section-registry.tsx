@@ -91,6 +91,8 @@ const BILLING_SECTIONS = [
           QuotaForNewUser: settings.QuotaForNewUser,
           PreConsumedQuota: settings.PreConsumedQuota,
           QuotaForInviter: settings.QuotaForInviter,
+          ReferralRegistrationRewardQuota: settings.ReferralRegistrationRewardQuota ?? 0,
+          ReferralMinTopUpAmounts: settings.ReferralMinTopUpAmounts ?? '{"USD":"10","CNY":"70"}',
           ReferralMinTopUpQuota: settings.ReferralMinTopUpQuota,
           ReferralMaxRewardQuota: settings.ReferralMaxRewardQuota,
           ReferralPenaltyPercent: settings.ReferralPenaltyPercent,

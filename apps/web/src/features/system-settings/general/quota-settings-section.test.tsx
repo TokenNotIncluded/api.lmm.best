@@ -82,6 +82,8 @@ function quotaDefaults(inviteEnabled: boolean): QuotaDefaults {
     QuotaForNewUser: 0,
     PreConsumedQuota: 0,
     QuotaForInviter: 0,
+    ReferralRegistrationRewardQuota: 0,
+    ReferralMinTopUpAmounts: '{"USD":"10","CNY":"70"}',
     ReferralMinTopUpQuota: 0,
     ReferralMaxRewardQuota: 0,
     ReferralPenaltyPercent: 20,

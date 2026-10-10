@@ -13,6 +13,7 @@ import (
 	cryptorand "crypto/rand"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -29,9 +30,11 @@ const (
 )
 
 var (
-	ErrAssistantWeeklyDiscountLimit       = errors.New("weekly assistant discount exceeds the current level limit")
-	ErrAssistantWeeklyDiscountInvalid     = errors.New("weekly assistant discount decision is invalid")
-	ErrAssistantWeeklyDiscountUnavailable = errors.New("weekly assistant discount is not available")
+	ErrAssistantWeeklyDiscountLimit                = errors.New("weekly assistant discount exceeds the current level limit")
+	ErrAssistantWeeklyDiscountInvalid              = errors.New("weekly assistant discount decision is invalid")
+	ErrAssistantWeeklyDiscountUnavailable          = errors.New("weekly assistant discount is not available")
+	ErrAssistantWeeklyDiscountDisabled             = fmt.Errorf("%w: no discount is enabled for the current account level", ErrAssistantWeeklyDiscountLimit)
+	ErrAssistantWeeklyDiscountConversationRequired = fmt.Errorf("%w: at least two substantive user turns are required", ErrAssistantWeeklyDiscountInvalid)
 )
 
 // AssistantWeeklyDiscount is one server-owned reward decision per user and
@@ -103,7 +106,7 @@ func DecideAssistantWeeklyDiscountAt(userID int, conversationID int64, percent i
 		return nil, false, ErrAssistantWeeklyDiscountInvalid
 	}
 	if substantiveTurns < 2 || substantiveRunes < 8 {
-		return nil, false, ErrAssistantWeeklyDiscountInvalid
+		return nil, false, ErrAssistantWeeklyDiscountConversationRequired
 	}
 	reason = strings.TrimSpace(redactAssistantHandoffMessage(reason))
 	if len([]rune(reason)) < 2 || len([]rune(reason)) > 240 {
@@ -148,7 +151,10 @@ func DecideAssistantWeeklyDiscountAt(userID int, conversationID int64, percent i
 		if err != nil {
 			return err
 		}
-		if percent > limit || limit == 0 {
+		if limit == 0 {
+			return ErrAssistantWeeklyDiscountDisabled
+		}
+		if percent > limit {
 			return ErrAssistantWeeklyDiscountLimit
 		}
 		result := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&reward)
@@ -216,7 +222,10 @@ func ClaimAssistantWeeklyDiscountAt(userID int, now time.Time) (*AssistantWeekly
 		if err != nil {
 			return err
 		}
-		if reward.DiscountPercent > limit || limit == 0 {
+		if limit == 0 {
+			return ErrAssistantWeeklyDiscountDisabled
+		}
+		if reward.DiscountPercent > limit {
 			return ErrAssistantWeeklyDiscountLimit
 		}
 		codeValue, err := newAssistantWeeklyDiscountCode()
