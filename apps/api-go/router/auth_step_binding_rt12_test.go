@@ -205,7 +205,7 @@ func (h *rt12Harness) assertSessionOwner(t *testing.T, res *httptest.ResponseRec
 	require.True(t, reply.Data.AccessToken != "", "no full access token after a valid second step")
 	require.Equal(t, actor.user.Id, reply.Data.User.ID)
 	require.NotEmpty(t, reply.Data.Session.SID)
-	require.EqualValues(t, 1, h.count(t, &model.UserSession{}, "sid = ? AND user_id = ? AND auth_version = ? AND status = ?",
+	require.EqualValues(t, 1, h.count(t, &model.UserSession{}, "sid = ? AND user_id = ? AND user_auth_version = ? AND status = ?",
 		reply.Data.Session.SID, actor.user.Id, version, model.UserSessionStatusActive))
 	self := h.request("GET", "/api/user/self", "", reply.Data.AccessToken)
 	require.Equal(t, http.StatusOK, self.Code)
