@@ -5,6 +5,7 @@
 pub mod accounts;
 pub mod billing;
 pub mod config;
+pub mod events;
 pub mod funding;
 pub mod http;
 pub mod identity;
