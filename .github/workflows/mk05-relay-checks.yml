@@ -1,15 +1,6 @@
 name: MK05 relay checks
 on:
-  push:
-    branches: [wip/mk-05-relay]
-  pull_request:
-    branches: [wip/rust-core-go-extensions]
-    paths:
-      - apps/core-rust/**
-      - apps/api-go/**
-      - proto/**
-      - scripts/test-core-boundaries.py
-      - .github/workflows/mk05-relay-checks.yml
+  workflow_dispatch:
 permissions:
   contents: read
 concurrency:

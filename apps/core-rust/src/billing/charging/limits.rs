@@ -69,7 +69,12 @@ pub(super) async fn budgets(c: &mut PgConnection, charge: &Charge, total: i64) -
     Ok(())
 }
 
-pub(super) async fn sources(c: &mut PgConnection, payer: &Payer, price: &Price, now: i64) -> Result<Vec<Source>> {
+pub(super) async fn sources(
+    c: &mut PgConnection,
+    payer: &Payer,
+    price: &Price,
+    now: i64,
+) -> Result<Vec<Source>> {
     let mut subscriptions = Vec::new();
     if payer.preference != "wallet_only" {
         let rows = sqlx::query(
@@ -109,7 +114,12 @@ pub(super) async fn sources(c: &mut PgConnection, payer: &Payer, price: &Price, 
     }
 }
 
-pub(super) async fn entitlement(c: &mut PgConnection, charge: &Charge, total: i64, now: i64) -> Result<()> {
+pub(super) async fn entitlement(
+    c: &mut PgConnection,
+    charge: &Charge,
+    total: i64,
+    now: i64,
+) -> Result<()> {
     let Source::Subscription { id, start, end } = charge.source else {
         return Ok(());
     };
