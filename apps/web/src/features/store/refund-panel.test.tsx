@@ -948,11 +948,28 @@ test('buyer can cancel only a requested refund using its existing refund identit
 })
 
 test('seller synchronizes gateway receipts without supplying an amount or initiating another refund', async () => {
-  const reviewed = { ...view, payment_method: 'platform:waffo_pancake', supports_provider_sync: true,
-    provider_reconciliation_pending: true, refunds: [{ ...refund, status: 'provider_review', requested_role: 'provider', amount_minor: 25 }] }
+  const reviewed = {
+    ...view,
+    payment_method: 'platform:waffo_pancake',
+    supports_provider_sync: true,
+    provider_reconciliation_pending: true,
+    refunds: [
+      {
+        ...refund,
+        status: 'provider_review',
+        requested_role: 'provider',
+        amount_minor: 25,
+      },
+    ],
+  }
   const records = requests(() => envelope(reviewed))
-  await mount(<StoreRefundPanel orderId={orderId} audience='seller' initiallyOpen />)
-  assert.match(document.body.textContent || '', /Refund issued by the payment provider/)
+  await mount(
+    <StoreRefundPanel orderId={orderId} audience='seller' initiallyOpen />
+  )
+  assert.match(
+    document.body.textContent || '',
+    /Refund issued by the payment provider/
+  )
   assert.equal(hasButton('Issue refund'), false)
   assert.equal(hasButton('Approve'), false)
   await click(button('Sync with payment provider'))
@@ -964,8 +981,16 @@ test('seller synchronizes gateway receipts without supplying an amount or initia
 })
 
 test('buyer cannot trigger provider synchronization or create a refund while provider receipts need review', async () => {
-  requests(() => envelope({ ...view, supports_provider_sync: true, provider_reconciliation_pending: true }))
-  await mount(<StoreRefundPanel orderId={orderId} audience='buyer' initiallyOpen />)
+  requests(() =>
+    envelope({
+      ...view,
+      supports_provider_sync: true,
+      provider_reconciliation_pending: true,
+    })
+  )
+  await mount(
+    <StoreRefundPanel orderId={orderId} audience='buyer' initiallyOpen />
+  )
   assert.equal(hasButton('Sync with payment provider'), false)
   assert.equal(hasButton('Request refund'), false)
   assert.match(document.body.textContent || '', /do not issue another refund/)

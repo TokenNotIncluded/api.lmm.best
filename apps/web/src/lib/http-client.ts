@@ -21,7 +21,6 @@ import { t } from 'i18next'
 import { toast } from 'sonner'
 
 import { signInHref } from '@/features/auth/lib/auth-redirect'
-
 import {
   applyAuthRotation,
   clearAuthentication,

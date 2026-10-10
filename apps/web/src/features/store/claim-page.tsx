@@ -104,7 +104,8 @@ function StoreClaimContent({ token }: { token: string }) {
       </div>
       <StoreError error={error} />
       {error instanceof StoreAPIError &&
-        (error.status === 401 || error.code === 'STORE_PICKUP_ACCOUNT_REQUIRED') && (
+        (error.status === 401 ||
+          error.code === 'STORE_PICKUP_ACCOUNT_REQUIRED') && (
           <Button render={<a href={signInHref(window.location, true)} />}>
             {t('Sign in with the purchasing account')}
           </Button>
@@ -131,13 +132,7 @@ function StoreClaimContent({ token }: { token: string }) {
             value={window.location.href}
             label='Copy collection link'
           />
-          <Button
-            render={
-              <a
-                href={signInHref(window.location, true)}
-              />
-            }
-          >
+          <Button render={<a href={signInHref(window.location, true)} />}>
             {t('Sign in')}
           </Button>
         </div>

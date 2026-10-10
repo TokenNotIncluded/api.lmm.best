@@ -78,15 +78,18 @@ export class StoreAPIError extends Error {
   readonly orderCancelled?: boolean
   readonly requestKey?: string
   readonly orderCreated?: boolean
-  constructor(body?: {
-    code?: unknown
-    message?: unknown
-    order_id?: unknown
-    order_status?: unknown
-    order_cancelled?: unknown
-    request_key?: unknown
-    order_created?: unknown
-  }, status?: number) {
+  constructor(
+    body?: {
+      code?: unknown
+      message?: unknown
+      order_id?: unknown
+      order_status?: unknown
+      order_cancelled?: unknown
+      request_key?: unknown
+      order_created?: unknown
+    },
+    status?: number
+  ) {
     super(errorMessage(body))
     this.name = 'StoreAPIError'
     this.status = status
@@ -115,7 +118,10 @@ async function unwrap<T>(request: Promise<{ data: Envelope<T> }>) {
         response?: { data?: ConstructorParameters<typeof StoreAPIError>[0] }
       }
     )?.response?.data
-    throw new StoreAPIError(body, (error as { response?: { status?: number } })?.response?.status)
+    throw new StoreAPIError(
+      body,
+      (error as { response?: { status?: number } })?.response?.status
+    )
   }
   if (response.data.success !== true) {
     throw new StoreAPIError(response.data)

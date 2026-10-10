@@ -56,7 +56,8 @@ const statusLabels = {
   requested: 'Refund requested',
   awaiting_provider: 'Awaiting payment provider',
   reconciliation_required: 'Payment refunded; platform settlement pending',
-  provider_review: 'Provider refund confirmed; conflicting requests need review',
+  provider_review:
+    'Provider refund confirmed; conflicting requests need review',
   completed: 'Refund completed',
   rejected: 'Refund rejected',
   cancelled: 'Refund request cancelled',
@@ -285,7 +286,9 @@ export function StoreRefundPanel({
                 {refundView.provider_reconciliation_pending && (
                   <Alert>
                     <AlertDescription>
-                      {t('The payment provider has returned funds. Local reconciliation is pending; do not issue another refund.')}
+                      {t(
+                        'The payment provider has returned funds. Local reconciliation is pending; do not issue another refund.'
+                      )}
                     </AlertDescription>
                   </Alert>
                 )}
@@ -748,10 +751,17 @@ export function StorePickupRefunds({
   const user = useAuthStore((state) => state.auth.user)
   const [code, setCode] = useState('')
   const [proof, setProof] = useState<StorePickupRefundProof | undefined>()
-  if (metadata.pickup_login_required && !metadata.pickup_login_satisfied && metadata.status !== 'refunded') {
+  if (
+    metadata.pickup_login_required &&
+    !metadata.pickup_login_satisfied &&
+    metadata.status !== 'refunded'
+  ) {
     return null
   }
-  if (metadata.pickup_login_required && (!user || !metadata.pickup_login_satisfied)) {
+  if (
+    metadata.pickup_login_required &&
+    (!user || !metadata.pickup_login_satisfied)
+  ) {
     return (
       <div className='space-y-3 rounded-lg border p-4'>
         <p className='text-sm'>
@@ -760,11 +770,7 @@ export function StorePickupRefunds({
         <Button
           size='sm'
           variant='outline'
-          render={
-            <a
-              href={signInHref(window.location, true)}
-            />
-          }
+          render={<a href={signInHref(window.location, true)} />}
         >
           {t('Sign in')}
         </Button>
