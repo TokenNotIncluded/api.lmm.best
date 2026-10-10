@@ -51,7 +51,7 @@ HTTP 请求字段说明通过 `cmd/assistant-contracts` 从本仓库 Go 源码�
 ## 验证与维护
 
 ```sh
-cd apps/api-go
+cd apps/lmm-extensions
 go generate ./controller
 go test ./controller ./router ./middleware ./internal/agent ./internal/assistantcontracts ./setting
 ```

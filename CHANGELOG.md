@@ -129,7 +129,7 @@ authenticated users then see it once after their next login.
   atomically with token quota. Settlement records distinguish measured cost,
   committed payment and outstanding adjustments, including reset/deleted-key
   cases. Upgrades require draining old writers and migrating the schema; see
-  [billing upgrade and rollback constraints](apps/api-go/service/subscription_billing.md).
+  [billing upgrade and rollback constraints](apps/lmm-extensions/service/subscription_billing.md).
 - Go Responses streams retain terminal usage and report interrupted streams
   without replaying consumed output or refunding its completed consumption.
   Upstream SSE heartbeats and Ollama final-frame content are preserved.

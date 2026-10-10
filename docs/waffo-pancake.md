@@ -1,3 +1,5 @@
+> 历史 Go 单体参考。以下接口、数据库变更和测试命令适用于 `main@e1d04c82`，不代表新的 Go 扩展已经实现。WIP 中禁止执行旧库升级命令。
+
 # Waffo Pancake（测试环境）
 
 当前 Go 后端使用官方 `github.com/waffo-com/waffo-pancake-sdk-go` 完成服务端集成。仓库根目录另外安装官方 `@waffo/pancake-ts`，仅供服务端 smoke runner 使用；不要把它放进 Web bundle：Waffo 的私钥只能留在服务端。

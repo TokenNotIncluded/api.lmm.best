@@ -14,7 +14,7 @@ Go database or from an earlier draft schema. Startup checks the exact fresh-sche
 fingerprint and refuses a different contract.
 
 ```sh
-cd apps/core-rust
+cd apps/lmm-core
 cargo run --locked --bin lmm-core-admin -- init-db
 # Public registration is disabled unless explicitly enabled.
 export LMM_CORE_REGISTRATION_ENABLED=true

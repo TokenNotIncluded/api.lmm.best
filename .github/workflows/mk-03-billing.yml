@@ -33,17 +33,17 @@ jobs:
         id: rust
         run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
       - name: Compile and run charging PostgreSQL contract tests
-        working-directory: apps/core-rust
+        working-directory: apps/lmm-core
         shell: bash
         run: |
           set -o pipefail
           cargo test --locked --test charging 2>&1 | tee "$RUNNER_TEMP/mk-03-tests.log"
       - name: Lint charging test target
-        working-directory: apps/core-rust
+        working-directory: apps/lmm-core
         run: cargo clippy --locked --test charging -- -D warnings
       - name: Preserve test evidence and formatting suggestions
         if: ${{ always() && steps.checkout.outcome == 'success' && steps.rust.outcome == 'success' }}
-        working-directory: apps/core-rust
+        working-directory: apps/lmm-core
         shell: bash
         run: |
           cargo fmt --all

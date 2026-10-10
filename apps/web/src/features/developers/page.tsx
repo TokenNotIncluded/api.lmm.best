@@ -212,7 +212,7 @@ export function DevelopersPage() {
             <PricingExample />
             <a
               className='mt-4 inline-block text-sm underline underline-offset-4'
-              href={`${LMM_SOURCE}/blob/main/apps/api-go/service/oauth_catalog.go`}
+              href={`${LMM_SOURCE}/blob/main/apps/lmm-extensions/service/oauth_catalog.go`}
               target='_blank'
               rel='noopener noreferrer'
             >
@@ -291,7 +291,7 @@ export function DevelopersPage() {
                 {t('Discovery')}
               </a>
               <a
-                href={`${LMM_SOURCE}/blob/main/apps/api-go/service/oauth_server.go`}
+                href={`${LMM_SOURCE}/blob/main/apps/lmm-extensions/service/oauth_server.go`}
                 target='_blank'
                 rel='noopener noreferrer'
               >

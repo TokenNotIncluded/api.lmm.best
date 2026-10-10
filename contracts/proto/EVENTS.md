@@ -157,7 +157,7 @@ explicit business replay horizon and an archival/restore design.
 
 ## Final integration checklist (intentionally not performed by task 06)
 
-Install `apps/core-rust/schema/events.sql` once through the new fresh-db
+Install `apps/lmm-core/schema/events.sql` once through the new fresh-db
 initializer, after the core database is created. Install `SQLInboxSchema` in a
 separate extension database. Keep Go's role unable to connect to core SQL.
 Provision exact service-owned consumers and event types from trusted core
@@ -182,9 +182,9 @@ PostgreSQL environment with the repository's pinned Rust/Go tools:
 ```sh
 bash scripts/generate-core-protocol.sh --check
 python3 -B scripts/test-core-boundaries.py
-(cd apps/core-rust && cargo fmt --all --check && cargo clippy --locked --all-targets -- -D warnings && cargo test --locked --all-targets)
-(cd apps/api-go && go vet ./... && go test -race ./... -count=1)
-(cd apps/core-rust && cargo build --locked --example protocol-events-fixture)
+(cd apps/lmm-core && cargo fmt --all --check && cargo clippy --locked --all-targets -- -D warnings && cargo test --locked --all-targets)
+(cd apps/lmm-extensions && go vet ./... && go test -race ./... -count=1)
+(cd apps/lmm-core && cargo build --locked --example protocol-events-fixture)
 (cd contracts/proto/tests/go && go build -mod=readonly -o /tmp/mk06-go-fixture .)
 MK06_GO_FIXTURE=/tmp/mk06-go-fixture python3 contracts/proto/tests/process_recovery.py
 ```

@@ -6,7 +6,7 @@
 
 ## 当前已落地
 
-Rust 核心位于 `apps/core-rust`，Go 扩展的唯一源码目录为 `apps/api-go`。原 Go 单体和重复的 `apps/extensions-go` 目录已从本分支移除，旧源码可从 Git 历史查阅，不保留为运行时回退。前端和独立 LMM CLI 源码保留，但不能因此推导旧整站 API 仍可使用。
+Rust 核心位于 `apps/lmm-core`，Go 扩展的唯一源码目录为 `apps/lmm-extensions`。原 Go 单体和重复的 `apps/extensions-go` 目录已从本分支移除，旧源码可从 Git 历史查阅，不保留为运行时回退。前端和独立 LMM CLI 源码保留，但不能因此推导旧整站 API 仍可使用。
 
 核心已有个人/团队原生账号、平台权限分层、会话和 Key 校验、逐 Key 付款顺序、团队邀请和成员版本、审计事务、全新数据库安装、HTTP 接口及只读 Protobuf 通信。Go 宿主已有显式模块注册、启用列表、服务凭证隔离、每模块并发上限和独立启动关闭。
 

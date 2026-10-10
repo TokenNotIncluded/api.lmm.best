@@ -43,9 +43,9 @@ bun run typecheck
 bun run build
 ```
 
-`src/components/ai-elements/openui/library.tsx` 是组件和模型提示词的单一来源。生成器将提示词写到 `apps/api-go/controller/assistant_openui_prompt.txt`，Go 编译时嵌入。构建会检查生成文件是否过期。不要手改生成文件，也不要把账户数据或密钥写入提示词。新增组件后重新生成并一起提交。
+`src/components/ai-elements/openui/library.tsx` 是组件和模型提示词的单一来源。生成器将提示词写到 `apps/lmm-extensions/controller/assistant_openui_prompt.txt`，Go 编译时嵌入。构建会检查生成文件是否过期。不要手改生成文件，也不要把账户数据或密钥写入提示词。新增组件后重新生成并一起提交。
 
-在 `apps/api-go` 执行：
+在 `apps/lmm-extensions` 执行：
 
 ```sh
 go test ./controller -run TestAssistantOpenUIContract -count=1

@@ -26,7 +26,7 @@ Legacy account verification does not enable new registration. `RegisterEnabled`,
 
 ## Runtime scope and validation
 
-This behavior is implemented in `apps/api-go` and the shared web OAuth callback. The Rust preview has not implemented this verified-email/challenge migration contract. Its normal listener currently constructs federation state without enabling external providers; its separately configurable GitHub adapter and binding implementation must not be assumed to provide this Go guarantee.
+This behavior is implemented in `apps/lmm-extensions` and the shared web OAuth callback. The Rust preview has not implemented this verified-email/challenge migration contract. Its normal listener currently constructs federation state without enabling external providers; its separately configurable GitHub adapter and binding implementation must not be assumed to provide this Go guarantee.
 
 Focused Go tests cover numeric and legacy lookup, soft deletion, disabled registration, real TOTP/backup-code and signed Passkey verification, failed session issuance, account changes, concurrent completion and replay. PostgreSQL qualification exercises a real multi-connection pool, competing identity claims, backup-code rollback and session limits in isolated schemas. The server release qualification workflow runs those PostgreSQL tests with the required test DSN and schema opt-in. These tests do not establish deployment, live GitHub OAuth or physical-device acceptance.
 

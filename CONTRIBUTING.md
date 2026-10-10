@@ -27,7 +27,7 @@ Use the [Issue templates](.github/ISSUE_TEMPLATE) and
 ## Development setup
 
 Follow the [local development guide](docs/development.md) to configure PostgreSQL,
-Valkey, and `apps/api-go/.env`. Start Go with `just dev-go`, then run the frontend
+Valkey, and `apps/lmm-extensions/.env`. Start Go with `just dev-go`, then run the frontend
 in a separate terminal on port 5173 as shown in that guide.
 
 `just dev` requires a locally supplied `docker-compose.dev.yml`;
@@ -57,7 +57,7 @@ For application changes, run relevant formatting checks, lint, and tests. The
 root recipes include `just format-check`, `just lint`, and `just test`. Apply
 formatting only to files in scope; do not run whole-tree `just format` for a docs
 change. For production-facing code, also run `just build`, `just check`, and the
-relevant app-level checks in `apps/api-go`, `apps/core-rust`, `apps/extensions-go`, or `apps/web`.
+relevant app-level checks in `apps/lmm-extensions`, `apps/lmm-core`, or `apps/web`.
 
 Record actual commands, results, tested revision, and skipped checks with reasons.
 A syntax check or fixture test is not a full application, database, browser, or

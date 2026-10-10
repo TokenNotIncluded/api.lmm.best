@@ -30,7 +30,7 @@ adapter does not retry inference POSTs. The host may have its own retry policy.
 Local verification: Linux, Node.js 22.16.0, 36 passing tests and syntax/package
 checks, including mock OAuth HTTP, separate-process refresh locking, and a mock
 host process. This is not live Codewhale or production/billing acceptance.
-Backend tests: `cd apps/api-go && go test ./oauthserver -run TestCodewhale -count=1`.
+Backend tests: `cd apps/lmm-extensions && go test ./oauthserver -run TestCodewhale -count=1`.
 The registration tests passed in the initial GitHub CI run 35638700004; they
 were not run in the dependency-unavailable local review environment. Production rollout remains gated by real interoperability
 and billing tests; registering a client does not enable or deploy OAuth.
