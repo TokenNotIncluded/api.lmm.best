@@ -1,0 +1,85 @@
+{
+  "schema_version": 1,
+  "overall_status": "unverified",
+  "application_capacity_claim_allowed": false,
+  "rows": [
+    {
+      "check": "baseline_integration_admission",
+      "status": "failed",
+      "scope": "static_source",
+      "reason": "The requested base intentionally does not wire model traffic and billing. This is a precondition failure, not an observed production outage."
+    },
+    {
+      "check": "probe_parser_and_safety",
+      "status": "verified",
+      "scope": "local_fixture",
+      "reason": "40 local tests passed on final tool source."
+    },
+    {
+      "check": "bounded_http_fixture_repeats",
+      "status": "verified",
+      "scope": "process_fixture",
+      "reason": "18 runs, 3 repeats per case, 156 model probes; no automatic replay. Python fixture only."
+    },
+    {
+      "check": "ledger_error_detection",
+      "status": "verified",
+      "scope": "synthetic_verifier_input",
+      "reason": "Detects balanced double debits, duplicate entries, missing revisions and duplicated effects; NOT a real PostgreSQL result."
+    },
+    {
+      "check": "one_node_1c1g_application",
+      "status": "unverified",
+      "scope": "application",
+      "reason": "No Docker, Rust or PostgreSQL executable; enclosing cgroup is 4 CPU / 4 GiB and read-only."
+    },
+    {
+      "check": "normal_twenty_updates_three_repeats",
+      "status": "unverified",
+      "scope": "application",
+      "reason": "Schedule template exists; no Go/Rust/config/frontend releases were executed."
+    },
+    {
+      "check": "normal_zero_interruption_money_effects",
+      "status": "unverified",
+      "scope": "application",
+      "reason": "Actual model, ledger and effect exporters are not connected."
+    },
+    {
+      "check": "eight_faults_and_forced_death",
+      "status": "unverified",
+      "scope": "application",
+      "reason": "Only contracts exist. No application/node/database/disk/controller fault was injected."
+    },
+    {
+      "check": "three_independent_nodes",
+      "status": "unverified",
+      "scope": "independent_nodes",
+      "reason": "No isolated independent nodes provided."
+    },
+    {
+      "check": "five_independent_nodes",
+      "status": "unverified",
+      "scope": "independent_nodes",
+      "reason": "No isolated independent nodes provided."
+    },
+    {
+      "check": "resources_connections_processes",
+      "status": "unverified",
+      "scope": "application",
+      "reason": "Fixture process observations cannot stand in for per-node application peaks."
+    },
+    {
+      "check": "disk_retention_and_recovery",
+      "status": "unverified",
+      "scope": "application",
+      "reason": "No actual layers, logs, WAL, quota or retention recovery observations."
+    },
+    {
+      "check": "final_integrated_sha_rerun",
+      "status": "unverified",
+      "scope": "application",
+      "reason": "The audited base is fixed; final combined integration SHA is not available."
+    }
+  ]
+}

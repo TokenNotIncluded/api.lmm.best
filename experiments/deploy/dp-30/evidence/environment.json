@@ -1,0 +1,30 @@
+{
+  "captured_at_utc": "2026-10-10T14:47:16.000334+00:00",
+  "kind": "process_sandbox_not_1c1g",
+  "platform": "Linux-6.18.44-x86_64-with-glibc2.41",
+  "python": "3.13.5",
+  "tools": {
+    "git": "/usr/bin/git",
+    "docker": null,
+    "podman": null,
+    "cargo": null,
+    "rustc": null,
+    "go": "/usr/local/go/bin/go",
+    "psql": null,
+    "postgres": null,
+    "taskset": "/usr/bin/taskset"
+  },
+  "cgroup_memory_max": "4294967296",
+  "cgroup_cpu_max": "400000 100000",
+  "cgroup_writable": false,
+  "allowed_cpus": 5,
+  "disk_total_bytes": 33770192896,
+  "disk_free_bytes": 32029917184,
+  "git_clone_attempt": {
+    "returncode": 128,
+    "error": "Could not resolve host: github.com"
+  },
+  "remote_actions": [],
+  "verified_application_runs": 0,
+  "verified_1c1g_nodes": 0
+}
