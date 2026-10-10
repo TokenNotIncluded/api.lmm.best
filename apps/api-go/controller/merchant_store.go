@@ -41,6 +41,8 @@ func merchantStoreRespond(c *gin.Context, value any, err error) {
 		status, code, message = http.StatusNotFound, "STORE_NOT_FOUND", "The shop item or order was not found."
 	case errors.Is(err, model.ErrMerchantStoreInput):
 		status, code, message = http.StatusUnprocessableEntity, "STORE_INVALID_INPUT", "Please check the shop information and amounts."
+	case errors.Is(err, model.ErrMerchantStoreRefundReconciliation):
+		status, code, message = http.StatusConflict, "STORE_REFUND_RECONCILIATION", "The payment provider has returned funds. Local reconciliation is pending; do not issue another refund."
 	case errors.Is(err, model.ErrMerchantStoreRefundUnsupported):
 		status, code, message = http.StatusConflict, "STORE_REFUND_EVIDENCE_REQUIRED", "This payment needs verified provider evidence before a partial refund."
 	case errors.Is(err, model.ErrMerchantStoreWriterFrozen):
@@ -55,6 +57,10 @@ func merchantStoreRespond(c *gin.Context, value any, err error) {
 		status, code, message = http.StatusUnprocessableEntity, "STORE_PAYMENT_SELECTION_UNAVAILABLE", "Select only currently enabled merchant payment methods."
 	case errors.Is(err, model.ErrMerchantStorePaymentCategoryDisabled):
 		status, code, message = http.StatusConflict, "STORE_PAYMENT_CATEGORY_DISABLED", "The merchant has disabled this payment category."
+	case errors.Is(err, model.ErrMerchantStorePickupCode):
+		status, code, message = http.StatusForbidden, "STORE_PICKUP_CODE_INVALID", "The pickup code does not match. Use the code provided with this order, not the pickup link or your account password."
+	case errors.Is(err, model.ErrMerchantStorePickupAccount):
+		status, code, message = http.StatusForbidden, "STORE_PICKUP_ACCOUNT_REQUIRED", "Sign in with the purchasing account to collect this order."
 	case errors.Is(err, model.ErrMerchantStoreDenied), errors.Is(err, service.ErrMerchantStorePaymentAccess):
 		status, code, message = http.StatusForbidden, "STORE_ACCESS_DENIED", "This shop operation is not available to this account."
 	case errors.Is(err, model.ErrMerchantStoreConflict), errors.Is(err, model.ErrMerchantStorePendingLimit):

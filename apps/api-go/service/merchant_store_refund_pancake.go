@@ -158,6 +158,7 @@ type merchantStorePancakeRefundQueryTicket struct {
 }
 
 type merchantStorePancakeRefundQueryExecution struct {
+	PaymentID                      string                         `json:"paymentId"`
 	ID                             string                         `json:"id"`
 	Status                         string                         `json:"status"`
 	OrderMerchantExternalID        string                         `json:"orderMerchantExternalId"`

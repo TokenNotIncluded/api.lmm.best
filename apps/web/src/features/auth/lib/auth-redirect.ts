@@ -78,3 +78,20 @@ export function sanitizeAuthRedirect(
 
   return `${redirectURL.pathname}${redirectURL.search}${redirectURL.hash}`
 }
+
+// Keep the complete local destination. Explicit reauthentication displays the
+// sign-in form even when an expired or different account is still in memory.
+// It does not clear a session, refresh a cookie or submit a login by itself.
+export function signInHref(
+  location: Pick<Location, 'origin' | 'pathname' | 'search' | 'hash'>,
+  reauthenticate = false
+): string {
+  const target = sanitizeAuthRedirect(
+    `${location.pathname}${location.search}${location.hash}`,
+    location.origin
+  )
+  const params = new URLSearchParams()
+  if (target && location.pathname !== '/sign-in') params.set('redirect', target)
+  if (reauthenticate) params.set('reauth', '1')
+  return `/sign-in${params.size ? `?${params}` : ''}`
+}

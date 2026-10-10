@@ -50,6 +50,10 @@ function fixture() {
       deltaY,
       ...options,
     } as ConstructorParameters<typeof view.WheelEvent>[1])
+    // Happy DOM omits wheel modifiers. Set the browser fields explicitly.
+    for (const key of ['ctrlKey', 'altKey', 'metaKey', 'shiftKey'] as const) {
+      Object.defineProperty(event, key, { value: options[key] ?? false })
+    }
     target.dispatchEvent(event)
     return event
   }

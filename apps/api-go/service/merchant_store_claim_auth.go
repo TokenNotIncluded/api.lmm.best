@@ -50,7 +50,11 @@ func MerchantStoreClaimHasAuthorization(request *http.Request) bool {
 // MerchantStoreClaimBuyerMatches is only an order-scoped ownership check. It
 // never grants an identity to other APIs and returns no account information.
 func MerchantStoreClaimBuyerMatches(token string, buyerID int) bool {
-	order, err := merchantStoreClaimPaidOrder(token)
+	metadata, err := model.InspectMerchantStoreClaim(token)
+	if err != nil {
+		return false
+	}
+	order, err := model.GetMerchantStorePaymentOrder(metadata.OrderID)
 	if err != nil || buyerID <= 0 || order.BuyerID != buyerID {
 		return false
 	}

@@ -896,7 +896,7 @@ func InspectMerchantStoreClaim(token string) (*MerchantStoreClaimMetadata, error
 		return nil, ErrMerchantStoreDenied
 	}
 	var o MerchantStoreOrder
-	if e := DB.Where("pickup_token_hash = ? AND status IN ?", storeHash(token), []string{"paid", "refund_pending"}).First(&o).Error; e != nil {
+	if e := DB.Where("pickup_token_hash = ? AND status IN ?", storeHash(token), []string{"paid", "refund_pending", "refunded"}).First(&o).Error; e != nil {
 		return nil, ErrMerchantStoreDenied
 	}
 	return &MerchantStoreClaimMetadata{Status: o.Status, OrderID: o.ID, ProductTitle: o.ProductTitle, VariantID: o.VariantID, VariantName: o.VariantName, DeliveryTemplate: o.DeliveryTemplate, Quantity: o.Quantity, PickupLoginRequired: o.PickupLoginRequired, PickupCodeRequired: o.PickupCodeRequired || o.PickupCodeHash != ""}, nil
@@ -928,14 +928,19 @@ func ClaimMerchantStoreOrderWithAuthorization(token, code string, buyerID int, a
 		}
 		if o.PickupLoginRequired {
 			if buyerID != o.BuyerID {
-				return ErrMerchantStoreDenied
+				return ErrMerchantStorePickupAccount
 			}
 			if _, e := storeUser(tx, buyerID, common.RoleCommonUser); e != nil {
 				return e
 			}
 		}
 		if (o.PickupCodeRequired || o.PickupCodeHash != "") && bcrypt.CompareHashAndPassword([]byte(o.PickupCodeHash), []byte(code)) != nil {
-			return ErrMerchantStoreDenied
+			return ErrMerchantStorePickupCode
+		}
+		if o.Status == "refund_pending" {
+			if e := storeRefundRequireNoExternalReview(tx, o.ID); e != nil {
+				return e
+			}
 		}
 		if storeFixedDelivery(o) {
 			quantity, e := storeFixedAvailableQuantity(tx, o, false)

@@ -1,8 +1,10 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"gorm.io/gorm"
 
 	"github.com/LIghtJUNction/api.lmm.best/model"
 )
@@ -68,10 +70,13 @@ func merchantStoreRecordLinuxDORefundBasis(orderID, receipt string, verifiedMino
 	return e
 }
 
-func merchantStoreHandleRefundNotification(order *model.MerchantStoreOrder, payload []byte, signature, refundID string) error {
+func merchantStoreHandleRefundNotification(ctx context.Context, order *model.MerchantStoreOrder, payload []byte, signature, refundID string) error {
 	d, e := model.GetMerchantStoreRefundDispatchSnapshot(refundID)
 	if errors.Is(e, model.ErrMerchantStoreWriterFrozen) {
 		return ErrMerchantStorePaymentIgnored
+	}
+	if errors.Is(e, gorm.ErrRecordNotFound) || errors.Is(e, model.ErrMerchantStoreInput) || errors.Is(e, model.ErrMerchantStoreConflict) {
+		return merchantStoreHandleExternalRefundNotification(ctx, order, payload, signature)
 	}
 	if e != nil || d == nil || d.Order.ID != order.ID {
 		return ErrMerchantStorePaymentVerification

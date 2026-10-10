@@ -104,7 +104,7 @@ func TestMerchantStoreRuntimeVerificationMissingFloorRequiresFullCatalog(t *test
 	var count int64
 	require.NoError(t, db.Model(&Option{}).Count(&count).Error)
 	require.Zero(t, count, "verification never creates an activation marker")
-	for _, value := range []string{"", "0", "8", "06", " 6", "6 ", "unknown"} {
+	for _, value := range []string{"", "0", fmt.Sprint(MerchantStoreWriterCapability + 1), "06", " 6", "6 ", "unknown"} {
 		t.Run(fmt.Sprintf("invalid-%q", value), func(t *testing.T) {
 			require.NoError(t, db.Where("key = ?", MerchantStoreWriterCapabilityOption).Delete(&Option{}).Error)
 			require.NoError(t, db.Create(&Option{Key: MerchantStoreWriterCapabilityOption, Value: value}).Error)

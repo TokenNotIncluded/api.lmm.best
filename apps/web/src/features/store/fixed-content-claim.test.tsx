@@ -240,3 +240,55 @@ test('a required or rejected pickup code never reveals fixed content', async () 
   assertPrivateContentHidden()
   assert.match(document.body.textContent || '', /Pickup code does not match/)
 })
+
+test('expired pickup authentication offers reauthentication without dropping the order or collecting content', async () => {
+  const path = `/store/claim/${token}?source=receipt#refunds`
+  dom.history.replaceState({}, '', path)
+  let posts = 0
+  api.post = (async () => {
+    posts++
+    throw {
+      response: {
+        status: 401,
+        data: { success: false, message: 'Session expired' },
+      },
+    }
+  }) as typeof api.post
+  await mount()
+  await click(buttons('Collect items')[0])
+  const link = document.querySelector<HTMLAnchorElement>('a[href*="reauth=1"]')
+  assert.ok(link)
+  const target = new URL(link.href)
+  assert.equal(target.searchParams.get('redirect'), path)
+  assert.equal(target.searchParams.get('reauth'), '1')
+  assertPrivateContentHidden()
+  assert.equal(
+    posts,
+    1,
+    'a failure is not retried as a second collection request'
+  )
+  dom.history.replaceState({}, '', `/store/claim/${token}`)
+})
+
+test('wrong purchasing account can return through the sign-in form with the same pickup link', async () => {
+  await mount({ pickup_login_required: true, pickup_login_satisfied: false })
+  const link = document.querySelector<HTMLAnchorElement>('a[href*="reauth=1"]')
+  assert.ok(link)
+  assert.equal(
+    new URL(link.href).searchParams.get('redirect'),
+    `/store/claim/${token}`
+  )
+  assert.equal(buttons('Collect items').length, 0)
+  assertPrivateContentHidden()
+})
+
+test('refunded account-protected pickup retains sign-in for refund history, never collection', async () => {
+  await mount({
+    status: 'refunded',
+    pickup_login_required: true,
+    pickup_login_satisfied: false,
+  })
+  assert.equal(buttons('Collect items').length, 0)
+  assertPrivateContentHidden()
+  assert.ok(document.querySelector('a[href*="reauth=1"]'))
+})

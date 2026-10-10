@@ -6,6 +6,7 @@ export type StoreRefundStatus =
   | 'requested'
   | 'awaiting_provider'
   | 'reconciliation_required'
+  | 'provider_review'
   | 'completed'
   | 'rejected'
   | 'cancelled'
@@ -43,6 +44,8 @@ export interface StoreRefund {
 }
 
 export interface StoreRefundView {
+  supports_provider_sync?: boolean
+  provider_reconciliation_pending?: boolean
   delivery_template?: string
   order_id: string
   product_title: string

@@ -2,6 +2,7 @@ package model
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -340,7 +341,7 @@ func TestMerchantStoreFixedContentFullDiscountAndFutureFloorPreserveDelivery(t *
 	require.Zero(t, transfers)
 	token, err := GetMerchantStoreOrderPickupToken(f.buyer.Id, o.ID)
 	require.NoError(t, err)
-	storeWriterGateForTest(t, "8")
+	storeWriterGateForTest(t, strconv.Itoa(MerchantStoreWriterCapability+1))
 	_, _, err = CreateMerchantStoreOrder(storeFixedCheckout(t, f, "new-future-floor", "balance"))
 	require.ErrorIs(t, err, ErrMerchantStoreWriterFrozen)
 	claim, err := ClaimMerchantStoreOrder(token, "safe-pickup-code", f.buyer.Id)

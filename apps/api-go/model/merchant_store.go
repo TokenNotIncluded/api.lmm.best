@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"errors"
+	"fmt"
 	"net/url"
 	"regexp"
 	"strings"
@@ -22,14 +23,16 @@ const MerchantStoreDisclaimerVersion = "merchant-store-v1"
 const MerchantStoreExternalMinimumQuota = 10 * MerchantStoreCreditsPerUSD
 
 var (
-	ErrMerchantStoreInput        = errors.New("invalid store input")
-	ErrMerchantStoreDenied       = errors.New("store access denied")
-	ErrMerchantStoreConflict     = errors.New("store request conflict")
-	ErrMerchantStoreBalance      = errors.New("insufficient store wallet balance")
-	ErrMerchantStoreStock        = errors.New("insufficient store inventory")
-	ErrMerchantStoreDisclaimer   = errors.New("current merchant disclaimer must be accepted")
-	ErrMerchantStorePendingLimit = errors.New("too many unpaid store orders")
-	ErrMerchantStoreUnavailable  = errors.New("store product unavailable")
+	ErrMerchantStoreInput         = errors.New("invalid store input")
+	ErrMerchantStoreDenied        = errors.New("store access denied")
+	ErrMerchantStorePickupCode    = fmt.Errorf("%w: pickup code mismatch", ErrMerchantStoreDenied)
+	ErrMerchantStorePickupAccount = fmt.Errorf("%w: purchasing account required", ErrMerchantStoreDenied)
+	ErrMerchantStoreConflict      = errors.New("store request conflict")
+	ErrMerchantStoreBalance       = errors.New("insufficient store wallet balance")
+	ErrMerchantStoreStock         = errors.New("insufficient store inventory")
+	ErrMerchantStoreDisclaimer    = errors.New("current merchant disclaimer must be accepted")
+	ErrMerchantStorePendingLimit  = errors.New("too many unpaid store orders")
+	ErrMerchantStoreUnavailable   = errors.New("store product unavailable")
 )
 
 type MerchantStoreLink struct {
