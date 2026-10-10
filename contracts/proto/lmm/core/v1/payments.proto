@@ -1,0 +1,109 @@
+syntax = "proto3";
+package lmm.core.v1;
+option go_package = "github.com/TokenNotIncluded/api.lmm.best/extensions/internal/corepb;corepb";
+import "lmm/core/v1/commands.proto";
+
+// Task 10 handoff, NOT registered. User actions need current user authorization
+// plus service permissions. Provider-driven transitions require independently
+// verified provider evidence and a core-issued intent/authority, not merely a
+// service token. Go cannot assert that a provider event has been verified.
+service CorePayments {
+  rpc PrepareTopup(PrepareTopupRequest) returns (PaymentIntent);
+  rpc CreditTopup(CreditTopupRequest) returns (PaymentReceipt);
+  rpc HoldRefund(HoldRefundRequest) returns (PaymentReceipt);
+  rpc CommitRefund(ResolveRefundRequest) returns (PaymentReceipt);
+  rpc ReleaseRefund(ResolveRefundRequest) returns (PaymentReceipt);
+  rpc ApplyExternalRefund(ExternalRefundRequest) returns (PaymentReceipt);
+  rpc GetPaymentReceipt(GetPaymentReceiptRequest) returns (PaymentReceipt);
+}
+message ExternalPaymentReference {
+  string provider = 1;
+  string merchant = 2;
+  string environment = 3;
+  string transaction = 4;
+}
+message ProviderEvidence {
+  ExternalPaymentReference payment = 1;
+  // Bounded original bytes and signature from a configured adapter. Core must
+  // independently verify signature, merchant, amount, currency, event identity
+  // and replay state. No endpoint URL, secret or caller-set 'verified' flag.
+  bytes signed_payload = 2;
+  bytes signature = 3;
+  string provider_event_id = 4;
+}
+message PrepareTopupRequest {
+  MutationContext mutation = 1;
+  int64 account_id = 2; // core_identity.accounts.id; explicit personal/team account.
+  int64 payment_channel_id = 3; // Core-owned allowlisted merchant configuration.
+  string currency = 4; // ISO code, e.g. USD. Core validates channel and currency.
+  int64 amount_minor = 5; // Requested positive external smallest units, not credit.
+}
+message PaymentIntent {
+  int64 intent_id = 1;
+  int64 account_id = 2;
+  int64 created_by_user_id = 3; // Output only, from authenticated identity.
+  string provider = 4;
+  string merchant = 5;
+  string environment = 6;
+  string currency = 7;
+  int64 amount_minor = 8;
+  int64 credit_units = 9; // Core-frozen conversion/policy, never Go-calculated.
+  string credit_unit = 10; // credit_500k_usd.
+  string idempotency_key = 11;
+  bytes request_sha256 = 12;
+  string receipt_id = 13;
+}
+message CreditTopupRequest {
+  MutationContext mutation = 1;
+  int64 intent_id = 2;
+  ProviderEvidence evidence = 3;
+}
+message HoldRefundRequest {
+  MutationContext mutation = 1;
+  int64 intent_id = 2; // Must locate original credit even if Go lost its response.
+  int64 refund_amount_minor = 3;
+}
+message ResolveRefundRequest {
+  MutationContext mutation = 1;
+  int64 intent_id = 2;
+  string hold_receipt_id = 3;
+  // Commit requires verified provider success; release requires verified terminal
+  // failure. Missing/unknown evidence MUST NOT release a hold on timeout.
+  ProviderEvidence evidence = 4;
+}
+message ExternalRefundRequest {
+  MutationContext mutation = 1;
+  int64 intent_id = 2;
+  ProviderEvidence evidence = 3;
+  // Must handle a pre-credit refund, a lost credit response and an existing
+  // refund hold atomically. Persist a fence against later stale credit replay.
+}
+message GetPaymentReceiptRequest {
+  int64 intent_id = 1;
+  string idempotency_key = 2; // Resolved inside authenticated scope, not global.
+  // Require topup.read or explicitly scoped reconcile authority.
+}
+enum PaymentReceiptState {
+  PAYMENT_RECEIPT_STATE_UNSPECIFIED = 0;
+  PAYMENT_RECEIPT_STATE_CREDIT_APPLIED = 1;
+  PAYMENT_RECEIPT_STATE_REFUND_HELD = 2;
+  PAYMENT_RECEIPT_STATE_REFUND_COMMITTED = 3;
+  PAYMENT_RECEIPT_STATE_REFUND_RELEASED = 4;
+  PAYMENT_RECEIPT_STATE_EXTERNAL_REFUND_APPLIED = 5;
+  PAYMENT_RECEIPT_STATE_REJECTED = 6;
+}
+message PaymentReceipt {
+  string receipt_id = 1;
+  int64 intent_id = 2;
+  string idempotency_key = 3;
+  bytes request_sha256 = 4;
+  PaymentReceiptState state = 5;
+  int64 journal_id = 6; // When posted; cannot infer a credit from this field alone.
+  string rejection_code = 7;
+  // No accepted/queued success state. Return only durably committed states.
+  // Transport/database timeout remains an unknown result; query/repeat same key.
+}
+message PaymentStateChangedEvent {
+  PaymentReceipt receipt = 1;
+  int64 account_id = 2;
+}
