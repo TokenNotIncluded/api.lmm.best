@@ -34,13 +34,15 @@ jobs:
           POSTGRES_PASSWORD: postgres
         ports: ['5432:5432']
         options: >-
-          --health-cmd 'pg_isready -U postgres' --health-interval 5s
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
           --health-timeout 3s --health-retries 10
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        id: checkout
         with:
           persist-credentials: false
       - name: Install repository Rust toolchain
+        id: rust
         run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
       - name: Compile and run charging PostgreSQL contract tests
         working-directory: apps/core-rust
@@ -52,7 +54,7 @@ jobs:
         working-directory: apps/core-rust
         run: cargo clippy --locked --test charging -- -D warnings
       - name: Preserve test evidence and formatting suggestions
-        if: always()
+        if: ${{ always() && steps.checkout.outcome == 'success' && steps.rust.outcome == 'success' }}
         working-directory: apps/core-rust
         shell: bash
         run: |
