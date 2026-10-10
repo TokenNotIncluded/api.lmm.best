@@ -13,6 +13,8 @@ import (
 // Rules only narrow an existing capability. They never replace live role,
 // ownership, confirmation, payment, registration or service-grant checks.
 type AssistantToolRule struct {
+	Description *string `json:"description,omitempty"`
+	ParameterDescriptions map[string]string `json:"parameter_descriptions,omitempty"`
 	MinLevel               int            `json:"min_level"`
 	MaxLevel               int            `json:"max_level"`
 	DiscountPercentByLevel map[string]int `json:"discount_percent_by_level,omitempty"`
@@ -111,6 +113,19 @@ func decodeAssistantToolRules(decoder *json.Decoder) (map[string]AssistantToolRu
 			}
 			seen[key] = true
 			switch key {
+			case "description":
+				if err := decoder.Decode(&rule.Description); err != nil || rule.Description == nil {
+					return nil, invalid
+				}
+				if err := ValidateAssistantToolDescription(*rule.Description, AssistantToolDescriptionMaxBytes); err != nil {
+					return nil, err
+				}
+			case "parameter_descriptions":
+				descriptions, err := decodeAssistantToolParameterDescriptions(decoder)
+				if err != nil {
+					return nil, err
+				}
+				rule.ParameterDescriptions = descriptions
 			case "min_level", "max_level":
 				var value *int
 				if err := decoder.Decode(&value); err != nil || value == nil {
