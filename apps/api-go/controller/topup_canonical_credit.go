@@ -145,11 +145,19 @@ func canonicalTopUpCredit(c *gin.Context) (resolvedTopUpAmount, bool) {
 	return amount, exists && ok
 }
 
-func topUpConfigAmountFromResolved(amount resolvedTopUpAmount) decimal.Decimal {
-	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
-		return decimal.NewFromInt(amount.CreditedQuota)
+// topUpConfigAmountFromCredits adapts existing preset/coupon configuration to
+// the authoritative integer grant. A request's compatibility projection must
+// never select a different discount from its credited balance. This does not
+// rewrite persisted promotion amounts or alter their qualification policy.
+func topUpConfigAmountFromCredits(credits int64) (decimal.Decimal, error) {
+	if credits <= 0 || credits > common.MaxWalletQuota || !validQuotaPerUnit() {
+		return decimal.Zero, errors.New("invalid credit amount")
 	}
-	return amount.LegacyBatch
+	amount := decimal.NewFromInt(credits)
+	if operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens {
+		return amount, nil
+	}
+	return amount.Div(decimal.NewFromFloat(common.QuotaPerUnit)), nil
 }
 
 func quoteTopUpResolvedWithSettlementPricing(amount resolvedTopUpAmount, group string, pricing payMethodSettlementPricing, ratio decimal.Decimal) (decimal.Decimal, error) {
@@ -158,8 +166,9 @@ func quoteTopUpResolvedWithSettlementPricing(amount resolvedTopUpAmount, group s
 }
 
 func quoteTopUpResolvedSettlementAmounts(amount resolvedTopUpAmount, group string, pricing payMethodSettlementPricing, ratio decimal.Decimal) (decimal.Decimal, decimal.Decimal, error) {
-	if amount.CreditedQuota <= 0 || !validQuotaPerUnit() {
-		return decimal.Zero, decimal.Zero, errors.New("invalid credit amount")
+	configuredAmount, err := topUpConfigAmountFromCredits(amount.CreditedQuota)
+	if err != nil {
+		return decimal.Zero, decimal.Zero, err
 	}
 	anchor := decimal.Zero
 	if pricing.usesFixedCreditDenomination {
@@ -173,7 +182,7 @@ func quoteTopUpResolvedSettlementAmounts(amount resolvedTopUpAmount, group strin
 	if err != nil {
 		return decimal.Zero, decimal.Zero, err
 	}
-	original, paid := applyTopUpSettlementRatiosWithOriginal(settlement, topUpConfigAmountFromResolved(amount), group, ratio)
+	original, paid := applyTopUpSettlementRatiosWithOriginal(settlement, configuredAmount, group, ratio)
 	return original, paid, nil
 }
 
@@ -222,7 +231,11 @@ func applyDiscountCodeQuoteRequest(c *gin.Context, base decimal.Decimal, amount 
 	var discount *model.DiscountCode
 	var err error
 	if _, canonical := canonicalTopUpCredit(c); canonical {
-		paid, discount, err = applyDiscountCodeQuoteDecimal(base, topUpConfigAmountFromResolved(amount), code, userID)
+		configuredAmount, amountErr := topUpConfigAmountFromCredits(amount.CreditedQuota)
+		if amountErr != nil {
+			return decimal.Zero, nil, amountErr
+		}
+		paid, discount, err = applyDiscountCodeQuoteDecimal(base, configuredAmount, code, userID)
 	} else {
 		paid, discount, err = applyDiscountCodeQuoteLegacyDecimal(base, amount.LegacyBatch, code, userID)
 	}
