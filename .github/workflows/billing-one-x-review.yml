@@ -43,10 +43,27 @@ jobs:
           cache-dependency-path: |
             apps/api-go/go.sum
             apps/api-go/relaykit/go.sum
+      - name: Check Go formatting
+        working-directory: apps/api-go
+        run: bash ../../scripts/check-go-format.sh .
       - name: Test payment, price sync and billing packages
         working-directory: apps/api-go
         run: |
-          go test -p 2 -count=1 -timeout=5m ./common ./pkg/billingexpr ./setting/... ./relay/helper ./service ./controller ./model 2>&1 | tee "$RUNNER_TEMP/billing-go-tests.log"
+          go test -p 2 -count=1 -timeout=5m ./common ./pkg/billingexpr ./types ./setting/... ./relay/... ./service ./controller ./model 2>&1 | tee "$RUNNER_TEMP/billing-go-tests.log"
+      - name: Race-check precise billing calculations
+        working-directory: apps/api-go
+        run: |
+          go test -race -p 2 -count=1 -timeout=5m -run 'Test(ChargeQuota|TaskTokenQuota|OneXText|OneXTieredCache|OneXTieredTool|OneXMeasuredCache|OneXAudioUses|PerCallMultipliers|TaskReservation|RatioSyncUnitConfidence)' ./common ./model ./service ./controller ./relay
+      - name: Test independent relaykit
+        working-directory: apps/api-go/relaykit
+        env:
+          GOWORK: "off"
+        run: go test -p 2 -count=1 -timeout=5m ./...
+      - name: Build Go backend
+        working-directory: apps/api-go
+        env:
+          CGO_ENABLED: "0"
+        run: go build -p 2 -trimpath -o "$RUNNER_TEMP/lmm-billing-review" .
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
