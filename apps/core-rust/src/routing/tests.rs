@@ -935,7 +935,11 @@ async fn postgres_independent_price_staging_and_compare_and_swap(pool: PgPool) {
 #[test]
 #[ignore = "run explicitly with --release and --nocapture; see routing/README.md"]
 fn routing_benchmark() {
-    assert!(!cfg!(debug_assertions), "benchmark requires --release");
+    // Keep this runtime guard so debug builds can still compile the ignored benchmark.
+    assert!(
+        !std::hint::black_box(cfg!(debug_assertions)),
+        "benchmark requires --release"
+    );
     fn parameter(name: &str, default: usize, max: usize) -> usize {
         let value = std::env::var(name)
             .ok()
