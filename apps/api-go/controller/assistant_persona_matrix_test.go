@@ -165,6 +165,7 @@ func TestAssistantPersonaMatrix(t *testing.T) {
 				"list_my_api_keys",
 				"prepare_api_key_action",
 				"get_overview_greeting", "set_overview_greeting", "get_site_issues", "create_site_issue",
+				"get_ui_preference_options", "set_ui_preferences", "restore_ui_preferences",
 				"show_chart", "show_statistics", "show_choices", "show_flowchart",
 			)
 			if context.AdministratorMode || context.DeveloperAccessGranted {

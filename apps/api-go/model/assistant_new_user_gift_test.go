@@ -303,6 +303,8 @@ func TestAssistantNewUserGiftPreservesFractionalLegacyCreditRounding(t *testing.
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			db := setupAssistantGiftTestDB(t)
+			// Test denomination rounding independently of the exclusive reward cap.
+			putAssistantGiftCap(t, db, 36)
 			legacy := decimal.RequireFromString(tc.legacy)
 			common.QuotaPerUnit = legacy.InexactFloat64()
 			require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(3500000), legacy))
