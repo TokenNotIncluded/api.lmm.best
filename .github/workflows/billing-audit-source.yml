@@ -1,0 +1,25 @@
+name: Billing audit source
+on:
+  push:
+    branches: ['audit/billing-source-20261010']
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - name: Archive tracked source only
+        run: |
+          mkdir -p "$RUNNER_TEMP/source"
+          git rev-parse HEAD > "$RUNNER_TEMP/source/revision.txt"
+          git archive --format=tar.gz -o "$RUNNER_TEMP/source/source.tar.gz" HEAD
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: billing-audit-source
+          path: ${{ runner.temp }}/source
+          retention-days: 1
+          if-no-files-found: error
