@@ -116,7 +116,9 @@ impl Snapshot {
                 || !valid_id(upstream.credential.revision)
                 || upstreams.contains_key(&upstream.id)
             {
-                return Err(RoutingError::InvalidConfig("upstream or credential reference"));
+                return Err(RoutingError::InvalidConfig(
+                    "upstream or credential reference",
+                ));
             }
             let health = previous
                 .and_then(|old| old.upstreams.get(&upstream.id))
@@ -192,7 +194,13 @@ impl Snapshot {
                 }));
             }
             targets.sort_by_key(|target| target.config.priority);
-            group.routes.insert(route.model.clone(), Arc::new(Route { config: route, targets }));
+            group.routes.insert(
+                route.model.clone(),
+                Arc::new(Route {
+                    config: route,
+                    targets,
+                }),
+            );
         }
         for alias in config.aliases {
             if !valid_model(&alias.alias) || !valid_model(&alias.model) {
@@ -209,7 +217,10 @@ impl Snapshot {
             }
         }
         Ok(Self {
-            version: ReleaseVersion { routing: config.version, pricing: prices.version() },
+            version: ReleaseVersion {
+                routing: config.version,
+                pricing: prices.version(),
+            },
             prices,
             upstreams,
             groups,
@@ -225,7 +236,9 @@ pub struct Router {
 
 impl Router {
     pub fn new(config: RoutingConfig, prices: Arc<PriceSnapshot>) -> Result<Self, RoutingError> {
-        Ok(Self { active: RwLock::new(Arc::new(Snapshot::compile(config, prices, None)?)) })
+        Ok(Self {
+            active: RwLock::new(Arc::new(Snapshot::compile(config, prices, None)?)),
+        })
     }
 
     fn snapshot(&self) -> Result<Arc<Snapshot>, RoutingError> {
@@ -260,7 +273,10 @@ impl Router {
             return Err(RoutingError::PriceVersionConflict);
         }
         let next = Arc::new(Snapshot::compile(config, prices, Some(&previous))?);
-        let mut active = self.active.write().map_err(|_| RoutingError::LockPoisoned)?;
+        let mut active = self
+            .active
+            .write()
+            .map_err(|_| RoutingError::LockPoisoned)?;
         if active.version != expected {
             return Err(RoutingError::VersionConflict);
         }
@@ -287,12 +303,18 @@ impl Router {
         }
         let (name, speed) = requested_model(request.model, request.speed)?;
         let snapshot = self.snapshot()?;
-        let group = snapshot.groups.get(request.group).ok_or(RoutingError::UnknownGroup)?;
+        let group = snapshot
+            .groups
+            .get(request.group)
+            .ok_or(RoutingError::UnknownGroup)?;
         if !group.enabled {
             return Err(RoutingError::GroupDisabled);
         }
         let canonical = group.aliases.get(name).map_or(name, String::as_str);
-        let route = group.routes.get(canonical).ok_or(RoutingError::UnknownModel)?;
+        let route = group
+            .routes
+            .get(canonical)
+            .ok_or(RoutingError::UnknownModel)?;
         if !route.config.enabled {
             return Err(RoutingError::RouteDisabled);
         }
@@ -366,8 +388,14 @@ impl Router {
         if active.version != expected {
             return Err(RoutingError::VersionConflict);
         }
-        let upstream = active.upstreams.get(&upstream_id).ok_or(RoutingError::NoEligibleUpstream)?;
-        upstream.health.status.store(health as u8, Ordering::Release);
+        let upstream = active
+            .upstreams
+            .get(&upstream_id)
+            .ok_or(RoutingError::NoEligibleUpstream)?;
+        upstream
+            .health
+            .status
+            .store(health as u8, Ordering::Release);
         Ok(())
     }
 
@@ -383,7 +411,10 @@ impl Router {
         if active.version != expected {
             return Err(RoutingError::VersionConflict);
         }
-        let upstream = active.upstreams.get(&upstream_id).ok_or(RoutingError::NoEligibleUpstream)?;
+        let upstream = active
+            .upstreams
+            .get(&upstream_id)
+            .ok_or(RoutingError::NoEligibleUpstream)?;
         upstream.health.enabled.store(enabled, Ordering::Release);
         Ok(())
     }
@@ -391,7 +422,10 @@ impl Router {
     /// The only public configuration projection. Contains no endpoints or credentials.
     pub fn catalog(&self, authorized_group: &str) -> Result<Vec<PublicModel>, RoutingError> {
         let active = self.snapshot()?;
-        let group = active.groups.get(authorized_group).ok_or(RoutingError::UnknownGroup)?;
+        let group = active
+            .groups
+            .get(authorized_group)
+            .ok_or(RoutingError::UnknownGroup)?;
         if !group.enabled {
             return Err(RoutingError::GroupDisabled);
         }
@@ -406,7 +440,11 @@ impl Router {
             });
         }
         for (alias, canonical) in &group.aliases {
-            if let Some(route) = group.routes.get(canonical).filter(|route| route.config.enabled) {
+            if let Some(route) = group
+                .routes
+                .get(canonical)
+                .filter(|route| route.config.enabled)
+            {
                 models.push(PublicModel {
                     name: alias.clone(),
                     canonical_model: canonical.clone(),
@@ -601,29 +639,65 @@ pub struct Attempt {
 }
 
 impl Attempt {
-    pub fn version(&self) -> ReleaseVersion { self.version }
-    pub fn quote(&self) -> PriceQuote { self.quote }
-    pub fn number(&self) -> u8 { self.number }
-    pub fn speed(&self) -> Speed { self.speed }
-    pub fn route_id(&self) -> u64 { self.route.config.id }
-    pub fn target_id(&self) -> u64 { self.target.config.id }
-    pub fn upstream_id(&self) -> u64 { self.target.upstream.config.id }
-    pub fn canonical_model(&self) -> &str { &self.route.config.model }
-    pub fn group(&self) -> &str { &self.route.config.group }
-    pub fn endpoint(&self) -> &str { self.target.upstream.config.endpoint.as_str() }
-    pub fn upstream_model(&self) -> &str { &self.target.config.upstream_model }
-    pub fn protocol(&self) -> Protocol { self.target.upstream.config.protocol }
-    pub fn payload_policy(&self) -> PayloadPolicy { self.target.config.payload }
-    pub fn credential_ref(&self) -> CredentialRef { self.target.upstream.config.credential }
-    pub fn timeout_ms(&self) -> u32 { self.target.config.timeout_ms }
+    pub fn version(&self) -> ReleaseVersion {
+        self.version
+    }
+    pub fn quote(&self) -> PriceQuote {
+        self.quote
+    }
+    pub fn number(&self) -> u8 {
+        self.number
+    }
+    pub fn speed(&self) -> Speed {
+        self.speed
+    }
+    pub fn route_id(&self) -> u64 {
+        self.route.config.id
+    }
+    pub fn target_id(&self) -> u64 {
+        self.target.config.id
+    }
+    pub fn upstream_id(&self) -> u64 {
+        self.target.upstream.config.id
+    }
+    pub fn canonical_model(&self) -> &str {
+        &self.route.config.model
+    }
+    pub fn group(&self) -> &str {
+        &self.route.config.group
+    }
+    pub fn endpoint(&self) -> &str {
+        self.target.upstream.config.endpoint.as_str()
+    }
+    pub fn upstream_model(&self) -> &str {
+        &self.target.config.upstream_model
+    }
+    pub fn protocol(&self) -> Protocol {
+        self.target.upstream.config.protocol
+    }
+    pub fn payload_policy(&self) -> PayloadPolicy {
+        self.target.config.payload
+    }
+    pub fn credential_ref(&self) -> CredentialRef {
+        self.target.upstream.config.credential
+    }
+    pub fn timeout_ms(&self) -> u32 {
+        self.target.config.timeout_ms
+    }
 
     /// Check again immediately before send; no API can revoke bytes already sent.
-    pub fn is_available(&self) -> bool { self.target.available() }
+    pub fn is_available(&self) -> bool {
+        self.target.available()
+    }
 
     /// Infrastructure failures may close this destination. Reopening requires a Rust probe.
     /// A retired credential/endpoint has separate state and cannot poison its replacement.
     pub fn mark_unhealthy(&self) {
-        self.target.upstream.health.status.store(HealthStatus::Unhealthy as u8, Ordering::Release);
+        self.target
+            .upstream
+            .health
+            .status
+            .store(HealthStatus::Unhealthy as u8, Ordering::Release);
     }
 }
 

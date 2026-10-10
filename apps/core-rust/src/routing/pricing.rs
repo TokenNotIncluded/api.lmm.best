@@ -129,9 +129,15 @@ impl PriceSnapshot {
                 || !valid_model(&rule.model)
                 || !(1..=MAX_MULTIPLIER).contains(&rule.group_multiplier_ppm)
                 || !(1..=MAX_MULTIPLIER).contains(&rule.speed_multiplier_ppm)
-                || [rule.rates.input, rule.rates.output, rule.rates.cache_read, rule.rates.cache_write, rule.rates.request]
-                    .iter()
-                    .any(|&rate| rate > i64::MAX as u64)
+                || [
+                    rule.rates.input,
+                    rule.rates.output,
+                    rule.rates.cache_read,
+                    rule.rates.cache_write,
+                    rule.rates.request,
+                ]
+                .iter()
+                .any(|&rate| rate > i64::MAX as u64)
             {
                 return Err(RoutingError::InvalidConfig("price rule"));
             }
