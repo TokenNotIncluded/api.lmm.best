@@ -1,0 +1,905 @@
+{
+  "scope": "standalone Go health probe; NOT actual Rust/Go application images",
+  "source_commit": "2f5b2c3574d3f7984b3eef16f4e35f33d2830c58",
+  "base_commit": "72667564c0431754d4856dc2e0db55f360bd2745",
+  "environment": {
+    "kernel": "6.18.44",
+    "machine": "x86_64",
+    "go": "go version go1.23.2 linux/amd64",
+    "cpu_max": "400000 100000",
+    "memory_max": "4294967296",
+    "measurement_cpu_affinity": [
+      0
+    ],
+    "cpu_affinity_is_not_1c1g_vm": true,
+    "upx_available": false,
+    "docker_available": false,
+    "rustc_available": false
+  },
+  "builder_cached_build_wall_seconds": {
+    "probe-v1": 0.05706969800007755,
+    "probe-v2": 0.058545846000015445,
+    "probe-http": 0.06372831299995596
+  },
+  "runner_overhead": {
+    "runs": [
+      {
+        "wall_seconds": 0.0070612350000374136,
+        "user_seconds": 0.002345,
+        "system_seconds": 0.0027519999999999997,
+        "max_rss_kib": 384
+      },
+      {
+        "wall_seconds": 0.001943116999882477,
+        "user_seconds": 0.001702,
+        "system_seconds": 0.0,
+        "max_rss_kib": 384
+      },
+      {
+        "wall_seconds": 0.0018071019999297278,
+        "user_seconds": 0.00047,
+        "system_seconds": 0.001186,
+        "max_rss_kib": 384
+      },
+      {
+        "wall_seconds": 0.0017782129998522578,
+        "user_seconds": 0.001635,
+        "system_seconds": 0.0,
+        "max_rss_kib": 384
+      },
+      {
+        "wall_seconds": 0.0021372389999214647,
+        "user_seconds": 0.000522,
+        "system_seconds": 0.001366,
+        "max_rss_kib": 384
+      },
+      {
+        "wall_seconds": 0.002181034999921394,
+        "user_seconds": 0.0019909999999999997,
+        "system_seconds": 0.0,
+        "max_rss_kib": 384
+      },
+      {
+        "wall_seconds": 0.002288817999897219,
+        "user_seconds": 0.002149,
+        "system_seconds": 0.0,
+        "max_rss_kib": 384
+      }
+    ],
+    "median_wall_seconds": 0.0021372389999214647,
+    "median_cpu_seconds": 0.001888,
+    "max_rss_kib": 384,
+    "cpu_affinity": [
+      0
+    ],
+    "wall_and_cpu_include_taskset_time_launcher": true,
+    "rss_is_command_only_gnu_time": true
+  },
+  "probe_binaries": {
+    "probe-v1": {
+      "file_bytes": 1994904,
+      "sha256": "503ca1ec6a09d0bf8e696c36b2e16c2e2264747e57f58230e2885b680cdc2447",
+      "start_and_version": {
+        "runs": [
+          {
+            "wall_seconds": 0.002078269999856275,
+            "user_seconds": 0.001305,
+            "system_seconds": 0.0004969999999999999,
+            "max_rss_kib": 1948
+          },
+          {
+            "wall_seconds": 0.0020177690000764414,
+            "user_seconds": 0.001544,
+            "system_seconds": 0.0,
+            "max_rss_kib": 1948
+          },
+          {
+            "wall_seconds": 0.001909224999963044,
+            "user_seconds": 0.001081,
+            "system_seconds": 0.00042899999999999997,
+            "max_rss_kib": 1948
+          },
+          {
+            "wall_seconds": 0.0018483740000192483,
+            "user_seconds": 0.001475,
+            "system_seconds": 0.0,
+            "max_rss_kib": 1948
+          },
+          {
+            "wall_seconds": 0.001917128000059165,
+            "user_seconds": 0.001483,
+            "system_seconds": 0.0,
+            "max_rss_kib": 1948
+          },
+          {
+            "wall_seconds": 0.001897852999945826,
+            "user_seconds": 0.00147,
+            "system_seconds": 0.0,
+            "max_rss_kib": 1948
+          },
+          {
+            "wall_seconds": 0.0020199719999709487,
+            "user_seconds": 0.001645,
+            "system_seconds": 0.0,
+            "max_rss_kib": 1948
+          }
+        ],
+        "median_wall_seconds": 0.001917128000059165,
+        "median_cpu_seconds": 0.0015099999999999998,
+        "max_rss_kib": 1948,
+        "cpu_affinity": [
+          0
+        ],
+        "wall_and_cpu_include_taskset_time_launcher": true,
+        "rss_is_command_only_gnu_time": true
+      },
+      "start_and_health": {
+        "runs": [
+          {
+            "wall_seconds": 0.003123293000044214,
+            "user_seconds": 0.002202,
+            "system_seconds": 0.0,
+            "max_rss_kib": 2436
+          },
+          {
+            "wall_seconds": 0.0022929279998606944,
+            "user_seconds": 0.000588,
+            "system_seconds": 0.001253,
+            "max_rss_kib": 2436
+          },
+          {
+            "wall_seconds": 0.0020890169998892816,
+            "user_seconds": 0.001668,
+            "system_seconds": 0.0,
+            "max_rss_kib": 2436
+          },
+          {
+            "wall_seconds": 0.002134664999857705,
+            "user_seconds": 0.001807,
+            "system_seconds": 0.0,
+            "max_rss_kib": 2436
+          },
+          {
+            "wall_seconds": 0.0021635089999563206,
+            "user_seconds": 0.0016849999999999999,
+            "system_seconds": 0.0,
+            "max_rss_kib": 2436
+          },
+          {
+            "wall_seconds": 0.0023279209999600425,
+            "user_seconds": 0.001772,
+            "system_seconds": 0.0,
+            "max_rss_kib": 2436
+          },
+          {
+            "wall_seconds": 0.0025212770001417084,
+            "user_seconds": 0.001233,
+            "system_seconds": 0.0008309999999999999,
+            "max_rss_kib": 2436
+          }
+        ],
+        "median_wall_seconds": 0.0022929279998606944,
+        "median_cpu_seconds": 0.001807,
+        "max_rss_kib": 2436,
+        "cpu_affinity": [
+          0
+        ],
+        "wall_and_cpu_include_taskset_time_launcher": true,
+        "rss_is_command_only_gnu_time": true
+      }
+    },
+    "probe-v2": {
+      "file_bytes": 1994904,
+      "sha256": "1c1699d4af9f3dcf7f436b5aa122ddeeb8a634b74c041ccba1c9a3e20301fa89",
+      "start_and_version": {
+        "runs": [
+          {
+            "wall_seconds": 0.001993201000004774,
+            "user_seconds": 0.0013,
+            "system_seconds": 0.000489,
+            "max_rss_kib": 1948
+          },
+          {
+            "wall_seconds": 0.0022987219999777153,
+            "user_seconds": 0.001836,
+            "system_seconds": 0.0,
+            "max_rss_kib": 1948
+          },
+          {
+            "wall_seconds": 0.0020711199999823293,
+            "user_seconds": 0.000392,
+            "system_seconds": 0.0011819999999999999,
+            "max_rss_kib": 1948
+          },
+          {
+            "wall_seconds": 0.001977468999939447,
+            "user_seconds": 0.001467,
+            "system_seconds": 0.0,
+            "max_rss_kib": 1948
+          },
+          {
+            "wall_seconds": 0.0021009039999171364,
+            "user_seconds": 0.001624,
+            "system_seconds": 0.0,
+            "max_rss_kib": 1948
+          },
+          {
+            "wall_seconds": 0.0021759179999207845,
+            "user_seconds": 0.0017319999999999998,
+            "system_seconds": 0.0,
+            "max_rss_kib": 1948
+          },
+          {
+            "wall_seconds": 0.0021363680000376917,
+            "user_seconds": 0.00043999999999999996,
+            "system_seconds": 0.0012619999999999999,
+            "max_rss_kib": 1948
+          }
+        ],
+        "median_wall_seconds": 0.0021009039999171364,
+        "median_cpu_seconds": 0.001702,
+        "max_rss_kib": 1948,
+        "cpu_affinity": [
+          0
+        ],
+        "wall_and_cpu_include_taskset_time_launcher": true,
+        "rss_is_command_only_gnu_time": true
+      },
+      "start_and_health": {
+        "runs": [
+          {
+            "wall_seconds": 0.0024969110002075467,
+            "user_seconds": 0.001704,
+            "system_seconds": 0.0,
+            "max_rss_kib": 2436
+          },
+          {
+            "wall_seconds": 0.0021617059999243793,
+            "user_seconds": 0.0005499999999999999,
+            "system_seconds": 0.00115,
+            "max_rss_kib": 2436
+          },
+          {
+            "wall_seconds": 0.0019600269999955344,
+            "user_seconds": 0.0016229999999999999,
+            "system_seconds": 0.0,
+            "max_rss_kib": 2436
+          },
+          {
+            "wall_seconds": 0.0021253820000310952,
+            "user_seconds": 0.0016179999999999999,
+            "system_seconds": 0.0,
+            "max_rss_kib": 2436
+          },
+          {
+            "wall_seconds": 0.002335572999982105,
+            "user_seconds": 0.0019,
+            "system_seconds": 0.0,
+            "max_rss_kib": 2436
+          },
+          {
+            "wall_seconds": 0.0022046799999770883,
+            "user_seconds": 0.001867,
+            "system_seconds": 0.0,
+            "max_rss_kib": 2436
+          },
+          {
+            "wall_seconds": 0.002255647000083627,
+            "user_seconds": 0.001243,
+            "system_seconds": 0.000563,
+            "max_rss_kib": 2436
+          }
+        ],
+        "median_wall_seconds": 0.0022046799999770883,
+        "median_cpu_seconds": 0.001704,
+        "max_rss_kib": 2436,
+        "cpu_affinity": [
+          0
+        ],
+        "wall_and_cpu_include_taskset_time_launcher": true,
+        "rss_is_command_only_gnu_time": true
+      }
+    },
+    "probe-http": {
+      "file_bytes": 5132440,
+      "sha256": "664cbc01fcceaa8b2b698f2bf2e7306a7bc8db12f30c4588005c5a49c4032f98",
+      "start_and_version": {
+        "runs": [
+          {
+            "wall_seconds": 0.001933822999944823,
+            "user_seconds": 0.001705,
+            "system_seconds": 0.0,
+            "max_rss_kib": 4064
+          },
+          {
+            "wall_seconds": 0.0023867450001944235,
+            "user_seconds": 0.00056,
+            "system_seconds": 0.0012259999999999999,
+            "max_rss_kib": 4064
+          },
+          {
+            "wall_seconds": 0.00205477500003326,
+            "user_seconds": 0.0016619999999999998,
+            "system_seconds": 0.0,
+            "max_rss_kib": 4064
+          },
+          {
+            "wall_seconds": 0.002331250999986878,
+            "user_seconds": 0.0019219999999999999,
+            "system_seconds": 0.0,
+            "max_rss_kib": 4064
+          },
+          {
+            "wall_seconds": 0.0022571090000838012,
+            "user_seconds": 0.001671,
+            "system_seconds": 0.0,
+            "max_rss_kib": 4064
+          },
+          {
+            "wall_seconds": 0.0021513799999866023,
+            "user_seconds": 0.001808,
+            "system_seconds": 0.0,
+            "max_rss_kib": 4064
+          },
+          {
+            "wall_seconds": 0.003113928999937343,
+            "user_seconds": 0.000583,
+            "system_seconds": 0.001969,
+            "max_rss_kib": 4064
+          }
+        ],
+        "median_wall_seconds": 0.0022571090000838012,
+        "median_cpu_seconds": 0.0017859999999999998,
+        "max_rss_kib": 4064,
+        "cpu_affinity": [
+          0
+        ],
+        "wall_and_cpu_include_taskset_time_launcher": true,
+        "rss_is_command_only_gnu_time": true
+      },
+      "start_and_health": {
+        "runs": [
+          {
+            "wall_seconds": 0.002915180999934819,
+            "user_seconds": 0.001121,
+            "system_seconds": 0.0010689999999999999,
+            "max_rss_kib": 5228
+          },
+          {
+            "wall_seconds": 0.0024970510000912327,
+            "user_seconds": 0.002111,
+            "system_seconds": 0.0,
+            "max_rss_kib": 5228
+          },
+          {
+            "wall_seconds": 0.002564582999866616,
+            "user_seconds": 0.0021349999999999997,
+            "system_seconds": 0.0,
+            "max_rss_kib": 5228
+          },
+          {
+            "wall_seconds": 0.002336559000013949,
+            "user_seconds": 0.002,
+            "system_seconds": 0.0,
+            "max_rss_kib": 5228
+          },
+          {
+            "wall_seconds": 0.002383750000035434,
+            "user_seconds": 0.001983,
+            "system_seconds": 0.0,
+            "max_rss_kib": 5228
+          },
+          {
+            "wall_seconds": 0.002675639000017327,
+            "user_seconds": 0.0021999999999999997,
+            "system_seconds": 0.0,
+            "max_rss_kib": 5228
+          },
+          {
+            "wall_seconds": 0.0022414360000766465,
+            "user_seconds": 0.001857,
+            "system_seconds": 0.0,
+            "max_rss_kib": 5228
+          }
+        ],
+        "median_wall_seconds": 0.0024970510000912327,
+        "median_cpu_seconds": 0.002111,
+        "max_rss_kib": 5228,
+        "cpu_affinity": [
+          0
+        ],
+        "wall_and_cpu_include_taskset_time_launcher": true,
+        "rss_is_command_only_gnu_time": true
+      }
+    }
+  },
+  "compression": {
+    "gzip-6": {
+      "payload_bytes": 876095,
+      "ratio": 0.43916649623240017,
+      "encode": {
+        "runs": [
+          {
+            "wall_seconds": 0.11971404899986737,
+            "user_seconds": 0.119294,
+            "system_seconds": 0.0,
+            "max_rss_kib": 1152
+          },
+          {
+            "wall_seconds": 0.11779918399997769,
+            "user_seconds": 0.112976,
+            "system_seconds": 0.003952,
+            "max_rss_kib": 1152
+          },
+          {
+            "wall_seconds": 0.11510007099991526,
+            "user_seconds": 0.11417999999999999,
+            "system_seconds": 0.0,
+            "max_rss_kib": 1152
+          }
+        ],
+        "median_wall_seconds": 0.11779918399997769,
+        "median_cpu_seconds": 0.11692799999999999,
+        "max_rss_kib": 1152,
+        "cpu_affinity": [
+          0
+        ],
+        "wall_and_cpu_include_taskset_time_launcher": true,
+        "rss_is_command_only_gnu_time": true
+      },
+      "decode": {
+        "runs": [
+          {
+            "wall_seconds": 0.015706966999914584,
+            "user_seconds": 0.015191999999999999,
+            "system_seconds": 0.0,
+            "max_rss_kib": 896
+          },
+          {
+            "wall_seconds": 0.015567817999908584,
+            "user_seconds": 0.015139,
+            "system_seconds": 0.0,
+            "max_rss_kib": 896
+          },
+          {
+            "wall_seconds": 0.016648528999894552,
+            "user_seconds": 0.015649,
+            "system_seconds": 0.0,
+            "max_rss_kib": 896
+          },
+          {
+            "wall_seconds": 0.017818004999980985,
+            "user_seconds": 0.016222999999999998,
+            "system_seconds": 0.0,
+            "max_rss_kib": 896
+          },
+          {
+            "wall_seconds": 0.01675987199996598,
+            "user_seconds": 0.015769,
+            "system_seconds": 0.0,
+            "max_rss_kib": 896
+          },
+          {
+            "wall_seconds": 0.01684217100000751,
+            "user_seconds": 0.01409,
+            "system_seconds": 0.0015019999999999999,
+            "max_rss_kib": 896
+          },
+          {
+            "wall_seconds": 0.016040228000065326,
+            "user_seconds": 0.013732,
+            "system_seconds": 0.001377,
+            "max_rss_kib": 896
+          }
+        ],
+        "median_wall_seconds": 0.016648528999894552,
+        "median_cpu_seconds": 0.015592,
+        "max_rss_kib": 896,
+        "cpu_affinity": [
+          0
+        ],
+        "wall_and_cpu_include_taskset_time_launcher": true,
+        "rss_is_command_only_gnu_time": true
+      },
+      "roundtrip_sha256": "1c1699d4af9f3dcf7f436b5aa122ddeeb8a634b74c041ccba1c9a3e20301fa89"
+    },
+    "zstd-3": {
+      "payload_bytes": 887449,
+      "ratio": 0.444857998179361,
+      "encode": {
+        "runs": [
+          {
+            "wall_seconds": 0.01808940499995515,
+            "user_seconds": 0.011967,
+            "system_seconds": 0.005659,
+            "max_rss_kib": 6784
+          },
+          {
+            "wall_seconds": 0.017220821999899272,
+            "user_seconds": 0.016361,
+            "system_seconds": 0.0,
+            "max_rss_kib": 6784
+          },
+          {
+            "wall_seconds": 0.01610118999997212,
+            "user_seconds": 0.015278,
+            "system_seconds": 0.0,
+            "max_rss_kib": 6784
+          }
+        ],
+        "median_wall_seconds": 0.017220821999899272,
+        "median_cpu_seconds": 0.016361,
+        "max_rss_kib": 6784,
+        "cpu_affinity": [
+          0
+        ],
+        "wall_and_cpu_include_taskset_time_launcher": true,
+        "rss_is_command_only_gnu_time": true
+      },
+      "decode": {
+        "runs": [
+          {
+            "wall_seconds": 0.006687992000024678,
+            "user_seconds": 0.0047989999999999994,
+            "system_seconds": 0.001496,
+            "max_rss_kib": 5120
+          },
+          {
+            "wall_seconds": 0.006818028999987291,
+            "user_seconds": 0.005882999999999999,
+            "system_seconds": 0.0,
+            "max_rss_kib": 5120
+          },
+          {
+            "wall_seconds": 0.007071759999917049,
+            "user_seconds": 0.006312,
+            "system_seconds": 0.0,
+            "max_rss_kib": 4992
+          },
+          {
+            "wall_seconds": 0.007710162999956083,
+            "user_seconds": 0.006828,
+            "system_seconds": 0.0,
+            "max_rss_kib": 4736
+          },
+          {
+            "wall_seconds": 0.007524223000018537,
+            "user_seconds": 0.006533,
+            "system_seconds": 0.0,
+            "max_rss_kib": 4480
+          },
+          {
+            "wall_seconds": 0.007168035999939093,
+            "user_seconds": 0.0,
+            "system_seconds": 0.006305,
+            "max_rss_kib": 5120
+          },
+          {
+            "wall_seconds": 0.007854605000147785,
+            "user_seconds": 0.001789,
+            "system_seconds": 0.005116,
+            "max_rss_kib": 4480
+          }
+        ],
+        "median_wall_seconds": 0.007168035999939093,
+        "median_cpu_seconds": 0.006312,
+        "max_rss_kib": 5120,
+        "cpu_affinity": [
+          0
+        ],
+        "wall_and_cpu_include_taskset_time_launcher": true,
+        "rss_is_command_only_gnu_time": true
+      },
+      "roundtrip_sha256": "1c1699d4af9f3dcf7f436b5aa122ddeeb8a634b74c041ccba1c9a3e20301fa89"
+    },
+    "xz-6": {
+      "payload_bytes": 712564,
+      "ratio": 0.3571921255358654,
+      "encode": {
+        "runs": [
+          {
+            "wall_seconds": 0.5642041280000285,
+            "user_seconds": 0.5456489999999999,
+            "system_seconds": 0.017963,
+            "max_rss_kib": 35456
+          },
+          {
+            "wall_seconds": 0.5414127380001901,
+            "user_seconds": 0.535863,
+            "system_seconds": 0.004638,
+            "max_rss_kib": 35456
+          },
+          {
+            "wall_seconds": 0.5833384129998649,
+            "user_seconds": 0.561232,
+            "system_seconds": 0.021322999999999998,
+            "max_rss_kib": 35456
+          }
+        ],
+        "median_wall_seconds": 0.5642041280000285,
+        "median_cpu_seconds": 0.5636119999999999,
+        "max_rss_kib": 35456,
+        "cpu_affinity": [
+          0
+        ],
+        "wall_and_cpu_include_taskset_time_launcher": true,
+        "rss_is_command_only_gnu_time": true
+      },
+      "decode": {
+        "runs": [
+          {
+            "wall_seconds": 0.0277036049999424,
+            "user_seconds": 0.022749,
+            "system_seconds": 0.004291,
+            "max_rss_kib": 2944
+          },
+          {
+            "wall_seconds": 0.02762708999989627,
+            "user_seconds": 0.026576,
+            "system_seconds": 0.0,
+            "max_rss_kib": 2944
+          },
+          {
+            "wall_seconds": 0.028375617999927272,
+            "user_seconds": 0.027288999999999997,
+            "system_seconds": 0.0,
+            "max_rss_kib": 2944
+          },
+          {
+            "wall_seconds": 0.028589920000058555,
+            "user_seconds": 0.021892,
+            "system_seconds": 0.0056549999999999994,
+            "max_rss_kib": 2944
+          },
+          {
+            "wall_seconds": 0.02893883599995206,
+            "user_seconds": 0.027913,
+            "system_seconds": 0.0,
+            "max_rss_kib": 2944
+          },
+          {
+            "wall_seconds": 0.028746534999982032,
+            "user_seconds": 0.027496999999999997,
+            "system_seconds": 0.0,
+            "max_rss_kib": 2944
+          },
+          {
+            "wall_seconds": 0.02816977699990275,
+            "user_seconds": 0.021127999999999997,
+            "system_seconds": 0.0059559999999999995,
+            "max_rss_kib": 2944
+          }
+        ],
+        "median_wall_seconds": 0.028375617999927272,
+        "median_cpu_seconds": 0.027288999999999997,
+        "max_rss_kib": 2944,
+        "cpu_affinity": [
+          0
+        ],
+        "wall_and_cpu_include_taskset_time_launcher": true,
+        "rss_is_command_only_gnu_time": true
+      },
+      "roundtrip_sha256": "1c1699d4af9f3dcf7f436b5aa122ddeeb8a634b74c041ccba1c9a3e20301fa89"
+    },
+    "zstd-patch": {
+      "payload_bytes": 420,
+      "ratio": 0.00021053644686661613,
+      "encode": {
+        "runs": [
+          {
+            "wall_seconds": 0.011451437000005171,
+            "user_seconds": 0.00632,
+            "system_seconds": 0.004857,
+            "max_rss_kib": 7352
+          },
+          {
+            "wall_seconds": 0.01109549199986759,
+            "user_seconds": 0.01051,
+            "system_seconds": 0.0,
+            "max_rss_kib": 7356
+          },
+          {
+            "wall_seconds": 0.011865880999948786,
+            "user_seconds": 0.004765,
+            "system_seconds": 0.006626,
+            "max_rss_kib": 7360
+          }
+        ],
+        "median_wall_seconds": 0.011451437000005171,
+        "median_cpu_seconds": 0.011177,
+        "max_rss_kib": 7360,
+        "cpu_affinity": [
+          0
+        ],
+        "wall_and_cpu_include_taskset_time_launcher": true,
+        "rss_is_command_only_gnu_time": true
+      },
+      "decode": {
+        "runs": [
+          {
+            "wall_seconds": 0.004873779999797989,
+            "user_seconds": 0.004445999999999999,
+            "system_seconds": 0.0,
+            "max_rss_kib": 5120
+          },
+          {
+            "wall_seconds": 0.00466384400010611,
+            "user_seconds": 0.003663,
+            "system_seconds": 0.0,
+            "max_rss_kib": 5120
+          },
+          {
+            "wall_seconds": 0.005922268999938751,
+            "user_seconds": 0.004974999999999999,
+            "system_seconds": 0.0,
+            "max_rss_kib": 5120
+          },
+          {
+            "wall_seconds": 0.004375419999860242,
+            "user_seconds": 0.001098,
+            "system_seconds": 0.002065,
+            "max_rss_kib": 4992
+          },
+          {
+            "wall_seconds": 0.005242030000090381,
+            "user_seconds": 0.004327,
+            "system_seconds": 0.0,
+            "max_rss_kib": 5120
+          },
+          {
+            "wall_seconds": 0.00453155499985769,
+            "user_seconds": 0.0036969999999999998,
+            "system_seconds": 0.0,
+            "max_rss_kib": 5120
+          },
+          {
+            "wall_seconds": 0.004200360999902841,
+            "user_seconds": 0.003381,
+            "system_seconds": 0.0,
+            "max_rss_kib": 5120
+          }
+        ],
+        "median_wall_seconds": 0.00466384400010611,
+        "median_cpu_seconds": 0.0036969999999999998,
+        "max_rss_kib": 5120,
+        "cpu_affinity": [
+          0
+        ],
+        "wall_and_cpu_include_taskset_time_launcher": true,
+        "rss_is_command_only_gnu_time": true
+      },
+      "roundtrip_sha256": "1c1699d4af9f3dcf7f436b5aa122ddeeb8a634b74c041ccba1c9a3e20301fa89"
+    }
+  },
+  "staging_local_filesystem": {
+    "gzip-6": {
+      "reused": false,
+      "path": "/mnt/data/dp27/repo/experiments/deploy/dp-27/out/stage-gzip-6/ready-1c1699d4af9f3dcf7f436b5aa122ddeeb8a634b74c041ccba1c9a3e20301fa89",
+      "download_bytes": 876095,
+      "preflight_required_bytes": 19648215,
+      "phase_samples": [
+        {
+          "phase": "before-transfer",
+          "allocated_bytes": 2007040
+        },
+        {
+          "phase": "after-transfer",
+          "allocated_bytes": 2883584
+        },
+        {
+          "phase": "after-decode",
+          "allocated_bytes": 4882432
+        },
+        {
+          "phase": "before-publish",
+          "allocated_bytes": 4882432
+        },
+        {
+          "phase": "after-publish",
+          "allocated_bytes": 4882432
+        }
+      ],
+      "sampled_peak_allocated_bytes": 4882432,
+      "active_changed": false,
+      "manifest_sha256": "4f772843a2d44cefc006525487a8bc076a1a9b07ac9ec2ace4dc7b86b9e536da"
+    },
+    "zstd-patch": {
+      "reused": false,
+      "path": "/mnt/data/dp27/repo/experiments/deploy/dp-27/out/stage-zstd-patch/ready-1c1699d4af9f3dcf7f436b5aa122ddeeb8a634b74c041ccba1c9a3e20301fa89",
+      "download_bytes": 420,
+      "preflight_required_bytes": 20767444,
+      "phase_samples": [
+        {
+          "phase": "before-transfer",
+          "allocated_bytes": 2007040
+        },
+        {
+          "phase": "after-transfer",
+          "allocated_bytes": 2011136
+        },
+        {
+          "phase": "after-decode",
+          "allocated_bytes": 6008832
+        },
+        {
+          "phase": "before-publish",
+          "allocated_bytes": 6008832
+        },
+        {
+          "phase": "after-publish",
+          "allocated_bytes": 6008832
+        }
+      ],
+      "sampled_peak_allocated_bytes": 6008832,
+      "active_changed": false,
+      "manifest_sha256": "b4faa545a32f4b1c4449caa22d0f8ff0d3efaf515a4705f3c63592659ed950db"
+    }
+  },
+  "oci_probe_only": {
+    "first_probe_v1": {
+      "download_blob_bytes": 871491,
+      "image_metadata_bytes": 1019,
+      "new_unique_layer_blobs": 2,
+      "new_snapshot_chains": 2,
+      "new_uncompressed_tar_bytes": 2007040,
+      "new_file_logical_bytes": 1994972,
+      "unpacked_block_estimate_4096": 2002944,
+      "sequential_stage_budget_estimate_bytes": 3744742,
+      "largest_partial_blob_bytes": 870307,
+      "measured_docker_peak_bytes": null,
+      "note": "Budget estimate excludes daemon metadata, journals, parallel pulls and filesystem effects; old versions remain resident."
+    },
+    "first_http_probe": {
+      "download_blob_bytes": 2194867,
+      "image_metadata_bytes": 1020,
+      "new_unique_layer_blobs": 2,
+      "new_snapshot_chains": 2,
+      "new_uncompressed_tar_bytes": 5150720,
+      "new_file_logical_bytes": 5132508,
+      "unpacked_block_estimate_4096": 5140480,
+      "sequential_stage_budget_estimate_bytes": 9529029,
+      "largest_partial_blob_bytes": 2193682,
+      "measured_docker_peak_bytes": null,
+      "note": "Budget estimate excludes daemon metadata, journals, parallel pulls and filesystem effects; old versions remain resident."
+    },
+    "single_probe_update": {
+      "download_blob_bytes": 871324,
+      "image_metadata_bytes": 1019,
+      "new_unique_layer_blobs": 1,
+      "new_snapshot_chains": 1,
+      "new_uncompressed_tar_bytes": 1996800,
+      "new_file_logical_bytes": 1994904,
+      "unpacked_block_estimate_4096": 1998848,
+      "sequential_stage_budget_estimate_bytes": 3740477,
+      "largest_partial_blob_bytes": 870305,
+      "measured_docker_peak_bytes": null,
+      "note": "Budget estimate excludes daemon metadata, journals, parallel pulls and filesystem effects; old versions remain resident."
+    },
+    "after_pre_pull": {
+      "download_blob_bytes": 0,
+      "image_metadata_bytes": 0,
+      "new_unique_layer_blobs": 0,
+      "new_snapshot_chains": 0,
+      "new_uncompressed_tar_bytes": 0,
+      "new_file_logical_bytes": 0,
+      "unpacked_block_estimate_4096": 0,
+      "sequential_stage_budget_estimate_bytes": 0,
+      "largest_partial_blob_bytes": 0,
+      "measured_docker_peak_bytes": null,
+      "note": "Budget estimate excludes daemon metadata, journals, parallel pulls and filesystem effects; old versions remain resident."
+    }
+  },
+  "test_public_key_sha256": "2775c890339429ee038c82c87557df68e1db90ed2017799e61859ea28f5b983c",
+  "unmeasured": [
+    "application_glibc_vs_musl",
+    "application_first_pull",
+    "single_go_application_update",
+    "single_rust_application_update",
+    "docker_snapshotter_disk_peak",
+    "docker_pull_network_bytes",
+    "1c1g_application_startup_and_rss",
+    "production_ca_dns_timezone",
+    "actual_core_admin_savings",
+    "upx_runtime_tradeoffs"
+  ]
+}
