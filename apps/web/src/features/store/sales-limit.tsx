@@ -117,6 +117,7 @@ export function StoreSalesLimit({
         </div>
       )}
       <p className='text-muted-foreground text-xs'>{t(copy.help)}</p>
+      <p className='text-muted-foreground text-xs'>{t(copy.stockHelp)}</p>
       <Button type='submit' size='sm' disabled={busy}>
         {t(busy ? 'Saving...' : copy.save)}
       </Button>

@@ -1,18 +1,6 @@
 name: Pi remote control review
 on:
-  push:
-    branches: [feat/pi-remote-control-commands]
-  pull_request:
-    paths:
-      - 'apps/api-go/controller/pi_remote_control*'
-      - 'apps/api-go/controller/oauth_server.go'
-      - 'apps/api-go/middleware/pi_remote_control.go'
-      - 'apps/api-go/router/**'
-      - 'apps/api-go/service/oauth_server.go'
-      - 'apps/web/src/features/remote-control/**'
-      - 'apps/web/scripts/remote-control*'
-      - 'apps/web/scripts/remote-control-review/**'
-      - '.github/workflows/pi-remote-control-review.yml'
+  workflow_dispatch:
 permissions:
   contents: read
 jobs:

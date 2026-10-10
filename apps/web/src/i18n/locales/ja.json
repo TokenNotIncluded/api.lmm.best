@@ -11840,6 +11840,9 @@
     "Some messages could not be decrypted. Other messages are still available.": "Some messages could not be decrypted. Other messages are still available.",
     "Update the Pi plugin to send tasks and answer questions.": "Update the Pi plugin to send tasks and answer questions.",
     "Use the same LMM account here and enter the session PIN. Stop sharing with /lmm-remote off. Locking this page does not stop Pi.": "Use the same LMM account here and enter the session PIN. Stop sharing with /lmm-remote off. Locking this page does not stop Pi.",
-    "Waiting for Pi connection": "Waiting for Pi connection"
+    "Waiting for Pi connection": "Waiting for Pi connection",
+    "Trading paused": "販売停止中",
+    "Unavailable for purchase": "現在購入できません",
+    "Unlimited sales removes the sales quota, not the inventory requirement. Import stock for inventory-based variants, or use fixed content for unlimited supply.": "販売数無制限は販売枠の上限をなくすだけで、在庫は必要です。在庫から納品するバリエーションには在庫を取り込んでください。無制限に提供する場合は固定コンテンツでの納品を使用してください。"
   }
 }
