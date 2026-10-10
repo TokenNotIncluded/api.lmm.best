@@ -66,7 +66,8 @@ import {
 import { usePublicPlans } from '../../hooks/use-public-plans'
 import { formatDuration, formatResetPeriod } from '../../lib'
 import { formatPlanSourcePrice } from '../../lib/source-price'
-import type { PlanRecord } from '../../types'
+import type { PlanRecord, WaffoPancakeProductType } from '../../types'
+import { selectPancakePurchaseOption } from '../../lib/waffo-pancake-products'
 
 interface PaymentMethod {
   type: string
@@ -128,6 +129,7 @@ function ScopedSubscriptionPurchaseDialog(
   const plansQuery = usePublicPlans(props.open && !!props.plan)
   const [paying, setPaying] = useState(false)
   const [quoteInvalidated, setQuoteInvalidated] = useState(false)
+  const [pancakeMode, setPancakeMode] = useState<WaffoPancakeProductType | ''>('')
   const [quoteChanged, setQuoteChanged] = useState(false)
   const [selectedEpayMethodOverride, setSelectedEpayMethod] = useState('')
   const [waffoPancakeCheckoutRegionOverride, setWaffoPancakeCheckoutRegion] =
@@ -161,11 +163,17 @@ function ScopedSubscriptionPurchaseDialog(
     !plansQuery.isError && !plansQuery.isFetching
       ? plansQuery.data?.find((record) => record.plan.id === plan.id)
       : undefined
+  const pancakeOptions = quotedPlan?.waffo_pancake_options ?? undefined
+  const pancakeOption = selectPancakePurchaseOption(pancakeOptions, pancakeMode)
   const settlementQuote =
     !quoteInvalidated &&
     (!quotedPlan?.payment_methods ||
       quotedPlan.payment_methods.includes('waffo_pancake'))
-      ? getAvailableSettlementQuote(quotedPlan?.waffo_pancake_settlement)
+      ? getAvailableSettlementQuote(
+          pancakeOptions !== undefined
+            ? pancakeOption?.settlement
+            : quotedPlan?.waffo_pancake_settlement
+        )
       : null
   const showWaffoPancake =
     hasWaffoPancake ||
@@ -302,6 +310,7 @@ function ScopedSubscriptionPurchaseDialog(
     if (!hasWaffoPancake || !settlementQuote || !beginPayment()) return
     try {
       const res = await paySubscriptionWaffoPancake({
+        product_type: pancakeOption?.product_type,
         plan_id: plan.id,
         checkout_region: waffoPancakeCheckoutRegion,
         checkout_language: waffoPancakeCheckoutLanguage,
@@ -487,6 +496,48 @@ function ScopedSubscriptionPurchaseDialog(
             aria-live='polite'
             aria-busy={plansQuery.isFetching}
           >
+            {pancakeOptions && pancakeOptions.length > 0 && (
+              <div className='flex flex-col gap-2'>
+                <label htmlFor='pancake-purchase-option' className='text-sm font-medium'>
+                  {t('Purchase option')}
+                </label>
+                <Select
+                  items={pancakeOptions.map((option) => ({
+                    value: option.product_type,
+                    label: option.product_type === 'one_time'
+                      ? t('One-time purchase — no auto-renewal')
+                      : t('Subscription — automatic renewal'),
+                  }))}
+                  value={pancakeOption?.product_type || null}
+                  disabled={paying || plansQuery.isFetching}
+                  onValueChange={(value) => {
+                    if (value === 'one_time' || value === 'subscription') {
+                      setPancakeMode(value)
+                    }
+                  }}
+                >
+                  <SelectTrigger id='pancake-purchase-option' className='w-full'>
+                    <SelectValue placeholder={t('Choose a purchase option')} />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {pancakeOptions.map((option) => (
+                      <SelectItem key={option.product_type} value={option.product_type}>
+                        {option.product_type === 'one_time'
+                          ? t('One-time purchase — no auto-renewal')
+                          : t('Subscription — automatic renewal')}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <p className='text-muted-foreground text-xs'>
+                  {pancakeOption?.product_type === 'one_time'
+                    ? t('Pay once for this plan period. It ends without another charge.')
+                    : pancakeOption?.product_type === 'subscription'
+                      ? t('Payment repeats each period until canceled. Available methods are shown by Pancake.')
+                      : t('Choose a purchase option')}
+                </p>
+              </div>
+            )}
             <div className='flex flex-wrap items-center justify-between gap-2 text-sm'>
               <span>{t('Waffo Pancake payable')}</span>
               <span className='font-medium'>
@@ -494,7 +545,9 @@ function ScopedSubscriptionPurchaseDialog(
                   ? formatSettlementQuote(settlementQuote)
                   : plansQuery.isFetching
                     ? t('Loading...')
-                    : t('Settlement quote unavailable')}
+                    : pancakeOptions && pancakeOptions.length > 1 && !pancakeOption
+                      ? t('Choose a purchase option')
+                      : t('Settlement quote unavailable')}
               </span>
             </div>
             {quoteChanged && (
@@ -506,11 +559,13 @@ function ScopedSubscriptionPurchaseDialog(
                 </AlertDescription>
               </Alert>
             )}
-            {!settlementQuote && !plansQuery.isFetching && (
+            {!settlementQuote && !plansQuery.isFetching && !(pancakeOptions && pancakeOptions.length > 1 && !pancakeOption) && (
               <Alert>
                 <AlertDescription>
                   {t(
-                    quotedPlan?.waffo_pancake_settlement?.reason ||
+                    (pancakeOptions !== undefined
+                      ? pancakeOption?.settlement?.reason
+                      : quotedPlan?.waffo_pancake_settlement?.reason) ||
                       'Settlement quote unavailable'
                   )}
                 </AlertDescription>

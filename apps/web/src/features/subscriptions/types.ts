@@ -37,6 +37,20 @@ export type WaffoPancakeProductType = z.infer<
   typeof waffoPancakeProductTypeSchema
 >
 
+export const waffoPancakePlanProductSchema = z.object({
+  product_type: waffoPancakeProductTypeSchema,
+  product_id: z.string(),
+  enabled: z.boolean(),
+})
+
+export type WaffoPancakePlanProduct = z.infer<typeof waffoPancakePlanProductSchema>
+
+export interface WaffoPancakePurchaseOption {
+  product_type: WaffoPancakeProductType
+  auto_renew: boolean
+  settlement: AvailableSettlementQuote
+}
+
 export const subscriptionPlanSchema = z.object({
   id: z.number(),
   title: z.string(),
@@ -59,6 +73,7 @@ export const subscriptionPlanSchema = z.object({
   downgrade_group: z.string().optional(),
   stripe_price_id: z.string().optional(),
   creem_product_id: z.string().optional(),
+  waffo_pancake_products: z.array(waffoPancakePlanProductSchema).max(2).nullable().optional(),
   waffo_pancake_product_id: z.string().optional(),
   waffo_pancake_product_type: waffoPancakeProductTypeSchema.optional(),
 })
@@ -76,6 +91,7 @@ export interface PlanRecord {
   balance_price_quota?: number
   /** Server-selected payable fiat quote, distinct from the original plan price. */
   waffo_pancake_settlement?: AvailableSettlementQuote
+  waffo_pancake_options?: WaffoPancakePurchaseOption[] | null
 }
 
 // ============================================================================
@@ -121,6 +137,7 @@ export interface SubscriptionPayRequest {
 }
 
 export interface WaffoPancakeSubscriptionPayRequest {
+  product_type?: WaffoPancakeProductType
   settlement_amount?: string
   settlement_currency?: 'CNY' | 'USD'
   plan_id: number
