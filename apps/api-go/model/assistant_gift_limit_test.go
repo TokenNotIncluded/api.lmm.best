@@ -89,7 +89,7 @@ func TestAssistantGiftClaimRechecksDurableLoweredCapWithoutRewritingOffer(t *tes
 		require.NoError(t, db.First(&account, user.Id).Error)
 		require.Zero(t, account.Quota)
 	}
-	putAssistantGiftCap(t, db, 7000001)
+	putAssistantGiftCap(t, db, 7000000) // Allow redemption of an older exact-cap offer.
 	claimed, _, err := ClaimAssistantNewUserGift(user.Id)
 	require.NoError(t, err)
 	putAssistantGiftCap(t, db, 0)
