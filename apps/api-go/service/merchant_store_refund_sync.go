@@ -13,17 +13,19 @@ import (
 // Query only the frozen original order. The order/payment tree supplies PAY
 // ownership, and the execution list supplies actual PSP money, not ticket or
 // list-price amounts. Both sets must agree completely; truncation fails closed.
-// Fields: official SDK GraphQL guide sections 4 and 5. No mutation is used.
-const merchantStorePancakeOrderRefundQuery = `query ($id: ID!, $ref: String!) {
+// Fields: official SDK GraphQL guide sections 4 and 5, plus the official
+// Orders & Payments paymentId refund filter. No mutation is used. The order
+// business reference is a returned fact, not an assumed refund filter.
+const merchantStorePancakeOrderRefundQuery = `query ($id: ID!, $paymentId: String!) {
     onetimeOrder(id: $id) {
         id currency testMode
         payments { id status refunds { id } }
     }
-    refunds(limit: 100, filter: { orderMerchantExternalId: { eq: $ref } }) {
-        id status orderMerchantExternalId refundTicketMerchantExternalId
+    refunds(limit: 100, filter: { paymentId: { eq: $paymentId } }) {
+        id paymentId status orderMerchantExternalId refundTicketMerchantExternalId
         pspAmountDetails { amount currency }
     }
-    refundsCount(filter: { orderMerchantExternalId: { eq: $ref } })
+    refundsCount(filter: { paymentId: { eq: $paymentId } })
 }`
 
 type merchantStorePancakeOrderRefundData struct {
@@ -60,7 +62,7 @@ func merchantStoreQueryOrderRefunds(ctx context.Context, d *model.MerchantStoreR
 	if err != nil {
 		return nil, err
 	}
-	response, err := pancake.GraphQLQuery[merchantStorePancakeOrderRefundData](ctx, client, pancake.GraphQLParams{Query: merchantStorePancakeOrderRefundQuery, Variables: map[string]any{"id": d.Order.ProviderTradeID, "ref": d.Order.TradeNo}})
+	response, err := pancake.GraphQLQuery[merchantStorePancakeOrderRefundData](ctx, client, pancake.GraphQLParams{Query: merchantStorePancakeOrderRefundQuery, Variables: map[string]any{"id": d.Order.ProviderTradeID, "paymentId": d.Basis.PaymentReference}})
 	if err != nil || response == nil || len(response.Errors) != 0 {
 		return nil, ErrMerchantStoreRefundProvider
 	}
@@ -79,7 +81,10 @@ func merchantStoreVerifyOrderRefunds(d *model.MerchantStoreRefundDispatch, froze
 			return nil, ErrMerchantStoreRefundProvider
 		}
 		payments[payment.ID] = true
-		if payment.ID == d.Basis.PaymentReference && payment.Status != "succeeded" {
+		if payment.ID != d.Basis.PaymentReference {
+			continue
+		}
+		if payment.Status != "succeeded" {
 			return nil, ErrMerchantStoreRefundProvider
 		}
 		for _, refund := range payment.Refunds {
@@ -97,11 +102,11 @@ func merchantStoreVerifyOrderRefunds(d *model.MerchantStoreRefundDispatch, froze
 	var total int64
 	for _, execution := range data.Refunds {
 		payment := owners[execution.ID]
-		if payment == "" || seen[execution.ID] || execution.OrderMerchantExternalID != d.Order.TradeNo {
+		if payment != d.Basis.PaymentReference || execution.PaymentID != payment || seen[execution.ID] || execution.OrderMerchantExternalID != d.Order.TradeNo {
 			return nil, ErrMerchantStoreRefundProvider
 		}
 		seen[execution.ID] = true
-		if payment != d.Basis.PaymentReference || execution.Status != "succeeded" {
+		if execution.Status != "succeeded" {
 			continue
 		}
 		minor, err := merchantStoreMoneyToMinor(execution.PSPAmountDetails.Amount)

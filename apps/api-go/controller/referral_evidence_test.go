@@ -33,7 +33,7 @@ func TestReferralModerationEvidenceValidationAndRetry(t *testing.T) {
 			require.NoError(t, db.Create(&inviter).Error)
 			invitee.InviterId = inviter.Id
 			require.NoError(t, db.Create(&invitee).Error)
-			require.NoError(t, db.Create(&model.ReferralReward{InviteeId: invitee.Id, InviterId: inviter.Id, TopUpId: 1, Quota: 1000, Status: "earned", PenaltyPercent: 20}).Error)
+			require.NoError(t, db.Create(&model.ReferralReward{InviteeId: invitee.Id, InviterId: inviter.Id, TopUpId: referralTestTopUpID(1), Quota: 1000, Status: "earned", PenaltyPercent: 20}).Error)
 			payload := map[string]any{"id": invitee.Id, "action": "ban_abuse", "reason": "abuse", "evidence": tc.evidence, "request_id": "unicode-request", "penalize_inviter": true}
 			invoke := func() bool {
 				body, err := json.Marshal(payload)

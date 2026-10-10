@@ -1,31 +1,47 @@
 ---
 name: vercel-react-best-practices
-description: React and Next.js performance optimization guidelines from Vercel Engineering. Use when writing, reviewing, or refactoring React/Next.js code involving components, Next.js pages, Server Components, Server Actions, data fetching, bundle size, rendering behavior, or performance improvements.
+description: >-
+  Investigate React rendering, data fetching, event handling, and bundle size in
+  this project's Rsbuild frontend. Use measured evidence and the relevant Vercel
+  reference sections; do not apply Next.js-only rules to this application.
 ---
 
-# Vercel React Best Practices
+# React performance in this project
 
-Use this skill for React and Next.js performance work. The full Vercel guide is stored in `references/full-guide.md`; do not read the whole file by default.
+Read [apps/web/package.json](../../../apps/web/package.json) and the relevant
+source first. This frontend uses React, Rsbuild, TanStack Router, and TanStack
+Query. It is not a Next.js application. Do not introduce Server Components,
+Server Actions, Next.js routing, `next/dynamic`, or SWR solely because an upstream
+example uses them. Reuse the installed libraries and the existing data layer.
 
 ## Workflow
 
-1. Identify the relevant performance area from the task or code under review.
-2. Search `references/full-guide.md` for the matching section or rule heading.
-3. Read only the relevant section before changing or reviewing code.
-4. Prioritize higher-impact categories before lower-impact micro-optimizations.
+1. Define the slow interaction, route, device, and reproducible workload.
+2. Inspect request order, repeated fetches, event listeners, render frequency,
+   large imports, and animation work. Measure before changing behavior.
+3. Search [the reference guide](references/full-guide.md) for the relevant rule.
+   Read only that section. Skip framework-specific advice that does not apply.
+4. Fix the largest supported cost first. Use parallel requests only when they
+   are independent; retain authentication, cancellation, and ordering rules.
+5. Repeat the same measurement and relevant correctness checks. Do not claim a
+   percentage improvement without comparable before/after results.
 
-## Priority Order
+Prioritize unnecessary sequential requests and large initial bundles, then
+repeated client work, rendering, listeners, and small JavaScript optimizations.
+Do not add caching across accounts or permissions to improve a benchmark.
 
-1. Eliminating waterfalls: sequential async work, API route chains, missing `Promise.all`, Suspense boundaries.
-2. Bundle size optimization: barrel imports, heavy client modules, dynamic imports, deferred third-party libraries.
-3. Server-side performance: Server Actions auth, RSC serialization, per-request deduplication, cross-request caching, `after()`.
-4. Client-side data fetching: SWR deduplication, global listeners, passive scroll listeners, localStorage schema.
-5. Re-render optimization: derived state, effect dependencies, memo boundaries, functional state updates, transitions, refs.
-6. Rendering performance: hydration mismatches, long lists, static JSX, SVG precision, resource hints, script loading.
-7. JavaScript performance: repeated lookups, array passes, storage reads, layout thrashing, sort/min-max choices.
-8. Advanced patterns: one-time initialization, stable callback refs, effect events.
+## Checks
+
+From `apps/web`, run the affected tests and `bun run typecheck`. For import or
+loading changes, also run `bun run build` and `bun run bundle:check`. The bundle
+check does not prove that an interaction is faster; retain the measured trace
+or timing evidence. For user-facing motion, test mobile interaction and reduced
+motion when a browser is available, and report any missing check.
 
 ## Reference
 
-- Full compiled guide: `references/full-guide.md`
-- Original project: https://github.com/vercel-labs/agent-skills/tree/main/skills/react-best-practices
+[Compiled upstream guide](references/full-guide.md) ·
+[Original Vercel project](https://github.com/vercel-labs/agent-skills/tree/main/skills/react-best-practices)
+
+Keep upstream attribution. This project-specific entry point does not replace
+or silently rewrite the reference material.

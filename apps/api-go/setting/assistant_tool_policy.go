@@ -12,7 +12,7 @@ import (
 const (
 	AssistantToolPolicyOptionKey = "AssistantToolPolicy"
 	DefaultAssistantToolPolicy   = `{"version":1,"groups":{},"tools":{}}`
-	AssistantToolPolicyMaxBytes  = 16 << 10
+	AssistantToolPolicyMaxBytes  = 256 << 10
 )
 
 // AssistantToolPolicy can only remove capabilities. Existing account, role,
@@ -71,7 +71,7 @@ var assistantToolCatalogue = []AssistantToolGroup{
 		{"send_invitation", "Send an invitation", "Prepare an invitation email using your own referral link; send only after confirmation.", "confirmation", "l1"},
 		{"get_invitation_rewards", "Invitation rewards", "Read your invitation reward status and the current reward rules.", "read_only", "l1"},
 		{"get_new_user_gift_status", "Welcome gift status", "Read a stored gift decision without evaluating or claiming a gift.", "read_only", "user"},
-		{"prepare_new_user_gift", "Evaluate a welcome gift", "Record a one-time eligibility decision and prepare its claim card; credit is granted only after claiming.", "server_guarded", "user"},
+		{"prepare_new_user_gift", "Grant a welcome gift", "Grant a bounded welcome gift directly; the server prevents duplicate credit. Zero creates no new decision.", "server_guarded", "user"},
 		{"get_weekly_discount_status", "Weekly discount status", "Read the current stored weekly decision without changing it.", "read_only", "user"},
 		{"prepare_weekly_discount", "Evaluate a weekly discount", "Record a server-checked weekly decision and prepare its claim card.", "server_guarded", "user"},
 	}},
@@ -196,7 +196,7 @@ func (policy AssistantToolPolicy) Enabled(name string) bool {
 // In particular, a typo must never silently turn a disabled capability on.
 func NormalizeAssistantToolPolicy(raw string) (string, AssistantToolPolicy, error) {
 	if len(raw) > AssistantToolPolicyMaxBytes {
-		return "", AssistantToolPolicy{}, errors.New("assistant tool policy exceeds 16384 bytes")
+		return "", AssistantToolPolicy{}, fmt.Errorf("assistant tool policy exceeds %d bytes", AssistantToolPolicyMaxBytes)
 	}
 	if strings.TrimSpace(raw) == "" {
 		raw = DefaultAssistantToolPolicy

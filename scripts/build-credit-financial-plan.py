@@ -196,7 +196,7 @@ def native_override(node, key, stage, action, supplied=None, original=None, actu
     result = operation(supplied['argv'], supplied['timeout_seconds'])
     argv = result['argv']
     owner = node['owners'][stage]
-    operator_path = owner['operator']['path'] if owner.get('operator') else owner['workspace'] + '/staging/lmm-api'
+    operator_path = owner['operator']['path'] if owner.get('operator') else owner['workspace'] + '/staging/' + ('lmm-api-deploy-engine' if node.get('_split_operator') else 'lmm-api')
     require(argv[:4] == [operator_path, 'operator', 'production', action] and
             '--plan' not in argv and flag_value(argv, '--workspace') == node['owners'][stage]['workspace'],
             'native override must use the actual staged target owner, not controller state')
@@ -209,6 +209,7 @@ def native_override(node, key, stage, action, supplied=None, original=None, actu
         elif flag.endswith('package') or flag.endswith('binary'):
             absolute(value)
     require(flag_value(argv, '--probe-binary-sha256') == node['_provider_sha256'], 'native probe is not the final provider')
+    require(flag_value(argv, '--operator-binary-sha256') == node['_operator_sha256'], 'native operator is not the bound deployment tool')
     if stage == 'post':
         require(flag_value(argv, '--go-package-sha256') == flag_value(argv, '--go-rollback-sha256'),
                 'post candidate and compatible bridge rollback must be the same package')
@@ -235,18 +236,19 @@ def prebridge_stage(node):
             'late prebridge requires an exact native owner contract')
     pending = [owner[key] is None for key in ('operator', 'staged_plan', 'stage_handoff')]
     require(all(pending) or not any(pending), 'late prebridge bindings must be all pending or all bound')
-    expected = owner['workspace'] + '/staging/lmm-api'
+    expected = owner['workspace'] + '/staging/' + ('lmm-api-deploy-engine' if node.get('_split_operator') else 'lmm-api')
     provider_path = owner['workspace'] + '/staging/lmm-api-go'
     contract = native_override(node, 'prebridge_apply', 'prebridge', 'apply',
                                supplied=owner['apply_contract'], original=node['handoff'])
     argv = contract['argv']
-    require(argv[0] == expected and all(flag_value(argv, flag) == provider_path
-            for flag in ('--probe-binary', '--operator-binary')), 'late prebridge must use its expected staged provider paths')
+    operator_path = expected if node.get('_split_operator') else provider_path
+    require(argv[0] == expected and flag_value(argv, '--probe-binary') == provider_path and
+            flag_value(argv, '--operator-binary') == operator_path, 'late prebridge must use its expected staged provider/tool paths')
     require(all(str(Path(flag_value(argv, flag)).parent) == owner['workspace'] + '/staging'
             for flag in ('--go-package', '--go-rollback-package', '--web-package', '--web-rollback-package')),
             'late prebridge package paths must be direct expected staging files')
-    require(all(flag_value(argv, flag) == node['_provider_sha256']
-            for flag in ('--probe-binary-sha256', '--operator-binary-sha256')), 'late prebridge provider digests differ')
+    require(flag_value(argv, '--probe-binary-sha256') == node['_provider_sha256'] and
+            flag_value(argv, '--operator-binary-sha256') == node['_operator_sha256'], 'late prebridge provider/tool digests differ')
     observation = flag_value(argv, '--observation-seconds')
     require(observation.isdigit() and 120 <= int(observation) <= 360 and observation == str(int(observation)),
             'late prebridge observation must be explicit and valid')
@@ -376,6 +378,11 @@ def make_plan(seed, intent_path, intent_content):
     for key in ('controller', 'provider', 'verifier', 'generator', 'fingerprint_generator'):
         plan[key] = binding(seed[key])
         read_bound(plan[key])
+    if 'deployment_engine' in seed:
+        plan['deployment_engine'] = binding(seed['deployment_engine'])
+        read_bound(plan['deployment_engine'])
+        require(Path(plan['deployment_engine']['path']).name == 'lmm-api-deploy-engine' and
+                plan['deployment_engine']['sha256'] != plan['provider']['sha256'], 'deployment tool must be a separate bound executable')
     plan['generator_helpers'] = [binding(value) for value in seed['generator_helpers']]
     for value in plan['generator_helpers']:
         read_bound(value)
@@ -392,6 +399,8 @@ def make_plan(seed, intent_path, intent_content):
     for source in seed['nodes']:
         node = copy.deepcopy(source)
         node['_provider_sha256'] = seed['provider']['sha256']
+        node['_operator_sha256'] = plan.get('deployment_engine', plan['provider'])['sha256']
+        node['_split_operator'] = 'deployment_engine' in plan
         absolute(node['receipt_directory'])
         for key in ('handoff', 'post_intent', 'prepare_config'):
             binding(node[key])
@@ -407,7 +416,7 @@ def make_plan(seed, intent_path, intent_content):
                 if stage == 'prebridge' and 'apply_contract' in owner and owner.get('operator') is None:
                     continue
                 binding(owner['operator']); binding(owner['staged_plan'])
-                require(owner['operator']['sha256'] == seed['provider']['sha256'], 'staged native operator must be final provider bytes')
+                require(owner['operator']['sha256'] == node['_operator_sha256'], 'staged native operator must be the bound deployment tool')
                 require(owner['staged_plan']['path'] == owner['workspace'] + '/staging/release-plan.json', 'not an actual native staged plan path')
             else:
                 require(str(Path(owner['workspace']).parent) == '/var/lib/lmm-api-deploy-systemd', 'systemd owner workspace must match its formal root')

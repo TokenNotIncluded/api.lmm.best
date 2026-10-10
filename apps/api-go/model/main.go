@@ -371,6 +371,9 @@ func mainMigrationModels() []interface{} {
 }
 
 func migrateDB() error {
+	if err := migrateReferralOrderNullability(DB); err != nil {
+		return err
+	}
 	models, err := startupMigrationModels(DB)
 	if err != nil {
 		return err
@@ -472,6 +475,9 @@ func migrateLegacySubscriptionPlanCurrencies() error {
 }
 
 func migrateDBFast() error {
+	if err := migrateReferralOrderNullability(DB); err != nil {
+		return err
+	}
 	if err := migratePasskeyCredentialUserIndex(); err != nil {
 		return err
 	}

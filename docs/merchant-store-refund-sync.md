@@ -41,15 +41,18 @@ create another provider refund ticket.
 A signed Pancake refund event whose business reference is not a local refund
 now follows the original payment's frozen credentials and verifies the actual
 refund execution through GraphQL. The order/payment tree establishes PAY/ORD
-ownership; the execution list provides actual refunded native money. Counts,
-IDs, currency, environment and original business reference must agree. Missing,
+ownership; the execution list provides actual refunded native money.
+The execution list and its count are filtered by the frozen `paymentId`, as
+documented by the provider. Every returned execution must repeat that PAY.
+Refunds on another payment attempt must not enter this payment's count. IDs,
+currency, environment and original business reference must agree. Missing,
 truncated or ambiguous evidence fails closed. The bounded query rejects more
 than 100 payment/refund records rather than silently accepting a partial list.
 
 Native success is keyed by the stable provider refund execution ID, not the
 notification delivery ID or refund ticket ID. Repeated notifications and manual
 synchronization converge on the same local receipt. Full and successive partial
-refunds use the original actual tax-inclusive charge. Native amounts are exact
+refund receipts use the original actual tax-inclusive charge. Native amounts are exact
 integer minor units. Platform principal uses cumulative integer allocation, so
 the last partial refund closes rounding remainders without exceeding the order.
 There is no second buyer platform credit for money returned through a gateway.
@@ -57,6 +60,13 @@ There is no second buyer platform credit for money returned through a gateway.
 Provider method support still controls whether a partial refund can execute.
 Pancake's customer ticket API accepts a requested amount, but this does not
 establish partial-refund support for every payment method or merchant account.
+The current merchant API documentation also lists an existing successful refund
+as a possible conflict. Local accounting handles multiple distinct successful
+partial receipts, but this is not a promise that the gateway accepts a second
+refund request for every charge. The integration retains the pinned SDK customer
+ticket flow; it does not silently switch to a separately documented merchant
+auto-approval endpoint with different authentication. A pending ticket remains
+pending until actual execution is verified.
 The native Waffo acquiring refund API is a different integration. Linux DO
 remains full-only; arbitrary Epay remains explicitly provider-specific/manual.
 
@@ -115,7 +125,14 @@ redelivery, a missing callback followed by manual sync, an interrupted request,
 unknown in-flight overlap and insufficient local seller funds. Source tests
 are not evidence of live provider acceptance or a deployed fix.
 
-Primary provider contracts: official `waffo-com/waffo-pancake-sdk-go` customer
-API (v0.11.0), GraphQL guide sections 4–5 and webhook guide, plus Waffo's official
-billing capability statement. The dependency remains pinned; no undocumented
-money-moving refund endpoint or credential substitution is added.
+Primary provider contracts (checked 2026-10-10):
+
+- [Pinned SDK customer API](https://github.com/waffo-com/waffo-pancake-sdk-go/tree/v0.11.0), including its GraphQL guide sections 4–5.
+- [Orders, payments and executed refunds](https://docs.waffo.ai/api-reference/endpoints/graphql/orders-and-payments): filter refunds by `paymentId`; use actual `pspAmountDetails`.
+- [Refund webhook contracts](https://docs.waffo.ai/api-reference/webhooks): `refundedAmount` is the returned amount; `originalChargedAmount` is the original charge.
+- [Merchant refund ticket API](https://docs.waffo.ai/api-reference/endpoints/refunds/create-refund-ticket): separate merchant approval rules and existing-refund conflicts.
+
+The dependency remains pinned. The public guides and pinned customer SDK describe
+different approval paths; test the configured customer flow in the merchant test
+environment before enabling it. No undocumented money-moving endpoint or
+credential substitution is added.

@@ -49,7 +49,7 @@ func assistantGiftMoneyFields(gift *model.AssistantNewUserGift) (map[string]any,
 	claimAvailable := gift != nil && gift.Status == model.AssistantGiftOffered && credits > 0
 	blocked := ""
 	if claimAvailable {
-		if limitErr := model.CheckAssistantGiftCreditLimit(credits, cap); limitErr != nil {
+		if limitErr := model.CheckAssistantExistingGiftCreditLimit(credits, cap); limitErr != nil {
 			claimAvailable = false
 			blocked = model.AssistantGiftErrorCode(limitErr)
 		}
@@ -256,17 +256,44 @@ func executeAssistantNewUserGiftTool(c *gin.Context, userID int, input map[strin
 			if reasonCode == "" {
 				reasonCode = "invalid_decision"
 			}
-			if reasonCode == "insufficient_conversation" {
-				return map[string]any{"ok": false, "status": "more_conversation_needed", "reason_code": reasonCode, "error": "ask for the missing concrete purpose or planned work before evaluating the one-time gift; one sufficiently detailed user message is enough"}
-			}
 			return map[string]any{"ok": false, "status": "invalid_decision", "reason_code": reasonCode, "error": "the one-time gift decision was invalid"}
 		default:
 			return map[string]any{"ok": false, "status": "unavailable", "error": "the gift decision could not be saved"}
 		}
 	}
+	if gift == nil {
+		return map[string]any{"ok": false, "status": "unavailable", "error": "gift decision is unavailable"}
+	}
+	if gift.Id == 0 && gift.Quota == 0 {
+		return map[string]any{
+			"ok": true, "status": "not_awarded", "credit_amount": 0,
+			"created": false, "new_decision_stored": false, "changed": false,
+			"next_step": "No credit was granted and no new decision was stored. Existing records are unchanged. Do not claim the user has lost an opportunity.",
+		}
+	}
+	alreadyClaimed := gift.Status == model.AssistantGiftClaimed
+	if gift.Status == model.AssistantGiftOffered {
+		gift, alreadyClaimed, err = model.ClaimAssistantNewUserGift(userID)
+		if err != nil {
+			// An offered row remains retryable; never report unconfirmed credit.
+			return map[string]any{
+				"ok": false, "status": "claim_pending", "reason_code": model.AssistantGiftErrorCode(err),
+				"error": "The gift has not been confirmed as credited. Read its current status or retry; no new application is required.",
+			}
+		}
+		if !alreadyClaimed {
+			if quota, quotaErr := model.AssistantGiftCreditQuota(gift); quotaErr == nil {
+				model.RecordLog(userID, model.LogTypeTopup, fmt.Sprintf("领取 AI 新用户礼包，获得额度 %s", logger.LogQuota(quota)))
+			}
+		}
+	}
 	money, err := assistantGiftMoneyFields(gift)
 	if err != nil {
-		return map[string]any{"ok": false, "status": "unavailable", "error": "gift currency units are unavailable"}
+		return map[string]any{
+			"ok": gift.Status == model.AssistantGiftClaimed, "status": gift.Status,
+			"already_claimed": alreadyClaimed, "display_amount_available": false,
+			"next_step": "Use the stored status as the receipt. Display amount unavailable; do not invent a currency value.",
+		}
 	}
 	if gift.Status == model.AssistantGiftOffered && money["claim_available"] == true && c != nil {
 		action := make(map[string]any, len(money)+3)
@@ -277,7 +304,12 @@ func executeAssistantNewUserGiftTool(c *gin.Context, userID int, input map[strin
 		c.Set(assistantClientActionKey, action)
 	}
 	money["ok"], money["created"], money["status"], money["reason"] = true, created, gift.Status, gift.Reason
-	money["next_step"] = "The user claims an available offered gift from the gift shown in the chat. Respect claim_available and the current max_credit_amount; never promise a blocked claim. Never claim it for them. amount_cents is LEGACY_CENTS; explain the gift using public_credit_amount or amount_usd."
+	money["already_claimed"] = alreadyClaimed
+	if gift.Status == model.AssistantGiftClaimed {
+		money["next_step"] = "Gift credited. No claim click or further application is needed. If already_claimed is true, this is an existing receipt, not another credit. Explain the value using public_credit_amount or amount_usd."
+	} else {
+		money["next_step"] = "Report the stored status. No new credit is confirmed. Historical declined decisions have not been reset."
+	}
 	return money
 }
 

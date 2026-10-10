@@ -36,6 +36,8 @@ type Entry = {
   created_at: number
 }
 type ReferralPolicy = {
+  registration_reward_quota?: number
+  min_top_up_amounts?: Record<string, string>
   reward_quota: number
   min_top_up_quota: number
   max_reward_quota: number
@@ -50,13 +52,15 @@ type History = {
   policy?: ReferralPolicy
 }
 const kinds: Record<string, string> = {
-  reward: 'First top-up reward',
+  registration_reward: 'Registration advance reward',
+  reward: 'First top-up tail reward',
   clawback: 'Reward clawback',
   penalty: 'Additional penalty',
   restore_reward: 'Reward restored',
   restore_penalty: 'Penalty reversed',
 }
 const reasons: Record<string, string> = {
+  registration: 'Valid invited registration',
   first_top_up: 'First real paid top-up',
   abuse: 'Confirmed abuse',
   bulk_registration: 'Bulk registration',
@@ -132,7 +136,7 @@ export function ReferralHistoryDialog() {
       }}
       title={t('Referral reward history')}
       description={t(
-        'Only the first real paid top-up earns a reward. Confirmed abuse or a full refund can revoke it. Future rewards repay any reward debt first; purchased balance is not deducted.'
+        'A small registration advance can be enabled. The tail reward requires a qualifying first cash payment. Confirmed abuse or a full refund can revoke rewards. Reward debt never deducts purchased balance.'
       )}
       contentClassName='sm:max-w-3xl'
       bodyClassName='space-y-4'
@@ -169,7 +173,7 @@ export function ReferralHistoryDialog() {
         <div
           className={
             history.policy
-              ? 'grid grid-cols-1 gap-2 sm:grid-cols-3'
+              ? 'grid grid-cols-2 gap-2 lg:grid-cols-4'
               : 'grid grid-cols-1 gap-2 sm:grid-cols-2'
           }
         >
@@ -196,15 +200,47 @@ export function ReferralHistoryDialog() {
             </p>
           </div>
           {history.policy && (
+            <div className='bg-muted/25 rounded-2xl px-4 py-3'>
+              <p className='text-muted-foreground text-xs'>
+                {t('Registration advance reward')}
+              </p>
+              <p className='mt-1 text-xl font-semibold tabular-nums'>
+                {formatQuota(history.policy.registration_reward_quota ?? 0)}
+              </p>
+            </div>
+          )}
+          {history.policy && (
             <div className='border-border/70 bg-muted/25 rounded-2xl border px-4 py-3'>
               <p className='text-muted-foreground text-xs font-medium tracking-wide uppercase'>
-                {t('First top-up reward')}
+                {t('First top-up tail reward')}
               </p>
               <p className='mt-1 text-xl font-semibold tabular-nums'>
                 {formatQuota(history.policy.reward_quota)}
               </p>
             </div>
           )}
+        </div>
+      )}
+
+      {history?.policy?.min_top_up_amounts && (
+        <div className='bg-muted/20 space-y-2 rounded-2xl p-4 text-sm'>
+          <p className='font-medium'>
+            {t('Minimum first cash payment by currency')}
+          </p>
+          <div className='flex flex-wrap gap-4'>
+            {Object.entries(history.policy.min_top_up_amounts).map(
+              ([currency, amount]) => (
+                <span key={currency} className='tabular-nums'>
+                  {currency} ≥ {amount}
+                </span>
+              )
+            )}
+          </div>
+          <p className='text-muted-foreground text-xs'>
+            {t(
+              'Only the first verified cash payment can earn the tail. A smaller first payment cannot be topped up later to qualify. Lifetime earnings are not your current wallet balance.'
+            )}
+          </p>
         </div>
       )}
 

@@ -381,6 +381,8 @@ export type ModelSettings = {
 
 export type BillingSettings = {
   TrustLevelBenefits: string
+  ReferralRegistrationRewardQuota?: number
+  ReferralMinTopUpAmounts?: string
   ReferralMinTopUpQuota: number
   ReferralMaxRewardQuota: number
   ReferralPenaltyPercent: number

@@ -39,7 +39,14 @@ jobs:
         working-directory: apps/api-go
         run: |
           set -o pipefail
-          go test -p 2 -count=1 -json -run 'Test(MerchantStore|StoreClaim|ProductionMerchantStore(WriterStatus|WriterTargets|SignedMarkerInventory|ContractCannot|CapsuleClosed))' ./model ./service ./controller ./router . ./internal/appcli | tee "$RUNNER_TEMP/store-go-tests.jsonl"
+          go test -p 2 -count=1 -json -run 'Test(MerchantStore|StoreClaim|ProductionMerchantStore(WriterStatus|WriterTargets|SignedMarkerInventory|ContractCannot|CapsuleClosed))' ./model ./service ./controller ./router . ./internal/appcli ./internal/deploycli | tee "$RUNNER_TEMP/store-go-tests.jsonl"
+      - name: Deployment CLI and documentation contracts
+        run: |
+          python3 -B scripts/check-docs-brand.py --docs-only
+          python3 -B -m unittest discover -s scripts -p test_check_docs_brand.py
+          python3 -B -m unittest discover -s scripts -p test_qualify_merchant_store_postgres.py
+          cd apps/api-go
+          go test -p 2 -count=1 ./internal/appcli
       - name: Refund receipt race and actual PostgreSQL locks
         if: ${{ !cancelled() }}
         env:
@@ -65,6 +72,12 @@ jobs:
       - name: Install frozen frontend dependencies
         working-directory: apps/web
         run: bun install --frozen-lockfile
+      - name: Validate complete translations
+        run: |
+          node --test .agents/skills/i18n-translate/scripts/apply-translations.test.mjs
+          cd apps/web
+          bun run i18n:sync
+          git diff --exit-code -- src/i18n/locales/*.json
       - name: Check frontend types
         working-directory: apps/web
         run: |
@@ -114,6 +127,7 @@ jobs:
           mkdir -p "$STORE_REVIEW_OUTPUT"
           git rev-parse HEAD > "$STORE_REVIEW_OUTPUT/revision.txt"
           bun run build > "$STORE_REVIEW_OUTPUT/build.log" 2>&1
+          bun run bundle:check > "$STORE_REVIEW_OUTPUT/bundle-check.log" 2>&1
           bun run preview --host 127.0.0.1 --port 4183 > "$STORE_REVIEW_OUTPUT/preview.log" 2>&1 &
           server_pid=$!
           trap 'kill "$server_pid" 2>/dev/null || true' EXIT

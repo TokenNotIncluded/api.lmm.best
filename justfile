@@ -96,6 +96,10 @@ build-go:
     @test -x apps/api-go/out/lmm-api-go || { echo "error: real Go provider binary was not produced" >&2; exit 1; }
     @test -L apps/api-go/out/lmm-api && test "$(readlink apps/api-go/out/lmm-api)" = lmm-api-go || { echo "error: public Go provider symlink was not produced" >&2; exit 1; }
 
+# Build only the deployment tool, without linking it into the API backend.
+build-deploy:
+    bun run build:deploy
+
 # Build the explicit Rust backend.
 build-rust:
     bun run build:rust
@@ -121,9 +125,10 @@ test-all: test test-rust
 # Run default Go and web quality gates.
 check: format-check lint typecheck test check-deploy
 
-# Verify the native Go build, frontend publication, backup, and deployment contract.
+# Verify runtime CLI isolation and the separate deployment engine.
 check-deploy:
-    cd apps/api-go && go test ./internal/appcli -count=1
+    cd apps/api-go && go test ./internal/appcli ./internal/deploycli -count=1
+    python3 -B scripts/test-deploy-entrypoint.py -v
 
 format: format-go format-web
 
@@ -195,8 +200,8 @@ docker-rust:
 # Build the default Go production package.
 package: package-go
 
-# Reuse an existing operator; bootstrap it only on a fresh checkout.
-# The native package command owns the actual frontend and backend builds.
+# Reuse the separate deployment tool; never bootstrap the API for a CLI.
+# The deployment tool builds the frontend, backend and itself once for the package.
 package-go:
     bash scripts/lmm-api-deploy.sh package
 

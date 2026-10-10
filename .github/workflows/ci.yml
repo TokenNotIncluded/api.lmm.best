@@ -167,7 +167,7 @@ jobs:
         working-directory: apps/api-go
         env:
           TMPDIR: ${{ runner.temp }}
-        run: go test -p 2 ./internal/appcli -count=1
+        run: go test -p 2 ./internal/appcli ./internal/deploycli -count=1
 
   pi-lmm-provider:
     needs: changes
@@ -324,12 +324,15 @@ jobs:
         run: |
           mkdir -p out
           go build -p 2 -trimpath -ldflags="-s -w" -o out/lmm-api-go .
+          go build -p 2 -trimpath -ldflags="-s -w" -o out/lmm-api-deploy-engine ./cmd/lmm-api-deploy
+          bash ../../scripts/check-static-go-binary.sh out/lmm-api-deploy-engine
           rm -f out/.lmm-api.next
           ln -s lmm-api-go out/.lmm-api.next
           mv -Tf out/.lmm-api.next out/lmm-api
           [[ -L out/lmm-api && $(readlink out/lmm-api) == lmm-api-go ]]
           file out/lmm-api-go
           bash ../../scripts/check-static-go-binary.sh out/lmm-api-go
+          bash ../../scripts/check-deploy-isolation.sh out/lmm-api-go out/lmm-api-deploy-engine
 
   rust-preview:
     needs: changes

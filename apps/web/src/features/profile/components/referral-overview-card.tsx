@@ -17,7 +17,7 @@ export function ReferralOverviewCard() {
       <div className='space-y-4'>
         <p className='text-muted-foreground text-sm leading-relaxed'>
           {t(
-            'Only the first real paid top-up earns a reward. Confirmed abuse or a full refund can revoke it. Future rewards repay any reward debt first; purchased balance is not deducted.'
+            'A small registration advance can be enabled. The tail reward requires a qualifying first cash payment. Confirmed abuse or a full refund can revoke rewards. Reward debt never deducts purchased balance.'
           )}
         </p>
         <Button

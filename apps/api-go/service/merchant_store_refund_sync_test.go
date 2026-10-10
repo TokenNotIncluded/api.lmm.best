@@ -30,7 +30,7 @@ func merchantStoreOrderRefundFixture(t *testing.T, d *model.MerchantStoreRefundD
 	return data
 }
 func merchantStoreOrderRefundExecution(d *model.MerchantStoreRefundDispatch, id, ref, amount string) map[string]any {
-	return map[string]any{"id": id, "status": "succeeded", "orderMerchantExternalId": d.Order.TradeNo,
+	return map[string]any{"id": id, "paymentId": d.Basis.PaymentReference, "status": "succeeded", "orderMerchantExternalId": d.Order.TradeNo,
 		"refundTicketMerchantExternalId": ref, "pspAmountDetails": map[string]string{"amount": amount, "currency": d.Basis.Currency}}
 }
 
@@ -53,13 +53,15 @@ func TestMerchantStoreRefundSyncQueryValidatesNativeOrderAndActualExecutions(t *
 	require.NoError(t, err)
 	require.Equal(t, results, again)
 	for name, change := range map[string]func(*merchantStorePancakeOrderRefundData){
-		"wrong_order":          func(x *merchantStorePancakeOrderRefundData) { x.OnetimeOrder.ID = "ORD_other" },
-		"wrong_currency":       func(x *merchantStorePancakeOrderRefundData) { x.OnetimeOrder.Currency = "CNY" },
-		"wrong_environment":    func(x *merchantStorePancakeOrderRefundData) { *x.OnetimeOrder.TestMode = true },
-		"missing_environment":  func(x *merchantStorePancakeOrderRefundData) { x.OnetimeOrder.TestMode = nil },
-		"missing_count":        func(x *merchantStorePancakeOrderRefundData) { x.RefundsCount = nil },
-		"truncated_list":       func(x *merchantStorePancakeOrderRefundData) { *x.RefundsCount = 2 },
-		"missing_payment_link": func(x *merchantStorePancakeOrderRefundData) { x.OnetimeOrder.Payments[0].Refunds = nil },
+		"wrong_order":               func(x *merchantStorePancakeOrderRefundData) { x.OnetimeOrder.ID = "ORD_other" },
+		"wrong_currency":            func(x *merchantStorePancakeOrderRefundData) { x.OnetimeOrder.Currency = "CNY" },
+		"wrong_environment":         func(x *merchantStorePancakeOrderRefundData) { *x.OnetimeOrder.TestMode = true },
+		"missing_environment":       func(x *merchantStorePancakeOrderRefundData) { x.OnetimeOrder.TestMode = nil },
+		"missing_count":             func(x *merchantStorePancakeOrderRefundData) { x.RefundsCount = nil },
+		"truncated_list":            func(x *merchantStorePancakeOrderRefundData) { *x.RefundsCount = 2 },
+		"missing_payment_link":      func(x *merchantStorePancakeOrderRefundData) { x.OnetimeOrder.Payments[0].Refunds = nil },
+		"wrong_execution_payment":   func(x *merchantStorePancakeOrderRefundData) { x.Refunds[0].PaymentID = "PAY_other" },
+		"missing_execution_payment": func(x *merchantStorePancakeOrderRefundData) { x.Refunds[0].PaymentID = "" },
 		"duplicate_payment": func(x *merchantStorePancakeOrderRefundData) {
 			x.OnetimeOrder.Payments = append(x.OnetimeOrder.Payments, x.OnetimeOrder.Payments[0])
 		},
@@ -76,6 +78,16 @@ func TestMerchantStoreRefundSyncQueryValidatesNativeOrderAndActualExecutions(t *
 			require.Error(t, err)
 		})
 	}
+	// A different payment attempt on the same order does not belong to the
+	// frozen charge. Its refunds must not change this payment's expected count.
+	other := data.OnetimeOrder.Payments[0]
+	other.ID = "PAY_ZbCdEfGhIjKlMnOpQrStUv"
+	other.Refunds = append(other.Refunds[:0:0], data.OnetimeOrder.Payments[0].Refunds...)
+	other.Refunds[0].ID = "another-payment-refund"
+	data.OnetimeOrder.Payments = append(data.OnetimeOrder.Payments, other)
+	results, err = merchantStoreVerifyOrderRefunds(d, frozen, data)
+	require.NoError(t, err)
+	require.Len(t, results, 1)
 	data.Refunds[0].Status = "pending"
 	results, err = merchantStoreVerifyOrderRefunds(d, frozen, data)
 	require.NoError(t, err)
@@ -112,7 +124,17 @@ func TestMerchantStoreRefundSyncBothDirectionsAndRepeatsThroughSDK(t *testing.T)
 				require.NoError(t, err)
 				require.NotContains(t, string(body), "mutation")
 				var result any = data
-				if !strings.Contains(string(body), "onetimeOrder(id:") {
+				if strings.Contains(string(body), "onetimeOrder(id:") {
+					var sent struct {
+						Query     string         `json:"query"`
+						Variables map[string]any `json:"variables"`
+					}
+					require.NoError(t, json.Unmarshal(body, &sent))
+					require.Contains(t, sent.Query, "refunds(limit: 100, filter: { paymentId: { eq: $paymentId } })")
+					require.Contains(t, sent.Query, "refundsCount(filter: { paymentId: { eq: $paymentId } })")
+					require.NotContains(t, sent.Query, "filter: { orderMerchantExternalId:")
+					require.Equal(t, map[string]any{"id": o.ProviderTradeID, "paymentId": d.Basis.PaymentReference}, sent.Variables)
+				} else {
 					native := merchantStoreDispatchNative(d)
 					native.RefundID, native.AmountMinor, native.Currency = local.ID, local.AmountMinor, local.Currency
 					known := merchantStoreRefundProviderQueryFixture(native)

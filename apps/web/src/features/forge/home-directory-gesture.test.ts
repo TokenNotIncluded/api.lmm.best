@@ -19,12 +19,12 @@ function fixture() {
   Object.defineProperty(doc, 'hidden', { value: false })
   const entry = doc.querySelector('aside')!
   entry.getBoundingClientRect = () => new view.DOMRect(0, 64, 800, 64)
-  type FrameHandle = ReturnType<typeof view.requestAnimationFrame>
-  const frames = new Map<FrameHandle, FrameRequestCallback>()
+  const frames = new Map<ReturnType<typeof view.requestAnimationFrame>, FrameRequestCallback>()
+  let nextFrame = 0
   view.requestAnimationFrame = (callback) => {
-    const frame = {} as FrameHandle
-    frames.set(frame, callback)
-    return frame
+    const frameID = (++nextFrame) as unknown as ReturnType<typeof view.requestAnimationFrame>
+    frames.set(frameID, callback)
+    return frameID
   }
   view.cancelAnimationFrame = (id) => {
     frames.delete(id)
@@ -41,7 +41,7 @@ function fixture() {
   })
   const wheel = (
     deltaY: number,
-    options: Omit<WheelEventInit, 'view'> = {},
+    options: WheelEventInit = {},
     target = doc.body
   ) => {
     const event = new view.WheelEvent('wheel', {
@@ -49,7 +49,7 @@ function fixture() {
       cancelable: true,
       deltaY,
       ...options,
-    })
+    } as ConstructorParameters<typeof view.WheelEvent>[1])
     // Happy DOM omits wheel modifiers. Set the browser fields explicitly.
     for (const key of ['ctrlKey', 'altKey', 'metaKey', 'shiftKey'] as const) {
       Object.defineProperty(event, key, { value: options[key] ?? false })

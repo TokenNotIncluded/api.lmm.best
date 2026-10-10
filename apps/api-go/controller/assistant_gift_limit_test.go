@@ -51,7 +51,7 @@ func TestAssistantGiftToolSchemaAndPromptTrackChangedDurableCap(t *testing.T) {
 			found = true
 			properties := tool.Function.Parameters["properties"].(map[string]any)
 			amount := properties["amount_credits"].(map[string]any)
-			require.Equal(t, cap, amount["maximum"])
+			require.Equal(t, cap, amount["exclusiveMaximum"])
 			require.NotContains(t, properties, "amount_cents")
 		}
 		require.True(t, found)
@@ -66,6 +66,7 @@ func TestAssistantGiftToolRejectsOverCapInvalidNumbersAndMixedUnits(t *testing.T
 	setControllerGiftCap(t, db, 100000)
 	for _, input := range []map[string]any{
 		{"amount_credits": 100001.0, "reason": "A concrete legitimate backend development workflow."},
+		{"amount_credits": 100000.0, "reason": "The exclusive upper bound must be rejected."},
 		{"amount_credits": math.NaN()}, {"amount_credits": math.Inf(1)}, {"amount_credits": -1.0}, {"amount_credits": 1.5}, {"amount_credits": float64(common.MaxWalletQuota) + 1},
 		{"amount_credits": 1.0, "amount_cents": 1.0}, {"amount_credits": 1.0, "amount_unit": "USD"},
 		{"amount_cents": 1000.0, "reason": "A concrete legitimate backend development workflow."},
@@ -76,13 +77,14 @@ func TestAssistantGiftToolRejectsOverCapInvalidNumbersAndMixedUnits(t *testing.T
 		require.NoError(t, db.Model(&model.AssistantNewUserGift{}).Count(&count).Error)
 		require.Zero(t, count)
 	}
-	result := executeAssistantNewUserGiftTool(c, user.Id, map[string]any{"amount_credits": 100000.0, "reason": "A concrete legitimate backend development workflow."})
+	result := executeAssistantNewUserGiftTool(c, user.Id, map[string]any{"amount_credits": 99999.0, "reason": "A concrete legitimate backend development workflow."})
 	require.Equal(t, true, result["ok"])
-	require.Equal(t, 100000, result["credit_amount"])
+	require.Equal(t, model.AssistantGiftClaimed, result["status"])
+	require.Equal(t, 99999, result["credit_amount"])
 	require.Equal(t, 100000, result["max_credit_amount"])
 	var account model.User
 	require.NoError(t, db.First(&account, user.Id).Error)
-	require.Zero(t, account.Quota)
+	require.Equal(t, 99999, account.Quota)
 }
 
 func TestAssistantGiftStatusDoesNotPromiseClaimAfterCapIsLowered(t *testing.T) {

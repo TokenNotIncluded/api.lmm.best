@@ -18,6 +18,8 @@ LMM Forge is an open-source console for AI services. Model access, a Remote MCP 
 
 This project is a maintained fork of [QuantumNous/new-api](https://github.com/QuantumNous/new-api). Go is the default backend. The web app uses React and TypeScript. The Rust backend and standalone CLI are previews.
 
+This guide describes the default branch. Check refactor branches, merged code, signed releases, and production deployment separately. A design proposal does not prove that a switch is complete.
+
 ## Core features
 
 | Area | What it does |
@@ -64,13 +66,13 @@ Open <http://localhost:5173> and complete setup. See the [development guide](doc
 
 ## Deploy and upgrade
 
-Go and Web have separate release tags: `go-vX.Y.Z` and `web-vX.Y.Z`. **A merge or release does not deploy to production.**
+Go and Web have separate release tags: `go-vX.Y.Z` and `web-vX.Y.Z`. **A merge or release does not deploy to production.** Read the [deployment workflow](docs/deployment-workflow.md) and select the path for the existing installation first.
 
 | Existing installation | Start here |
 | --- | --- |
 | Standalone systemd service | [Inspect, upgrade, confirm, and roll back](docs/manual-systemd-deployment.md) |
 | Package-managed Go / Web | [Signed releases and upgrade transactions](docs/seamless-upgrades.md) |
-| Frontend-only update | [Release boundaries](docs/release-architecture.md) · [Deployment workflow](.github/workflows/deploy-web-frontend.yml) |
+| Frontend-only update | [Deployment and installation types](docs/deployment-workflow.md) · [Release boundaries](docs/release-architecture.md) |
 | Database and cache | [PostgreSQL migration](docs/postgresql-migration.md) · [Production cutover](docs/postgresql-cutover.md) · [Valkey operations](docs/valkey-lmm-api.md) |
 
 ## Documentation
@@ -80,6 +82,12 @@ The [documentation index](docs/README.md) groups guides by user, developer, and 
 - **Use and contribute:** [Tool publishing](docs/tool-market-guide.md), [connections and permissions](docs/tool-market-connections.md), [bounties and settlement](docs/open-source-bounties.md).
 - **Development and APIs:** [Local development](docs/development.md), [contribution guide](CONTRIBUTING.md), [admin API](docs/openapi/api.json), [relay API](docs/openapi/relay.json).
 - **Releases and maintenance:** [Release architecture](docs/release-architecture.md), [authentication and sessions](docs/authentication.md), [Rust preview](docs/rust-blue-green.md).
+
+## Agent workflow
+
+Read [AGENTS.md](AGENTS.md) before editing. Select the relevant task from the [skill index](.agents/skills/README.md). See the [Agent working guide](docs/agent-workflows.md) for steps and check coverage.
+
+The main CI workflow is a manual diagnostic entry point. Opening a PR does not trigger it. See [Actions](docs/ci-workflow-layout.md) for the separate testing, signing, and deployment steps. Skills do not grant account permissions or authorize deployment or payment.
 
 ## Contribute and report security issues
 
