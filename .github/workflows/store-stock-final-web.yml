@@ -1,0 +1,75 @@
+name: Final stock browser acceptance
+on:
+  push:
+    branches: [review/store-stock-finish-20261010]
+    paths: [.github/workflows/store-stock-final-web.yml]
+permissions:
+  contents: read
+jobs:
+  browser:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: d3fb115c097e2eedb518b1f4b061351b468672ee
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Record exact source and unchanged verified backend
+        run: |
+          mkdir -p "$RUNNER_TEMP/stock-final"
+          git rev-parse HEAD > "$RUNNER_TEMP/stock-final/revision.txt"
+          git diff --exit-code 0070bdf81fad1d65e905e4395dbe0aff56d5e2e8 HEAD -- apps/api-go > "$RUNNER_TEMP/stock-final/backend-unchanged.patch"
+          git diff --stat origin/main HEAD > "$RUNNER_TEMP/stock-final/change-stat.txt"
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.3.14'
+      - name: Install locked dependencies
+        run: bun install --frozen-lockfile
+      - name: Static checks
+        working-directory: apps/web
+        run: |
+          bun run lint > "$RUNNER_TEMP/stock-final/lint.log" 2>&1
+          bun run typecheck > "$RUNNER_TEMP/stock-final/typecheck.log" 2>&1
+          PATH="$PWD/node_modules/.bin:$PWD/../../node_modules/.bin:$PATH" oxfmt --check scripts/store-stock-review.mjs scripts/store-stock-copy.mjs src/features/store/seller-page.tsx src/features/store/stock-status.ts src/features/store/stock-status.test.ts src/features/store/catalogue-tags.tsx src/features/usage-logs/lib/async-task-logs.ts src/features/usage-logs/lib/__tests__/safe-media-url-controls.test.ts > "$RUNNER_TEMP/stock-final/format.log" 2>&1
+      - name: Workflow boundaries and translation checks
+        run: |
+          node --test scripts/workflow-topology.test.mjs scripts/check-i18n.test.mjs > "$RUNNER_TEMP/stock-final/contracts.log" 2>&1
+          node scripts/check-i18n.mjs --base origin/main > "$RUNNER_TEMP/stock-final/translations.log" 2>&1
+      - name: Stock, catalogue, seller and URL-policy regressions
+        working-directory: apps/web
+        run: |
+          bun test src/features/store/stock-status.test.ts > "$RUNNER_TEMP/stock-final/stock-unit.log" 2>&1
+          bun test src/features/store/catalogue-interactions.test.tsx > "$RUNNER_TEMP/stock-final/catalogue.log" 2>&1
+          bun test src/features/store/interactions.test.tsx > "$RUNNER_TEMP/stock-final/seller-interactions.log" 2>&1
+          bun test src/features/usage-logs/lib/__tests__/async-task-logs.test.ts src/features/usage-logs/lib/__tests__/safe-media-url-controls.test.ts > "$RUNNER_TEMP/stock-final/usage-log-tests.log" 2>&1
+      - name: Install isolated Chromium
+        run: |
+          npm install --prefix "$RUNNER_TEMP/stock-browser" --no-package-lock --ignore-scripts playwright@1.56.1
+          node "$RUNNER_TEMP/stock-browser/node_modules/playwright/cli.js" install --with-deps chromium
+      - name: Desktop and mobile stock acceptance
+        shell: bash
+        working-directory: apps/web
+        env:
+          PLAYWRIGHT_MODULE: ${{ runner.temp }}/stock-browser/node_modules/playwright/index.mjs
+          STOCK_REVIEW_OUTPUT: ${{ runner.temp }}/stock-final
+          STOCK_REVIEW_URL: http://127.0.0.1:4189
+        run: |
+          bun run build > "$STOCK_REVIEW_OUTPUT/build.log" 2>&1
+          bun run preview --host 127.0.0.1 --port 4189 > "$STOCK_REVIEW_OUTPUT/preview.log" 2>&1 &
+          server_pid=$!
+          trap 'kill "$server_pid" 2>/dev/null || true' EXIT
+          ready=0
+          for _ in $(seq 1 60); do
+            if curl --fail --silent http://127.0.0.1:4189/ > /dev/null; then ready=1; break; fi
+            sleep 1
+          done
+          test "$ready" = 1
+          node scripts/store-stock-review.mjs
+      - if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: stock-final-acceptance
+          path: ${{ runner.temp }}/stock-final
+          if-no-files-found: error
+          retention-days: 7
