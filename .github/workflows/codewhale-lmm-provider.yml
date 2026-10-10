@@ -4,6 +4,8 @@ on:
 
 permissions:
   contents: read
+# Only retained client/frontend code is checked here. The old Go business
+# implementation was removed; this does not qualify its future replacement.
 jobs:
   adapter:
     runs-on: ubuntu-latest
@@ -21,13 +23,3 @@ jobs:
           node-version: '22'
       - run: npm run check && npm test && npm run pack:check
         working-directory: packages/codewhale-lmm-provider
-  registration:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: apps/api-go/go.mod
-          cache-dependency-path: apps/api-go/go.sum
-      - run: go test ./oauthserver -run TestCodewhale -count=1
-        working-directory: apps/api-go
