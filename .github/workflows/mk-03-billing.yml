@@ -1,0 +1,71 @@
+name: Task 03 charging contract tests
+on:
+  push:
+    branches: [wip/mk-03-billing]
+    paths:
+      - apps/core-rust/src/billing/charging/**
+      - apps/core-rust/schema/charging.sql
+      - apps/core-rust/tests/charging.rs
+      - .github/workflows/mk-03-billing.yml
+  pull_request:
+    branches: [wip/rust-core-go-extensions]
+    paths:
+      - apps/core-rust/src/billing/charging/**
+      - apps/core-rust/schema/charging.sql
+      - apps/core-rust/tests/charging.rs
+permissions:
+  contents: read
+concurrency:
+  group: mk-03-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  charging:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+      CARGO_BUILD_JOBS: '2'
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
+          --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        id: checkout
+        with:
+          persist-credentials: false
+      - name: Install repository Rust toolchain
+        id: rust
+        run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+      - name: Compile and run charging PostgreSQL contract tests
+        working-directory: apps/core-rust
+        shell: bash
+        run: |
+          set -o pipefail
+          cargo test --locked --test charging 2>&1 | tee "$RUNNER_TEMP/mk-03-tests.log"
+      - name: Lint charging test target
+        working-directory: apps/core-rust
+        run: cargo clippy --locked --test charging -- -D warnings
+      - name: Preserve test evidence and formatting suggestions
+        if: ${{ always() && steps.checkout.outcome == 'success' && steps.rust.outcome == 'success' }}
+        working-directory: apps/core-rust
+        shell: bash
+        run: |
+          cargo fmt --all
+          git diff -- src/billing/charging tests/charging.rs > "$RUNNER_TEMP/mk-03-format.patch"
+          echo 'RecordingLedger tests do not prove real ledger funding, refunds, or production readiness.' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: mk-03-evidence-${{ github.sha }}
+          path: |
+            ${{ runner.temp }}/mk-03-tests.log
+            ${{ runner.temp }}/mk-03-format.patch
+          retention-days: 7
