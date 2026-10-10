@@ -66,6 +66,7 @@ import {
 import { usePublicPlans } from '../../hooks/use-public-plans'
 import { formatDuration, formatResetPeriod } from '../../lib'
 import { formatPlanSourcePrice } from '../../lib/source-price'
+import { subscriptionCheckoutTradeNo } from '../../lib/pending-checkout'
 import type { PlanRecord, WaffoPancakeProductType } from '../../types'
 import { selectPancakePurchaseOption } from '../../lib/waffo-pancake-products'
 
@@ -99,7 +100,7 @@ interface Props {
   purchaseCount?: number
   userQuota?: number
   onPurchaseSuccess?: () => void | Promise<void>
-  onCheckoutStarted?: () => void
+  onCheckoutStarted?: (tradeNo: string, planId: number) => boolean | void
 }
 
 export function SubscriptionPurchaseDialog(props: Props) {
@@ -244,13 +245,16 @@ function ScopedSubscriptionPurchaseDialog(
         cancelPaymentCheckout(checkout)
         return
       }
-      if (res.message === 'success' && res.data?.pay_link) {
+      const tradeNo = subscriptionCheckoutTradeNo(res.data)
+      if (res.message === 'success' && res.data?.pay_link && tradeNo) {
+        if (props.onCheckoutStarted?.(tradeNo, plan.id) === false) {
+          throw new Error('Subscription checkout owner is unavailable')
+        }
         if (!redirectToPaymentCheckout(checkout, res.data.pay_link)) {
           cancelPaymentCheckout(checkout)
           toast.error(t('Invalid payment redirect URL'))
           return
         }
-        props.onCheckoutStarted?.()
         toast.success(t('Payment page opened'))
         props.onOpenChange(false)
       } else {
@@ -279,13 +283,16 @@ function ScopedSubscriptionPurchaseDialog(
         cancelPaymentCheckout(checkout)
         return
       }
-      if (res.message === 'success' && res.data?.checkout_url) {
+      const tradeNo = subscriptionCheckoutTradeNo(res.data)
+      if (res.message === 'success' && res.data?.checkout_url && tradeNo) {
+        if (props.onCheckoutStarted?.(tradeNo, plan.id) === false) {
+          throw new Error('Subscription checkout owner is unavailable')
+        }
         if (!redirectToPaymentCheckout(checkout, res.data.checkout_url)) {
           cancelPaymentCheckout(checkout)
           toast.error(t('Invalid payment redirect URL'))
           return
         }
-        props.onCheckoutStarted?.()
         toast.success(t('Payment page opened'))
         props.onOpenChange(false)
       } else {
@@ -318,12 +325,15 @@ function ScopedSubscriptionPurchaseDialog(
       })
       if (!isCurrent()) return
       if (isSettlementQuoteChanged(res)) throw new SettlementQuoteChangedError()
-      if (res.message === 'success' && res.data?.checkout_url) {
+      const tradeNo = subscriptionCheckoutTradeNo(res.data)
+      if (res.message === 'success' && res.data?.checkout_url && tradeNo) {
+        if (props.onCheckoutStarted?.(tradeNo, plan.id) === false) {
+          throw new Error('Subscription checkout owner is unavailable')
+        }
         if (!redirectCurrentWindowToPaymentCheckout(res.data.checkout_url)) {
           toast.error(t('Invalid payment redirect URL'))
           return
         }
-        props.onCheckoutStarted?.()
         toast.success(t('Redirecting to payment page...'))
       } else {
         toast.error(
@@ -369,13 +379,16 @@ function ScopedSubscriptionPurchaseDialog(
         cancelPaymentCheckout(checkout)
         return
       }
-      if (res.message === 'success' && res.url) {
+      const tradeNo = subscriptionCheckoutTradeNo(res.data, true)
+      if (res.message === 'success' && res.url && tradeNo) {
+        if (props.onCheckoutStarted?.(tradeNo, plan.id) === false) {
+          throw new Error('Subscription checkout owner is unavailable')
+        }
         if (!submitPaymentForm(res.url, res.data || {}, checkout.target)) {
           cancelPaymentCheckout(checkout)
           toast.error(t('Invalid payment redirect URL'))
           return
         }
-        props.onCheckoutStarted?.()
         toast.success(t('Payment initiated'))
         props.onOpenChange(false)
       } else {

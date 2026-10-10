@@ -139,6 +139,10 @@ func GetSubscriptionPlans(c *gin.Context) {
 }
 
 func GetSubscriptionSelf(c *gin.Context) {
+	if _, requested := c.Request.URL.Query()["checkout_trade_no"]; requested {
+		getSubscriptionCheckoutConfirmation(c)
+		return
+	}
 	userId := c.GetInt("id")
 	settingMap, _ := model.GetUserSetting(userId, false)
 	pref := common.NormalizeBillingPreference(settingMap.BillingPreference)
