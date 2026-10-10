@@ -1,0 +1,35 @@
+name: Store claim and refund review
+
+on:
+  push:
+    branches: [fix/store-claim-refund-sync-20261010]
+    paths:
+      - '.github/workflows/store-claim-refund-review.yml'
+      - 'apps/api-go/**'
+      - 'apps/web/**'
+      - 'scripts/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: store-claim-refund-review-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  source-fixture:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Package tracked source for isolated review
+        run: git archive --format=zip --output="$RUNNER_TEMP/store-review-source.zip" HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: store-review-source
+          path: ${{ runner.temp }}/store-review-source.zip
+          retention-days: 1
+          if-no-files-found: error
