@@ -1,70 +1,86 @@
 # Credit currency initialization
 
-Wallet balances are integer credits. `CreditsPerUSD` is an immutable option,
-created once from one authoritative database snapshot of the legacy settings:
+The current contract is **1 USD = 500000 integer wallet credits**. The canonical
+unit definitions and payment rules are in the
+[payment money contract](../../../docs/payment-money-contract.md).
+Implementation: [common currency units](../common/currency_units.go) and
+[database initialization](../model/currency_units.go).
 
-`CreditsPerUSD = QuotaPerUnit × USDExchangeRate × TopUpPlatformUnitsPerCNY`
+## Current initialization
 
-Existing balances, prices, paid or pending order snapshots, refund credits and
-financial ledger entries are not rewritten. Retained legacy price tables use
-`CreditsPerUSD / QuotaPerUnit` to expose equivalent real USD prices. Subsequent
-exchange-rate or recharge-setting edits do not change the anchor.
+`CreditsPerUSD`, `QuotaPerUnit`, `LegacyPricingQuotaPerUnit`, and a configured
+`PublicCreditsPerUSD` must equal 500000. Initialization creates missing required
+options in a transaction. It does not derive the denomination from current CNY
+FX, display preferences, or `TopUpPlatformUnitsPerCNY`.
 
-`LegacyPricingQuotaPerUnit` captures the retained pricing calibration in the
-same transaction. After initialization, ordinary and bulk option writes may
-only re-save the numerically identical `QuotaPerUnit`; they cannot change it.
-The baseline itself is read-only. Canonical USD bridges reject a node whose
-runtime calibration differs from this baseline, and startup verification
-rejects authoritative database drift (including writes by older binaries).
-Runtime settings refresh also refuses a mismatched calibration and preserves
-the running node's fixed debit scale instead of applying an older writer's edit.
-This prevents a USD price edit on one node from being charged using another
-node's different legacy scale. No new pricing change should be made through
-an older binary while the fleet is rolling between currency versions.
+`migrate --apply` initializes missing options; it is **not** an automatic repair
+of an existing different denomination. `migrate --verify` and verify-mode startup
+read and validate the database without changing it. Existing non-500000 values
+require an explicit, audited financial migration and are rejected by startup.
+Do not fix that rejection by manually replacing options or removing validation.
 
-Before starting a new binary in verify mode, run its normal `migrate --apply`
-command against the intended database. Apply mode initializes the option;
-`migrate --verify` and verify-mode server startup only read and validate it.
-Missing or invalid initialization blocks startup and financial conversions.
-There is no fallback that equates one CNY to one USD. Concurrent apply nodes
-create a single option and all publish the durable winner. Older binaries may
-ignore the additional option; no existing schema or legacy price scale changes.
+Initialization never rewrites balances, model prices, paid or pending order
+snapshots, refund credits, or ledger entries. An authorized balance migration
+must use the project's maintenance and migration process, with a single writer,
+a recorded plan, and reconciliation. A documentation or code update does not
+perform or authorize that operation.
 
-`wallet_display_currency` is an owner-scoped user preference: empty follows the
-interface language (Chinese uses CNY; other languages use USD), or the user can
-choose CREDIT, CNY or USD. It does not alter payment `settlement_currency`,
-balances, prices or charges. OpenAI-compatible billing fields and token quota
-queries always return real USD, regardless of display choice or current FX.
+Ordinary and bulk setting updates cannot change the fixed pricing scale. Runtime
+refresh and startup reject a scale that differs from its saved basis. Do not
+allow an older writer to change financial settings during an upgrade.
 
-Public relay `amount_usd` tips also name real USD: convert with `CreditsPerUSD`,
-round half away from zero to integer credits, and reject out-of-domain amounts.
-The retained tip ceiling and withdrawal minimum remain the historical integer
-credit policies (`LegacyPricingQuotaPerUnit × 100` and `× 10`), rather than
-silently increasing either by the migration exchange rate. The config endpoint
-returns both raw credit thresholds and their real USD equivalents. Historical
-pending tips and withdrawals keep their original integer ledger entries; a
-withdrawal transfers only the unwithdrawn credits and cannot be repeated.
+## Historical compatibility is not the current denomination
 
-Model-usage SVG amounts use the same immutable anchor. The models layout accepts
-`currency=CREDIT`, `CNY` or `USD`; without it, `lang=zh` and `zh-TW` choose CNY
-and other languages choose USD. Displaying CNY uses the current exchange rate.
-An unavailable anchor or required exchange rate rejects the monetary response.
+Older initialization logic multiplied a saved quota scale by the then-current
+CNY exchange rate and recharge ratio. Some isolated tests retain non-1 `K/QPU`
+values to verify historical arithmetic. Those fixtures do not show that current
+production startup accepts those values, and they must not redefine the contract
+above. Historical records keep the amount, currency, and basis captured for them.
 
-Focused validation:
+Some stored payment configuration and old request routes still use batch units.
+They require a configuration/input adapter, not another wallet currency. Their
+full migration and retirement are not complete. New integer-credit quotation
+must use the actual credited amount as its authority. A compatibility projection
+must not independently choose a preset discount or coupon threshold.
+
+Explicit custom gateway prices and legal promotions remain invoice pricing.
+They can make the amount paid differ from the nominal value of credited funds;
+neither changes the denomination or makes CNY equal to USD. Never replace an
+explicit custom rate with 1 as a substitute for converting its units.
+
+## Display and presets
+
+`wallet_display_currency` is a per-user preference: automatic, CREDIT, CNY, or
+USD. It does not change a balance, debit, payment currency, or captured invoice.
+USD uses the fixed credit denomination. CNY display additionally uses current
+CNY/USD FX. OpenAI-compatible USD billing fields remain real USD.
+
+Existing non-TOKENS preset configuration retains its old batch input format;
+TOKENS configuration names raw integer credits. At the fixed production scale,
+`3.5` USD corresponds to 1750000 credits and `0.000002` USD to one credit.
+Preset parsing rejects fractional-credit and out-of-range amounts. User display
+preferences do not convert stored preset keys. `3.5` and `3.50` are the same key;
+conflicting discounts must be rejected. Quote, coupon preview, and coupon
+application must derive qualification from the same credited integer, while
+retaining configured group/channel/preset/coupon factors and their rounding order.
+
+Historical tips, withdrawals, subscriptions, refunds, and model-usage records
+must not be reinterpreted using today's FX or a changed price. Consult the
+payment money contract before changing their units or snapshots.
+
+## Verification
+
+Use the Go version declared by `apps/api-go/go.mod` and an isolated database.
+Focused commands from the repository root:
 
 ```sh
 cd apps/api-go
+go test -race ./pkg/paymentpricing ./controller -run 'Test(CanonicalTopUp|SharedSettlementPricing|QuoteTopUp|ParseSettlementPricing|SettlementQuote|ExactSettlement|CreditRate)'
 go test -race ./common ./model ./controller -run 'Test(CreditUnits|WalletDisplay|StatusCredit|BillingQueries|QuotaQuery|SelfSettlement|ConcurrentLocale|GetStatus)'
-cd relaykit
-go test -race ./dto -run '^TestWalletDisplayCurrency'
 ```
 
 The optional PostgreSQL initialization test uses `TEST_POSTGRES_DSN` and
-`TEST_POSTGRES_ISOLATED_SCHEMA=1`, creating and removing its own test schema.
-Only point these at an explicitly isolated test database.
-
-### Decimal recharge presets
-
-`payment_setting.amount_options` accepts exact positive JSON decimal numbers. The retained non-TOKENS configuration is in legacy USD batches; user CNY/USD display preferences do not convert these configured values. Existing TOKENS configurations still name integer ledger CREDIT. With the fixed production scale, `3.5` USD grants exactly `1750000` CREDIT; `0.000002` USD grants one CREDIT. Values that would produce fractional CREDIT, overflow the safe wallet integer domain, or contain invalid JSON types are rejected without rounding. AmountOptions and AmountDiscount decode atomically, including existing persisted decimal configurations.
-
-Discount keys accept the same precise decimal amounts, with integer keys preserved for old JSON. `3.5` and `3.50` denote the same preset; conflicting factors are rejected. Discounts still match the exact preset, preserving the existing group/payment/coupon calculation and rounding order. This does not rewrite old orders, credit balances, payment records, or discount levels. The JSON/visual editors display the configuration unit explicitly and retain invalid JSON rather than treating it as an empty catalog.
+`TEST_POSTGRES_ISOLATED_SCHEMA=1`. Point both only at an explicitly isolated test
+database. These focused commands do not replace full Go tests, payment-callback
+and refund reconciliation, or source-matched release evidence. A test listing in
+this document is not a claim that it ran for the current change.
