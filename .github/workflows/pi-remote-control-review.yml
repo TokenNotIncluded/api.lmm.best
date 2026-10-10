@@ -53,7 +53,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           repository: TokenNotIncluded/pi-lmm-provider
-          ref: 58f0d8b311433053983092b7a66ddfb835f3d5f8
+          ref: 62ecb6993a4e621dfb23d0e5aee7a5a705723bf6
           path: plugin
           persist-credentials: false
       - uses: actions/setup-node@v4
