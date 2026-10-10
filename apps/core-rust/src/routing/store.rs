@@ -27,7 +27,8 @@ impl ReleaseDocument {
         if bytes.len() > MAX_DOCUMENT_BYTES {
             return Err(StoreError::InvalidDocument);
         }
-        let document: Self = serde_json::from_slice(bytes).map_err(|_| StoreError::InvalidDocument)?;
+        let document: Self =
+            serde_json::from_slice(bytes).map_err(|_| StoreError::InvalidDocument)?;
         document.check_contract()?;
         Ok(document)
     }
@@ -83,7 +84,11 @@ impl From<RoutingError> for StoreError {
 impl From<sqlx::Error> for StoreError {
     fn from(error: sqlx::Error) -> Self {
         // PostgreSQL diagnostics can contain a rejected value. Never retain that text.
-        match error.as_database_error().and_then(|error| error.code()).as_deref() {
+        match error
+            .as_database_error()
+            .and_then(|error| error.code())
+            .as_deref()
+        {
             Some("40001") => Self::VersionConflict,
             Some("23505") => Self::VersionAlreadyExists,
             _ => Self::Database,
@@ -111,7 +116,10 @@ impl PostgresRoutingStore {
 
     /// Called ONLY by the Rust secret manager after storing the immutable secret revision.
     /// This registers a reference, not a credential, and does not verify secret availability.
-    pub async fn register_credential_reference(&self, reference: CredentialRef) -> Result<(), StoreError> {
+    pub async fn register_credential_reference(
+        &self,
+        reference: CredentialRef,
+    ) -> Result<(), StoreError> {
         if !valid_id(reference.id) || !valid_id(reference.revision) {
             return Err(StoreError::InvalidDocument);
         }
@@ -124,9 +132,13 @@ impl PostgresRoutingStore {
     }
 
     /// Validate and stage immutable prices without moving the active route pointer.
-    pub async fn stage_prices(&self, config: PriceConfig) -> Result<Arc<PriceSnapshot>, StoreError> {
+    pub async fn stage_prices(
+        &self,
+        config: PriceConfig,
+    ) -> Result<Arc<PriceSnapshot>, StoreError> {
         let prices = Arc::new(PriceSnapshot::compile(config)?);
-        let document = serde_json::to_value(prices.config()).map_err(|_| StoreError::InvalidDocument)?;
+        let document =
+            serde_json::to_value(prices.config()).map_err(|_| StoreError::InvalidDocument)?;
         sqlx::query("SELECT routing_stage_prices($1)")
             .bind(document)
             .execute(&self.pool)
@@ -154,13 +166,19 @@ impl PostgresRoutingStore {
         .fetch_optional(&self.pool)
         .await?
         .ok_or(StoreError::NotConfigured)?;
-        let pricing: PriceConfig = serde_json::from_value(value).map_err(|_| StoreError::InvalidDocument)?;
+        let pricing: PriceConfig =
+            serde_json::from_value(value).map_err(|_| StoreError::InvalidDocument)?;
         let prices = Arc::new(PriceSnapshot::compile(pricing.clone())?);
         // Validate all references and all route/price combinations BEFORE any durable write.
         Router::new(config.clone(), prices)?;
-        let document = ReleaseDocument { contract_version: CONTRACT_VERSION, routing: config, pricing };
+        let document = ReleaseDocument {
+            contract_version: CONTRACT_VERSION,
+            routing: config,
+            pricing,
+        };
         document.encode()?;
-        let routing = serde_json::to_value(&document.routing).map_err(|_| StoreError::InvalidDocument)?;
+        let routing =
+            serde_json::to_value(&document.routing).map_err(|_| StoreError::InvalidDocument)?;
         sqlx::query("SELECT routing_publish_config($1, $2, $3, $4)")
             .bind(routing)
             .bind(price_version as i64)

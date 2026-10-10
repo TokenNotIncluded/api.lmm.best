@@ -10,7 +10,9 @@ pub const MAX_TARGETS_PER_ROUTE: usize = 64;
 pub const MAX_ATTEMPTS: u8 = 8;
 pub const MAX_DOCUMENT_BYTES: usize = 16 * 1024 * 1024;
 
-#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq, Hash, PartialOrd, Ord,
+)]
 #[serde(rename_all = "snake_case")]
 pub enum Speed {
     #[default]
@@ -50,7 +52,9 @@ impl TryFrom<String> for Endpoint {
             .parse::<Uri>()
             .map_err(|_| RoutingError::InvalidConfig("endpoint"))?;
         if value.len() > 2048
-            || value.bytes().any(|b| b.is_ascii_whitespace() || b.is_ascii_control())
+            || value
+                .bytes()
+                .any(|b| b.is_ascii_whitespace() || b.is_ascii_control())
             || value.contains(['@', '?', '#', '\\'])
             || uri.scheme_str() != Some("https")
             || uri.host().is_none_or(str::is_empty)
@@ -206,7 +210,9 @@ pub(super) fn valid_id(value: u64) -> bool {
 pub(super) fn valid_group(value: &str) -> bool {
     !value.is_empty()
         && value.len() <= 64
-        && value.bytes().all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"._-".contains(&b))
 }
 
 pub(super) fn valid_model(value: &str) -> bool {
