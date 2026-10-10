@@ -157,10 +157,8 @@ impl Encoder {
                 "content":if empty {vec![]} else {vec![self.part(index,false)]}})
             }
         };
-        if !empty {
-            if let Some((p, s)) = &b.signature {
-                item["provider_metadata"] = json!({"protocol":p,"signature":s});
-            }
+        if !empty && let Some((p, s)) = &b.signature {
+            item["provider_metadata"] = json!({"protocol":p,"signature":s});
         }
         item
     }

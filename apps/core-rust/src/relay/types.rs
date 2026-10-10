@@ -131,12 +131,12 @@ pub struct Limits {
 impl Default for Limits {
     fn default() -> Self {
         Self {
-            max_in_flight: 64,
+            max_in_flight: 16,
             queue_chunks: 8,
             chunk_bytes: 16 * 1024,
             request_bytes: 2 * 1024 * 1024,
             event_bytes: 256 * 1024,
-            output_bytes: 8 * 1024 * 1024,
+            output_bytes: 1024 * 1024,
             upstream_bytes: 64 * 1024 * 1024,
             transport_chunk_bytes: 1024 * 1024,
             max_blocks: 128,
@@ -383,10 +383,10 @@ impl Usage {
         if let Some(v) = self.output_tokens {
             out.insert(output.into(), json!(v));
         }
-        if let (Some(i), Some(o)) = (self.input_tokens, self.output_tokens) {
-            if let Some(total) = i.checked_add(o) {
-                out.insert("total_tokens".into(), json!(total));
-            }
+        if let (Some(i), Some(o)) = (self.input_tokens, self.output_tokens)
+            && let Some(total) = i.checked_add(o)
+        {
+            out.insert("total_tokens".into(), json!(total));
         }
         if let Some(v) = self.cached_input_tokens {
             out.insert(format!("{input}_details"), json!({"cached_tokens":v}));

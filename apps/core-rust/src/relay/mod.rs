@@ -446,6 +446,12 @@ impl Worker {
         body: Vec<u8>,
     ) -> Result<reqwest::Response, RelayError> {
         loop {
+            if self.gate.cancel.is_cancelled() {
+                return Err(RelayError::Cancelled);
+            }
+            if Instant::now() >= self.gate.deadline {
+                return Err(RelayError::Timeout(Phase::Total));
+            }
             self.report.attempts += 1;
             self.report.upstream_attempted = true;
             let request = self

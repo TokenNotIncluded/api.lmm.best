@@ -318,10 +318,11 @@ impl Decoder {
         if v.get("error").is_some_and(|e| !e.is_null()) {
             return Err(RelayError::Protocol("upstream reported an error"));
         }
-        if let (Some(wire), Some(kind)) = (frame.event.as_deref(), v["type"].as_str()) {
-            if wire != "message" && wire != kind {
-                return Err(RelayError::Protocol("SSE event type mismatch"));
-            }
+        if let (Some(wire), Some(kind)) = (frame.event.as_deref(), v["type"].as_str())
+            && wire != "message"
+            && wire != kind
+        {
+            return Err(RelayError::Protocol("SSE event type mismatch"));
         }
         match self.protocol {
             UpstreamProtocol::Chat => self.chat(&v, false, &mut out)?,
@@ -381,7 +382,9 @@ impl Decoder {
                                     Some("output_text") => (BlockKind::Text, text(&p["text"])?),
                                     Some("refusal") => (BlockKind::Refusal, text(&p["refusal"])?),
                                     _ => {
-                                        return Err(RelayError::Protocol("unsupported output part"));
+                                        return Err(RelayError::Protocol(
+                                            "unsupported output part",
+                                        ));
                                     }
                                 };
                                 self.simple((i, j as u64), kind, s, &mut out)?;
@@ -488,17 +491,16 @@ impl Decoder {
                         kind: BlockKind::Tool { id, name },
                         ..
                     }) = self.blocks.get(&key)
-                    {
-                        if c.get("id")
+                        && (c
+                            .get("id")
                             .and_then(Value::as_str)
                             .is_some_and(|s| !s.is_empty() && s != id)
                             || c["function"]
                                 .get("name")
                                 .and_then(Value::as_str)
-                                .is_some_and(|s| !s.is_empty() && s != name)
-                        {
-                            return Err(RelayError::Protocol("tool identity changed"));
-                        }
+                                .is_some_and(|s| !s.is_empty() && s != name))
+                    {
+                        return Err(RelayError::Protocol("tool identity changed"));
                     }
                     if let Some(a) = c["function"].get("arguments").filter(|a| !a.is_null()) {
                         self.delta(key, text(a)?, out)?;
