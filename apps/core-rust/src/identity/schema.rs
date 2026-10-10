@@ -47,9 +47,11 @@ impl IdentityStore {
 
     /// Startup checks the installed contract. It never executes DDL.
     pub async fn check_schema(&self) -> Result<()> {
-        let row = sqlx::query("SELECT version,fingerprint FROM core_meta.schema_contract WHERE singleton")
-            .fetch_one(&self.pool)
-            .await?;
+        let row = sqlx::query(
+            "SELECT version,fingerprint FROM core_meta.schema_contract WHERE singleton",
+        )
+        .fetch_one(&self.pool)
+        .await?;
         if row.try_get::<i32, _>("version")? == VERSION
             && row.try_get::<Vec<u8>, _>("fingerprint")?
                 == Sha256::digest(SCHEMA.as_bytes()).to_vec()

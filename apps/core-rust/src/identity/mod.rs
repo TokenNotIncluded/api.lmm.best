@@ -84,7 +84,9 @@ pub struct IssuedCredential {
 
 fn digest(secret: &str) -> Result<Vec<u8>> {
     if !(32..=256).contains(&secret.len())
-        || !secret.bytes().all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-')
+        || !secret
+            .bytes()
+            .all(|c| c.is_ascii_alphanumeric() || c == b'_' || c == b'-')
     {
         return Err(IdentityError::Unauthorized);
     }
@@ -92,7 +94,9 @@ fn digest(secret: &str) -> Result<Vec<u8>> {
 }
 fn new_secret(prefix: &str) -> Result<String> {
     let mut bytes = [0_u8; 32];
-    OsRng.try_fill_bytes(&mut bytes).map_err(|_| IdentityError::Storage)?;
+    OsRng
+        .try_fill_bytes(&mut bytes)
+        .map_err(|_| IdentityError::Storage)?;
     let mut secret = String::with_capacity(prefix.len() + 64);
     secret.push_str(prefix);
     for b in bytes {
@@ -102,7 +106,11 @@ fn new_secret(prefix: &str) -> Result<String> {
     Ok(secret)
 }
 fn valid_ttl(ttl: i64, maximum: i64) -> Result<()> {
-    if ttl <= 0 || ttl > maximum { Err(IdentityError::Invalid) } else { Ok(()) }
+    if ttl <= 0 || ttl > maximum {
+        Err(IdentityError::Invalid)
+    } else {
+        Ok(())
+    }
 }
 fn role_text(role: TeamRole) -> Result<&'static str> {
     match role {
@@ -125,18 +133,32 @@ async fn audit(c: &mut PgConnection, actor: &Principal, action: &str, target: Va
 }
 
 async fn new_account(c: &mut PgConnection, kind: &str, level: i16) -> Result<i64> {
-    let id: i64 = sqlx::query_scalar("INSERT INTO core_identity.accounts(kind,service_level) VALUES ($1,$2) RETURNING id")
-        .bind(kind).bind(level).fetch_one(&mut *c).await?;
+    let id: i64 = sqlx::query_scalar(
+        "INSERT INTO core_identity.accounts(kind,service_level) VALUES ($1,$2) RETURNING id",
+    )
+    .bind(kind)
+    .bind(level)
+    .fetch_one(&mut *c)
+    .await?;
     sqlx::query("INSERT INTO core_billing.account_policies(account_id) VALUES ($1)")
-        .bind(id).execute(c).await?;
+        .bind(id)
+        .execute(c)
+        .await?;
     Ok(id)
 }
 async fn native_account(c: &mut PgConnection, account: Account) -> Result<i64> {
     let sql = match account.kind {
-        AccountKind::Personal => "SELECT a.id FROM core_identity.accounts a JOIN core_identity.users u ON u.personal_account_id=a.id WHERE u.id=$1 AND a.active AND u.active FOR SHARE OF a,u",
-        AccountKind::Team => "SELECT a.id FROM core_identity.accounts a JOIN core_identity.teams t ON t.account_id=a.id WHERE t.id=$1 AND a.active AND t.active FOR SHARE OF a,t",
+        AccountKind::Personal => {
+            "SELECT a.id FROM core_identity.accounts a JOIN core_identity.users u ON u.personal_account_id=a.id WHERE u.id=$1 AND a.active AND u.active FOR SHARE OF a,u"
+        }
+        AccountKind::Team => {
+            "SELECT a.id FROM core_identity.accounts a JOIN core_identity.teams t ON t.account_id=a.id WHERE t.id=$1 AND a.active AND t.active FOR SHARE OF a,t"
+        }
     };
-    sqlx::query_scalar(sql).bind(account.id).fetch_optional(c).await?
+    sqlx::query_scalar(sql)
+        .bind(account.id)
+        .fetch_optional(c)
+        .await?
         .ok_or(IdentityError::Forbidden)
 }
 async fn principal(c: &mut PgConnection, row: PgRow) -> Result<Principal> {
@@ -152,83 +174,150 @@ async fn principal(c: &mut PgConnection, row: PgRow) -> Result<Principal> {
     if team_id.is_none() && owner_account_id != row.try_get::<i64, _>("personal_account_id")? {
         return Err(IdentityError::Storage);
     }
-    let owner = team_id.map_or(Account { kind: AccountKind::Personal, id: user_id },
-        |id| Account { kind: AccountKind::Team, id });
+    let owner = team_id.map_or(
+        Account {
+            kind: AccountKind::Personal,
+            id: user_id,
+        },
+        |id| Account {
+            kind: AccountKind::Team,
+            id,
+        },
+    );
     let mut funding_accounts = Vec::new();
     let mut funding_account_ids = Vec::new();
     if kind == CredentialKind::ApiKey {
         let rows = sqlx::query("SELECT r.position,r.payer_account_id,a.kind,a.active,u.id AS personal_id,t.id AS team_id FROM core_identity.key_funding_rules r JOIN core_identity.accounts a ON a.id=r.payer_account_id LEFT JOIN core_identity.users u ON u.personal_account_id=a.id LEFT JOIN core_identity.teams t ON t.account_id=a.id WHERE r.credential_id=$1 ORDER BY r.position")
             .bind(id).fetch_all(&mut *c).await?;
-        if rows.is_empty() || rows.len() > 16 { return Err(IdentityError::Storage); }
+        if rows.is_empty() || rows.len() > 16 {
+            return Err(IdentityError::Storage);
+        }
         for (position, rule) in rows.into_iter().enumerate() {
             if usize::try_from(rule.try_get::<i16, _>("position")?).ok() != Some(position) {
                 return Err(IdentityError::Storage);
             }
-            if !rule.try_get::<bool, _>("active")? { return Err(IdentityError::Forbidden); }
+            if !rule.try_get::<bool, _>("active")? {
+                return Err(IdentityError::Forbidden);
+            }
             let account = match rule.try_get::<String, _>("kind")?.as_str() {
-                "personal" => Account { kind: AccountKind::Personal, id: rule.try_get("personal_id")? },
-                "team" => Account { kind: AccountKind::Team, id: rule.try_get("team_id")? },
+                "personal" => Account {
+                    kind: AccountKind::Personal,
+                    id: rule.try_get("personal_id")?,
+                },
+                "team" => Account {
+                    kind: AccountKind::Team,
+                    id: rule.try_get("team_id")?,
+                },
                 _ => return Err(IdentityError::Storage),
             };
             funding_accounts.push(account);
             funding_account_ids.push(rule.try_get("payer_account_id")?);
         }
         let preference: Option<String> = row.try_get("personal_billing_preference")?;
-        let preference: Option<BillingPreference> = preference.map(|text|
-            serde_json::from_value(Value::String(text)).map_err(|_| IdentityError::Storage)
-        ).transpose()?;
-        let policy = FundingPolicy { version: 1, account_order: Some(funding_accounts), personal_billing_preference: preference };
+        let preference: Option<BillingPreference> = preference
+            .map(|text| {
+                serde_json::from_value(Value::String(text)).map_err(|_| IdentityError::Storage)
+            })
+            .transpose()?;
+        let policy = FundingPolicy {
+            version: 1,
+            account_order: Some(funding_accounts),
+            personal_billing_preference: preference,
+        };
         let grants: Vec<i64> = sqlx::query_scalar("SELECT g.team_id FROM core_identity.credential_grants g JOIN core_identity.teams t ON t.id=g.team_id JOIN core_identity.accounts a ON a.id=t.account_id LEFT JOIN core_identity.memberships m ON m.team_id=t.id AND m.user_id=$2 WHERE g.credential_id=$1 AND t.active AND a.active AND t.version=g.team_version AND ((t.owner_user_id=$2 AND g.membership_version=0) OR (t.owner_user_id<>$2 AND m.active AND m.can_spend AND m.version=g.membership_version))")
             .bind(id).bind(user_id).fetch_all(&mut *c).await?;
-        funding_accounts = policy.resolve(owner, &grants.into_iter().collect())
+        funding_accounts = policy
+            .resolve(owner, &grants.into_iter().collect())
             .map_err(|_| IdentityError::Forbidden)?;
     }
     Ok(Principal {
-        credential_id: id, credential_kind: kind, user_id,
-        platform_level: row.try_get("platform_level")?, owner, funding_accounts,
-        owner_account_id, funding_account_ids, user_version: row.try_get("user_version")?,
+        credential_id: id,
+        credential_kind: kind,
+        user_id,
+        platform_level: row.try_get("platform_level")?,
+        owner,
+        funding_accounts,
+        owner_account_id,
+        funding_account_ids,
+        user_version: row.try_get("user_version")?,
     })
 }
 async fn authenticate(c: &mut PgConnection, secret: &str, write: bool) -> Result<Principal> {
-    let suffix = if write { " FOR SHARE OF c,u,pa,own" } else { "" };
+    let suffix = if write {
+        " FOR SHARE OF c,u,pa,own"
+    } else {
+        ""
+    };
     let row = sqlx::query(&format!("{AUTH} AND c.digest=$1{suffix}"))
-        .bind(digest(secret)?).fetch_optional(&mut *c).await?
+        .bind(digest(secret)?)
+        .fetch_optional(&mut *c)
+        .await?
         .ok_or(IdentityError::Unauthorized)?;
     principal(c, row).await
 }
 async fn session(c: &mut PgConnection, secret: &str) -> Result<Principal> {
     let actor = authenticate(c, secret, true).await?;
-    if actor.credential_kind != CredentialKind::Session { return Err(IdentityError::Forbidden); }
+    if actor.credential_kind != CredentialKind::Session {
+        return Err(IdentityError::Forbidden);
+    }
     Ok(actor)
 }
 async fn lock_team(c: &mut PgConnection, team_id: i64) -> Result<PgRow> {
     sqlx::query("SELECT t.owner_user_id,t.version FROM core_identity.teams t JOIN core_identity.accounts a ON a.id=t.account_id WHERE t.id=$1 AND t.active AND a.active FOR UPDATE OF t FOR SHARE OF a")
         .bind(team_id).fetch_optional(c).await?.ok_or(IdentityError::Forbidden)
 }
-async fn team_role(c: &mut PgConnection, team: &PgRow, team_id: i64, user_id: i64) -> Result<(TeamRole, i64)> {
-    if team.try_get::<i64, _>("owner_user_id")? == user_id { return Ok((TeamRole::Owner, 0)); }
+async fn team_role(
+    c: &mut PgConnection,
+    team: &PgRow,
+    team_id: i64,
+    user_id: i64,
+) -> Result<(TeamRole, i64)> {
+    if team.try_get::<i64, _>("owner_user_id")? == user_id {
+        return Ok((TeamRole::Owner, 0));
+    }
     let row = sqlx::query("SELECT role,version FROM core_identity.memberships WHERE team_id=$1 AND user_id=$2 AND active")
         .bind(team_id).bind(user_id).fetch_optional(c).await?.ok_or(IdentityError::Forbidden)?;
-    Ok((parse_role(&row.try_get::<String, _>("role")?)?, row.try_get("version")?))
+    Ok((
+        parse_role(&row.try_get::<String, _>("role")?)?,
+        row.try_get("version")?,
+    ))
 }
 
 impl IdentityStore {
-    pub fn from_pool(pool: PgPool) -> Self { Self { pool } }
+    pub fn from_pool(pool: PgPool) -> Self {
+        Self { pool }
+    }
     pub async fn connect(url: &str) -> Result<Self> {
-        let pool = PgPoolOptions::new().max_connections(8).acquire_timeout(Duration::from_secs(3))
-            .after_connect(|c, _| Box::pin(async move {
-                sqlx::query("SET statement_timeout='5s'").execute(&mut *c).await?;
-                sqlx::query("SET idle_in_transaction_session_timeout='10s'").execute(&mut *c).await?;
-                Ok(())
-            })).connect(url).await?;
+        let pool = PgPoolOptions::new()
+            .max_connections(8)
+            .acquire_timeout(Duration::from_secs(3))
+            .after_connect(|c, _| {
+                Box::pin(async move {
+                    sqlx::query("SET statement_timeout='5s'")
+                        .execute(&mut *c)
+                        .await?;
+                    sqlx::query("SET idle_in_transaction_session_timeout='10s'")
+                        .execute(&mut *c)
+                        .await?;
+                    Ok(())
+                })
+            })
+            .connect(url)
+            .await?;
         Ok(Self { pool })
     }
     /// Offline development bootstrap, not registration or an old-user import.
     pub async fn bootstrap_user(&self, user_id: i64, level: i16) -> Result<IssuedCredential> {
-        if user_id <= 0 || !(0..=6).contains(&level) { return Err(IdentityError::Invalid); }
+        if user_id <= 0 || !(0..=6).contains(&level) {
+            return Err(IdentityError::Invalid);
+        }
         let secret = new_secret("lmms_")?;
         let mut tx = self.pool.begin().await?;
-        let role = match level { 6 => "superadmin", 5 => "admin", _ => "user" };
+        let role = match level {
+            6 => "superadmin",
+            5 => "admin",
+            _ => "user",
+        };
         let service_level = if level <= 4 { level } else { 0 };
         let account_id = new_account(&mut tx, "personal", service_level).await?;
         sqlx::query("INSERT INTO core_identity.users(id,personal_account_id,platform_role) VALUES ($1,$2,$3)")
@@ -236,14 +325,21 @@ impl IdentityStore {
         let id: i64 = sqlx::query_scalar("INSERT INTO core_identity.credentials(digest,kind,user_id,user_version,owner_account_id,expires_at) VALUES ($1,'session',$2,1,$3,clock_timestamp()+$4::bigint*interval '1 second') RETURNING id")
             .bind(digest(&secret)?).bind(user_id).bind(account_id).bind(SESSION_TTL).fetch_one(&mut *tx).await?;
         let actor = authenticate(&mut tx, &secret, false).await?;
-        audit(&mut tx, &actor, "user.bootstrap", json!({"user_id":user_id,"account_id":account_id})).await?;
+        audit(
+            &mut tx,
+            &actor,
+            "user.bootstrap",
+            json!({"user_id":user_id,"account_id":account_id}),
+        )
+        .await?;
         tx.commit().await?;
         Ok(IssuedCredential { id, secret })
     }
     pub async fn authorize(&self, secret: &str) -> Result<Principal> {
         let mut tx = self.pool.begin().await?;
         sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
-            .execute(&mut *tx).await?;
+            .execute(&mut *tx)
+            .await?;
         let actor = authenticate(&mut tx, secret, false).await?;
         tx.commit().await?;
         Ok(actor)
@@ -259,8 +355,14 @@ mod tests {
         let second = new_secret("lmmk_").unwrap();
         assert_eq!(first.len(), 69);
         assert_ne!(digest(&first).unwrap(), digest(&second).unwrap());
-        assert_ne!(digest(&first).unwrap(), digest(&first.to_uppercase()).unwrap());
-        assert_eq!(digest(&format!(" {first}")), Err(IdentityError::Unauthorized));
+        assert_ne!(
+            digest(&first).unwrap(),
+            digest(&first.to_uppercase()).unwrap()
+        );
+        assert_eq!(
+            digest(&format!(" {first}")),
+            Err(IdentityError::Unauthorized)
+        );
         assert_eq!(digest(&"a".repeat(257)), Err(IdentityError::Unauthorized));
         assert_eq!(valid_ttl(0, MAX_TTL), Err(IdentityError::Invalid));
         assert_eq!(valid_ttl(MAX_TTL + 1, MAX_TTL), Err(IdentityError::Invalid));
