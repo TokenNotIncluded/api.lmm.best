@@ -1,0 +1,4 @@
+#!/bin/sh
+# On-demand controller only. Do not import site-installed Python packages.
+set -eu
+exec python3 -S -B "$(dirname "$0")/release.py" "$@"

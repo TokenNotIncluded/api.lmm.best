@@ -1,0 +1,24 @@
+{
+  "api": "dp29/v1",
+  "cluster": "isolated-review-cluster",
+  "environment": "isolated",
+  "nodes": ["core-1", "go-1", "go-2"],
+  "targets": {
+    "rust-core": ["core-1"],
+    "go-extensions": ["go-1", "go-2"],
+    "web": ["go-2"]
+  },
+  "adapter": {
+    "kind": "hooks",
+    "bindings": {}
+  },
+  "policy": {
+    "max_parallel_nodes": 1,
+    "max_live_versions": 2,
+    "observe_seconds": 60,
+    "minimum_samples": 20,
+    "reserve_bytes": 67108864,
+    "automatic_rollback": true
+  },
+  "example_only": "Real task adapters are deliberately absent. Missing bindings must reject preflight. Resource values are illustrative, not a measured 1c1g budget."
+}
