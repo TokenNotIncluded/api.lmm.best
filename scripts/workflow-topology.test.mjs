@@ -83,6 +83,13 @@ test('only the isolated microkernel checks may run automatically', () => {
       assert.match(block[1], /branches: \[wip\/rust-core-go-extensions\]/);
       assert.match(source, /permissions:\n  contents: read/);
       assert.doesNotMatch(source, /secrets\.|contents: write|pull_request_target|environment: production/);
+    } else if (file === 'mk-01-identity.yml') {
+      // MK-01 runs read-only checks on its isolated branch and PRs.
+      assert.deepEqual(events, ['push', 'pull_request']);
+      assert.match(block[1], /branches: \[wip\/mk-01-identity-teams\]/);
+      assert.match(block[1], /pull_request:\n    branches: \[wip\/rust-core-go-extensions\]/);
+      assert.match(source, /permissions:\n  contents: read/);
+      assert.doesNotMatch(source, /secrets\.|contents: write|pull_request_target|environment: production/);
     } else {
       assert.deepEqual(events, ['workflow_dispatch'], `${file}: no new automatic publication or deployment`);
     }
@@ -99,13 +106,13 @@ test('manual checks reuse the exact core and extension verification pipeline', (
   for (const command of ['cargo clippy --locked --all-targets -- -D warnings', 'cargo test --locked --all-targets',
     'go mod verify', 'go vet ./...', 'go test -race', 'scripts/test-core-rpc-docker.py', 'scripts/test-core-boundaries.py',
     'scripts/test-local-release-tests.py', 'scripts/generate-core-protocol.sh --check',
-    'apps/api-go/internal/modules/store/pgtest', 'go test -mod=readonly -race',
+    'apps/lmm-extensions/internal/modules/store/pgtest', 'go test -mod=readonly -race',
     'contracts/proto/tests/process_recovery.py', 'LMM_RELAY_EXTENSION_BIN']) {
     assert.ok(source.includes(command), command);
   }
   assert.match(source, /services:\n      postgres:/);
   assert.match(source, /DATABASE_URL: postgres:\/\/postgres:postgres@127\.0\.0\.1:5432\/postgres/);
-  assert.match(source, /working-directory: apps\/api-go/);
+  assert.match(source, /working-directory: apps\/lmm-extensions/);
   assert.doesNotMatch(source, /continue-on-error:|apps\/extensions-go/);
 });
 

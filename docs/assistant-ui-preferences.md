@@ -54,7 +54,7 @@ uncertain profile writes are never automatically retried.
 Run the existing project checks:
 
 ```sh
-cd apps/api-go
+cd apps/lmm-extensions
 go test ./controller ./setting -run AssistantUIPreference
 cd ../web
 bun run typecheck

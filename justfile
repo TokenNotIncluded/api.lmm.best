@@ -44,7 +44,7 @@ build-web:
     bun run --filter @lmm/web bundle:check
 
 run-go: build-go
-    exec apps/api-go/out/lmm-extensions
+    exec apps/lmm-extensions/out/lmm-extensions
 
 test: test-core test-go test-web
 
@@ -101,4 +101,4 @@ test-docker:
 
 # Remove generated build output only, never database volumes.
 clean-generated:
-    rm -rf .turbo apps/web/.turbo apps/api-go/out apps/core-rust/target apps/web/dist
+    rm -rf .turbo apps/web/.turbo apps/lmm-extensions/out apps/lmm-core/target apps/web/dist

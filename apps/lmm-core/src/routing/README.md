@@ -200,7 +200,7 @@ The integration test bridge includes pure routing tests and isolated PostgreSQL
 tests. No live model provider or paid API is used. With the pinned Rust toolchain:
 
 ```sh
-cd apps/core-rust
+cd apps/lmm-core
 rustfmt --edition 2024 --check src/routing/mod.rs tests/routing.rs
 cargo clippy --locked --test routing -- -D warnings
 # Mock/in-memory tests only, without PostgreSQL:
@@ -218,7 +218,7 @@ test. It uses configured model cardinality, two weighted mock destinations per
 model, concurrent workers, pre-measurement warmup and a start barrier.
 
 ```sh
-cd apps/core-rust
+cd apps/lmm-core
 rustc -Vv
 ROUTING_BENCH_REQUESTS=1000000 ROUTING_BENCH_THREADS=4 ROUTING_BENCH_MODELS=1000 \
   cargo test --release --locked --test routing routing_benchmark -- --ignored --nocapture

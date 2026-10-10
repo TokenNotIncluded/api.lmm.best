@@ -1,6 +1,6 @@
 # Rust 原生账号与身份（全新安装 WIP）
 
-核心数据库只接受全新安装，不导入旧用户、Key 或余额，不维护旧表的升级路径。数据库定义位于 `apps/core-rust/schema/identity.sql`。Go 扩展不得连接这个数据库。
+核心数据库只接受全新安装，不导入旧用户、Key 或余额，不维护旧表的升级路径。数据库定义位于 `apps/lmm-core/schema/identity.sql`。Go 扩展不得连接这个数据库。
 
 先按 [Docker 指南](../deployment/docker/README.md) 创建隔离开发栈，并在当前 Bash 会话中定义其中的 `dc` 和 `de`。`core-admin init-db` 只安装空库，第二次执行拒绝；服务启动不会执行建表、改表或修复。版本和指纹检查是安装契约检查，不是对任意人工改表的完整检测。
 
@@ -79,9 +79,9 @@ HTTP 的 `owner` 输入仍使用明确类型的公开标识：个人为用户 ID
 将 `DATABASE_URL` 指向独立测试 PostgreSQL，测试角色需可创建临时数据库。SQLx 只负责建立隔离测试数据库；测试显式调用全新安装方法，不执行旧数据库升级。缺少数据库时测试失败，不跳过。
 
 ```sh
-(cd apps/core-rust && cargo fmt --all --check)
-(cd apps/core-rust && cargo clippy --locked --all-targets -- -D warnings)
-(cd apps/core-rust && cargo test --locked --all-targets)
+(cd apps/lmm-core && cargo fmt --all --check)
+(cd apps/lmm-core && cargo clippy --locked --all-targets -- -D warnings)
+(cd apps/lmm-core && cargo test --locked --all-targets)
 python3 -B scripts/test-core-rpc-docker.py
 ```
 

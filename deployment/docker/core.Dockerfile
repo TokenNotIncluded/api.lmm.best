@@ -1,9 +1,9 @@
 FROM rust:1.99.0-bookworm AS build
-WORKDIR /src/apps/core-rust
-COPY apps/core-rust/Cargo.toml apps/core-rust/Cargo.lock apps/core-rust/build.rs ./
+WORKDIR /src/apps/lmm-core
+COPY apps/lmm-core/Cargo.toml apps/lmm-core/Cargo.lock apps/lmm-core/build.rs ./
 COPY contracts/proto /src/contracts/proto
-COPY apps/core-rust/src ./src
-COPY apps/core-rust/schema ./schema
+COPY apps/lmm-core/src ./src
+COPY apps/lmm-core/schema ./schema
 RUN cargo build --locked --release --bins
 
 FROM debian:bookworm-slim
@@ -12,8 +12,8 @@ RUN apt-get update && apt-get install --no-install-recommends -y ca-certificates
     && mkdir -p /run/lmm-core-rpc \
     && chown 65532:65532 /run/lmm-core-rpc \
     && chmod 0700 /run/lmm-core-rpc
-COPY --from=build /src/apps/core-rust/target/release/lmm-core /usr/local/bin/lmm-core
-COPY --from=build /src/apps/core-rust/target/release/lmm-core-admin /usr/local/bin/lmm-core-admin
+COPY --from=build /src/apps/lmm-core/target/release/lmm-core /usr/local/bin/lmm-core
+COPY --from=build /src/apps/lmm-core/target/release/lmm-core-admin /usr/local/bin/lmm-core-admin
 USER 65532:65532
 EXPOSE 8080
 HEALTHCHECK --interval=10s --timeout=3s --start-period=10s --retries=3 \

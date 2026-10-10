@@ -109,6 +109,6 @@ SDK 默认的 45 分钟签名重放窗口。可通过
 本地回归：
 
 ```sh
-cd apps/api-go
+cd apps/lmm-extensions
 go test ./model ./service ./controller -run 'WaffoPancake|PaymentWebhook' -count=1
 ```

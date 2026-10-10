@@ -13,7 +13,7 @@ compatible alias and is retained even if a later event matches or is empty.
 Observations reset for each upstream attempt rather than leaking across retries.
 
 The Go, Rust and Web comparison uses the same contract fixture in
-`apps/api-go/relay/common/testdata/response_model_compatibility.json`. Comparison
+`apps/lmm-extensions/relay/common/testdata/response_model_compatibility.json`. Comparison
 trims whitespace, ignores case and compares the final provider-path component.
 An empty expected name is not a wildcard. The returned name must equal the
 requested or selected name, or extend one by exactly a supported suffix:

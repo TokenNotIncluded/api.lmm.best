@@ -53,7 +53,7 @@
 ## 本地验证
 
 ```sh
-cd apps/api-go
+cd apps/lmm-extensions
 go test ./setting ./controller -run TestAssistantToolPolicy -count=1
 ```
 

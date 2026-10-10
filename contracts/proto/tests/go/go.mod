@@ -16,4 +16,4 @@ require (
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260706201446-f0a921348800 // indirect
 )
 
-replace github.com/TokenNotIncluded/api.lmm.best/extensions => ../../../../apps/api-go
+replace github.com/TokenNotIncluded/api.lmm.best/extensions => ../../../../apps/lmm-extensions
