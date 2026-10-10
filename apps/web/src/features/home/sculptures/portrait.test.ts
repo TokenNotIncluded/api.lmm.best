@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
-import { type Point, type Sculpture, type Vec3 } from './geometry'
+import type { Point, Sculpture, Vec3 } from './geometry'
 import { PORTRAIT_PERIOD, portraitExpressionAt, smilingPortrait } from './portrait'
 import { blueWhale } from './whale'
 

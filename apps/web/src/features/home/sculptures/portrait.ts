@@ -49,7 +49,7 @@ export function smilingPortrait(): Sculpture {
   const s = new Shape()
   const add = (x: number, y: number, color: Vec3, depth = 0, part = 0) => {
     s.add([(x - 730) / SCALE, (750 - y) / SCALE, depthAt(x, y) + depth], color, part)
-    const p = s.points[s.points.length - 1] as PortraitPoint
+    const p = s.points.at(-1) as PortraitPoint
     p.headWeight = clamp((963 - y) / 100)
     const mx = (x - 712) * RIGHT[0] + (y - 742) * RIGHT[1]
     const my = (x - 712) * UP[0] + (y - 742) * UP[1]

@@ -63,8 +63,9 @@ const quotaSchema = z.object({
   ReferralMinTopUpAmounts: z.string().refine((value) => {
     try {
       const amounts: unknown = JSON.parse(value)
-      if (!amounts || typeof amounts !== 'object' || Array.isArray(amounts))
+      if (!amounts || typeof amounts !== 'object' || Array.isArray(amounts)) {
         return false
+      }
       const entries = Object.entries(amounts)
       return (
         entries.length > 0 &&
