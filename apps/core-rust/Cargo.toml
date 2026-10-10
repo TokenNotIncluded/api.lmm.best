@@ -41,3 +41,7 @@ all = "warn"
 lto = "thin"
 codegen-units = 1
 strip = true
+
+[[example]]
+name = "protocol-events-fixture"
+path = "src/events/fixture.rs"
