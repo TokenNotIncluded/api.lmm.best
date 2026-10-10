@@ -442,7 +442,7 @@ func ClaimAssistantNewUserGift(userID int) (*AssistantNewUserGift, bool, error) 
 		if err != nil {
 			return err
 		}
-		if err := checkAssistantGiftLimitTx(tx, creditedQuota); err != nil {
+		if err := checkAssistantExistingGiftLimitTx(tx, creditedQuota); err != nil {
 			return err
 		}
 		result := UpdateWalletQuotaByDelta(
