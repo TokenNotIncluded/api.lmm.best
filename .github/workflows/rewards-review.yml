@@ -1,0 +1,21 @@
+name: Rewards review
+on:
+  push:
+    branches: [fix/referral-stages-weekly-coupons]
+permissions:
+  contents: read
+jobs:
+  source-review:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Export tracked source only
+        run: git archive --format=tar.gz --output=source.tar.gz HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: rewards-review-source
+          path: source.tar.gz
+          retention-days: 1
