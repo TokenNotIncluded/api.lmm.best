@@ -18,7 +18,7 @@ import (
 
 // ---- Shared types ----
 
-func waffoPancakeProductMustBeRecreated(existing, next *model.SubscriptionPlan) bool {
+func waffoPancakeSingleProductMustBeRecreated(existing, next *model.SubscriptionPlan) bool {
 	if existing == nil || next == nil {
 		return false
 	}
@@ -41,7 +41,8 @@ func waffoPancakeProductMustBeRecreated(existing, next *model.SubscriptionPlan) 
 }
 
 type SubscriptionPlanDTO struct {
-	Plan model.SubscriptionPlan `json:"plan"`
+	WaffoPancakeOptions []WaffoPancakePurchaseOption `json:"waffo_pancake_options"`
+	Plan                model.SubscriptionPlan `json:"plan"`
 	// PaymentMethods is user-authorized in the public catalog and operator-
 	// configured in the admin catalog. Both views require usable gateway
 	// credentials rather than trusting a bare provider product ID.
@@ -119,14 +120,16 @@ func GetSubscriptionPlans(c *gin.Context) {
 			subscriptionPaymentMethods(user, &p, time.Now()),
 		)
 		dto := SubscriptionPlanDTO{
-			Plan:              p,
-			PaymentMethods:    methods,
-			BalancePriceQuota: balancePriceQuota,
+			WaffoPancakeOptions: []WaffoPancakePurchaseOption{},
+			Plan:                p,
+			PaymentMethods:      methods,
+			BalancePriceQuota:   balancePriceQuota,
 		}
 		for _, method := range methods {
 			if method == model.PaymentMethodWaffoPancake {
 				// The catalog route never queries or mutates merchant products.
-				dto.WaffoPancakeSettlement = subscriptionWaffoPancakeSettlementQuote(&p, currency)
+				dto.WaffoPancakeOptions = subscriptionWaffoPancakePurchaseOptions(&p, currency)
+				dto.WaffoPancakeSettlement = firstWaffoPancakeSettlement(dto.WaffoPancakeOptions)
 				break
 			}
 		}
@@ -322,6 +325,9 @@ func AdminCreateSubscriptionPlan(c *gin.Context) {
 	req.Plan.CreemProductId = strings.TrimSpace(req.Plan.CreemProductId)
 	req.Plan.WaffoPancakeProductId = strings.TrimSpace(req.Plan.WaffoPancakeProductId)
 	req.Plan.WaffoPancakeProductType = model.NormalizeWaffoPancakeProductType(req.Plan.WaffoPancakeProductType)
+	if !prepareWaffoPancakePlanProducts(c, &req.Plan, nil) {
+		return
+	}
 	if !enabledSubscriptionPlanHasConfiguredPaymentMethod(&req.Plan) {
 		subscriptionPlanPaymentMethodRequired(c)
 		return
@@ -432,6 +438,9 @@ func AdminUpdateSubscriptionPlan(c *gin.Context) {
 	} else {
 		req.Plan.WaffoPancakeProductType = model.NormalizeWaffoPancakeProductType(req.Plan.WaffoPancakeProductType)
 	}
+	if !prepareWaffoPancakePlanProducts(c, &req.Plan, existingPlan) {
+		return
+	}
 	if waffoPancakeProductMustBeRecreated(existingPlan, &req.Plan) {
 		common.ApiErrorMsg(c, "套餐价格、币种、商品类型或订阅周期已变化，请重新创建并绑定 Waffo Pancake 商品")
 		return
@@ -457,6 +466,7 @@ func AdminUpdateSubscriptionPlan(c *gin.Context) {
 			"creem_product_id":           req.Plan.CreemProductId,
 			"waffo_pancake_product_id":   req.Plan.WaffoPancakeProductId,
 			"waffo_pancake_product_type": req.Plan.WaffoPancakeProductType,
+			"waffo_pancake_products":     common.GetJsonString(req.Plan.WaffoPancakeProducts),
 			"max_purchase_per_user":      req.Plan.MaxPurchasePerUser,
 			"total_amount":               req.Plan.TotalAmount,
 			"upgrade_group":              req.Plan.UpgradeGroup,

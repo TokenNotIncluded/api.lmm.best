@@ -22,9 +22,8 @@ import {
   CreditCard,
   RefreshCw,
   Settings2,
-  X,
 } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useForm, useWatch, type Resolver } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -90,6 +89,13 @@ import {
 } from '../lib'
 import type { PlanRecord, WaffoPancakeProductType } from '../types'
 import { useSubscriptions } from './subscriptions-provider'
+import { WaffoPancakeProductsEditor } from './waffo-pancake-products-editor'
+import {
+  ensurePancakePlanProducts,
+  pancakeProductsForPlan,
+  pancakeProductsPayload,
+  PancakeProductCreationUncertain,
+} from '../lib/waffo-pancake-products'
 
 interface PancakeProductOption {
   id: string
@@ -131,7 +137,9 @@ export function SubscriptionsMutateDrawer({
   const { label: currencyLabel } = useCreditInputDisplay()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [groupOptions, setGroupOptions] = useState<string[]>([])
-  const [creatingPancakeProduct, setCreatingPancakeProduct] = useState(false)
+  const submitInFlight = useRef(false)
+  const [pancakeDraft, setPancakeDraft] = useState(() => pancakeProductsForPlan())
+  const [pancakeBlockedTypes, setPancakeBlockedTypes] = useState<Set<WaffoPancakeProductType>>(new Set())
   const [pancakeProducts, setPancakeProducts] = useState<
     PancakeProductOption[]
   >([])
@@ -146,6 +154,8 @@ export function SubscriptionsMutateDrawer({
 
   useEffect(() => {
     if (open) {
+      setPancakeDraft(pancakeProductsForPlan(currentRow?.plan))
+      setPancakeBlockedTypes(new Set())
       if (currentRow?.plan) {
         form.reset(planToFormValues(currentRow.plan))
       } else {
@@ -190,17 +200,18 @@ export function SubscriptionsMutateDrawer({
     control: form.control,
     name: 'creem_product_id',
   })
-  const watchedPancakeProductId = useWatch({
+  const [pancakeTitle, pancakePrice, pancakeCurrency, pancakeDurationValue, pancakeCustomSeconds] = useWatch({
     control: form.control,
-    name: 'waffo_pancake_product_id',
+    name: ['title', 'price_amount', 'currency', 'duration_value', 'custom_seconds'],
   })
-  const watchedPancakeProductType = useWatch({
-    control: form.control,
-    name: 'waffo_pancake_product_type',
-  })
-  const filteredPancakeProducts = pancakeProducts.filter(
-    (product) => product.product_type === watchedPancakeProductType
-  )
+  const pancakeTerms = {
+    title: pancakeTitle || '',
+    price_amount: Number(pancakePrice || 0),
+    currency: pancakeCurrency || 'USD',
+    duration_unit: durationUnit,
+    duration_value: Number(pancakeDurationValue || 1),
+    custom_seconds: Number(pancakeCustomSeconds || 0),
+  }
   // Generic ePay methods are global rather than plan fields. Preserve the
   // authoritative admin catalog entries while this existing plan is edited.
   const inheritedEpayMethods = (currentRow?.payment_methods || []).filter(
@@ -211,24 +222,20 @@ export function SubscriptionsMutateDrawer({
     watchedAllowBalancePay ? 'balance' : null,
     watchedStripePriceId?.trim() ? 'stripe' : null,
     watchedCreemProductId?.trim() ? 'creem' : null,
-    watchedPancakeProductId?.trim() ? 'waffo_pancake' : null,
+    pancakeDraft.some((product) => product.enabled) ? 'waffo_pancake' : null,
     ...inheritedEpayMethods,
   ].filter((method): method is string => !!method)
-  // Gate "+ Create on Pancake" on the same checks the mint handler runs.
-  const watchedTitle = useWatch({ control: form.control, name: 'title' })
-  const watchedPrice = useWatch({
-    control: form.control,
-    name: 'price_amount',
-  })
-  const pancakeCreateReady =
-    typeof watchedTitle === 'string' &&
-    watchedTitle.trim().length > 0 &&
-    Number(watchedPrice ?? 0) > 0
-
   const onSubmit = async (values: PlanFormValues) => {
+    if (submitInFlight.current) return
+    submitInFlight.current = true
     setIsSubmitting(true)
     try {
+      const products = await ensurePancakePlanProducts(
+        pancakeDraft, values, createWaffoPancakePlanProduct,
+        setPancakeDraft, pancakeBlockedTypes
+      )
       const payload = formValuesToPlanPayload(values)
+      payload.plan.waffo_pancake_products = pancakeProductsPayload(products)
       if (isEdit && currentRow?.plan?.id) {
         const res = await updatePlan(currentRow.plan.id, payload)
         if (res.success) {
@@ -244,84 +251,29 @@ export function SubscriptionsMutateDrawer({
           triggerRefresh()
         }
       }
-    } catch {
-      toast.error(t('Request failed'))
+    } catch (error) {
+      if (error instanceof PancakeProductCreationUncertain) {
+        setPancakeBlockedTypes((previous) => new Set([...previous, error.productType]))
+        toast.error(t('Product creation could not be confirmed. Refresh the catalog and select the product before retrying. Do not create it again blindly.'))
+      } else {
+        toast.error(t('Request failed'))
+      }
     } finally {
+      submitInFlight.current = false
       setIsSubmitting(false)
     }
   }
 
-  // Mints the selected Pancake product family using the form's explicit
-  // fiat price, then pins the returned PROD_ ID and matching product type.
-  const handleCreatePancakeProduct = async () => {
-    const title = form.getValues('title').trim()
-    const priceAmount = Number(form.getValues('price_amount') || 0)
-    const currency = form.getValues('currency')
-    const durationUnit = form.getValues('duration_unit')
-    const durationValue = Number(form.getValues('duration_value') || 0)
-    const productType = form.getValues('waffo_pancake_product_type')
-    if (!title) {
-      toast.error(t('Plan title is required'))
-      return
-    }
-    if (priceAmount <= 0) {
-      toast.error(t('Plan price must be greater than zero'))
-      return
-    }
-    setCreatingPancakeProduct(true)
+  const refreshPancakeProducts = async () => {
     try {
-      const res = await createWaffoPancakePlanProduct({
-        name: title,
-        amount: priceAmount.toFixed(2),
-        currency,
-        duration_unit: durationUnit,
-        duration_value: durationValue,
-        product_type: productType,
-      })
-      if (
-        res.message === 'success' &&
-        typeof res.data === 'object' &&
-        res.data
-      ) {
-        const created = res.data
-        const typeMismatch =
-          (created.product_type && created.product_type !== productType) ||
-          (productType === 'one_time' && created.product_type !== 'one_time')
-        if (typeMismatch) {
-          toast.error(t('Waffo Pancake product creation failed'))
-          return
-        }
-        form.setValue('waffo_pancake_product_id', created.product_id, {
-          shouldDirty: true,
-        })
-        // Refetch from GraphQL so the dropdown reflects authoritative state.
-        try {
-          const refresh = await listWaffoPancakePlanProductOptions()
-          const products = refresh.data?.products
-          if (refresh.message === 'success' && Array.isArray(products)) {
-            setPancakeProducts(normalizePancakeProductOptions(products))
-          }
-        } catch {
-          // Best-effort — form value already points at the new product;
-          // raw-ID fallback covers the missing label.
-        }
-        toast.success(
-          `${t('Waffo Pancake product created')}: ${created.product_id}`
-        )
-      } else {
-        const reason = typeof res.data === 'string' ? res.data : undefined
-        toast.error(
-          reason
-            ? `${t('Waffo Pancake product creation failed')}: ${reason}`
-            : t('Waffo Pancake product creation failed')
-        )
+      const res = await listWaffoPancakePlanProductOptions()
+      if (res.message !== 'success' || !Array.isArray(res.data?.products)) {
+        toast.error(t('Request failed'))
+        return
       }
-    } catch (err) {
-      toast.error(
-        `${t('Waffo Pancake product creation failed')}: ${err instanceof Error ? err.message : String(err)}`
-      )
-    } finally {
-      setCreatingPancakeProduct(false)
+      setPancakeProducts(normalizePancakeProductOptions(res.data.products))
+    } catch {
+      toast.error(t('Request failed'))
     }
   }
 
@@ -332,6 +284,7 @@ export function SubscriptionsMutateDrawer({
     <Sheet
       open={open}
       onOpenChange={(v) => {
+        if (submitInFlight.current) return
         onOpenChange(v)
         if (!v) {
           form.reset()
@@ -903,133 +856,14 @@ export function SubscriptionsMutateDrawer({
                 )}
               />
 
-              <FormField
-                control={form.control}
-                name='waffo_pancake_product_type'
-                render={({ field }) => {
-                  const productTypes = [
-                    {
-                      value: 'one_time' as const,
-                      label: t('One-time product'),
-                    },
-                    {
-                      value: 'subscription' as const,
-                      label: t('Subscription product'),
-                    },
-                  ]
-                  return (
-                    <FormItem>
-                      <FormLabel>{t('Product type')}</FormLabel>
-                      <Select
-                        items={productTypes}
-                        value={field.value}
-                        onValueChange={(value) => {
-                          if (
-                            value !== 'one_time' &&
-                            value !== 'subscription'
-                          ) {
-                            return
-                          }
-                          if (value !== field.value) {
-                            form.setValue('waffo_pancake_product_id', '', {
-                              shouldDirty: true,
-                              shouldValidate: true,
-                            })
-                          }
-                          field.onChange(value)
-                        }}
-                      >
-                        <FormControl>
-                          <SelectTrigger className='w-full'>
-                            <SelectValue />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {productTypes.map((item) => (
-                            <SelectItem key={item.value} value={item.value}>
-                              {item.label}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )
-                }}
-              />
-
-              <FormField
-                control={form.control}
-                name='waffo_pancake_product_id'
-                render={({ field }) => {
-                  // Raw-ID fallback for IDs not yet in the catalog.
-                  const items = filteredPancakeProducts.map((p) => ({
-                    value: p.id,
-                    label: `${p.name} (${p.id})`,
-                  }))
-                  if (
-                    field.value &&
-                    !filteredPancakeProducts.some((p) => p.id === field.value)
-                  ) {
-                    items.push({ value: field.value, label: field.value })
-                  }
-                  return (
-                    <FormItem>
-                      <FormLabel>{t('Waffo Pancake Product ID')}</FormLabel>
-                      <div className='flex gap-2'>
-                        <Select
-                          items={items}
-                          value={field.value || null}
-                          onValueChange={(value) => field.onChange(value ?? '')}
-                          disabled={items.length === 0}
-                        >
-                          <SelectTrigger className='w-full flex-1'>
-                            <SelectValue placeholder={t('Select a product')} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {items.map((item) => (
-                              <SelectItem key={item.value} value={item.value}>
-                                {item.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        {field.value ? (
-                          <Button
-                            type='button'
-                            variant='ghost'
-                            size='icon'
-                            aria-label={t('Disable')}
-                            title={t('Disable')}
-                            onClick={() => field.onChange('')}
-                            className='shrink-0'
-                          >
-                            <X />
-                          </Button>
-                        ) : null}
-                        <Button
-                          type='button'
-                          variant='outline'
-                          onClick={handleCreatePancakeProduct}
-                          disabled={
-                            creatingPancakeProduct || !pancakeCreateReady
-                          }
-                          className='shrink-0'
-                        >
-                          {creatingPancakeProduct
-                            ? t('Creating...')
-                            : `+ ${t('Create')}`}
-                        </Button>
-                      </div>
-                      <FormDescription>
-                        {t(
-                          'Creates a Pancake product in the saved store using this plan’s title and price. Requires Waffo Pancake to be fully configured in Payment settings first.'
-                        )}
-                      </FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )
-                }}
+              <WaffoPancakeProductsEditor
+                value={pancakeDraft}
+                onChange={setPancakeDraft}
+                terms={pancakeTerms}
+                products={pancakeProducts}
+                disabled={isSubmitting}
+                uncertain={pancakeBlockedTypes.size > 0}
+                onRefresh={() => void refreshPancakeProducts()}
               />
             </SideDrawerSection>
           </form>
