@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/constant"
@@ -55,50 +56,43 @@ func base64ContentDigest(data string) [sha256.Size]byte {
 }
 
 // LoadFileSource 加载文件源数据
-// 这是统一的入口，会自动处理缓存和不同的来源类型
+// Sources and request-local cache registrations must be synchronized. A file
+// cannot outlive its request by re-registering after terminal cleanup.
 func LoadFileSource(c *gin.Context, source types.FileSource, reason ...string) (*types.CachedFileData, error) {
 	if source == nil {
 		return nil, fmt.Errorf("file source is nil")
 	}
-
 	if common.DebugEnabled {
 		logger.LogDebug(c, "LoadFileSource starting for: %s", source.GetIdentifier())
 	}
 
-	// 1. 快速检查内部缓存
-	if source.HasCache() {
-		if c != nil {
-			registerSourceForCleanup(c, source)
-		}
-		return source.GetCache(), nil
-	}
-
-	// 2. 加锁保护加载过程
+	// The source's mutex also protects the initial cache check. Checking
+	// HasCache before locking races against concurrent SetCache/ClearCache.
 	source.Mu().Lock()
 	defer source.Mu().Unlock()
 
-	// 3. 双重检查
 	if source.HasCache() {
-		if c != nil {
-			registerSourceForCleanup(c, source)
+		data := source.GetCache()
+		if err := registerSourceForCleanup(c, source, data, ""); err != nil {
+			return nil, err
 		}
-		return source.GetCache(), nil
+		return data, nil
 	}
 
-	// 4. 根据来源类型加载（含 URL context 缓存查找）
 	var cachedData *types.CachedFileData
 	var contextKey string
 	var err error
-
 	switch s := source.(type) {
 	case *types.URLSource:
 		if c != nil {
 			contextKey = getContextCacheKey(s.URL)
 			if cached, exists := c.Get(contextKey); exists {
-				data := cached.(*types.CachedFileData)
-				source.SetCache(data)
-				registerSourceForCleanup(c, source)
-				return data, nil
+				if data, ok := cached.(*types.CachedFileData); ok && data != nil {
+					if err := registerSourceForCleanup(c, source, data, ""); err != nil {
+						return nil, err
+					}
+					return data, nil
+				}
 			}
 		}
 		cachedData, err = loadFromURL(c, s.URL, reason...)
@@ -106,72 +100,102 @@ func LoadFileSource(c *gin.Context, source types.FileSource, reason ...string) (
 		if c != nil {
 			contextKey = getBase64ContextCacheKey(s.Base64Data, s.MimeType)
 			if cached, exists := c.Get(contextKey); exists {
-				data := cached.(*types.CachedFileData)
-				source.SetCache(data)
-				registerSourceForCleanup(c, source)
-				return data, nil
+				if data, ok := cached.(*types.CachedFileData); ok && data != nil {
+					if err := registerSourceForCleanup(c, source, data, ""); err != nil {
+						return nil, err
+					}
+					return data, nil
+				}
 			}
 		}
 		cachedData, err = loadFromBase64(s.Base64Data, s.MimeType)
 	default:
 		return nil, fmt.Errorf("unsupported file source type: %T", source)
 	}
-
 	if err != nil {
 		return nil, err
 	}
 
-	// 5. 设置缓存
-	source.SetCache(cachedData)
-	if contextKey != "" && c != nil {
-		c.Set(contextKey, cachedData)
+	// Publish the source/cache and cleanup registration in one critical
+	// section. Cleanup may otherwise close an object before it is registered.
+	if err := registerSourceForCleanup(c, source, cachedData, contextKey); err != nil {
+		_ = cachedData.Close()
+		return nil, err
 	}
-
-	// 6. 注册到 context 以便请求结束时自动清理
-	if c != nil {
-		registerSourceForCleanup(c, source)
-	}
-
 	return cachedData, nil
 }
 
-// registerSourceForCleanup 注册 FileSource 到 context 以便请求结束时清理
-func registerSourceForCleanup(c *gin.Context, source types.FileSource) {
-	if source.IsRegistered() {
-		return
-	}
+// This lock protects the read-modify-write sequence of the Gin context's
+// cleanup registry and the final cleanup flag. Gin Get/Set alone only protect
+// individual operations, not the full registration transaction.
+var fileSourceRegistrationMu sync.Mutex
 
-	key := string(constant.ContextKeyFileSourcesToCleanup)
-	var sources []types.FileSource
-	if existing, exists := c.Get(key); exists {
-		sources = existing.([]types.FileSource)
+const contextFileSourcesCleanupDone = "file_sources_cleanup_completed"
+
+// registerSourceForCleanup also publishes a newly loaded cache. It must only
+// be called while source.Mu() is held, including on cache hits.
+func registerSourceForCleanup(c *gin.Context, source types.FileSource, data *types.CachedFileData, contextKey string) error {
+	if c == nil {
+		source.SetCache(data)
+		return nil
 	}
-	sources = append(sources, source)
-	c.Set(key, sources)
+	fileSourceRegistrationMu.Lock()
+	defer fileSourceRegistrationMu.Unlock()
+
+	if closed, _ := c.Get(contextFileSourcesCleanupDone); closed == true {
+		return fmt.Errorf("cannot load file after request cleanup")
+	}
+	key := string(constant.ContextKeyFileSourcesToCleanup)
+	value, _ := c.Get(key)
+	sources, _ := value.([]types.FileSource)
+	for _, registered := range sources {
+		if registered == source {
+			source.SetCache(data)
+			if contextKey != "" {
+				c.Set(contextKey, data)
+			}
+			return nil
+		}
+	}
+	// FileSource itself is request-bound. Sharing a source object between
+	// contexts can otherwise clear a live cache when the first one finishes.
+	if source.IsRegistered() {
+		return fmt.Errorf("file source belongs to another active request")
+	}
+	source.SetCache(data)
 	source.SetRegistered(true)
+	if contextKey != "" {
+		c.Set(contextKey, data)
+	}
+	c.Set(key, append(sources, source))
+	return nil
 }
 
-// CleanupFileSources 清理请求中所有注册的 FileSource
-// 应在请求结束时调用（通常由中间件自动调用）
+// CleanupFileSources ends request ownership. Repeated calls and calls racing
+// with new registrations are safe; future loads on this context are rejected.
 func CleanupFileSources(c *gin.Context) {
 	if c == nil {
 		return
 	}
 	key := string(constant.ContextKeyFileSourcesToCleanup)
-	value, exists := c.Get(key)
-	if !exists {
+	fileSourceRegistrationMu.Lock()
+	if closed, _ := c.Get(contextFileSourcesCleanupDone); closed == true {
+		fileSourceRegistrationMu.Unlock()
 		return
 	}
-	sources, ok := value.([]types.FileSource)
-	if !ok || len(sources) == 0 {
-		return
-	}
-	// Preserve the slice's type so repeated terminal cleanup is safe.
+	c.Set(contextFileSourcesCleanupDone, true)
+	value, _ := c.Get(key)
+	sources, _ := value.([]types.FileSource)
 	c.Set(key, []types.FileSource(nil))
+	fileSourceRegistrationMu.Unlock()
+
+	// Always acquire locks in source -> registration order while loading.
+	// Cleanup releases the registration lock before waiting for source locks.
 	for _, source := range sources {
-		if cache := source.GetCache(); cache != nil {
-			_ = cache.Close()
-		}
+		source.Mu().Lock()
+		source.ClearCache()
+		source.SetRegistered(false)
+		source.Mu().Unlock()
 	}
 }
 
@@ -451,9 +475,13 @@ func GetBase64Data(c *gin.Context, source types.FileSource, reason ...string) (s
 
 // GetMimeType 获取文件的 MIME 类型
 func GetMimeType(c *gin.Context, source types.FileSource) (string, error) {
+	source.Mu().Lock()
 	if source.HasCache() {
-		return source.GetCache().MimeType, nil
+		mimeType := source.GetCache().MimeType
+		source.Mu().Unlock()
+		return mimeType, nil
 	}
+	source.Mu().Unlock()
 
 	if urlSource, ok := source.(*types.URLSource); ok {
 		mimeType, err := GetFileTypeFromUrl(c, urlSource.URL, "get_mime_type")
