@@ -45,6 +45,9 @@ class CoreBoundaryTests(unittest.TestCase):
             "apps/lmm-extensions/internal/coreclient/sqlinbox.go": "extension_events.",
             "apps/lmm-extensions/internal/modules/store/postgres.go": "lmm_store.",
             "apps/lmm-extensions/internal/modules/support/postgres.go": "lmm_support.",
+            "apps/lmm-extensions/internal/modules/assistant/postgres.go": "lmm_assistant.",
+            "apps/lmm-extensions/internal/modules/promotions/postgres.go": "lmm_promotions.",
+            "apps/lmm-extensions/internal/modules/payments/postgres.go": "payment_",
         }
         if path not in stores:
             self.assertNotIn('"database/sql"', text, path)
@@ -65,13 +68,30 @@ class CoreBoundaryTests(unittest.TestCase):
         source = (ROOT / path).read_text()
         self.assert_extension_storage(path, source)
         for forbidden in ("core_identity.users", "core_billing.balance_state",
-                          "core_events.outbox", "lmm_support.messages",
+                          "core_events.outbox", "lmm_support.messages", "lmm_assistant.records",
+                          "lmm_promotions.records", "payment_orders",
                           "sql.Open(", "sql.OpenDB("):
             with self.subTest(forbidden=forbidden):
                 with self.assertRaises(AssertionError):
                     self.assert_extension_storage(path, source + "\n" + forbidden)
         with self.assertRaises(AssertionError):
             self.assert_extension_storage("apps/lmm-extensions/internal/app/unapproved.go", source)
+
+    def test_assistant_promotions_and_payment_storage_remain_narrow(self):
+        for module, own in (("assistant", "lmm_assistant."), ("promotions", "lmm_promotions."),
+                            ("payments", "payment_")):
+            path = f"apps/lmm-extensions/internal/modules/{module}/postgres.go"
+            source = (ROOT / path).read_text()
+            self.assert_extension_storage(path, source)
+            for forbidden in ("core_identity.users", "core_billing.balance_state", "core_events.outbox",
+                              "lmm_store.records", "lmm_support.records", "sql.Open(", "sql.OpenDB("):
+                with self.subTest(module=module, forbidden=forbidden):
+                    with self.assertRaises(AssertionError):
+                        self.assert_extension_storage(path, source + "\n" + forbidden)
+            for other in ("lmm_assistant.", "lmm_promotions.", "payment_"):
+                if other != own:
+                    with self.assertRaises(AssertionError):
+                        self.assert_extension_storage(path, source + "\n" + other + "records")
 
     def test_fresh_schema_is_explicit_and_relational(self):
         schema = (ROOT / "apps/lmm-core/schema/identity.sql").read_text()
