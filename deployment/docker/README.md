@@ -6,6 +6,14 @@ Rust 位于 `apps/lmm-core`。Go 扩展的唯一目录为 `apps/lmm-extensions`�
 
 核心 `/health/live` 返回 200；`/health/ready` 和模型接口仍返回 503。身份校验成功不等于允许收费或接入模型流量。扩展健康检查只证明宿主可响应，不保证每项业务已经实现。
 
+## 仅部署 Rust 核心
+
+核心可以不部署 Go 扩展；无需配置内部 RPC。若使用独立 PostgreSQL，请使用
+[单核低内存部署说明](../../docs/core-standalone.md) 和
+`compose.core-standalone.yml` 覆盖文件。该模式的服务清单只有 `core`，
+不会启动 `extensions` 或本机 PostgreSQL；数据库仍是必要的独立依赖。
+它只能运行已接通的身份/账户功能，不能替代线上计费网关。
+
 ## 在隔离开发机创建新栈
 
 以下命令从仓库根目录执行，要求 Docker Engine、Compose v2、Bash 和 Python 3。使用空闲的本地 8080/8081 端口。本指南不使用现有生产 Compose 项目、数据库或密钥。

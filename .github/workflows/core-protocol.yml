@@ -2,6 +2,14 @@ name: Microkernel implementation checks
 on:
   workflow_dispatch:
   workflow_call:
+  pull_request:
+    branches: [wip/rust-core-go-extensions]
+    paths:
+      - .github/workflows/core-protocol.yml
+      - apps/lmm-core/**
+      - deployment/docker/**
+      - scripts/test-core-boundaries.py
+      - .dockerignore
   push:
     branches: [wip/rust-core-go-extensions]
     paths:
@@ -110,6 +118,15 @@ jobs:
           echo "LMM_RELAY_EXTENSION_BIN=$RUNNER_TEMP/lmm-extensions" >> "$GITHUB_ENV"
       - name: Public legal reads with the actual Go host
         run: LMM_EXTENSION_TEST_BIN="$RUNNER_TEMP/lmm-extensions" python3 -B scripts/test-legal-process.py
+      - name: Standalone core Compose is not coupled to Go
+        run: |
+          set -euo pipefail
+          printf 'postgres://test.invalid/test?sslmode=verify-full\n' > "$RUNNER_TEMP/core-database-url"
+          export LMM_CORE_DATABASE_URL_SECRET_FILE="$RUNNER_TEMP/core-database-url"
+          docker compose -f deployment/docker/compose.core.yml \
+            -f deployment/docker/compose.core-standalone.yml \
+            config --format json > "$RUNNER_TEMP/core-standalone.json"
+          python3 -B -c 'import json,sys; o=json.load(open(sys.argv[1])); assert set(o["services"]) == {"core"}; c=o["services"]["core"]; assert c["environment"]["LMM_CORE_WORKER_THREADS"] == "1"; assert c["environment"]["LMM_CORE_DB_CONNECTIONS"] == "2"; assert c["environment"]["LMM_CORE_MAX_INFLIGHT"] == "16"' "$RUNNER_TEMP/core-standalone.json"
       - name: Rust formatting
         working-directory: apps/lmm-core
         run: cargo fmt --all --check 2>&1 | tee "$RUNNER_TEMP/core-format.log"

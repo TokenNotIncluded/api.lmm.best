@@ -79,7 +79,8 @@ test('only the isolated microkernel checks may run automatically', () => {
     assert.ok(block, `${file}: event block is required`);
     const events = [...block[1].matchAll(/^  ([\w-]+):/gm)].map((match) => match[1]);
     if (file === 'core-protocol.yml') {
-      assert.deepEqual(events, ['workflow_dispatch', 'workflow_call', 'push']);
+      assert.deepEqual(events, ['workflow_dispatch', 'workflow_call', 'pull_request', 'push']);
+      assert.match(block[1], /pull_request:\n    branches: \[wip\/rust-core-go-extensions\]/);
       assert.match(block[1], /branches: \[wip\/rust-core-go-extensions\]/);
       assert.match(source, /permissions:\n  contents: read/);
       assert.doesNotMatch(source, /secrets\.|contents: write|pull_request_target|environment: production/);
