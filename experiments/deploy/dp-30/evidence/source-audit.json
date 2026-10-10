@@ -1,0 +1,58 @@
+{
+  "schema_version": 1,
+  "audited_base_sha": "72667564c0431754d4856dc2e0db55f360bd2745",
+  "method": "read-only GitHub connector, exact ref; static inspection, NOT application execution",
+  "files": [
+    {
+      "path": "apps/lmm-core/src/main.rs",
+      "git_blob_sha": "df75644011e3ba9fef2b9939fc8f95ed4c7af861",
+      "observation": "Only the base HTTP router and optional identity router are assembled. Model forwarding and billing remain disabled. RPC uses a Unix socket and a read-only store.",
+      "url": "https://github.com/TokenNotIncluded/api.lmm.best/blob/72667564c0431754d4856dc2e0db55f360bd2745/apps/lmm-core/src/main.rs"
+    },
+    {
+      "path": "apps/lmm-core/src/http.rs",
+      "git_blob_sha": "f5e599e41bb020ea1c49499267e6d33b1dc37b47",
+      "observation": "The ready route and fallback return 503 core_migration_incomplete. The source contains tests for the disabled model routes; those Rust tests were NOT run here.",
+      "url": "https://github.com/TokenNotIncluded/api.lmm.best/blob/72667564c0431754d4856dc2e0db55f360bd2745/apps/lmm-core/src/http.rs"
+    },
+    {
+      "path": "apps/lmm-extensions/internal/app/run.go",
+      "git_blob_sha": "979cf1463e22f695a00499f98c6ea77e9023d905",
+      "observation": "The selection allowlist and registration switch enable identity only. Other modules existing in the tree are not evidence of host registration.",
+      "url": "https://github.com/TokenNotIncluded/api.lmm.best/blob/72667564c0431754d4856dc2e0db55f360bd2745/apps/lmm-extensions/internal/app/run.go"
+    },
+    {
+      "path": "apps/lmm-core/src/billing/ledger/README.md",
+      "git_blob_sha": "089855945acf39c2f91a0538bcaf51145ac6397b",
+      "observation": "Read lines 1-130. Ledger is an in-process API, not an HTTP/gRPC route. Native units are credit_500k_usd. Per-account revisions define account order; journal IDs do not. Ledger schema is not added to init-db.",
+      "url": "https://github.com/TokenNotIncluded/api.lmm.best/blob/72667564c0431754d4856dc2e0db55f360bd2745/apps/lmm-core/src/billing/ledger/README.md"
+    },
+    {
+      "path": "deployment/docker/compose.core.yml",
+      "git_blob_sha": "ce146e06253cc530ae7aa105f70391e5aacd51ca",
+      "observation": "Core memory limit: 384m. Stop grace: 30m. cpu_shares is not a whole-node 1-CPU quota.",
+      "url": "https://github.com/TokenNotIncluded/api.lmm.best/blob/72667564c0431754d4856dc2e0db55f360bd2745/deployment/docker/compose.core.yml"
+    },
+    {
+      "path": "deployment/docker/compose.extensions.yml",
+      "git_blob_sha": "eaeae11f4ba613a7c2b9be1ebf510576a07f568d",
+      "observation": "Go memory limit: 192m; GOMEMLIMIT: 128MiB; cpus: 0.5.",
+      "url": "https://github.com/TokenNotIncluded/api.lmm.best/blob/72667564c0431754d4856dc2e0db55f360bd2745/deployment/docker/compose.extensions.yml"
+    },
+    {
+      "path": "deployment/docker/compose.identity.yml",
+      "git_blob_sha": "beb03757d983f683cd95e97b067d3cabf2b23196",
+      "observation": "Database memory limit: 256m; max_connections=32; shared_buffers=64MB. This is not a measured application capacity.",
+      "url": "https://github.com/TokenNotIncluded/api.lmm.best/blob/72667564c0431754d4856dc2e0db55f360bd2745/deployment/docker/compose.identity.yml"
+    }
+  ],
+  "dependency_discovery": {
+    "query": "https://api.github.com/repos/TokenNotIncluded/api.lmm.best/git/matching-refs/heads/research/dp-",
+    "observed_response": [],
+    "scope": "Only this exact remote branch prefix was checked. Local/unpublished work is not ruled out."
+  },
+  "base_root_has_experiments_directory": false,
+  "integration_sha": null,
+  "dp21_workload_sha256": null,
+  "dp21_budget_sha256": null
+}

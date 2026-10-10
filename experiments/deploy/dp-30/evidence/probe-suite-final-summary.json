@@ -1,0 +1,539 @@
+{
+  "schema_version": 1,
+  "scope": "probe_fixture_regression_only",
+  "captured_at_utc": "2026-10-10T14:58:20.794916+00:00",
+  "audited_application_base_not_executed": "72667564c0431754d4856dc2e0db55f360bd2745",
+  "harness_sha256": {
+    "dp30.py": "70679e099c11ab5cfd96e058f86f4bc73f862fadab8d267d9a7b5c6744295001",
+    "workload.py": "36a17d2bceff2217b8c90773c7536dcdf311a8cc4a3843c62cb8ec45bd0eb7e7",
+    "run_fixture_suite.py": "5ad369ba80dafae0ff08f2e1bdede13c585a76f4aa8b696efb2f2b4a047564f4",
+    "tests/fixture_server.py": "c10878bd0f7816211c6e583d2e92da7eaaf75fc250d64fbc915addf7f340cf99"
+  },
+  "constraints": {
+    "rlimit_address_space_bytes": 805306368,
+    "rlimit_cpu_time_seconds": 15,
+    "rlimit_file_bytes": 16777216,
+    "fd_soft_limit": 128,
+    "cpu_affinity_count": 1,
+    "cgroup_1c1g": false,
+    "note": "fixture, client and observers share ONE process; no application is present"
+  },
+  "runs": [
+    {
+      "run_id": "fixture-clean-r1",
+      "mode": "clean",
+      "repeat": 1,
+      "expected_outcome": "complete",
+      "outcomes": {
+        "complete": 16
+      },
+      "offered_requests": 16,
+      "fixture_upstream_calls": 16,
+      "no_automatic_replay_observed": true,
+      "peak_active": 2,
+      "elapsed_seconds": 0.41765046700004405,
+      "latency_samples": 16,
+      "latency_p50_ms": 42.07534000011037,
+      "latency_p99_ms": 43.09730700003911,
+      "limits": {
+        "requests": 16,
+        "concurrency": 4,
+        "requests_per_second": 40,
+        "deadline_seconds": 2,
+        "max_seconds": 5,
+        "max_input_bytes": 4194304,
+        "max_response_bytes": 262144,
+        "max_event_bytes": 16384
+      },
+      "passed": true
+    },
+    {
+      "run_id": "fixture-truncated-r1",
+      "mode": "truncated",
+      "repeat": 1,
+      "expected_outcome": "error",
+      "outcomes": {
+        "error": 8
+      },
+      "offered_requests": 8,
+      "fixture_upstream_calls": 8,
+      "no_automatic_replay_observed": true,
+      "peak_active": 2,
+      "elapsed_seconds": 0.217119002000004,
+      "latency_samples": 8,
+      "latency_p50_ms": 41.99723299996094,
+      "latency_p99_ms": 42.602692000059506,
+      "limits": {
+        "requests": 8,
+        "concurrency": 4,
+        "requests_per_second": 40,
+        "deadline_seconds": 2,
+        "max_seconds": 5,
+        "max_input_bytes": 4194304,
+        "max_response_bytes": 262144,
+        "max_event_bytes": 16384
+      },
+      "passed": true
+    },
+    {
+      "run_id": "fixture-disconnect-r1",
+      "mode": "disconnect",
+      "repeat": 1,
+      "expected_outcome": "error",
+      "outcomes": {
+        "error": 8
+      },
+      "offered_requests": 8,
+      "fixture_upstream_calls": 8,
+      "no_automatic_replay_observed": true,
+      "peak_active": 1,
+      "elapsed_seconds": 0.19168775600007848,
+      "latency_samples": 8,
+      "latency_p50_ms": 16.402703000039764,
+      "latency_p99_ms": 16.895122000050833,
+      "limits": {
+        "requests": 8,
+        "concurrency": 4,
+        "requests_per_second": 40,
+        "deadline_seconds": 2,
+        "max_seconds": 5,
+        "max_input_bytes": 4194304,
+        "max_response_bytes": 262144,
+        "max_event_bytes": 16384
+      },
+      "passed": true
+    },
+    {
+      "run_id": "fixture-reordered-r1",
+      "mode": "reordered",
+      "repeat": 1,
+      "expected_outcome": "content_mismatch",
+      "outcomes": {
+        "content_mismatch": 8
+      },
+      "offered_requests": 8,
+      "fixture_upstream_calls": 8,
+      "no_automatic_replay_observed": true,
+      "peak_active": 2,
+      "elapsed_seconds": 0.21759912600009557,
+      "latency_samples": 8,
+      "latency_p50_ms": 42.19123500001842,
+      "latency_p99_ms": 42.51732300008371,
+      "limits": {
+        "requests": 8,
+        "concurrency": 4,
+        "requests_per_second": 40,
+        "deadline_seconds": 2,
+        "max_seconds": 5,
+        "max_input_bytes": 4194304,
+        "max_response_bytes": 262144,
+        "max_event_bytes": 16384
+      },
+      "passed": true
+    },
+    {
+      "run_id": "fixture-duplicated-r1",
+      "mode": "duplicated",
+      "repeat": 1,
+      "expected_outcome": "content_mismatch",
+      "outcomes": {
+        "content_mismatch": 8
+      },
+      "offered_requests": 8,
+      "fixture_upstream_calls": 8,
+      "no_automatic_replay_observed": true,
+      "peak_active": 2,
+      "elapsed_seconds": 0.22269960300002367,
+      "latency_samples": 8,
+      "latency_p50_ms": 47.29581899994173,
+      "latency_p99_ms": 48.649050999983956,
+      "limits": {
+        "requests": 8,
+        "concurrency": 4,
+        "requests_per_second": 40,
+        "deadline_seconds": 2,
+        "max_seconds": 5,
+        "max_input_bytes": 4194304,
+        "max_response_bytes": 262144,
+        "max_event_bytes": 16384
+      },
+      "passed": true
+    },
+    {
+      "run_id": "fixture-stall-r1",
+      "mode": "stall",
+      "repeat": 1,
+      "expected_outcome": "error",
+      "outcomes": {
+        "error": 4
+      },
+      "offered_requests": 4,
+      "fixture_upstream_calls": 4,
+      "no_automatic_replay_observed": true,
+      "peak_active": 4,
+      "elapsed_seconds": 0.15588485399996443,
+      "latency_samples": 4,
+      "latency_p50_ms": 80.62328999994861,
+      "latency_p99_ms": 83.41055999994751,
+      "limits": {
+        "requests": 4,
+        "concurrency": 4,
+        "requests_per_second": 40,
+        "deadline_seconds": 0.08,
+        "max_seconds": 5,
+        "max_input_bytes": 4194304,
+        "max_response_bytes": 262144,
+        "max_event_bytes": 16384
+      },
+      "passed": true
+    },
+    {
+      "run_id": "fixture-stall-r2",
+      "mode": "stall",
+      "repeat": 2,
+      "expected_outcome": "error",
+      "outcomes": {
+        "error": 4
+      },
+      "offered_requests": 4,
+      "fixture_upstream_calls": 4,
+      "no_automatic_replay_observed": true,
+      "peak_active": 4,
+      "elapsed_seconds": 0.15612173600004553,
+      "latency_samples": 4,
+      "latency_p50_ms": 80.61287500004255,
+      "latency_p99_ms": 81.17541000012807,
+      "limits": {
+        "requests": 4,
+        "concurrency": 4,
+        "requests_per_second": 40,
+        "deadline_seconds": 0.08,
+        "max_seconds": 5,
+        "max_input_bytes": 4194304,
+        "max_response_bytes": 262144,
+        "max_event_bytes": 16384
+      },
+      "passed": true
+    },
+    {
+      "run_id": "fixture-duplicated-r2",
+      "mode": "duplicated",
+      "repeat": 2,
+      "expected_outcome": "content_mismatch",
+      "outcomes": {
+        "content_mismatch": 8
+      },
+      "offered_requests": 8,
+      "fixture_upstream_calls": 8,
+      "no_automatic_replay_observed": true,
+      "peak_active": 2,
+      "elapsed_seconds": 0.2223195899999837,
+      "latency_samples": 8,
+      "latency_p50_ms": 47.20786200005023,
+      "latency_p99_ms": 48.29545200004759,
+      "limits": {
+        "requests": 8,
+        "concurrency": 4,
+        "requests_per_second": 40,
+        "deadline_seconds": 2,
+        "max_seconds": 5,
+        "max_input_bytes": 4194304,
+        "max_response_bytes": 262144,
+        "max_event_bytes": 16384
+      },
+      "passed": true
+    },
+    {
+      "run_id": "fixture-reordered-r2",
+      "mode": "reordered",
+      "repeat": 2,
+      "expected_outcome": "content_mismatch",
+      "outcomes": {
+        "content_mismatch": 8
+      },
+      "offered_requests": 8,
+      "fixture_upstream_calls": 8,
+      "no_automatic_replay_observed": true,
+      "peak_active": 2,
+      "elapsed_seconds": 0.2176475590000564,
+      "latency_samples": 8,
+      "latency_p50_ms": 42.13937900010478,
+      "latency_p99_ms": 43.11964300006821,
+      "limits": {
+        "requests": 8,
+        "concurrency": 4,
+        "requests_per_second": 40,
+        "deadline_seconds": 2,
+        "max_seconds": 5,
+        "max_input_bytes": 4194304,
+        "max_response_bytes": 262144,
+        "max_event_bytes": 16384
+      },
+      "passed": true
+    },
+    {
+      "run_id": "fixture-disconnect-r2",
+      "mode": "disconnect",
+      "repeat": 2,
+      "expected_outcome": "error",
+      "outcomes": {
+        "error": 8
+      },
+      "offered_requests": 8,
+      "fixture_upstream_calls": 8,
+      "no_automatic_replay_observed": true,
+      "peak_active": 1,
+      "elapsed_seconds": 0.19141626199996153,
+      "latency_samples": 8,
+      "latency_p50_ms": 16.39141300006486,
+      "latency_p99_ms": 16.962976000058916,
+      "limits": {
+        "requests": 8,
+        "concurrency": 4,
+        "requests_per_second": 40,
+        "deadline_seconds": 2,
+        "max_seconds": 5,
+        "max_input_bytes": 4194304,
+        "max_response_bytes": 262144,
+        "max_event_bytes": 16384
+      },
+      "passed": true
+    },
+    {
+      "run_id": "fixture-truncated-r2",
+      "mode": "truncated",
+      "repeat": 2,
+      "expected_outcome": "error",
+      "outcomes": {
+        "error": 8
+      },
+      "offered_requests": 8,
+      "fixture_upstream_calls": 8,
+      "no_automatic_replay_observed": true,
+      "peak_active": 2,
+      "elapsed_seconds": 0.21839809000005062,
+      "latency_samples": 8,
+      "latency_p50_ms": 41.988118999938706,
+      "latency_p99_ms": 43.294985000102315,
+      "limits": {
+        "requests": 8,
+        "concurrency": 4,
+        "requests_per_second": 40,
+        "deadline_seconds": 2,
+        "max_seconds": 5,
+        "max_input_bytes": 4194304,
+        "max_response_bytes": 262144,
+        "max_event_bytes": 16384
+      },
+      "passed": true
+    },
+    {
+      "run_id": "fixture-clean-r2",
+      "mode": "clean",
+      "repeat": 2,
+      "expected_outcome": "complete",
+      "outcomes": {
+        "complete": 16
+      },
+      "offered_requests": 16,
+      "fixture_upstream_calls": 16,
+      "no_automatic_replay_observed": true,
+      "peak_active": 2,
+      "elapsed_seconds": 0.41712184100003924,
+      "latency_samples": 16,
+      "latency_p50_ms": 42.10763600008249,
+      "latency_p99_ms": 44.18385200006014,
+      "limits": {
+        "requests": 16,
+        "concurrency": 4,
+        "requests_per_second": 40,
+        "deadline_seconds": 2,
+        "max_seconds": 5,
+        "max_input_bytes": 4194304,
+        "max_response_bytes": 262144,
+        "max_event_bytes": 16384
+      },
+      "passed": true
+    },
+    {
+      "run_id": "fixture-clean-r3",
+      "mode": "clean",
+      "repeat": 3,
+      "expected_outcome": "complete",
+      "outcomes": {
+        "complete": 16
+      },
+      "offered_requests": 16,
+      "fixture_upstream_calls": 16,
+      "no_automatic_replay_observed": true,
+      "peak_active": 2,
+      "elapsed_seconds": 0.41743161800002326,
+      "latency_samples": 16,
+      "latency_p50_ms": 41.98731400003908,
+      "latency_p99_ms": 43.52823299996089,
+      "limits": {
+        "requests": 16,
+        "concurrency": 4,
+        "requests_per_second": 40,
+        "deadline_seconds": 2,
+        "max_seconds": 5,
+        "max_input_bytes": 4194304,
+        "max_response_bytes": 262144,
+        "max_event_bytes": 16384
+      },
+      "passed": true
+    },
+    {
+      "run_id": "fixture-truncated-r3",
+      "mode": "truncated",
+      "repeat": 3,
+      "expected_outcome": "error",
+      "outcomes": {
+        "error": 8
+      },
+      "offered_requests": 8,
+      "fixture_upstream_calls": 8,
+      "no_automatic_replay_observed": true,
+      "peak_active": 2,
+      "elapsed_seconds": 0.2171314419999817,
+      "latency_samples": 8,
+      "latency_p50_ms": 42.007115000046724,
+      "latency_p99_ms": 43.45683300005021,
+      "limits": {
+        "requests": 8,
+        "concurrency": 4,
+        "requests_per_second": 40,
+        "deadline_seconds": 2,
+        "max_seconds": 5,
+        "max_input_bytes": 4194304,
+        "max_response_bytes": 262144,
+        "max_event_bytes": 16384
+      },
+      "passed": true
+    },
+    {
+      "run_id": "fixture-disconnect-r3",
+      "mode": "disconnect",
+      "repeat": 3,
+      "expected_outcome": "error",
+      "outcomes": {
+        "error": 8
+      },
+      "offered_requests": 8,
+      "fixture_upstream_calls": 8,
+      "no_automatic_replay_observed": true,
+      "peak_active": 1,
+      "elapsed_seconds": 0.19136187499998414,
+      "latency_samples": 8,
+      "latency_p50_ms": 16.265189000023383,
+      "latency_p99_ms": 16.458890999956566,
+      "limits": {
+        "requests": 8,
+        "concurrency": 4,
+        "requests_per_second": 40,
+        "deadline_seconds": 2,
+        "max_seconds": 5,
+        "max_input_bytes": 4194304,
+        "max_response_bytes": 262144,
+        "max_event_bytes": 16384
+      },
+      "passed": true
+    },
+    {
+      "run_id": "fixture-reordered-r3",
+      "mode": "reordered",
+      "repeat": 3,
+      "expected_outcome": "content_mismatch",
+      "outcomes": {
+        "content_mismatch": 8
+      },
+      "offered_requests": 8,
+      "fixture_upstream_calls": 8,
+      "no_automatic_replay_observed": true,
+      "peak_active": 2,
+      "elapsed_seconds": 0.21735768600001393,
+      "latency_samples": 8,
+      "latency_p50_ms": 41.932739000003494,
+      "latency_p99_ms": 42.26240200000575,
+      "limits": {
+        "requests": 8,
+        "concurrency": 4,
+        "requests_per_second": 40,
+        "deadline_seconds": 2,
+        "max_seconds": 5,
+        "max_input_bytes": 4194304,
+        "max_response_bytes": 262144,
+        "max_event_bytes": 16384
+      },
+      "passed": true
+    },
+    {
+      "run_id": "fixture-duplicated-r3",
+      "mode": "duplicated",
+      "repeat": 3,
+      "expected_outcome": "content_mismatch",
+      "outcomes": {
+        "content_mismatch": 8
+      },
+      "offered_requests": 8,
+      "fixture_upstream_calls": 8,
+      "no_automatic_replay_observed": true,
+      "peak_active": 2,
+      "elapsed_seconds": 0.22283794099996612,
+      "latency_samples": 8,
+      "latency_p50_ms": 47.28575599995111,
+      "latency_p99_ms": 47.75216200005161,
+      "limits": {
+        "requests": 8,
+        "concurrency": 4,
+        "requests_per_second": 40,
+        "deadline_seconds": 2,
+        "max_seconds": 5,
+        "max_input_bytes": 4194304,
+        "max_response_bytes": 262144,
+        "max_event_bytes": 16384
+      },
+      "passed": true
+    },
+    {
+      "run_id": "fixture-stall-r3",
+      "mode": "stall",
+      "repeat": 3,
+      "expected_outcome": "error",
+      "outcomes": {
+        "error": 4
+      },
+      "offered_requests": 4,
+      "fixture_upstream_calls": 4,
+      "no_automatic_replay_observed": true,
+      "peak_active": 4,
+      "elapsed_seconds": 0.15607159999990472,
+      "latency_samples": 4,
+      "latency_p50_ms": 80.61434099988674,
+      "latency_p99_ms": 80.90955299996949,
+      "limits": {
+        "requests": 4,
+        "concurrency": 4,
+        "requests_per_second": 40,
+        "deadline_seconds": 0.08,
+        "max_seconds": 5,
+        "max_input_bytes": 4194304,
+        "max_response_bytes": 262144,
+        "max_event_bytes": 16384
+      },
+      "passed": true
+    }
+  ],
+  "all_fixture_cases_passed": true,
+  "requests": 156,
+  "fixture_upstream_calls": 156,
+  "elapsed_seconds": 4.7503075560000525,
+  "process_cpu_seconds_including_fixture_client_observers": 0.3105489999999998,
+  "process_cumulative_maxrss_kib_linux": 99588,
+  "final_threads": 1,
+  "final_open_fds_including_inventory_fd": 4,
+  "actual_rust_go_releases": 0,
+  "actual_database_faults": 0,
+  "independent_nodes": 0,
+  "application_capacity_claim_allowed": false
+}

@@ -1,0 +1,10 @@
+{
+  "requests": 20,
+  "concurrency": 8,
+  "requests_per_second": 1,
+  "deadline_seconds": 12,
+  "max_seconds": 45,
+  "max_input_bytes": 4194304,
+  "max_response_bytes": 262144,
+  "max_event_bytes": 16384
+}
