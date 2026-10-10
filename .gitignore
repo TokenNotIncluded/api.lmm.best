@@ -77,3 +77,6 @@ __pycache__/
 
 /apps/lmm-core/target/
 /apps/lmm-extensions/out/
+
+# Operator-reviewed legal configuration belongs outside the source tree.
+/config/legal/site.json

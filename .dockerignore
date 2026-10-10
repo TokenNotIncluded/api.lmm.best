@@ -7,8 +7,6 @@ Makefile
 docs
 .eslintcache
 .gocache
-/web/node_modules
-/web/dist
 /.codegraph/
 !THIRD-PARTY-LICENSES.md
 
@@ -19,3 +17,7 @@ docs
 **/.env.*
 **/.secrets
 qualification-artifacts
+
+# External policy drafts are runtime resources, never operator configuration.
+!config/legal/templates/**/*.md
+config/legal/site.json

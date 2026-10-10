@@ -1,0 +1,49 @@
+{
+  "version": 1,
+  "published": false,
+  "default_language": "zh-CN",
+  "variables": {
+    "service_name": "",
+    "operator_name": "",
+    "service_url": "",
+    "effective_date": "",
+    "support_contact": "",
+    "privacy_contact": "",
+    "eligibility": "",
+    "service_scope": "",
+    "billing_terms": "",
+    "account_closure": "",
+    "governing_law": "",
+    "dispute_process": "",
+    "data_collected": "",
+    "processing_purposes": "",
+    "legal_basis": "",
+    "service_providers": "",
+    "processing_locations": "",
+    "data_retention": "",
+    "security_measures": "",
+    "cookies": "",
+    "rights_process": "",
+    "refund_eligibility": "",
+    "refund_exclusions": "",
+    "refund_request_window": "",
+    "refund_processing": "",
+    "refund_fees": "",
+    "subscription_cancellation": "",
+    "digital_delivery_terms": ""
+  },
+  "documents": {
+    "user-agreement": {
+      "zh-CN": "templates/zh-CN/user-agreement.md",
+      "en": "templates/en/user-agreement.md"
+    },
+    "privacy-policy": {
+      "zh-CN": "templates/zh-CN/privacy-policy.md",
+      "en": "templates/en/privacy-policy.md"
+    },
+    "refund-policy": {
+      "zh-CN": "templates/zh-CN/refund-policy.md",
+      "en": "templates/en/refund-policy.md"
+    }
+  }
+}

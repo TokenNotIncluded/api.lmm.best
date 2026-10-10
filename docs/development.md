@@ -1,61 +1,45 @@
-# Local development
+# 开发与测试
 
-This branch is a fresh-install microkernel WIP. Do not connect it to an existing site database. There is no data-import, schema-upgrade, backfill, balance conversion or dual-write workflow.
+这是全新安装分支。不要连接现有站点数据库。服务分工见[架构与状态](core-migration.md)，创建数据库和密钥只使用 [Docker 指南](../deployment/docker/README.md)。
 
-## Services
+全新核心库通过 `lmm-core-admin init-db` 显式安装一次；已有应用对象时拒绝。
 
-- `apps/lmm-core`: authoritative identity, accounts and permissions. Billing and model forwarding are not complete.
-- `apps/lmm-extensions`: the Go extension host. Only read-only identity queries are implemented.
-- `apps/web`: retained frontend source; the full application APIs are not connected yet.
-- `apps/lmm`: the separate CLI, not the core server.
+## 工具与目录
 
-Rust uses the pinned toolchain in `apps/lmm-core/rust-toolchain.toml`. The verification workflow pins Go 1.27.2. Web development uses Bun 1.3.14 and Node.js 22.12 or later.
-
-## Start a development stack
-
-Use [the Docker instructions](../deployment/docker/README.md) for secrets, an isolated PostgreSQL database and the private RPC socket. The explicit `lmm-core-admin init-db` command installs an empty database once. It refuses an existing installation. Service startup only checks the installed contract.
-
-Core and extensions are separate Compose projects. Updating the extensions project must not replace the core or its database. Never use a database reset or delete-volume command as an upgrade path.
-
-## Run the Go host locally
-
-Go reads exported environment variables. It does **not** load `.env` automatically.
+核心工具链由 `apps/lmm-core/rust-toolchain.toml` 固定。CI 使用 Go 1.27.2、Bun 1.3.14。前端需要 Node.js 22.12 或更高版本。CLI 使用 `apps/lmm/Cargo.toml`，不与核心混为一个程序。
 
 ```sh
-umask 077
-# Fail rather than replace an existing credential.
-(set -C; openssl rand -hex 32 > /tmp/lmm-extension-dev-token)
-export LMM_EXTENSION_LISTEN=127.0.0.1:8081
-export LMM_EXTENSION_TOKEN_FILE=/tmp/lmm-extension-dev-token
-export LMM_EXTENSION_MODULES=none
+bun install --frozen-lockfile
+just --list
+```
+
+## 启动扩展与前端
+
+Go 只读取已导出的环境变量，不自动加载 `.env`。`.env.example` 是字段说明，不含可直接使用的密钥。`LMM_EXTENSION_TOKEN_FILE` 指向新建的私有服务凭证；`LMM_EXTENSION_MODULES=none` 关闭所有受保护业务模块。启用 `identity` 还必须提供 RPC socket 和 RPC 凭证。
+
+```sh
+# 先按 Docker 指南创建隔离凭证。不要复用生产环境。
 just dev-go
-```
-
-The `none` configuration starts only the host and its health/inventory endpoints. To enable `identity`, configure both `LMM_CORE_RPC_SOCKET` and `LMM_CORE_RPC_TOKEN_FILE`, and set `LMM_EXTENSION_MODULES=identity`. The core remains responsible for user authorization.
-
-Do not inherit `SQL_DSN`, `LOG_SQL_DSN`, `DATABASE_URL`, `LMM_CORE_DATABASE_URL`, `LMM_CORE_DATABASE_URL_FILE` or `LMM_DB_MIGRATION_MODE`. Go rejects these non-empty settings before file or network access. Each future business module must have its own explicitly named storage configuration.
-
-## Verification
-
-```sh
-just check-boundaries
-just check-protocol
-just test-go
-just test-core
-just test-docker
-```
-
-The Rust database tests require a disposable local PostgreSQL service and test-only `DATABASE_URL`. Do not export that variable into the Go server process. The Docker test uses randomly named temporary projects and only removes its own test volumes.
-
-`core-protocol.yml` runs the Rust database tests, Go race tests, generated protocol checks, source boundaries and actual Docker communication tests. Both manual `ci.yml` and `server-release-qualification.yml` call this same workflow. There is no old Go migration or package-release path.
-
-The optional full manual CI also retains the frontend checks and translation regression test. A green implemented-component check does not mean billing, streaming or the missing business extensions are ready for production.
-
-## Frontend
-
-```sh
-just setup
 bun run --filter @lmm/web dev --port 5173 --host 127.0.0.1 --strict-port
 ```
 
-This starts frontend development, not a complete working application. Do not treat host health checks as availability of the old `/api/*` routes. No local setup wizard or browser login is promised by the current core.
+前端启动不等于后端业务已接通。调试公开协议页面时，将前端的 `VITE_REACT_APP_SERVER_URL` 指向本地扩展服务；只有[协议文档](legal/README.md)列出的公开 API 不需要核心。
+
+Go 拒绝旧单体及核心数据库变量，包括 `SQL_DSN`、`DATABASE_URL` 和 `LMM_CORE_DATABASE_URL`。数据库测试环境变量不要传给实际扩展进程。
+
+## 验证
+
+```sh
+python3 -B scripts/check-docs-brand.py
+python3 -B scripts/test-distribution.py
+python3 -B scripts/test-core-boundaries.py
+node --test scripts/workflow-topology.test.mjs
+(cd apps/lmm-extensions && go test -mod=readonly -race ./...)
+just test-core
+```
+
+核心数据库测试需要独立 PostgreSQL；Go 模块各自的 `pgtest` 目录有独立说明。完整核心检查由 `core-protocol.yml` 执行，包含真实数据库和进程测试。前端仍有未接入新后端的契约，不得将构建成功写成完整业务通过。
+
+OpenUI 提示由前端组件定义生成。已移除写入旧 Go controller 的生成脚本，因为新宿主没有该文件的消费者；保留组件、输出边界与转义测试。未来接入真实助手时，应通过明确的组件契约传递提示，而不是恢复已删除的后端路径。
+
+[协议模板](legal/README.md) · [构建预览包](release-architecture.md) · [贡献要求](../CONTRIBUTING.md)

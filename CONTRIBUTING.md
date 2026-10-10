@@ -1,105 +1,21 @@
-# Contributing to LMM Forge
+# Contributing
 
-Welcome to LMM Forge contribution. This file defines the expected process for
-code, docs, and operational changes.
+This branch is a fresh-install microservice WIP. Read [the architecture](docs/core-migration.md) and [development guide](docs/development.md) before changing ownership or startup behavior.
 
 ## Scope
 
-This repository primarily accepts:
+Keep Rust responsible for identity, permissions, funds and model traffic. Go modules own only their own business records and receive narrow interfaces. Do not restore removed monolith files to make a build pass. Keep core and extension updates separate.
 
-- Bounty workflow logic and delivery-tracking product behavior.
-- Go backend compatibility and admin-facing behavior changes.
-- Frontend workflow and governance UX changes.
-- Security-hardening and operational reliability updates.
+Use isolated databases and synthetic credentials. Never register production accounts for tests. Preserve public contracts unless the change explicitly replaces them; remove a file only after checking its consumers. Keep LICENSE, NOTICE and third-party attribution.
 
-For third-party deployment/hosting issues, cloud pricing issues, or private fork
-customization, please contact the corresponding owner instead of opening issues.
+## Verify the changed behavior
 
-## Before opening an Issue
+Run the relevant unit and integration tests, then report the exact tested commit and results. [The development guide](docs/development.md) lists commands; [the distribution guide](docs/release-architecture.md) explains preview artifacts. Real database tests and simulated funds adapters are different evidence.
 
-- Confirm the request is in this repository scope and not in third-party infra.
-- Check existing issues to avoid duplicates.
-- Remove API keys, cookies, DSN, passwords, and tokens from screenshots/logs.
-- Prefer minimal reproducible details (exact endpoint, expected behavior, actual behavior).
+For documentation changes, run `python3 scripts/check-docs-brand.py`. For policy or packaging changes, also run `python3 scripts/test-distribution.py` and the Go legal-package tests. Inspect user-visible changes in a real browser when applicable.
 
-Issue and PR templates in `.github/ISSUE_TEMPLATE` and `.github/PULL_REQUEST_TEMPLATE.md`
-are required by maintainers during review.
+## Submit
 
-## Development setup
+Describe the problem, bounded change, compatibility impact and executed checks. State failed or unrun checks plainly. A passing build is not a production-readiness claim. Opening a PR, merging, publishing and deploying are separate actions; do not automatically promote this WIP branch.
 
-Follow the [local development guide](docs/development.md) to configure PostgreSQL,
-Valkey, and `apps/lmm-extensions/.env`. Start Go with `just dev-go`, then run the frontend
-in a separate terminal on port 5173 as shown in that guide.
-
-`just dev` requires a locally supplied `docker-compose.dev.yml`;
-the repository does not include it. They are not fresh-checkout shortcuts.
-
-For README or logo changes, also run `python3 scripts/check-docs-brand.py` and
-inspect light/dark placements and small icon sizes.
-
-## Quality gates
-
-Before opening a PR, run at least:
-
-- `just format`
-- `just lint`
-- `just test`
-
-For production-facing changes:
-
-- `just build`
-- `just check`
-- Any affected app-level test suite in `apps/lmm-extensions`, `apps/lmm-core`, `apps/extensions-go`, or `apps/web`.
-
-If checks are skipped, list the reason clearly in PR description.
-
-CI runs for pull requests, pushes to `main`, all tag pushes, and manual dispatches.
-Open a PR or dispatch CI manually to check a feature branch. A new PR commit
-cancels that PR's obsolete CI run; checks for distinct `main` commits remain
-available for release verification.
-
-The AUR CI gate verifies the release pinned in the checked-out package metadata,
-including its signed tag and asset integrity. Publishing a newer release does
-not invalidate that pin. Before publishing an AUR update, also run
-`bash packaging/aur/verify-go-release-pins.sh --latest` to check release freshness
-and published AUR versions; see [the AUR guide](packaging/aur/README.md).
-
-## PR expectations
-
-### Mandatory PR checklist
-
-- Scope is bounded to the stated objective.
-- Behavior and compatibility impact are described clearly.
-- Related docs are updated.
-- Sensitive data is redacted in evidence, logs, and snapshots.
-- Upstream relationship is explicitly stated when applicable.
-- Release notes or changelog intent is updated if behavior is user-facing.
-
-### Merge requirements
-
-- Upstream fork attribution rules and notices remain intact (see `NOTICE` and `FORK.md`).
-- No unrelated refactors, cosmetic-only formatting, or broad tree-wide edits.
-
-### Automated PR handling
-
-- `PR Check` validates the current description against the repository's actual PR
-  template. Fill in the summary, verification, applicable options, and checklist.
-  Describe skipped checks honestly; a checked item does not claim every test ran.
-- Missing information produces an actionable job summary. Editing the description
-  reruns the check. The workflow has read-only permissions and cannot close, label,
-  or lock contributions. Dependency bots keep their generated descriptions.
-- Account age, profile completeness, merge history, and use of AI tools are not
-  grounds for automatic rejection. Contributors remain responsible for reviewing
-  their changes and providing reproducible evidence.
-- Maintainers decide whether to merge, request changes, or close a PR based on its
-  code, tests, scope, and review. For an incorrect closure, comment on the PR with
-  the relevant evidence. Maintainers should reopen it and remove stale automation
-  labels; if its changes are already merged, link the replacement before closing
-  the duplicate.
-
-The policy can be tested locally with `node --test scripts/pr-quality.test.mjs`.
-
-## Communication
-
-For all bug reports and feature requests, use GitHub templates.
-For security vulnerabilities, use the procedure in [`SECURITY.md`](./SECURITY.md).
+Use [SECURITY.md](SECURITY.md) for vulnerability reports. Do not put tokens, private configuration or user records in commits, logs or screenshots. Community rules remain in [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md).

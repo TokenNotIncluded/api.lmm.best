@@ -2,7 +2,7 @@
 
 This directory is the canonical Go extension process for the fresh-install microkernel branch. It replaces the monolithic API process; it is not a compatibility wrapper around its router, database, or workers. The previous implementation remains in Git history, not in the runtime dependency graph.
 
-**WIP, breaking change:** only the read-only `identity` module is connected. Shop, tool-market, assistant, support, promotions, payment integrations and the old console APIs are not implemented by this host yet. Removing the monolithic runtime is not completion of those business features. Do not deploy this branch as a replacement for the current site.
+**WIP, breaking change:** only the read-only `identity` module is connected. Shop, tool-market, assistant, support, promotions and payment modules exist, but are not assembled into this host or the old console APIs yet. Removing the monolithic runtime is not completion of those business features. Do not deploy this branch as a replacement for the current site.
 
 ## Ownership
 
@@ -30,3 +30,9 @@ Requests use `/extensions/v1/<module>/...`. The inventory is `/extensions/v1/mod
 Each module admits at most eight requests at once. A full module returns 503 without queueing. Health routes do not wait for core or modules; host readiness does not assert that all business capabilities are implemented. Request bodies and headers are bounded. SIGTERM drains requests with a bounded shutdown period.
 
 Docker builds this directory using `deployment/docker/extensions.Dockerfile`. Update only the extensions Compose project. Never include the Rust service or its database in the extension deployment command.
+
+## Public policy documents
+
+`LMM_LEGAL_CONFIG_FILE` optionally selects an external, operator-reviewed policy snapshot. Only `/api/user-agreement`, `/api/privacy-policy` and `/api/refund-policy` are public read routes; protected module routes retain their existing authentication. Draft or missing configuration returns no policy content. Invalid published content fails startup. Policy requests never access the core or a database.
+
+See [policy configuration](../../docs/legal/README.md). Default drafts are shipped as files, not compiled into Go. Change the private configuration and restart only extensions to publish a new snapshot. Existing console settings are not an alternate configuration store.

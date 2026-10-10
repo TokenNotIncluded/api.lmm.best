@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/coreclient"
+	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/legal"
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules"
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/identity"
 )
@@ -66,6 +67,11 @@ func Run() error {
 	if err != nil {
 		return err
 	}
+	policies, err := legal.Load(os.Getenv("LMM_LEGAL_CONFIG_FILE"))
+	if err != nil {
+		return err
+	}
+	handler = policies.Mount(handler)
 	address := os.Getenv("LMM_EXTENSION_LISTEN")
 	if address == "" {
 		address = "0.0.0.0:8081"

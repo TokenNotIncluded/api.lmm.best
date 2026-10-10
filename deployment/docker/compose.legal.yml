@@ -1,0 +1,12 @@
+# Optional overlay for the extensions project only.
+services:
+  extensions:
+    environment:
+      LMM_LEGAL_CONFIG_FILE: /etc/lmm/legal/site.json
+    volumes:
+      - type: bind
+        source: ${LMM_LEGAL_DIRECTORY:?Set a reviewed legal configuration directory}
+        target: /etc/lmm/legal
+        read_only: true
+        bind:
+          create_host_path: false

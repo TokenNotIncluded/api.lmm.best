@@ -83,6 +83,28 @@ test('only the isolated microkernel checks may run automatically', () => {
       assert.match(block[1], /branches: \[wip\/rust-core-go-extensions\]/);
       assert.match(source, /permissions:\n  contents: read/);
       assert.doesNotMatch(source, /secrets\.|contents: write|pull_request_target|environment: production/);
+    } else if (file === 'microservice-distribution.yml') {
+      assert.deepEqual(events, ['workflow_dispatch', 'workflow_call']);
+      assert.match(source, /permissions:\n  contents: read/);
+      assert.doesNotMatch(source, /secrets\.|contents: write|id-token: write|pull_request_target|gh release|environment: production/);
+      assert.match(source, /scripts\/build-distribution\.py verify/);
+      assert.match(source, /scripts\/test-legal-process\.py/);
+    } else if (file === 'mk10-payments.yml') {
+      // Payment tests use disposable PostgreSQL, never a channel credential.
+      assert.deepEqual(events, ['pull_request', 'push']);
+      assert.match(block[1], /branches: \['wip\/mk-10-payments'\]/);
+      assert.match(block[1], /apps\/lmm-extensions\/internal\/modules\/payments\/\*\*/);
+      assert.match(source, /permissions:\n  contents: read/);
+      assert.match(source, /services:\n      postgres:/);
+      assert.doesNotMatch(source, /secrets\.|contents: write|pull_request_target|environment: production/);
+    } else if (file === 'mk-09-assistant-promotions.yml') {
+      // The merged MK-09 module retains isolated, read-only regression checks.
+      assert.deepEqual(events, ['push', 'pull_request', 'workflow_dispatch']);
+      assert.match(block[1], /branches: \[wip\/mk-09-assistant-promotions\]/);
+      assert.match(block[1], /pull_request:\n    branches: \[wip\/rust-core-go-extensions\]/);
+      assert.match(block[1], /apps\/lmm-extensions\/internal\/modules\/assistant\/\*\*/);
+      assert.match(source, /permissions:\n  contents: read/);
+      assert.doesNotMatch(source, /secrets\.|contents: write|pull_request_target|environment: production/);
     } else if (file === 'mk-01-identity.yml') {
       // MK-01 runs read-only checks on its isolated branch and PRs.
       assert.deepEqual(events, ['push', 'pull_request']);

@@ -1,37 +1,5 @@
-# PostgreSQL migration boundary
+# PostgreSQL migration boundary（历史资料）
 
-The previous Rust-only SQLite importer, schema manifests, and numbered SQL
-contracts have been removed with the retired backend. They are not executable
-instructions for the new core. Historical test counts and checksums do not
-certify a new database schema.
+本文描述已移除的 Go 单体或旧数据库升级流程，不适用于本分支。当前操作请使用 [Docker 开发栈](../deployment/docker/README.md)与[打包指南](release-architecture.md)。
 
-## Current Go installation
-
-Keep the current Go database and its existing units, users, keys and ledger.
-Use the native `/usr/bin/lmm-api migrate --apply|--verify` procedure only inside
-an approved deployment transaction. Read [production cutover](postgresql-cutover.md)
-and [the operator contract](backend-cli-deployment-contract.md) before any change.
-A schema verification command is not an authorization to cut over traffic.
-
-## New core (not implemented yet)
-
-The [core migration](core-migration.md) must introduce a reviewed importer and
-versioned, additive schema changes with a single owner for each table. Do not
-point a scaffold at production or assume Go and Rust can both mutate balances.
-Go extensions must not run migrations on core-owned tables.
-
-Before cutover, rehearse with an isolated, access-controlled copy. Compare keys,
-authentication and revocation versions, users and team memberships, account
-ownership, integer balances, reservations, subscriptions, quotas and audit
-records. Keep identifiers and old API key behavior stable. Neither regenerating
-keys nor resetting user sessions is an acceptable migration shortcut.
-
-Verify the exact source revision, schema, counts and financial invariants; test
-concurrent spending, process termination, duplicate callbacks and recovery.
-Rehearse N/N-1 readers and writers against the expanded schema. Publish only
-sanitized test evidence, never credentials, balances or user rows.
-
-Only after parity passes may the approved core become the sole billing writer.
-Application rollback requires compatible code and schema; it must not restore
-an old database snapshot and discard settled charges. Database restoration is
-a separate disaster-recovery procedure with explicit authorization.
+[查看退役前原文](https://github.com/TokenNotIncluded/api.lmm.best/blob/72667564c0431754d4856dc2e0db55f360bd2745/docs/postgresql-migration.md)。不将旧命令作为新架构的回退或安装方式。其他记录见[历史文档说明](archive.md)。
