@@ -1,0 +1,30 @@
+name: Isolated microservice candidate review
+on:
+  push:
+    branches: [work/microservice-distribution-review-20261010]
+    paths: [.github/workflows/microservice-candidate-review.yml]
+permissions:
+  contents: read
+jobs:
+  identity:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: fdfd9022b88c29326077c7e10e75f21d3b99e9d1
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Match locally tested file contents and modes
+        shell: bash
+        run: |
+          git diff --raw --no-abbrev 72667564c0431754d4856dc2e0db55f360bd2745 HEAD > "$RUNNER_TEMP/candidate-diff.raw"
+          cat "$RUNNER_TEMP/candidate-diff.raw"
+          echo "3827658339cb03408f19823253f1e49818c29917f4388305332366f2023ebffa  $RUNNER_TEMP/candidate-diff.raw" | sha256sum --check
+          git rev-parse HEAD
+  preview:
+    needs: identity
+    uses: ./.github/workflows/microservice-distribution.yml
+    with:
+      source_ref: fdfd9022b88c29326077c7e10e75f21d3b99e9d1
+      version: 0.1.0-preview
