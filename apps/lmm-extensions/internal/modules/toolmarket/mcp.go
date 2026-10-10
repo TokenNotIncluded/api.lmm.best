@@ -149,7 +149,7 @@ func (c *mcpSession) rpc(ctx context.Context, method string, params any) (json.R
 					return nil, ErrUpstream
 				}
 				if len(env.ID) > 0 {
-					return rpcResult(b, id)
+					return checkedRPCResult(env, id)
 				}
 			}
 			continue
@@ -165,7 +165,16 @@ func rpcResult(b []byte, id json.RawMessage) (json.RawMessage, error) {
 		return nil, ErrUpstream
 	}
 	var r rpcEnvelope
-	if json.Unmarshal(b, &r) != nil || r.JSONRPC != "2.0" || !bytes.Equal(r.ID, id) || r.Method != "" || len(r.Error) > 0 || len(r.Result) == 0 || bytes.Equal(r.Result, []byte("null")) {
+	if json.Unmarshal(b, &r) != nil {
+		return nil, ErrUpstream
+	}
+	return checkedRPCResult(r, id)
+}
+
+// checkedRPCResult accepts only an envelope already checked by uniqueJSON and
+// json.Unmarshal. The SSE path can reuse that envelope instead of parsing twice.
+func checkedRPCResult(r rpcEnvelope, id json.RawMessage) (json.RawMessage, error) {
+	if r.JSONRPC != "2.0" || !bytes.Equal(r.ID, id) || r.Method != "" || len(r.Error) > 0 || len(r.Result) == 0 || bytes.Equal(r.Result, []byte("null")) {
 		return nil, ErrUpstream
 	}
 	return r.Result, nil

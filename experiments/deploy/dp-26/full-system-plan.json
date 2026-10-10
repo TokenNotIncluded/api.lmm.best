@@ -1,0 +1,100 @@
+{
+  "status": "not_executed_not_a_deployment_configuration",
+  "base_commit": "72667564c0431754d4856dc2e0db55f360bd2745",
+  "common_workload_manifest": null,
+  "hardware": {
+    "node_count": null,
+    "ram_bytes_per_node": null,
+    "disk_bytes": null,
+    "bandwidth_bits_per_second": null,
+    "cpu_model": null,
+    "architecture": null
+  },
+  "required_gates": {
+    "public_model_identity_routing_enabled": false,
+    "durable_rust_billing_adapter_verified": false,
+    "isolated_test_accounts_only": true,
+    "notifications_disabled": true,
+    "production_network_unreachable": true,
+    "artifact_and_build_hashes_recorded": true,
+    "approved_toolchain_available": false,
+    "dedicated_resource_limits_available": false,
+    "slo_confirmed": false
+  },
+  "proposed_bounds": {
+    "repeats": 3,
+    "seconds_per_scenario_max": 60,
+    "requests_per_scenario_max": 6000,
+    "total_input_and_output_bytes_per_scenario_max": 134217728,
+    "inflight_max": 16,
+    "queue_wait_milliseconds_max": 20,
+    "stop_on_correctness_failure": true,
+    "stop_on_oom": true,
+    "keep_oom_protection": true,
+    "ordinary_load_mean_cpu_target_max": 0.75
+  },
+  "one_factor_candidates": {
+    "go": {
+      "GOMEMLIMIT": [
+        "64MiB",
+        "96MiB"
+      ],
+      "GOGC": [
+        "50",
+        "100"
+      ],
+      "GOMAXPROCS": [
+        "1",
+        "2"
+      ]
+    },
+    "rust_existing_limits": {
+      "queue_chunks": [
+        8,
+        4
+      ],
+      "max_in_flight": [
+        16,
+        8
+      ]
+    },
+    "rust_runtime_parallelism": "verify actual construction points before adding experimental settings",
+    "cpu_quota_per_100ms": [
+      100000,
+      80000
+    ],
+    "swap_bytes": [
+      0,
+      134217728
+    ],
+    "zram": "separate disposable-VM trial only; logical 128 MiB maximum, physical memory budget declared separately"
+  },
+  "unchanged_semantics": [
+    "authentication",
+    "TLS verification",
+    "valid request/output limits",
+    "integer money precision",
+    "audit",
+    "durable idempotency",
+    "accepted stream completion",
+    "cancellation and resource release"
+  ],
+  "required_evidence": [
+    "request_attempts_and_rejections",
+    "verified_success_goodput",
+    "first_byte_and_first_token_separately",
+    "p50_p95_p99_latency",
+    "CPU_seconds_per_verified_success",
+    "VmSize_RSS_PSS_shared_pages",
+    "nonoverlapping_cgroup_memory_current_peak_stat",
+    "swap_major_faults_pressure",
+    "active_streams_and_owned_buffers",
+    "real_ledger_reservations_settlements_recovery_obligations",
+    "new_old_version_resource_overlap",
+    "profile_and_observer_overhead"
+  ],
+  "business_capacity_result": null,
+  "update_cost_result": null,
+  "restore_time_result": null,
+  "note": "Proposed test choices, not observed service settings. Do not increase error/rejection rates or remove correctness checks to pass. No automatic host mutation, remote CI, release or merge."
+}
