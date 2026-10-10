@@ -20,7 +20,7 @@ import (
 
 type SubscriptionWaffoPancakePayRequest struct {
 	// Required when the plan offers both purchase modes. Never accept a product ID from the buyer.
-	ProductType string `json:"product_type"`
+	ProductType      string `json:"product_type"`
 	PlanId           int    `json:"plan_id"`
 	CheckoutRegion   string `json:"checkout_region"`
 	CheckoutLanguage string `json:"checkout_language"`

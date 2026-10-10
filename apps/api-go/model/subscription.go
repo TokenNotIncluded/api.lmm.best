@@ -37,7 +37,6 @@ const (
 	SubscriptionResetCustom  = "custom"
 )
 
-
 var (
 	ErrSubscriptionOrderNotFound      = errors.New("subscription order not found")
 	ErrSubscriptionOrderStatusInvalid = errors.New("subscription order status invalid")

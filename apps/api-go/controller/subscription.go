@@ -42,7 +42,7 @@ func waffoPancakeSingleProductMustBeRecreated(existing, next *model.Subscription
 
 type SubscriptionPlanDTO struct {
 	WaffoPancakeOptions []WaffoPancakePurchaseOption `json:"waffo_pancake_options"`
-	Plan model.SubscriptionPlan `json:"plan"`
+	Plan                model.SubscriptionPlan `json:"plan"`
 	// PaymentMethods is user-authorized in the public catalog and operator-
 	// configured in the admin catalog. Both views require usable gateway
 	// credentials rather than trusting a bare provider product ID.
@@ -121,9 +121,9 @@ func GetSubscriptionPlans(c *gin.Context) {
 		)
 		dto := SubscriptionPlanDTO{
 			WaffoPancakeOptions: []WaffoPancakePurchaseOption{},
-			Plan:              p,
-			PaymentMethods:    methods,
-			BalancePriceQuota: balancePriceQuota,
+			Plan:                p,
+			PaymentMethods:      methods,
+			BalancePriceQuota:   balancePriceQuota,
 		}
 		for _, method := range methods {
 			if method == model.PaymentMethodWaffoPancake {
@@ -466,7 +466,7 @@ func AdminUpdateSubscriptionPlan(c *gin.Context) {
 			"creem_product_id":           req.Plan.CreemProductId,
 			"waffo_pancake_product_id":   req.Plan.WaffoPancakeProductId,
 			"waffo_pancake_product_type": req.Plan.WaffoPancakeProductType,
-			"waffo_pancake_products": common.GetJsonString(req.Plan.WaffoPancakeProducts),
+			"waffo_pancake_products":     common.GetJsonString(req.Plan.WaffoPancakeProducts),
 			"max_purchase_per_user":      req.Plan.MaxPurchasePerUser,
 			"total_amount":               req.Plan.TotalAmount,
 			"upgrade_group":              req.Plan.UpgradeGroup,
