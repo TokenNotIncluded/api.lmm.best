@@ -198,16 +198,16 @@ export function OAuthProviders({
       ) {
         continue
       }
-      const google = featureGoogle && isGoogleProvider(provider)
+      const google = isGoogleProvider(provider)
       providerButtons.push({
         key: `custom-${provider.slug}`,
         label: google
           ? t('Continue with Google')
           : t('Continue with {{name}}', { name: provider.name }),
-        shortLabel: provider.name,
+        shortLabel: google ? 'Google' : provider.name,
         onClick: () => handleCustomOAuthLogin(provider),
         icon: google ? <IconGoogle className='size-[18px]' /> : undefined,
-        featured: google,
+        featured: featureGoogle && google,
       })
     }
   }
