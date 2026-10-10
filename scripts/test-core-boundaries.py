@@ -174,6 +174,7 @@ class CoreBoundaryTests(unittest.TestCase):
             self.assertIn(expected, compose)
         self.assertNotIn("extensions:", compose)
         self.assertNotIn("core-db:", compose)
+        self.assertIn("lmm-core-standalone-runtime", compose)
         core = (ROOT / "apps/lmm-core/src/main.rs").read_text()
         self.assertIn("connect_with_max_connections", core)
         self.assertIn("Lifecycle::with_capacity", core)
