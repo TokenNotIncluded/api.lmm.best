@@ -297,7 +297,7 @@ test('activity-decayed L4 gives a recovery action instead of claiming the curren
   )
   assert.match(markup, /trust-level-recovery/)
   assert.match(markup, /Use the API to restore your automatic level L4/)
-  assert.match(markup, /href="\/getting-started"/)
+  assert.match(markup, /href="\/guide"/)
   assert.doesNotMatch(markup, /Highest automatic level reached/)
 })
 

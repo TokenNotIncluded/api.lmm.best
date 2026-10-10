@@ -141,7 +141,6 @@ function makeRouter(component = ForgeHome) {
     '/about',
     '/challenges',
     '/dashboard',
-    '/getting-started',
     '/guide',
     '/open-source-bounties',
     '/pricing',
@@ -588,7 +587,7 @@ describe('ForgeHome assistant entry', () => {
     await unmountHome(rendered)
   })
 
-  test('queues onboarding with the message and redirects an L0 user to getting started', async () => {
+  test('queues onboarding with the message and redirects an L0 user to wallet', async () => {
     const opened: Array<{
       autoSend: boolean
       message: string | undefined
@@ -613,7 +612,7 @@ describe('ForgeHome assistant entry', () => {
     assert.deepEqual(opened, [
       { preset: 'onboarding', message: 'I need L1 access', autoSend: true },
     ])
-    assert.equal(rendered.router.state.location.pathname, '/getting-started')
+    assert.equal(rendered.router.state.location.pathname, '/wallet')
 
     unsubscribe()
     await unmountHome(rendered)
@@ -754,7 +753,7 @@ describe('Primary next step follows account access', () => {
       pending.container
         .querySelector('.lmm-intro-actions a')
         ?.getAttribute('href'),
-      '/sign-in?redirect=%2Fgetting-started'
+      '/sign-in?redirect=%2Fdashboard'
     )
     await unmountHome(pending)
 
@@ -763,7 +762,7 @@ describe('Primary next step follows account access', () => {
       ready.container
         .querySelector('.lmm-intro-actions a')
         ?.getAttribute('href'),
-      '/sign-in?redirect=%2Fgetting-started'
+      '/sign-in?redirect=%2Fdashboard'
     )
     assert.ok(
       ready.container.textContent?.includes(
@@ -821,7 +820,7 @@ describe('Primary next step follows account access', () => {
       purchase.click()
       await flushEffects()
     })
-    assert.equal(rendered.router.state.location.pathname, '/getting-started')
+    assert.equal(rendered.router.state.location.pathname, '/wallet')
     await unmountHome(rendered)
   })
 
@@ -836,7 +835,7 @@ describe('Primary next step follows account access', () => {
     assert.ok(main)
     assert.equal(
       main.querySelector('a')?.getAttribute('href'),
-      '/getting-started'
+      '/wallet'
     )
     assert.equal(main.querySelectorAll('ol li').length, 3)
     const question = Array.from(

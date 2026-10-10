@@ -32,13 +32,8 @@ import {
   DISPLAYABLE_LOG_TYPES,
   TIMING_LOG_TYPES,
 } from '../constants'
-import type {
-  GetLogsParams,
-  GetLogsResponse,
-  FetchLogsConfig,
-  GetMidjourneyLogsParams,
-  GetTaskLogsParams,
-} from '../types'
+import type { GetLogsParams, GetLogsResponse, FetchLogsConfig } from '../types'
+import { buildAsyncLogParams } from './async-task-logs'
 
 // ============================================================================
 // Type Checkers & Utilities
@@ -116,36 +111,6 @@ function buildTimeRangeParams(
       defaultTimeRange?.start
     ),
     end_timestamp: getTimestamp(searchParams.endTime, defaultTimeRange?.end),
-  }
-}
-
-/**
- * Build base parameters with time range (for drawing and task logs)
- * @param useMilliseconds - Whether to use millisecond timestamps (true for drawing logs, false for task logs)
- */
-export function buildBaseParams(config: {
-  page: number
-  pageSize: number
-  searchParams: Record<string, unknown>
-  useMilliseconds?: boolean
-}): {
-  p: number
-  page_size: number
-  channel_id?: string
-  start_timestamp?: number
-  end_timestamp?: number
-} {
-  const { page, pageSize, searchParams, useMilliseconds = false } = config
-
-  return {
-    p: page,
-    page_size: pageSize,
-    ...(searchParams.channel
-      ? {
-          channel_id: String(searchParams.channel),
-        }
-      : {}),
-    ...buildTimeRangeParams(searchParams, useMilliseconds),
   }
 }
 
@@ -255,32 +220,22 @@ export async function fetchLogsByCategory(
     return isAdmin ? await getAllLogs(params) : await getUserLogs(params)
   }
 
-  // For drawing and task logs
-  const baseParams = buildBaseParams({
+  const paramsWithFilter = buildAsyncLogParams({
+    logCategory,
+    isAdmin,
     page,
     pageSize,
     searchParams,
-    useMilliseconds: logCategory === 'drawing',
   })
-
-  const paramsWithFilter = {
-    ...baseParams,
-    ...(logCategory === 'drawing'
-      ? { mj_id: searchParams.filter as string | undefined }
-      : {}),
-    ...(logCategory === 'task'
-      ? { task_id: searchParams.filter as string | undefined }
-      : {}),
-  }
 
   if (logCategory === 'drawing') {
     return isAdmin
-      ? await getAllMidjourneyLogs(paramsWithFilter as GetMidjourneyLogsParams)
-      : await getUserMidjourneyLogs(paramsWithFilter as GetMidjourneyLogsParams)
+      ? await getAllMidjourneyLogs(paramsWithFilter)
+      : await getUserMidjourneyLogs(paramsWithFilter)
   }
 
   // task logs
   return isAdmin
-    ? await getAllTaskLogs(paramsWithFilter as GetTaskLogsParams)
-    : await getUserTaskLogs(paramsWithFilter as GetTaskLogsParams)
+    ? await getAllTaskLogs(paramsWithFilter)
+    : await getUserTaskLogs(paramsWithFilter)
 }

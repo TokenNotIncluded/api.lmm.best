@@ -107,13 +107,9 @@ export function useSidebarData(): SidebarData {
       navGroups: [
         {
           id: 'onboarding',
-          title: t('Getting started'),
+          title: t('Account'),
           items: [
-            {
-              title: t('Getting started'),
-              url: '/getting-started',
-              icon: Compass,
-            },
+            { title: t('Wallet'), url: '/wallet', icon: Wallet },
             { title: t('Tool market'), url: '/tool-market', icon: Box },
             { title: t('Shop'), url: '/store', icon: StoreIcon },
             {
@@ -144,11 +140,6 @@ export function useSidebarData(): SidebarData {
         id: 'general',
         title: t('Use AI'),
         items: [
-          {
-            title: t('Getting started'),
-            url: '/getting-started',
-            icon: Compass,
-          },
           {
             title: t('Models and pricing'),
             url: '/pricing',

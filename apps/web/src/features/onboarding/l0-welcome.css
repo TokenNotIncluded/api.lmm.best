@@ -6,30 +6,6 @@ it under the terms of the GNU Affero General Public License as
 published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
-.console-editorial .console-page.l0-getting-started .console-section-header {
-  padding-top: 12px;
-  padding-bottom: 8px;
-}
-.console-editorial .l0-getting-started .console-page-heading {
-  align-items: center;
-  flex-wrap: nowrap;
-  gap: 12px;
-}
-.console-editorial
-  .l0-getting-started
-  .console-page-heading
-  > .console-page-actions {
-  flex: 0 0 auto;
-  justify-content: flex-end;
-}
-.console-editorial .l0-getting-started .console-page-title {
-  font-size: 16px;
-  line-height: 1.4;
-  white-space: nowrap;
-}
-.console-editorial .console-page.l0-getting-started .console-section-content {
-  padding-top: 0;
-}
 .l0-welcome {
   --l0-ink: var(--foreground);
   --l0-muted: var(--muted-foreground);

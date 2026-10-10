@@ -25,6 +25,7 @@ import {
   useState,
 } from 'react'
 
+import { usePreferencePreview } from '@/hooks/use-preference-preview'
 import { getCookie, removeCookie, setCookie } from '@/lib/cookies'
 import {
   CONTENT_LAYOUT_VALUES,
@@ -88,6 +89,7 @@ type ThemeCustomizationContextType = {
   defaults: ThemeCustomization
   customization: ThemeCustomization
   setPreset: (preset: ThemePreset) => void
+  previewPreset: (preset: ThemePreset) => () => void
   setFont: (font: ThemeFont) => void
   setRadius: (radius: ThemeRadius) => void
   setScale: (scale: ThemeScale) => void
@@ -103,6 +105,7 @@ const FALLBACK_CONTEXT: ThemeCustomizationContextType = {
   defaults: DEFAULT_THEME_CUSTOMIZATION,
   customization: DEFAULT_THEME_CUSTOMIZATION,
   setPreset: () => {},
+  previewPreset: () => () => {},
   setFont: () => {},
   setRadius: () => {},
   setScale: () => {},
@@ -117,6 +120,11 @@ export function ThemeCustomizationProvider(props: {
   children: React.ReactNode
 }) {
   const [preset, _setPreset] = useState<ThemePreset>(readInitialPreset)
+  const {
+    value: displayedPreset,
+    preview: previewPreset,
+    clear: clearPreview,
+  } = usePreferencePreview(preset)
   const [font, _setFont] = useState<ThemeFont>(() =>
     readCookie<ThemeFont>(
       THEME_COOKIE_KEYS.font,
@@ -151,9 +159,11 @@ export function ThemeCustomizationProvider(props: {
   useEffect(() => {
     applyAttribute(
       'data-theme-preset',
-      preset === DEFAULT_THEME_CUSTOMIZATION.preset ? null : preset
+      displayedPreset === DEFAULT_THEME_CUSTOMIZATION.preset
+        ? null
+        : displayedPreset
     )
-  }, [preset])
+  }, [displayedPreset])
 
   useEffect(() => {
     const stored = getCookie(THEME_COOKIE_KEYS.preset)
@@ -170,8 +180,8 @@ export function ThemeCustomizationProvider(props: {
   // stylesheet to one simple `[data-theme-font='serif']` selector and lets
   // future presets opt into typography via `PRESET_DEFAULT_FONT` alone.
   useEffect(() => {
-    applyAttribute('data-theme-font', resolveThemeFont(font, preset))
-  }, [font, preset])
+    applyAttribute('data-theme-font', resolveThemeFont(font, displayedPreset))
+  }, [font, displayedPreset])
 
   useEffect(() => {
     applyAttribute(
@@ -191,14 +201,20 @@ export function ThemeCustomizationProvider(props: {
     applyAttribute('data-theme-content-layout', contentLayout)
   }, [contentLayout])
 
-  const setPreset = useCallback((value: ThemePreset) => {
-    _setPreset(value)
-    if (value === DEFAULT_THEME_CUSTOMIZATION.preset) {
-      removeCookie(THEME_COOKIE_KEYS.preset)
-    } else {
-      setCookie(THEME_COOKIE_KEYS.preset, value, COOKIE_MAX_AGE)
-    }
-  }, [])
+  const setPreset = useCallback(
+    (value: ThemePreset) => {
+      clearPreview()
+      // An explicit choice is not the legacy default being migrated.
+      setCookie(DEFAULT_PRESET_MIGRATION_COOKIE, '1', COOKIE_MAX_AGE)
+      _setPreset(value)
+      if (value === DEFAULT_THEME_CUSTOMIZATION.preset) {
+        removeCookie(THEME_COOKIE_KEYS.preset)
+      } else {
+        setCookie(THEME_COOKIE_KEYS.preset, value, COOKIE_MAX_AGE)
+      }
+    },
+    [clearPreview]
+  )
 
   const setFont = useCallback((value: ThemeFont) => {
     _setFont(value)
@@ -249,6 +265,7 @@ export function ThemeCustomizationProvider(props: {
       defaults: DEFAULT_THEME_CUSTOMIZATION,
       customization: { preset, font, radius, scale, contentLayout },
       setPreset,
+      previewPreset,
       setFont,
       setRadius,
       setScale,
@@ -262,6 +279,7 @@ export function ThemeCustomizationProvider(props: {
       scale,
       contentLayout,
       setPreset,
+      previewPreset,
       setFont,
       setRadius,
       setScale,

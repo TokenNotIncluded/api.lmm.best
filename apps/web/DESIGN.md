@@ -92,16 +92,6 @@ Also run the console page, interaction and navigation scripts and frontend quali
 - [inferred confidence=medium] Runtime contrast, touch targets, text expansion, focus restoration, reduced motion, and both declared target viewports require rendered verification for each new surface.
 - [inferred confidence=medium] A feature may depart from console density only when its own confirmed product declaration or first-party reference explicitly introduces a different visual world.
 
-### L0 welcome surface exception
-
-- The unactivated `/getting-started` branch uses the existing console theme, a compact route header, and a single centered composition. The activated setup branch is unchanged.
-- A borderless introduction explains the two upgrade paths: free conversation or a qualifying top-up. Two equal-width controls lead into the existing inline conversation and wallet. There is no duplicate LMM/top-up bar, payment progress ring, or application-letter form.
-- The token cloud, view tabs, and mounted conversation remain in order. Smaller cloud heights and tighter mobile spacing keep the question form near the first screen. Input text stays at 16px, controls are at least 44px high, and reduced motion is preserved.
-- Account status and contact support are secondary actions below the workspace. The access-details tab contains the exact backend-derived payment amount, eligibility conditions, confirmation action, account status, Pi guide, and source questionnaire. The amount never comes from wallet balance or a historical policy amount.
-- Disabled or unknown paid activation never promises a paid upgrade. A completed payment asks for account refresh instead of another top-up. Only the authoritative server access decision advances the account; neither answer text nor a browser click grants access.
-- The existing focused-onboarding shell, compact service disclosure, scrolling chrome, and hidden sidebar assistant are preserved. No production payment, deployment, or access-policy change is part of this presentation update.
-- Coverage lives in `l0-paid-welcome.test.tsx`, `getting-started.test.tsx`, and `l0-upgrade-copy.test.ts`. Repeat real-browser review for layout changes; DOM tests alone do not establish visual quality.
-
 ### Cut logo rollout
 
 - [observed] The default LMM Forge identity uses the original filled symbol and wordmark from `.github/assets/logo-geometry.json`. React components inherit neutral `currentColor`; typography and semantic colors for operational content remain unchanged.

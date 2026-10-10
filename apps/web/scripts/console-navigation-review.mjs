@@ -102,7 +102,7 @@ async function session(persona, viewport) {
     }
     await page.getByTestId(`persona-debug-option-${persona}`).click()
     await page.waitForURL(
-      persona === 'l0' ? /\/getting-started/ : /\/dashboard/
+      persona === 'l0' ? /\/wallet/ : /\/dashboard/
     )
     assert.equal(
       await page.locator('html').getAttribute('data-persona-debug'),
@@ -221,8 +221,8 @@ try {
         await page.evaluate(() =>
           document.documentElement.classList.remove('dark')
         )
-        await nav.locator('a[href="/getting-started"]').click()
-        await page.waitForURL(/\/getting-started/)
+        await nav.locator('a[href="/wallet"]').click()
+        await page.waitForURL(/\/wallet/)
         await nav.waitFor({ state: 'visible' })
         await snapshot(page, 'assistant-navigation-1440', errors)
       }

@@ -107,9 +107,9 @@ export function ModelAvailability({
       {(!user || user.developer_access_granted !== true) && (
         <a
           className='text-primary text-sm underline underline-offset-4'
-          href='/getting-started'
+          href='/wallet'
         >
-          {t('Getting started')}
+          {t('Check API access status')}
         </a>
       )}
       <p className='text-sm' role='status'>

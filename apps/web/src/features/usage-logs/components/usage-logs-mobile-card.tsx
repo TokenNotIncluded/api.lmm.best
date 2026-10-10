@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { Link } from '@tanstack/react-router'
 import { flexRender, type Cell, type Table } from '@tanstack/react-table'
 import { Database } from 'lucide-react'
+import type { ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import {
@@ -64,6 +65,7 @@ interface UsageLogsMobileListProps<TData> {
   emptyTitle?: string
   emptyDescription?: string
   logCategory: LogCategory
+  emptyAction?: ReactNode
 }
 
 function UsageLogsMobileSkeleton() {
@@ -391,6 +393,17 @@ function TaskLogsCard<TData>({
       <div className='grid grid-cols-2 gap-1.5'>
         <SummaryField label={t('Submit Time')} cell={submitTimeCell} />
         <SummaryField label={t('User')} cell={cells.get('user')} primaryOnly />
+        <SummaryField label={t('Progress')} cell={cells.get('progress')} />
+        <SummaryField
+          label={t('Duration')}
+          cell={cells.get('duration')}
+          primaryOnly
+        />
+        <SummaryField
+          label={t('Channel')}
+          cell={cells.get('channel')}
+          primaryOnly
+        />
         <SummaryField
           label={t('Result')}
           cell={cells.get('fail_reason')}
@@ -432,7 +445,8 @@ function DrawingLogsCard<TData>({
           cell={cells.get('duration')}
           primaryOnly
         />
-        <SummaryField label={t('Image')} cell={cells.get('image_url')} />
+        <SummaryField label={t('Progress')} cell={cells.get('progress')} />
+        <SummaryField label={t('Result')} cell={cells.get('image_url')} />
         <SummaryField
           label={t('Prompt')}
           cell={cells.get('prompt')}
@@ -453,6 +467,7 @@ export function UsageLogsMobileList<TData>({
   isLoading = false,
   emptyTitle,
   emptyDescription,
+  emptyAction,
   logCategory,
 }: UsageLogsMobileListProps<TData>) {
   const { t } = useTranslation()
@@ -480,9 +495,11 @@ export function UsageLogsMobileList<TData>({
             <EmptyDescription>{resolvedEmptyDescription}</EmptyDescription>
           </EmptyHeader>
           <EmptyContent>
-            <Button variant='outline' render={<Link to='/playground' />}>
-              {t('Open the playground')}
-            </Button>
+            {emptyAction ?? (
+              <Button variant='outline' render={<Link to='/playground' />}>
+                {t('Open the playground')}
+              </Button>
+            )}
           </EmptyContent>
         </Empty>
       </div>

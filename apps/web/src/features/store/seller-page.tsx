@@ -329,7 +329,11 @@ function StoreSellerCenter() {
               </p>
             )}
             {query.data.items.map((product) => (
-              <article key={product.id} className='space-y-4 py-6'>
+              <article
+                key={product.id}
+                data-store-product-id={product.id}
+                className='space-y-4 py-6'
+              >
                 <div className='flex flex-wrap items-start justify-between gap-3'>
                   <div className='min-w-0 space-y-1'>
                     <h2 className='font-semibold break-words'>

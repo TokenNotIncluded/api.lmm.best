@@ -21,7 +21,6 @@ import type { NavGroup, NavItem, TopNavLink } from '../types'
 // Do not reconstruct entries here: badges, aliases and panel interactions matter.
 const PRIMARY_URLS = [
   '/dashboard/overview',
-  '/getting-started',
   '/pricing',
   '/keys',
   '/usage-logs/common',

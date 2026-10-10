@@ -108,7 +108,7 @@ export function AssistantUsageTool(props: { developerAccessGranted: boolean }) {
           <Button
             variant='outline'
             size='sm'
-            render={<Link to='/getting-started' />}
+            render={<Link to='/wallet' />}
           >
             {t('Choose an activation path')}
             <HugeiconsIcon

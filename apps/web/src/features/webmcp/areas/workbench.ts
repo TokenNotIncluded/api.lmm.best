@@ -291,7 +291,7 @@ export const workbenchTools: WebMcpToolFactory = ({ router }) => [
     name: 'lmm_workbench_open_playground',
     title: 'Open the playground or chat',
     description:
-      'Open the model playground shell. /playground points the user at their API keys and onboarding; pass chat_id to open a specific configured chat preset instead. Static page: lmm_navigate.',
+      'Open the model playground shell. /playground opens the account dashboard and assistant; pass chat_id to open a specific configured chat preset instead. Static page: lmm_navigate.',
     inputSchema: {
       type: 'object',
       properties: { chat_id: { type: 'integer', minimum: 0, maximum: 999 } },
@@ -304,7 +304,7 @@ export const workbenchTools: WebMcpToolFactory = ({ router }) => [
       ensureNotAborted(signal)
       if (chatId === undefined) {
         await router.navigate({ to: '/playground' })
-        return { path: '/playground', opens: '/getting-started' }
+        return { path: '/playground', opens: '/dashboard' }
       }
       await router.navigate({ to: `/chat/${chatId}` })
       return { path: `/chat/${chatId}` }

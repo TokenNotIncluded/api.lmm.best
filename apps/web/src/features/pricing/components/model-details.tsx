@@ -1100,8 +1100,8 @@ export function ModelDetails() {
               : t('Model catalog could not be loaded')}
           </h2>
           {accessDenied ? (
-            <a className='text-primary underline' href='/getting-started'>
-              {t('Getting started')}
+            <a className='text-primary underline' href='/wallet'>
+              {t('Check API access status')}
             </a>
           ) : (
             <Button onClick={() => void refetch()}>{t('Retry')}</Button>
@@ -1130,7 +1130,7 @@ export function ModelDetails() {
           </p>
           {missingRuntime[modelId]?.status === 'no_access' && (
             <a
-              href='/getting-started'
+              href='/wallet'
               className='text-primary mr-3 text-sm underline'
             >
               {t('Check API access status')}
