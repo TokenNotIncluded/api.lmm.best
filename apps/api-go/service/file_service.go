@@ -71,6 +71,20 @@ func LoadFileSource(c *gin.Context, source types.FileSource, reason ...string) (
 	source.Mu().Lock()
 	defer source.Mu().Unlock()
 
+	if c != nil {
+		if c.Request != nil {
+			if err := c.Request.Context().Err(); err != nil {
+				return nil, err
+			}
+		}
+		fileSourceRegistrationMu.Lock()
+		closed, _ := c.Get(contextFileSourcesCleanupDone)
+		fileSourceRegistrationMu.Unlock()
+		if closed == true {
+			return nil, fmt.Errorf("cannot load file after request cleanup")
+		}
+	}
+
 	if source.HasCache() {
 		data := source.GetCache()
 		if err := registerSourceForCleanup(c, source, data, ""); err != nil {
@@ -144,6 +158,11 @@ func registerSourceForCleanup(c *gin.Context, source types.FileSource, data *typ
 
 	if closed, _ := c.Get(contextFileSourcesCleanupDone); closed == true {
 		return fmt.Errorf("cannot load file after request cleanup")
+	}
+	if c.Request != nil {
+		if err := c.Request.Context().Err(); err != nil {
+			return err
+		}
 	}
 	key := string(constant.ContextKeyFileSourcesToCleanup)
 	value, _ := c.Get(key)
