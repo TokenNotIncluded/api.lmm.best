@@ -1,61 +1,9 @@
+# All merged modules share the same real fixtures and acceptance checks.
 name: Rust ledger PostgreSQL checks
 on:
   workflow_dispatch:
 permissions:
   contents: read
-concurrency:
-  group: core-ledger-${{ github.ref }}
-  cancel-in-progress: true
-defaults:
-  run:
-    shell: bash
-    working-directory: apps/core-rust
 jobs:
   ledger:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
-      CARGO_BUILD_JOBS: '2'
-      CARGO_INCREMENTAL: '0'
-      CARGO_PROFILE_DEV_DEBUG: '0'
-      CARGO_PROFILE_TEST_DEBUG: '0'
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_PASSWORD: postgres
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd "pg_isready -U postgres" --health-interval 5s
-          --health-timeout 3s --health-retries 10
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
-        with:
-          persist-credentials: false
-      - name: Install pinned Rust
-        run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
-      - name: Check formatting
-        run: cargo +1.99.0 fmt --all --check 2>&1 | tee "$RUNNER_TEMP/ledger-format.log"
-      - name: Strict Rust checks
-        if: ${{ !cancelled() }}
-        run: cargo +1.99.0 clippy --locked --all-targets -- -D warnings 2>&1 | tee "$RUNNER_TEMP/ledger-clippy.log"
-      - name: Real PostgreSQL acceptance and existing core tests
-        if: ${{ !cancelled() }}
-        run: cargo +1.99.0 test --locked --all-targets -- --nocapture 2>&1 | tee "$RUNNER_TEMP/ledger-tests.log"
-      - name: Record tested source
-        if: ${{ always() }}
-        run: |
-          git rev-parse HEAD > "$RUNNER_TEMP/ledger-commit.txt"
-          tar -czf "$RUNNER_TEMP/ledger-source.tar.gz" src/billing.rs src/billing/ledger schema/ledger.sql tests/ledger.rs
-      - name: Preserve test evidence
-        if: ${{ always() }}
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: ledger-checks-${{ github.sha }}-${{ github.run_id }}
-          path: |
-            ${{ runner.temp }}/ledger-*.log
-            ${{ runner.temp }}/ledger-commit.txt
-            ${{ runner.temp }}/ledger-source.tar.gz
-          if-no-files-found: error
-          retention-days: 14
+    uses: ./.github/workflows/core-protocol.yml

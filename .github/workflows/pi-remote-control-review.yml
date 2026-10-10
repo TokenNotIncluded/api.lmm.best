@@ -57,7 +57,7 @@ jobs:
           (cd plugin && node --experimental-strip-types test/remote-sdk.mjs) > "$REMOTE_BROWSER_ROOT/native.log" 2>&1 &
           pi_pid=$!
           trap 'kill "$pi_pid" 2>/dev/null || true' EXIT
-          for attempt in $(seq 1 60); do
+          for _ in $(seq 1 60); do
             [ -f "$REMOTE_BROWSER_ROOT/fixture.json" ] && break
             kill -0 "$pi_pid" || { cat "$REMOTE_BROWSER_ROOT/native.log"; exit 1; }
             sleep 0.5
