@@ -1,0 +1,42 @@
+=== RUN   TestGoGRPCFixture
+    fixture_test.go:25: isolated fixture was not requested
+--- SKIP: TestGoGRPCFixture (0.00s)
+=== RUN   TestPolicyAndEstablishedConnectionRevocation
+--- PASS: TestPolicyAndEstablishedConnectionRevocation (0.00s)
+=== RUN   TestRejectUnsafeStates
+=== RUN   TestRejectUnsafeStates/wrong_identity
+=== RUN   TestRejectUnsafeStates/expired_cert
+=== RUN   TestRejectUnsafeStates/nil_leaf
+=== RUN   TestRejectUnsafeStates/nil_verified_leaf
+=== RUN   TestRejectUnsafeStates/unverified
+=== RUN   TestRejectUnsafeStates/wrong_verified_leaf
+=== RUN   TestRejectUnsafeStates/TLS_1.2
+=== RUN   TestRejectUnsafeStates/incomplete_handshake
+=== RUN   TestRejectUnsafeStates/expired_lease
+=== RUN   TestRejectUnsafeStates/unbounded_lease
+=== RUN   TestRejectUnsafeStates/future_policy
+=== RUN   TestRejectUnsafeStates/duplicate_pin
+=== RUN   TestRejectUnsafeStates/no_peer
+=== RUN   TestRejectUnsafeStates/zero_epoch
+--- PASS: TestRejectUnsafeStates (0.00s)
+    --- PASS: TestRejectUnsafeStates/wrong_identity (0.00s)
+    --- PASS: TestRejectUnsafeStates/expired_cert (0.00s)
+    --- PASS: TestRejectUnsafeStates/nil_leaf (0.00s)
+    --- PASS: TestRejectUnsafeStates/nil_verified_leaf (0.00s)
+    --- PASS: TestRejectUnsafeStates/unverified (0.00s)
+    --- PASS: TestRejectUnsafeStates/wrong_verified_leaf (0.00s)
+    --- PASS: TestRejectUnsafeStates/TLS_1.2 (0.00s)
+    --- PASS: TestRejectUnsafeStates/incomplete_handshake (0.00s)
+    --- PASS: TestRejectUnsafeStates/expired_lease (0.00s)
+    --- PASS: TestRejectUnsafeStates/unbounded_lease (0.00s)
+    --- PASS: TestRejectUnsafeStates/future_policy (0.00s)
+    --- PASS: TestRejectUnsafeStates/duplicate_pin (0.00s)
+    --- PASS: TestRejectUnsafeStates/no_peer (0.00s)
+    --- PASS: TestRejectUnsafeStates/zero_epoch (0.00s)
+=== RUN   TestClientTLSRejectsMissingOrOversizedTrust
+--- PASS: TestClientTLSRejectsMissingOrOversizedTrust (0.00s)
+=== RUN   TestStoreRejectsRollbackAndDoesNotKeepBrokenConfig
+--- PASS: TestStoreRejectsRollbackAndDoesNotKeepBrokenConfig (0.00s)
+=== RUN   TestRealMutualTLSHTTP2AndExpiredPolicy
+--- PASS: TestRealMutualTLSHTTP2AndExpiredPolicy (0.01s)
+PASS
