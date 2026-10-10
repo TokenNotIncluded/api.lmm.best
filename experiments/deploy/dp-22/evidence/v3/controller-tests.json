@@ -1,0 +1,7 @@
+{
+  "tests": 8,
+  "passed": 8,
+  "failed": 0,
+  "scope": "isolated_controller_not_native_rust",
+  "ack_release_race_iterations": 50
+}

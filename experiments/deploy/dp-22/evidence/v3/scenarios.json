@@ -1,0 +1,707 @@
+{
+  "test_01_control_http1_keepalive": {
+    "scope": "real_nginx_python_transport_reference",
+    "rust_executed": false,
+    "billing_executed": false,
+    "complete_body_sha256": [
+      "9d196841f9bae9a4b0a075b6b9febf51193dcc9b5a4755d3421452976c04e33e",
+      "9d196841f9bae9a4b0a075b6b9febf51193dcc9b5a4755d3421452976c04e33e"
+    ],
+    "same_client_tcp": true,
+    "updated": false,
+    "protocol": "HTTP/1.1",
+    "upstream_calls": {
+      "control-h1-old": 1,
+      "control-h1-new": 1
+    },
+    "controller_events": [
+      {
+        "event": "route_committed",
+        "candidate": "a",
+        "old": null,
+        "evidence": "transport_only"
+      }
+    ],
+    "pending_ingress_tickets": 0,
+    "records": {
+      "a": {
+        "control-h1-new": "transport_complete",
+        "control-h1-old": "transport_complete"
+      }
+    },
+    "exit_codes": {
+      "a": 0
+    },
+    "remaining_child_processes": 0,
+    "cleanup_forced_kills": [],
+    "nginx_exit_code": 0
+  },
+  "test_02_control_http2_multiplex": {
+    "scope": "real_nginx_python_transport_reference",
+    "rust_executed": false,
+    "billing_executed": false,
+    "complete_body_sha256": [
+      "9d196841f9bae9a4b0a075b6b9febf51193dcc9b5a4755d3421452976c04e33e",
+      "9d196841f9bae9a4b0a075b6b9febf51193dcc9b5a4755d3421452976c04e33e"
+    ],
+    "same_client_tcp": true,
+    "simultaneous_stream_ids": [
+      1,
+      3
+    ],
+    "updated": false,
+    "protocol": "h2",
+    "upstream_calls": {
+      "control-h2-old": 1,
+      "control-h2-new": 1
+    },
+    "controller_events": [
+      {
+        "event": "route_committed",
+        "candidate": "a",
+        "old": null,
+        "evidence": "transport_only"
+      }
+    ],
+    "pending_ingress_tickets": 0,
+    "records": {
+      "a": {
+        "control-h2-new": "transport_complete",
+        "control-h2-old": "transport_complete"
+      }
+    },
+    "exit_codes": {
+      "a": 0
+    },
+    "remaining_child_processes": 0,
+    "cleanup_forced_kills": [],
+    "nginx_exit_code": 0
+  },
+  "test_03_rollout_http1_old_keepalive_new_work": {
+    "scope": "real_nginx_python_transport_reference",
+    "rust_executed": false,
+    "billing_executed": false,
+    "complete_body_sha256": [
+      "9d196841f9bae9a4b0a075b6b9febf51193dcc9b5a4755d3421452976c04e33e",
+      "9d196841f9bae9a4b0a075b6b9febf51193dcc9b5a4755d3421452976c04e33e"
+    ],
+    "same_client_tcp": true,
+    "updated": true,
+    "protocol": "HTTP/1.1",
+    "old_stream_completed": true,
+    "new_backend": "b",
+    "upstream_calls": {
+      "rollout-h1-old": 1,
+      "rollout-h1-new": 1
+    },
+    "controller_events": [
+      {
+        "event": "route_committed",
+        "candidate": "a",
+        "old": null,
+        "evidence": "transport_only"
+      },
+      {
+        "event": "route_committed",
+        "candidate": "b",
+        "old": "a",
+        "evidence": "transport_only"
+      },
+      {
+        "event": "drain_signalled",
+        "instance": "a"
+      }
+    ],
+    "pending_ingress_tickets": 0,
+    "records": {
+      "a": {
+        "rollout-h1-old": "transport_complete"
+      },
+      "b": {
+        "rollout-h1-new": "transport_complete"
+      }
+    },
+    "exit_codes": {
+      "a": 0,
+      "b": 0
+    },
+    "remaining_child_processes": 0,
+    "cleanup_forced_kills": [],
+    "nginx_exit_code": 0
+  },
+  "test_04_rollout_http2_same_tcp_multiplex": {
+    "scope": "real_nginx_python_transport_reference",
+    "rust_executed": false,
+    "billing_executed": false,
+    "complete_body_sha256": [
+      "9d196841f9bae9a4b0a075b6b9febf51193dcc9b5a4755d3421452976c04e33e",
+      "9d196841f9bae9a4b0a075b6b9febf51193dcc9b5a4755d3421452976c04e33e"
+    ],
+    "same_client_tcp": true,
+    "simultaneous_stream_ids": [
+      1,
+      3
+    ],
+    "updated": true,
+    "protocol": "h2",
+    "no_goaway": true,
+    "upstream_calls": {
+      "rollout-h2-old": 1,
+      "rollout-h2-new": 1
+    },
+    "controller_events": [
+      {
+        "event": "route_committed",
+        "candidate": "a",
+        "old": null,
+        "evidence": "transport_only"
+      },
+      {
+        "event": "route_committed",
+        "candidate": "b",
+        "old": "a",
+        "evidence": "transport_only"
+      },
+      {
+        "event": "drain_signalled",
+        "instance": "a"
+      }
+    ],
+    "pending_ingress_tickets": 0,
+    "records": {
+      "a": {
+        "rollout-h2-old": "transport_complete"
+      },
+      "b": {
+        "rollout-h2-new": "transport_complete"
+      }
+    },
+    "exit_codes": {
+      "a": 0,
+      "b": 0
+    },
+    "remaining_child_processes": 0,
+    "cleanup_forced_kills": [],
+    "nginx_exit_code": 0
+  },
+  "test_05_live_200_is_not_preparation": {
+    "scope": "real_nginx_python_transport_reference",
+    "rust_executed": false,
+    "billing_executed": false,
+    "upstream_calls": {},
+    "controller_events": [
+      {
+        "event": "route_committed",
+        "candidate": "a",
+        "old": null,
+        "evidence": "transport_only"
+      }
+    ],
+    "pending_ingress_tickets": 0,
+    "records": {
+      "a": {},
+      "b": {}
+    },
+    "exit_codes": {
+      "a": 0,
+      "b": 0
+    },
+    "remaining_child_processes": 0,
+    "cleanup_forced_kills": [],
+    "nginx_exit_code": 0
+  },
+  "test_06_cutover_failure_does_not_drain_old": {
+    "scope": "real_nginx_python_transport_reference",
+    "rust_executed": false,
+    "billing_executed": false,
+    "complete_body_sha256": [
+      "9d196841f9bae9a4b0a075b6b9febf51193dcc9b5a4755d3421452976c04e33e"
+    ],
+    "upstream_calls": {
+      "cutover-failed-still-old": 1
+    },
+    "controller_events": [
+      {
+        "event": "route_committed",
+        "candidate": "a",
+        "old": null,
+        "evidence": "transport_only"
+      }
+    ],
+    "pending_ingress_tickets": 0,
+    "records": {
+      "a": {
+        "cutover-failed-still-old": "transport_complete"
+      },
+      "b": {}
+    },
+    "exit_codes": {
+      "a": 0,
+      "b": 0
+    },
+    "remaining_child_processes": 0,
+    "cleanup_forced_kills": [],
+    "nginx_exit_code": 0
+  },
+  "test_07_generation_and_memory_limits_before_launch": {
+    "scope": "real_nginx_python_transport_reference",
+    "rust_executed": false,
+    "billing_executed": false,
+    "complete_body_sha256": [
+      "9d196841f9bae9a4b0a075b6b9febf51193dcc9b5a4755d3421452976c04e33e"
+    ],
+    "capacity_inputs_are_synthetic_not_1c1g_measurements": true,
+    "upstream_calls": {
+      "capacity-old": 1
+    },
+    "controller_events": [
+      {
+        "event": "route_committed",
+        "candidate": "a",
+        "old": null,
+        "evidence": "transport_only"
+      },
+      {
+        "event": "route_committed",
+        "candidate": "b",
+        "old": "a",
+        "evidence": "transport_only"
+      },
+      {
+        "event": "drain_signalled",
+        "instance": "a"
+      }
+    ],
+    "pending_ingress_tickets": 0,
+    "records": {
+      "a": {
+        "capacity-old": "transport_complete"
+      },
+      "b": {}
+    },
+    "exit_codes": {
+      "a": 0,
+      "b": 0
+    },
+    "remaining_child_processes": 0,
+    "cleanup_forced_kills": [],
+    "nginx_exit_code": 0
+  },
+  "test_08_http2_cancel_releases_reference_resources": {
+    "scope": "real_nginx_python_transport_reference",
+    "rust_executed": false,
+    "billing_executed": false,
+    "complete_body_sha256": [
+      "9d196841f9bae9a4b0a075b6b9febf51193dcc9b5a4755d3421452976c04e33e"
+    ],
+    "client_cancel": "RST_STREAM(CANCEL)",
+    "upstream_calls": {
+      "cancel-old": 1,
+      "after-cancel": 1
+    },
+    "controller_events": [
+      {
+        "event": "route_committed",
+        "candidate": "a",
+        "old": null,
+        "evidence": "transport_only"
+      }
+    ],
+    "pending_ingress_tickets": 0,
+    "records": {
+      "a": {
+        "after-cancel": "transport_complete",
+        "cancel-old": "transport_unknown"
+      }
+    },
+    "exit_codes": {
+      "a": 0
+    },
+    "remaining_child_processes": 0,
+    "cleanup_forced_kills": [],
+    "nginx_exit_code": 0
+  },
+  "test_09_completion_barrier_and_drain_deadline_do_not_kill": {
+    "scope": "real_nginx_python_transport_reference",
+    "rust_executed": false,
+    "billing_executed": false,
+    "complete_body_sha256": [
+      "9d196841f9bae9a4b0a075b6b9febf51193dcc9b5a4755d3421452976c04e33e"
+    ],
+    "completion_is_transport_barrier_not_money_settlement": true,
+    "upstream_calls": {
+      "completion-old": 1
+    },
+    "controller_events": [
+      {
+        "event": "route_committed",
+        "candidate": "a",
+        "old": null,
+        "evidence": "transport_only"
+      },
+      {
+        "event": "route_committed",
+        "candidate": "b",
+        "old": "a",
+        "evidence": "transport_only"
+      },
+      {
+        "event": "drain_signalled",
+        "instance": "a"
+      }
+    ],
+    "pending_ingress_tickets": 0,
+    "records": {
+      "a": {
+        "completion-old": "transport_complete"
+      },
+      "b": {}
+    },
+    "exit_codes": {
+      "a": 0,
+      "b": 0
+    },
+    "remaining_child_processes": 0,
+    "cleanup_forced_kills": [],
+    "nginx_exit_code": 0
+  },
+  "test_10_sigkill_breaks_stream_retains_unknown_without_repost": {
+    "scope": "real_nginx_python_transport_reference",
+    "rust_executed": false,
+    "billing_executed": false,
+    "complete_body_sha256": [
+      "9d196841f9bae9a4b0a075b6b9febf51193dcc9b5a4755d3421452976c04e33e"
+    ],
+    "killed_stream_result": {
+      "error": "RST_STREAM:2",
+      "bytes_received": 9,
+      "expected_bytes": 68
+    },
+    "durable_recovery_candidate": "killed-old",
+    "upstream_calls": {
+      "killed-old": 1,
+      "after-kill-new-request": 1
+    },
+    "controller_events": [
+      {
+        "event": "route_committed",
+        "candidate": "a",
+        "old": null,
+        "evidence": "transport_only"
+      },
+      {
+        "event": "route_committed",
+        "candidate": "b",
+        "old": "a",
+        "evidence": "transport_only"
+      },
+      {
+        "event": "drain_signalled",
+        "instance": "a"
+      }
+    ],
+    "pending_ingress_tickets": 0,
+    "records": {
+      "a": {
+        "killed-old": "transport_open"
+      },
+      "b": {
+        "after-kill-new-request": "transport_complete"
+      }
+    },
+    "exit_codes": {
+      "a": -9,
+      "b": 0
+    },
+    "remaining_child_processes": 0,
+    "cleanup_forced_kills": [],
+    "nginx_exit_code": 0
+  },
+  "test_11_socket_paths_and_direct_old_connection_gate": {
+    "scope": "real_nginx_python_transport_reference",
+    "rust_executed": false,
+    "billing_executed": false,
+    "complete_body_sha256": [
+      "9d196841f9bae9a4b0a075b6b9febf51193dcc9b5a4755d3421452976c04e33e"
+    ],
+    "upstream_calls": {
+      "direct-gate-held": 1
+    },
+    "controller_events": [
+      {
+        "event": "route_committed",
+        "candidate": "a",
+        "old": null,
+        "evidence": "transport_only"
+      },
+      {
+        "event": "route_committed",
+        "candidate": "b",
+        "old": "a",
+        "evidence": "transport_only"
+      },
+      {
+        "event": "drain_signalled",
+        "instance": "a"
+      }
+    ],
+    "pending_ingress_tickets": 0,
+    "records": {
+      "a": {
+        "direct-gate-held": "transport_complete"
+      },
+      "b": {}
+    },
+    "exit_codes": {
+      "a": 0,
+      "b": 0
+    },
+    "remaining_child_processes": 0,
+    "cleanup_forced_kills": [],
+    "nginx_exit_code": 0
+  },
+  "test_12_uncertain_cutover_keeps_both_instances": {
+    "scope": "real_nginx_python_transport_reference",
+    "rust_executed": false,
+    "billing_executed": false,
+    "uncertain_cutover_no_automatic_rollback": true,
+    "upstream_calls": {},
+    "controller_events": [
+      {
+        "event": "route_committed",
+        "candidate": "a",
+        "old": null,
+        "evidence": "transport_only"
+      },
+      {
+        "event": "cutover_unknown",
+        "candidate": "b"
+      }
+    ],
+    "pending_ingress_tickets": 0,
+    "records": {
+      "a": {},
+      "b": {}
+    },
+    "exit_codes": {
+      "a": 0,
+      "b": 0
+    },
+    "remaining_child_processes": 0,
+    "cleanup_forced_kills": [],
+    "nginx_exit_code": 0
+  },
+  "test_13_route_authority_loss_no_retry_or_old_stream_kill": {
+    "scope": "real_nginx_python_transport_reference",
+    "rust_executed": false,
+    "billing_executed": false,
+    "complete_body_sha256": [
+      "9d196841f9bae9a4b0a075b6b9febf51193dcc9b5a4755d3421452976c04e33e"
+    ],
+    "route_authority_is_single_point_of_failure": true,
+    "upstream_calls": {
+      "authority-loss-old": 1
+    },
+    "controller_events": [
+      {
+        "event": "route_committed",
+        "candidate": "a",
+        "old": null,
+        "evidence": "transport_only"
+      }
+    ],
+    "pending_ingress_tickets": 0,
+    "records": {
+      "a": {
+        "authority-loss-old": "transport_complete"
+      }
+    },
+    "exit_codes": {
+      "a": 0
+    },
+    "remaining_child_processes": 0,
+    "cleanup_forced_kills": [],
+    "nginx_exit_code": 0
+  },
+  "test_14_preselected_request_stays_admitted_before_old_drain": {
+    "scope": "real_nginx_python_transport_reference",
+    "rust_executed": false,
+    "billing_executed": false,
+    "complete_body_sha256": [
+      "9d196841f9bae9a4b0a075b6b9febf51193dcc9b5a4755d3421452976c04e33e",
+      "9d196841f9bae9a4b0a075b6b9febf51193dcc9b5a4755d3421452976c04e33e"
+    ],
+    "selected_before_cutover_completed_once": {
+      "selected_backend": "a",
+      "status": 200,
+      "body": "data: 0\n\ndata: 1\n\ndata: 2\n\ndata: 3\n\ndata: 4\n\ndata: 5\n\ndata: [DONE]\n\n"
+    },
+    "transport_only_preselected_race": "PASSED",
+    "upstream_calls": {
+      "race-existing-stream": 1,
+      "race-late-admission": 1
+    },
+    "controller_events": [
+      {
+        "event": "route_committed",
+        "candidate": "a",
+        "old": null,
+        "evidence": "transport_only"
+      },
+      {
+        "event": "route_committed",
+        "candidate": "b",
+        "old": "a",
+        "evidence": "transport_only"
+      },
+      {
+        "event": "old_drain_waits_for_admission",
+        "instance": "a"
+      },
+      {
+        "event": "drain_signalled",
+        "instance": "a"
+      }
+    ],
+    "pending_ingress_tickets": 0,
+    "records": {
+      "a": {
+        "race-existing-stream": "transport_complete",
+        "race-late-admission": "transport_complete"
+      },
+      "b": {}
+    },
+    "exit_codes": {
+      "a": 0,
+      "b": 0
+    },
+    "remaining_child_processes": 0,
+    "cleanup_forced_kills": [],
+    "nginx_exit_code": 0
+  },
+  "test_15_cancel_before_core_admission_revokes_ticket_without_post": {
+    "scope": "real_nginx_python_transport_reference",
+    "rust_executed": false,
+    "billing_executed": false,
+    "complete_body_sha256": [
+      "9d196841f9bae9a4b0a075b6b9febf51193dcc9b5a4755d3421452976c04e33e"
+    ],
+    "client_cancel_before_admission": {
+      "upstream_posts": 0,
+      "ticket_revoked": true,
+      "old_stream_completed": true,
+      "mechanism": "Nginx finalized-request access log, not elapsed-time eviction"
+    },
+    "upstream_calls": {
+      "cancel-before-ack-held": 1
+    },
+    "controller_events": [
+      {
+        "event": "route_committed",
+        "candidate": "a",
+        "old": null,
+        "evidence": "transport_only"
+      },
+      {
+        "event": "route_committed",
+        "candidate": "b",
+        "old": "a",
+        "evidence": "transport_only"
+      },
+      {
+        "event": "old_drain_waits_for_admission",
+        "instance": "a"
+      },
+      {
+        "event": "drain_signalled",
+        "instance": "a"
+      }
+    ],
+    "pending_ingress_tickets": 0,
+    "records": {
+      "a": {
+        "cancel-before-ack-held": "transport_complete"
+      },
+      "b": {}
+    },
+    "exit_codes": {
+      "a": 0,
+      "b": 0
+    },
+    "remaining_child_processes": 0,
+    "cleanup_forced_kills": [],
+    "nginx_exit_code": 0
+  },
+  "test_16_missing_or_forged_direct_ticket_never_calls_upstream": {
+    "scope": "real_nginx_python_transport_reference",
+    "rust_executed": false,
+    "billing_executed": false,
+    "missing_and_forged_tickets_rejected_before_upstream": true,
+    "upstream_calls": {},
+    "controller_events": [
+      {
+        "event": "route_committed",
+        "candidate": "a",
+        "old": null,
+        "evidence": "transport_only"
+      }
+    ],
+    "pending_ingress_tickets": 0,
+    "records": {
+      "a": {
+        "forged-ticket": "transport_ack_failed_before_upstream",
+        "missing-ticket": "transport_ack_failed_before_upstream"
+      }
+    },
+    "exit_codes": {
+      "a": 0
+    },
+    "remaining_child_processes": 0,
+    "cleanup_forced_kills": [],
+    "nginx_exit_code": 0
+  },
+  "test_17_withdrawn_generation_cannot_be_selected_again": {
+    "scope": "real_nginx_python_transport_reference",
+    "rust_executed": false,
+    "billing_executed": false,
+    "complete_body_sha256": [
+      "9d196841f9bae9a4b0a075b6b9febf51193dcc9b5a4755d3421452976c04e33e"
+    ],
+    "withdrawn_generation_reselection_blocked": true,
+    "upstream_calls": {
+      "withdrawn-held": 1
+    },
+    "controller_events": [
+      {
+        "event": "route_committed",
+        "candidate": "a",
+        "old": null,
+        "evidence": "transport_only"
+      },
+      {
+        "event": "route_committed",
+        "candidate": "b",
+        "old": "a",
+        "evidence": "transport_only"
+      },
+      {
+        "event": "drain_signalled",
+        "instance": "a"
+      }
+    ],
+    "pending_ingress_tickets": 0,
+    "records": {
+      "a": {
+        "withdrawn-held": "transport_complete"
+      },
+      "b": {}
+    },
+    "exit_codes": {
+      "a": 0,
+      "b": 0
+    },
+    "remaining_child_processes": 0,
+    "cleanup_forced_kills": [],
+    "nginx_exit_code": 0
+  }
+}

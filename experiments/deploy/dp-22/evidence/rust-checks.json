@@ -1,0 +1,11 @@
+{
+  "scope": "offline_native_rust_checks",
+  "billing": "NOT_TESTED",
+  "model_stream_rollout": "NOT_TESTED",
+  "commands": [],
+  "result": "NOT_RUN",
+  "blockers": [
+    "cargo/rustc unavailable in this container",
+    "delivery is a verified source overlay, not a full cloned repository"
+  ]
+}
