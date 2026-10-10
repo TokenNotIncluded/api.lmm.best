@@ -1,0 +1,1 @@
+Go standalone helper: go vet and gofmt checks passed. No full module build.
