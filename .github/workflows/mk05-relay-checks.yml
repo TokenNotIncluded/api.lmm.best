@@ -6,19 +6,19 @@ on:
     branches: [wip/rust-core-go-extensions]
     paths:
       - apps/core-rust/**
+      - apps/api-go/**
+      - proto/**
+      - scripts/test-core-boundaries.py
       - .github/workflows/mk05-relay-checks.yml
 permissions:
   contents: read
 concurrency:
-  group: mk05-${{ github.ref }}
+  group: mk05-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: false
 jobs:
   relay:
-    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    permissions:
-      contents: write
     env:
       DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
       CARGO_BUILD_JOBS: '2'
@@ -37,6 +37,8 @@ jobs:
           --health-timeout 3s --health-retries 10
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
         with:
           go-version: '1.27.2'
@@ -52,31 +54,15 @@ jobs:
           key: mk05-rust-${{ runner.os }}-${{ hashFiles('apps/core-rust/Cargo.lock') }}
           restore-keys: mk05-rust-${{ runner.os }}-
           save-always: true
-      - name: Apply reviewed source corrections and format
-        if: contains(github.event.head_commit.message, '[relay-normalize]')
-        shell: bash
+      - name: Record source and tool versions
         run: |
           set -euo pipefail
-          test "$GITHUB_REF" = refs/heads/wip/mk-05-relay
-          if test -f apps/core-rust/src/relay/.review.py; then
-            python3 apps/core-rust/src/relay/.review.py
-            rm apps/core-rust/src/relay/.review.py
-          fi
-          cargo +1.99.0 metadata --locked --manifest-path apps/core-rust/Cargo.toml --format-version 1 >/dev/null
-          cargo +1.99.0 clippy --fix --allow-dirty --allow-staged --locked --manifest-path apps/core-rust/Cargo.toml --all-targets 2>&1 | tee "$RUNNER_TEMP/mk05-fix.log" || echo 'Strict validation below remains required.'
-          cargo +1.99.0 fmt --manifest-path apps/core-rust/Cargo.toml --all
-          cargo +1.99.0 fmt --manifest-path apps/core-rust/Cargo.toml --all
-          python3 - <<'PY'
-          import subprocess
-          paths = subprocess.check_output(['git','diff','--name-only'], text=True).splitlines()
-          for path in paths:
-              assert path in ['apps/core-rust/Cargo.lock','apps/core-rust/Cargo.toml','apps/core-rust/src/lib.rs'] or path.startswith(('apps/core-rust/src/relay/','apps/core-rust/tests/relay')), path
-          PY
-          git add apps/core-rust/Cargo.lock apps/core-rust/Cargo.toml apps/core-rust/src/lib.rs apps/core-rust/src/relay apps/core-rust/tests/relay_http.rs
-          if ! git diff --cached --quiet; then
-            git -c user.name='github-actions[bot]' -c user.email='41898282+github-actions[bot]@users.noreply.github.com' commit -m 'fix(relay): preserve provider metadata and reject ambiguous protocol content'
-            git push origin HEAD:refs/heads/wip/mk-05-relay
-          fi
+          git rev-parse HEAD | tee "$RUNNER_TEMP/mk05-tested-commit.txt"
+          {
+            rustc +1.99.0 --version
+            cargo +1.99.0 --version
+            go version
+          } | tee "$RUNNER_TEMP/mk05-tools.log"
       - name: Build the actual Go extension for lifecycle tests
         working-directory: apps/api-go
         run: go build -mod=readonly -o "$RUNNER_TEMP/lmm-extensions" ./cmd/extensions
@@ -84,7 +70,6 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          git rev-parse HEAD | tee "$RUNNER_TEMP/mk05-tested-commit.txt"
           cargo +1.99.0 fmt --manifest-path apps/core-rust/Cargo.toml --all --check
           cargo +1.99.0 clippy --manifest-path apps/core-rust/Cargo.toml --locked --all-targets -- -D warnings 2>&1 | tee "$RUNNER_TEMP/mk05-clippy.log"
       - name: Rust unit, PostgreSQL and real HTTP lifecycle tests
@@ -94,15 +79,20 @@ jobs:
           set -euo pipefail
           export LMM_RELAY_EXTENSION_BIN="$RUNNER_TEMP/lmm-extensions"
           cargo +1.99.0 test --manifest-path apps/core-rust/Cargo.toml --locked --all-targets -- --nocapture 2>&1 | tee "$RUNNER_TEMP/mk05-tests.log"
-      - name: Verify service boundaries
+      - name: Verify service boundaries and clean sources
         if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
           python3 -B scripts/test-core-boundaries.py 2>&1 | tee "$RUNNER_TEMP/mk05-boundaries.log"
+          test ! -e apps/core-rust/src/relay/.review.py
           git diff --exit-code
       - name: Preserve tested task sources
         if: always()
-        run: tar -czf "$RUNNER_TEMP/mk05-source.tgz" apps/core-rust/src/relay apps/core-rust/tests/relay_http.rs apps/core-rust/Cargo.toml apps/core-rust/Cargo.lock
+        run: |
+          tar -czf "$RUNNER_TEMP/mk05-source.tgz" \
+            apps/core-rust/src/relay apps/core-rust/tests/relay_http.rs \
+            apps/core-rust/src/lib.rs apps/core-rust/Cargo.toml \
+            apps/core-rust/Cargo.lock .github/workflows/mk05-relay-checks.yml
       - name: Preserve verification evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
