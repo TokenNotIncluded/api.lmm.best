@@ -1,5 +1,5 @@
 // Package coreclient is the only core access path for Go extension modules.
-// It has no SQL dependency, no authorization cache and no model relay.
+// It has no core database connection, authorization cache or model relay.
 package coreclient
 
 import (
@@ -27,6 +27,7 @@ const maxInFlight = 32
 type Client struct {
 	connection    *grpc.ClientConn
 	rpc           pb.CoreControlClient
+	events        pb.CoreEventsClient
 	authorization string
 	slots         chan struct{}
 }
@@ -97,6 +98,7 @@ func New(socket string, token []byte) (*Client, error) {
 	}
 	c.connection = conn
 	c.rpc = pb.NewCoreControlClient(conn)
+	c.events = pb.NewCoreEventsClient(conn)
 	return c, nil
 }
 func (c *Client) Close() error { return c.connection.Close() }
