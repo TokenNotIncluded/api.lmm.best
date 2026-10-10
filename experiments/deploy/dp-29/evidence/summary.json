@@ -1,0 +1,39 @@
+{
+  "base_commit": "72667564c0431754d4856dc2e0db55f360bd2745",
+  "python": "3.13.5",
+  "system": "Linux",
+  "architecture": "x86_64",
+  "test_count": 46,
+  "tests_passed": true,
+  "test_elapsed_seconds": 5.291347,
+  "scope": "local synthetic node stores plus loopback HTTP/SSE fixture processes; not Rust/Go or PostgreSQL",
+  "runtime_flags": [
+    "-S",
+    "-B"
+  ],
+  "resource_limits": "not CPU-pinned or memory-cgroup-limited; NOT a 1c1g capacity measurement",
+  "remote_actions": "none",
+  "synthetic_three_node_release": {
+    "stage": "completed",
+    "elapsed_seconds": 0.106804,
+    "peak_rss_kib": 17280
+  },
+  "status_command": {
+    "elapsed_seconds": 0.04944,
+    "peak_rss_kib": 15872
+  },
+  "synthetic_three_node_rollback": {
+    "stage": "rolled_back",
+    "elapsed_seconds": 0.111966,
+    "peak_rss_kib": 17280
+  },
+  "business_database_hashes_unchanged": true,
+  "high_frequency_queue": {
+    "submitted": 400,
+    "remaining_records": 4,
+    "control_database_bytes": 73728,
+    "cleanup": "explicit, every 20 queued submissions; no deployment side effects"
+  },
+  "compatibility_contract_cases": 256,
+  "source_bytes": 93450
+}
