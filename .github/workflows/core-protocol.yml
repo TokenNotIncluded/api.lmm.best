@@ -63,6 +63,23 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           persist-credentials: false
+      - name: Record exact integration source
+        run: |
+          git rev-parse HEAD > "$RUNNER_TEMP/core-source-sha.txt"
+          git archive --format=tar.gz --output="$RUNNER_TEMP/core-source.tar.gz" HEAD \
+            apps/lmm-core apps/lmm-extensions contracts deployment/docker scripts \
+            .github/workflows config/legal packaging docs/core-migration.md
+          sha256sum "$RUNNER_TEMP/core-source.tar.gz" > "$RUNNER_TEMP/core-source.sha256"
+      - name: Preserve source before checks
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: microkernel-source-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/core-source.tar.gz
+            ${{ runner.temp }}/core-source-sha.txt
+            ${{ runner.temp }}/core-source.sha256
+          if-no-files-found: error
+          retention-days: 1
       - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
         with:
           go-version: '1.27.2'
@@ -95,7 +112,7 @@ jobs:
         run: LMM_EXTENSION_TEST_BIN="$RUNNER_TEMP/lmm-extensions" python3 -B scripts/test-legal-process.py
       - name: Rust formatting
         working-directory: apps/lmm-core
-        run: cargo fmt --all --check
+        run: cargo fmt --all --check 2>&1 | tee "$RUNNER_TEMP/core-format.log"
       - name: Rust checks and real database tests
         if: ${{ !cancelled() }}
         working-directory: apps/lmm-core
@@ -140,6 +157,8 @@ jobs:
         with:
           name: microkernel-checks-${{ github.sha }}-${{ github.run_id }}
           path: |
+            ${{ runner.temp }}/core-source-sha.txt
+            ${{ runner.temp }}/core-format.log
             ${{ runner.temp }}/core-tests.log
             ${{ runner.temp }}/extension-tests.jsonl
             ${{ runner.temp }}/core-rpc-docker.log
