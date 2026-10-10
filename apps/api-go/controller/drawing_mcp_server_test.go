@@ -10,6 +10,7 @@ import (
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
+	"github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,6 +18,27 @@ import (
 
 type drawingMCPBearerTransport struct {
 	token string
+}
+
+func TestDrawingMCPOAuthGroupAuthorization(t *testing.T) {
+	request := &mcp.CallToolRequest{Extra: &mcp.RequestExtra{TokenInfo: &auth.TokenInfo{Extra: map[string]any{
+		"oauth": true, "granted_groups": []string{"image-1"},
+	}}}}
+
+	group, err := drawingMCPOAuthGroup(request, "")
+	require.NoError(t, err)
+	assert.Equal(t, "image-1", group, "an omitted group defaults within the OAuth grant")
+
+	group, err = drawingMCPOAuthGroup(request, "image-1")
+	require.NoError(t, err)
+	assert.Equal(t, "image-1", group)
+
+	_, err = drawingMCPOAuthGroup(request, model.DrawingTokenGroup)
+	assert.EqualError(t, err, "the selected routing group is not authorized by this OAuth grant")
+
+	request.Extra.TokenInfo.Extra["granted_groups"] = []string{}
+	_, err = drawingMCPOAuthGroup(request, "image-1")
+	assert.EqualError(t, err, "OAuth drawing grant has no authorized routing groups")
 }
 
 func (transport drawingMCPBearerTransport) RoundTrip(request *http.Request) (*http.Response, error) {

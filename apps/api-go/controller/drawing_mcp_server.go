@@ -179,6 +179,40 @@ func drawingMCPBoundGroup(user *model.UserBase, apiKeyID int) (string, error) {
 	return "", errors.New("the drawing MCP token has no usable routing group")
 }
 
+func drawingMCPOAuthGrantedGroups(request *mcp.CallToolRequest) ([]string, bool, error) {
+	if request == nil || request.Extra == nil || request.Extra.TokenInfo == nil || request.Extra.TokenInfo.Extra == nil {
+		return nil, false, nil
+	}
+	extra := request.Extra.TokenInfo.Extra
+	oauth, _ := extra["oauth"].(bool)
+	if !oauth {
+		return nil, false, nil
+	}
+	groups, ok := extra["granted_groups"].([]string)
+	if !ok || len(groups) == 0 {
+		return nil, true, errors.New("OAuth drawing grant has no authorized routing groups")
+	}
+	return groups, true, nil
+}
+
+func drawingMCPOAuthGroup(request *mcp.CallToolRequest, requested string) (string, error) {
+	groups, oauth, err := drawingMCPOAuthGrantedGroups(request)
+	if err != nil || !oauth {
+		return requested, err
+	}
+	requested = strings.TrimSpace(requested)
+	if requested == "" {
+		if slices.Contains(groups, model.DrawingTokenGroup) {
+			return model.DrawingTokenGroup, nil
+		}
+		return groups[0], nil
+	}
+	if !slices.Contains(groups, requested) {
+		return "", errors.New("the selected routing group is not authorized by this OAuth grant")
+	}
+	return requested, nil
+}
+
 func drawingMCPConsumeConfirmation(userID int, operation *model.OpenSourceBountyMCPConfirmedOperation) error {
 	if operation == nil || operation.State == "" || operation.ToolName != "drawing.generate" || operation.PayloadHash == "" {
 		return errors.New("drawing confirmation is missing or invalid")
@@ -228,6 +262,10 @@ func registerDrawingMCPTools(server *mcp.Server, relay http.Handler) {
 			return nil, drawingMCPOutput{}, err
 		}
 		apiKeyID, err := drawingMCPAPIKeyID(request)
+		if err != nil {
+			return nil, drawingMCPOutput{}, err
+		}
+		input.Group, err = drawingMCPOAuthGroup(request, input.Group)
 		if err != nil {
 			return nil, drawingMCPOutput{}, err
 		}
@@ -438,7 +476,8 @@ func NewDrawingMCPHandler(sharedAdmission ...gin.HandlerFunc) http.Handler {
 			if err != nil {
 				return nil, fmt.Errorf("%w: invalid OAuth MCP grant", auth.ErrInvalidToken)
 			}
-			return &auth.TokenInfo{UserID: strconv.FormatInt(int64(user.Id), 10), Scopes: []string{service.OAuthMCPDrawingScope}, Extra: map[string]any{"protocol_version": openSourceBountyMCPProtocolVersion, "oauth": true, "scope_count": len(grant.Scopes)}}, nil
+			grantedGroups := integration.GrantedGroups(user, grant)
+			return &auth.TokenInfo{UserID: strconv.FormatInt(int64(user.Id), 10), Scopes: []string{service.OAuthMCPDrawingScope}, Extra: map[string]any{"protocol_version": openSourceBountyMCPProtocolVersion, "oauth": true, "scope_count": len(grant.Scopes), "granted_groups": grantedGroups}}, nil
 		}
 		identity, err := model.VerifyDrawingMCPToken(token)
 		if err != nil {
