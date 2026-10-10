@@ -55,7 +55,7 @@ func NewStripe(cfg StripeConfig) (*Stripe, error) {
 	return &Stripe{cfg: cfg, client: outboundClient()}, nil
 }
 func (s *Stripe) Channel() Channel                { return s.cfg.Channel }
-func (*Stripe) RefundEnabled() bool              { return true }
+func (*Stripe) RefundEnabled() bool               { return true }
 func (*Stripe) PartialRefunds() bool              { return true }
 func (*Stripe) ReplayWindow(string) time.Duration { return 23 * time.Hour }
 func (s *Stripe) api(ctx context.Context, method, path, key string, form url.Values) ([]byte, error) {
