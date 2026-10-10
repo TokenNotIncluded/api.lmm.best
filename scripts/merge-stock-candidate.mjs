@@ -36,6 +36,59 @@ for (const name of ['pi-remote-control-review.yml', 'task-drawing-logs-review.ym
     paths.push(file)
   }
 }
+// Resolve five lint errors in the concurrent main addition. The command filter
+// rejects exactly the original character set; buttons keep their intended role.
+function replaceOnce(text, before, after) {
+  assert.equal(text.split(before).length, 2)
+  return text.replace(before, after)
+}
+const commandsFile = 'apps/web/src/features/remote-control/commands.ts'
+let commands = show(BASE, commandsFile)
+commands = replaceOnce(commands, 'export function createRemoteCommand(', `function hasUnsupportedControlCharacters(text: string): boolean {
+  for (const character of text) {
+    const code = character.charCodeAt(0)
+    if (code < 9 || code === 11 || code === 12 || (code >= 14 && code <= 31) || code === 127) return true
+  }
+  return false
+}
+
+export function createRemoteCommand(`)
+commands = replaceOnce(commands, String.raw`/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(input.text)`, 'hasUnsupportedControlCharacters(input.text)')
+writeFileSync(commandsFile, commands)
+paths.push(commandsFile)
+const reviewFile = 'apps/web/scripts/remote-control-review/browser.tsx'
+let remoteReview = show(BASE, reviewFile)
+remoteReview = replaceOnce(remoteReview, 'function Workspace(', 'export function Workspace(')
+remoteReview = replaceOnce(remoteReview, 'function App()', 'export function App()')
+remoteReview = replaceOnce(remoteReview, '<button onClick={lock}>', '<button type="button" onClick={lock}>')
+remoteReview = replaceOnce(remoteReview, '<button disabled={!envelope || !pin}>', '<button type="submit" disabled={!envelope || !pin}>')
+writeFileSync(reviewFile, remoteReview)
+paths.push(reviewFile)
+const controlsTest = 'apps/web/src/features/remote-control/command-control-characters.test.ts'
+assert.equal(git('ls-tree', '--name-only', BASE, controlsTest), '')
+writeFileSync(controlsTest, `/* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
+import assert from 'node:assert/strict'
+import { test } from 'node:test'
+
+import { createRemoteCommand } from './commands'
+
+test('remote text rejects every unsupported ASCII control', () => {
+  for (const code of [...Array.from({ length: 32 }, (_, code) => code), 127]) {
+    if ([9, 10, 13].includes(code)) continue
+    assert.throws(() => createRemoteCommand({ action: 'ui_input', request_id: 'question_123', text: 'a' + String.fromCodePoint(code) + 'b' }), /Invalid text input/)
+  }
+})
+
+test('remote text retains tabs, newlines and ordinary Unicode', () => {
+  for (const text of ['hello', '中文', 'a' + String.fromCodePoint(9) + 'b', 'a' + String.fromCodePoint(10) + 'b', 'a' + String.fromCodePoint(13) + 'b']) {
+    const command = createRemoteCommand({ action: 'ui_input', request_id: 'question_123', text })
+    assert.equal(command.action, 'ui_input')
+    assert.ok('text' in command)
+    assert.equal(command.text, text)
+  }
+})
+`)
+paths.push(controlsTest)
 const audit = []
 for (const [locale, copy] of Object.entries(storeStockCopy)) {
   const file = `${localeDirectory}${locale}.json`
@@ -54,8 +107,10 @@ execFileSync('bun', ['install', '--frozen-lockfile'], { stdio: 'inherit' })
 const formatFiles = ['scripts/store-stock-review.mjs', 'scripts/store-stock-copy.mjs',
   'src/features/store/seller-page.tsx', 'src/features/store/stock-status.ts',
   'src/features/store/stock-status.test.ts', 'src/features/store/catalogue-tags.tsx',
-  'src/features/usage-logs/lib/async-task-logs.ts', 'src/features/usage-logs/lib/__tests__/safe-media-url-controls.test.ts']
+  'src/features/usage-logs/lib/async-task-logs.ts', 'src/features/usage-logs/lib/__tests__/safe-media-url-controls.test.ts',
+  commandsFile.slice('apps/web/'.length), reviewFile.slice('apps/web/'.length), controlsTest.slice('apps/web/'.length)]
 execFileSync('bash', ['-euc', 'PATH="$PWD/node_modules/.bin:$PWD/../../node_modules/.bin:$PATH" oxfmt --write "$@"', 'stock-format', ...formatFiles], { cwd: 'apps/web', stdio: 'inherit' })
+execFileSync('bun', ['test', controlsTest.slice('apps/web/'.length)], { cwd: 'apps/web', stdio: 'inherit' })
 git('add', '--', ...paths)
 const expectedTree = git('write-tree')
 const changes = git('diff', '--cached', '--name-only').split('\n')
@@ -67,9 +122,7 @@ for (const file of changes) {
   assert.equal(blob.sha, git('hash-object', file))
   tree.push({ path: file, mode: '100644', type: 'blob', sha: blob.sha })
 }
-// The Actions token cannot create a tree that modifies workflows. Do not try
-// that write here. Test the local tree and hand its checked blobs to the user-
-// authorized connector for a normal commit and PR merge.
+// Test local content. Repository branch/workflow writes stay with the connector.
 const localCommit = git('-c', 'user.name=Stock regression review', '-c', 'user.email=stock-review@users.noreply.github.com', 'commit-tree', expectedTree, '-p', SOURCE, '-p', BASE, '-m', 'Local stock qualification candidate')
 git('checkout', '--detach', localCommit)
 assert.equal(git('rev-parse', 'HEAD^{tree}'), expectedTree)
