@@ -15,6 +15,7 @@ type openSourceBountyAcceptRequest struct {
 }
 
 type openSourceBountySubmitRequest struct {
+	DeliveryUrl    string `json:"delivery_url"`
 	IssueUrl       string `json:"issue_url"`
 	PullRequestUrl string `json:"pull_request_url"`
 	SubmissionNote string `json:"submission_note"`
@@ -324,10 +325,10 @@ func SubmitOpenSourceBountyChallenge(c *gin.Context) {
 		openSourceBountyApiError(c, &model.OpenSourceBountyError{Code: "OPEN_SOURCE_BOUNTY_INVALID_REQUEST", Message: "invalid bounty submission"})
 		return
 	}
-	challenge, err := model.SubmitOpenSourceBountyChallenge(
-		c.GetInt("id"), projectId, request.IssueUrl, request.PullRequestUrl,
-		request.SubmissionNote,
-	)
+	challenge, err := model.SubmitBountyChallenge(c.GetInt("id"), projectId, model.BountySubmissionInput{
+		IssueUrl: request.IssueUrl, PullRequestUrl: request.PullRequestUrl,
+		DeliveryUrl: request.DeliveryUrl, SubmissionNote: request.SubmissionNote,
+	})
 	if err != nil {
 		openSourceBountyApiError(c, err)
 		return

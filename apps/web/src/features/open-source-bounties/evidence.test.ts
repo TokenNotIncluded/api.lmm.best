@@ -105,3 +105,14 @@ describe('bounty dispute evidence comparison', () => {
     assert.deepEqual(comparison.changedFields, [])
   })
 })
+
+test('general delivery snapshots remain distinct from changed live evidence', () => {
+  const dispute = disputeFixture({
+    delivery_url_snapshot: 'https://example.com/original',
+    delivery_url: 'https://example.com/changed',
+    live_evidence_changed: true,
+  })
+  const comparison = getBountyDisputeEvidenceComparison(dispute)
+  assert.deepEqual(comparison.changedFields, ['deliveryUrl'])
+  assert.equal(comparison.showCurrentValues, true)
+})

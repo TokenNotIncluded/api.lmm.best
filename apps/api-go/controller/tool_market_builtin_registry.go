@@ -190,7 +190,7 @@ func BuiltinToolMarketDefinitions(ctx context.Context) ([]BuiltinToolMarketServi
 func loadBuiltinToolMarketDefinitions(ctx context.Context) ([]BuiltinToolMarketServiceDefinition, error) {
 	definitions := []BuiltinToolMarketServiceDefinition{
 		{Key: "drawing", Name: "Drawing", Description: "Discover available image models and generate images after confirmation. Tool calls are free; image generation uses normal model billing."},
-		{Key: "open_source_bounties", Name: "Open-source bounties", Description: "Publish, accept, review, and settle open-source bounties. Tool calls are free; funded rewards and tips use your actual wallet balance."},
+		{Key: "open_source_bounties", Name: "Bounties", Description: "Publish, accept, deliver, review, and settle general or open-source bounties. Tool calls are free; funded rewards and tips use your actual wallet balance."},
 		{Key: "wallet", Name: "Wallet", Description: "Read your balance, open the recharge page, and create a transfer link after confirming the exact amount. Tool calls are free; transfers use your actual wallet balance."},
 	}
 	for index := range definitions {

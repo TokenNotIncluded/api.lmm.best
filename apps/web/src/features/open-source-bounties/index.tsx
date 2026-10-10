@@ -110,6 +110,9 @@ For commercial licensing, please contact support@quantumnous.com
 /*
 Copyright (C) 2026 LIghtJUNction
 */
+import { GeneralBountyFields, BountyMetadata, BountyDeliveryLink } from './general-bounty-fields'
+import { getBountyKind, type BountyKind } from './types'
+import { formatBountyDeadline, parseBountyDeadline, isBountyRecruitmentOpen } from './validation'
 import { BountyDecision } from '@/features/open-source-bounties/bounty-decision'
 import { BountyProgress } from '@/features/open-source-bounties/bounty-progress'
 import { useCreditInputDisplay } from '@/hooks/use-credit-input-display'
@@ -208,6 +211,11 @@ const CLOSE_BLOCKER_ERROR_CODES = new Set([
 ])
 
 const ERROR_KEYS: Record<string, string> = {
+  BOUNTY_INVALID_KIND: 'Complete every bounty field with valid values.',
+  BOUNTY_INVALID_PUBLISHER_TYPE: 'Complete every bounty field with valid values.',
+  BOUNTY_INVALID_DEADLINE: 'Expired time cannot be earlier than current time',
+  BOUNTY_DEADLINE_PASSED: 'Expired',
+  BOUNTY_INVALID_DELIVERY: 'Complete every bounty field with valid values.',
   OPEN_SOURCE_BOUNTY_INVALID_REPOSITORY:
     'Enter a GitHub repository URL in the format https://github.com/owner/repository.',
   OPEN_SOURCE_BOUNTY_INVALID_TITLE:
@@ -249,6 +257,9 @@ const ERROR_KEYS: Record<string, string> = {
 }
 
 type DraftForm = {
+  kind: BountyKind
+  publisherType: 'individual' | 'company'
+  deadlineAt: string
   repositoryUrl: string
   title: string
   description: string
@@ -258,6 +269,9 @@ type DraftForm = {
 }
 
 const EMPTY_DRAFT: DraftForm = {
+  kind: 'general',
+  publisherType: 'individual',
+  deadlineAt: '',
   repositoryUrl: '',
   title: '',
   description: '',
@@ -268,6 +282,9 @@ const EMPTY_DRAFT: DraftForm = {
 
 function projectToDraft(project: BountyProject): DraftForm {
   return {
+    kind: getBountyKind(project),
+    publisherType: project.publisher_type ?? 'individual',
+    deadlineAt: formatBountyDeadline(project.deadline_at ?? 0),
     repositoryUrl: project.repository_url,
     title: project.title,
     description: project.description,
@@ -282,20 +299,23 @@ function statusLabel(t: (key: string) => string, status: string) {
 }
 
 function useBountyLifecycle(project: BountyProject, hasOpenDispute = false) {
-  const deadline = project.appeal_window_ends_at ?? 0
+  const appealDeadline = project.appeal_window_ends_at ?? 0
+  const recruitmentDeadline = project.deadline_at ?? 0
   const [nowSeconds, setNowSeconds] = useState(() =>
     Math.floor(Date.now() / 1000)
   )
 
   useEffect(() => {
-    const delay = deadline * 1000 - Date.now()
+    const deadlines = [appealDeadline, recruitmentDeadline].filter((value) => value * 1000 > Date.now())
+    if (!deadlines.length) return
+    const delay = Math.min(...deadlines) * 1000 - Date.now()
     if (delay <= 0) return
     const timeout = window.setTimeout(
       () => setNowSeconds(Math.floor(Date.now() / 1000)),
-      delay + 50
+      Math.min(delay + 50, 2_147_483_647)
     )
     return () => window.clearTimeout(timeout)
-  }, [deadline])
+  }, [appealDeadline, recruitmentDeadline, nowSeconds])
 
   return useMemo(
     () => getBountyLifecycleSummary(project, hasOpenDispute, nowSeconds),
@@ -362,9 +382,11 @@ export function OpenSourceBounties({
   const [githubHandle, setGithubHandle] = useState('')
   const [submitTarget, setSubmitTarget] = useState<{
     projectId: number
+    kind: BountyKind
     challenge: BountyChallenge
   } | null>(null)
   const [submission, setSubmission] = useState({
+    deliveryUrl: '',
     issueUrl: '',
     pullRequestUrl: '',
     submissionNote: '',
@@ -449,7 +471,7 @@ export function OpenSourceBounties({
     draft.rewardSlots,
   ])
   const draftErrors = draftValidationAttempted
-    ? validateBountyDraft(draft, { rawCredits: true })
+    ? validateBountyDraft(draft, { rawCredits: true, contentOnly: editingProject?.status === 'published' || editingProject?.status === 'paused' })
     : {}
 
   const refresh = async (balanceChanged = false) => {
@@ -505,7 +527,7 @@ export function OpenSourceBounties({
 
   const openCreateDialog = () => {
     setEditingProject(null)
-    setDraft(EMPTY_DRAFT)
+    setDraft({ ...EMPTY_DRAFT, kind: configQuery.data?.general_bounties ? 'general' : 'open_source' })
     setDraftValidationAttempted(false)
     setDraftOpen(true)
   }
@@ -518,7 +540,7 @@ export function OpenSourceBounties({
   }
 
   const saveDraft = async () => {
-    const validationErrors = validateBountyDraft(draft, { rawCredits: true })
+    const validationErrors = validateBountyDraft(draft, { rawCredits: true, contentOnly: editingProject?.status === 'published' || editingProject?.status === 'paused' })
     setDraftValidationAttempted(true)
     const firstValidationError = Object.values(validationErrors)[0]
     if (firstValidationError) {
@@ -526,6 +548,9 @@ export function OpenSourceBounties({
       return
     }
     const input: BountyDraftInput = {
+      kind: draft.kind,
+      publisher_type: draft.publisherType,
+      deadline_at: parseBountyDeadline(draft.deadlineAt),
       repository_url: draft.repositoryUrl.trim(),
       title: draft.title.trim(),
       description: draft.description.trim(),
@@ -609,7 +634,7 @@ export function OpenSourceBounties({
       !window.confirm(
         t(
           'Cancel the unsubmitted challenge from @{{username}}? This releases its reward slot and cannot be undone.',
-          { username: challenge.github_handle }
+          { username: challenge.participant_username || challenge.github_handle || String(challenge.participant_user_id) }
         )
       )
     ) {
@@ -631,22 +656,19 @@ export function OpenSourceBounties({
       project.reward_slots,
       configQuery.data?.rate_basis_points ?? 0
     )
-    if (
-      !window.confirm(
-        t(
-          'Publish now? Your balance will be debited {{gross}} gross. The public {{rate}}% platform fee of {{fee}} is credited to the super administrator and helps fund AI customer-service token costs, leaving {{netReward}} per approved fix and {{escrow}} total escrow.',
-          {
-            gross: formatQuota(charge.gross),
-            rate: charge.feeRatePercent,
-            fee: formatQuota(charge.platformFee),
-            netReward: formatQuota(charge.netReward),
-            escrow: formatQuota(charge.escrow),
-          }
-        )
-      )
-    ) {
-      return
-    }
+    if (!isBountyRecruitmentOpen(project)) { toast.error(t('Expired')); return }
+    if (!configQuery.isSuccess) { toast.error(t('Unavailable')); return }
+    const preview = [
+      `${t('Publish and fund')}: ${project.title}`,
+      t('Every publisher pays from their own balance'),
+      `${t('Publish charge')}: ${formatQuota(charge.gross)}`,
+      `${t('Public platform fee: {{rate}}%', { rate: charge.feeRatePercent })}: ${formatQuota(charge.platformFee)}`,
+      `${t('Locked reward')}: ${formatQuota(charge.netReward)} × ${project.reward_slots}`,
+      `${t('Escrow remaining')}: ${formatQuota(charge.escrow)}`,
+      t('The platform fee is credited to the super administrator account and funds AI customer-service token costs. Publishers and contributors settle directly; administrators intervene only in disputes.'),
+    ].join('\n\n')
+    if (!window.confirm(preview)) return
+
     void runAction(
       `publish-${project.id}`,
       () => publishBounty(project.id),
@@ -656,10 +678,12 @@ export function OpenSourceBounties({
   }
 
   const handleAccept = async () => {
-    if (!acceptProject || githubHandle.trim().length < 1) return
+    if (!acceptProject) return
+    if (!isBountyRecruitmentOpen(acceptProject)) { toast.error(t('Expired')); return }
+    if (getBountyKind(acceptProject) !== 'general' && !githubHandle.trim()) return
     const success = await runAction(
       `accept-${acceptProject.id}`,
-      () => acceptBounty(acceptProject.id, githubHandle.trim()),
+      () => acceptBounty(acceptProject.id, getBountyKind(acceptProject) === 'general' ? '' : githubHandle.trim()),
       'Challenge accepted.'
     )
     if (success) {
@@ -670,7 +694,7 @@ export function OpenSourceBounties({
 
   const handleSubmit = async () => {
     if (!submitTarget) return
-    const submissionLinkError = validateBountySubmissionLinks(submission)
+    const submissionLinkError = validateBountySubmissionLinks(submission, { kind: submitTarget.kind })
     if (submissionLinkError) {
       toast.error(t(submissionLinkError))
       return
@@ -679,6 +703,7 @@ export function OpenSourceBounties({
       `submit-${submitTarget.challenge.id}`,
       () =>
         submitChallenge(submitTarget.projectId, {
+          delivery_url: submission.deliveryUrl.trim(),
           issue_url: submission.issueUrl.trim(),
           pull_request_url: submission.pullRequestUrl.trim(),
           submission_note: submission.submissionNote.trim(),
@@ -688,6 +713,7 @@ export function OpenSourceBounties({
     if (success) {
       setSubmitTarget(null)
       setSubmission({
+        deliveryUrl: '',
         issueUrl: '',
         pullRequestUrl: '',
         submissionNote: '',
@@ -781,9 +807,10 @@ export function OpenSourceBounties({
     }
   }
 
-  const openSubmitDialog = (projectId: number, challenge: BountyChallenge) => {
-    setSubmitTarget({ projectId, challenge })
+  const openSubmitDialog = (projectId: number, challenge: BountyChallenge, kind: BountyKind = getBountyKind(challenge)) => {
+    setSubmitTarget({ projectId, challenge, kind })
     setSubmission({
+      deliveryUrl: challenge.delivery_url || '',
       issueUrl: challenge.issue_url || '',
       pullRequestUrl: challenge.pull_request_url || '',
       submissionNote: challenge.submission_note || '',
@@ -830,7 +857,7 @@ export function OpenSourceBounties({
             viewerUserId={user?.id ?? 0}
             pending={pending}
             onAccept={() => setAcceptProject(project)}
-            onSubmit={(challenge) => openSubmitDialog(project.id, challenge)}
+            onSubmit={(challenge) => openSubmitDialog(project.id, challenge, getBountyKind(project))}
           />
         ))}
       </div>
@@ -847,6 +874,7 @@ export function OpenSourceBounties({
           <CardStaggerItem>
             <BountyPageHeader
               onCreate={openCreateDialog}
+              createDisabled={!configQuery.isSuccess}
               feeRate={configQuery.data?.rate_basis_points}
               feeError={configQuery.isError}
               isSuperAdmin={isSuperAdmin}
@@ -860,7 +888,7 @@ export function OpenSourceBounties({
               className='console-page-tabs min-w-0'
             >
               <TabsList
-                aria-label={t('Open-source bounties')}
+                aria-label={t('Bounties')}
                 variant='navigation'
               >
                 <TabsTrigger value='browse'>{t('Bounty board')}</TabsTrigger>
@@ -1037,7 +1065,7 @@ export function OpenSourceBounties({
                       </EmptyTitle>
                       <EmptyDescription>
                         {t(
-                          'Accept an available bounty, fix a real defect, and submit the matching Issue or pull request.'
+                          'Find focused work with funded reward slots.'
                         )}
                       </EmptyDescription>
                     </EmptyHeader>
@@ -1112,6 +1140,7 @@ export function OpenSourceBounties({
           editingProject?.status === 'published' ||
           editingProject?.status === 'paused'
         }
+        generalSupported={configQuery.data?.general_bounties === true}
         draft={draft}
         setDraft={setDraft}
         errors={draftErrors}
@@ -1126,7 +1155,7 @@ export function OpenSourceBounties({
         onOpenChange={(open) => !open && setAcceptProject(null)}
         title={t('Accept challenge')}
         description={t(
-          'Reserve one reward slot and identify your GitHub account.'
+          getBountyKind(acceptProject) === 'general' ? 'Find focused work with funded reward slots.' : 'Reserve one reward slot and identify your GitHub account.'
         )}
         contentClassName='sm:max-w-md'
         footer={
@@ -1136,7 +1165,7 @@ export function OpenSourceBounties({
             </Button>
             <Button
               onClick={handleAccept}
-              disabled={!githubHandle.trim() || pending.startsWith('accept-')}
+              disabled={!acceptProject || !isBountyRecruitmentOpen(acceptProject) || (getBountyKind(acceptProject) !== 'general' && !githubHandle.trim()) || pending.startsWith('accept-')}
             >
               {t('Accept challenge')}
             </Button>
@@ -1151,6 +1180,7 @@ export function OpenSourceBounties({
             </p>
           </div>
         )}
+        {getBountyKind(acceptProject) !== 'general' && (
         <div className='flex flex-col gap-2 py-2'>
           <Label htmlFor='bounty-github-handle'>{t('GitHub handle')}</Label>
           <Input
@@ -1160,6 +1190,7 @@ export function OpenSourceBounties({
             placeholder='@username'
           />
         </div>
+        )}
       </Dialog>
 
       <SubmissionDialog
@@ -1448,7 +1479,7 @@ export function BountyCard({
       <Button
         onClick={onAccept}
         disabled={
-          project.status !== 'published' || slots === 0 || pending !== ''
+          project.status !== 'published' || !isBountyRecruitmentOpen(project) || slots === 0 || pending !== ''
         }
       >
         <HugeiconsIcon
@@ -1471,7 +1502,7 @@ export function BountyCard({
       description={project.owner_username}
       titleClassName='[overflow-wrap:anywhere]'
       descriptionClassName='[overflow-wrap:anywhere]'
-      icon={<HugeiconsIcon icon={Bug01Icon} strokeWidth={1.8} />}
+      icon={<HugeiconsIcon icon={getBountyKind(project) === 'general' ? Megaphone01Icon : Bug01Icon} strokeWidth={1.8} />}
       iconTone='primary'
       action={
         <BountyStatusBar project={project} lifecycle={lifecycle} rank={rank} />
@@ -1514,7 +1545,7 @@ export function BountyCard({
       </div>
       <div className='grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3'>
         <Metric
-          label={t('Reward per fix')}
+          label={t('Reward')}
           value={formatQuota(project.reward_quota)}
         />
         <Metric
@@ -1543,12 +1574,14 @@ export function BountyCard({
           }
         />
       </div>
+      <BountyMetadata project={project} />
       <BountyDecision project={project} />
       <details className='text-sm'>
         <summary className='cursor-pointer'>{t('Acceptance rules')}</summary>
         <p className='mt-2 whitespace-pre-wrap'>{project.rules}</p>
       </details>
       <div className='mt-auto flex flex-wrap gap-2'>
+        {project.repository_url && (
         <Button
           variant='outline'
           render={
@@ -1567,6 +1600,7 @@ export function BountyCard({
             data-icon='inline-end'
           />
         </Button>
+        )}
         {viewerAction}
       </div>
     </TitledCard>
@@ -1715,15 +1749,16 @@ export function OwnerProjectCard(props: {
       description={project.repository_url}
       titleClassName='[overflow-wrap:anywhere]'
       descriptionClassName='break-all'
-      icon={<HugeiconsIcon icon={SourceCodeIcon} strokeWidth={1.8} />}
+      icon={<HugeiconsIcon icon={getBountyKind(project) === 'general' ? Megaphone01Icon : SourceCodeIcon} strokeWidth={1.8} />}
       iconTone='info'
       disableHoverEffect
       action={<BountyStatusBar project={project} lifecycle={lifecycle} />}
     >
       <div className='flex flex-col gap-4'>
+        <BountyMetadata project={project} />
         <div className='grid gap-2 sm:grid-cols-5'>
           <Metric
-            label={t('Reward per fix')}
+            label={t('Reward')}
             value={formatQuota(project.reward_quota)}
           />
           <Metric
@@ -1819,7 +1854,7 @@ export function OwnerProjectCard(props: {
                 />
                 {t('Edit')}
               </Button>
-              <Button onClick={props.onPublish} disabled={busy}>
+              <Button onClick={props.onPublish} disabled={busy || !isBountyRecruitmentOpen(project)}>
                 <HugeiconsIcon
                   icon={PlayIcon}
                   strokeWidth={2}
@@ -1872,7 +1907,7 @@ export function OwnerProjectCard(props: {
                 <Button
                   variant='outline'
                   onClick={props.onResume}
-                  disabled={busy}
+                  disabled={busy || !isBountyRecruitmentOpen(project)}
                 >
                   <HugeiconsIcon
                     icon={PlayIcon}
@@ -1976,6 +2011,7 @@ function ChallengeCard({
           />
         </div>
         <BountyProgress challenge={challenge} />
+      <BountyDeliveryLink url={challenge.delivery_url} />
         <RatingView
           title={t('Verifier rating of your work')}
           score={challenge.owner_rating_score}
@@ -2126,6 +2162,7 @@ function DraftDialog(props: {
   onOpenChange: (open: boolean) => void
   editing: boolean
   publishedEditing: boolean
+  generalSupported: boolean
   draft: DraftForm
   setDraft: (draft: DraftForm) => void
   errors: BountyDraftErrors
@@ -2174,23 +2211,7 @@ function DraftDialog(props: {
         </>
       }
     >
-      <Field
-        label={t('GitHub repository URL')}
-        htmlFor='bounty-repository'
-        error={errorFor('repositoryUrl')}
-      >
-        <Input
-          id='bounty-repository'
-          value={props.draft.repositoryUrl}
-          onChange={(e) => update('repositoryUrl', e.target.value)}
-          disabled={props.publishedEditing}
-          placeholder='https://github.com/owner/repository'
-          aria-invalid={Boolean(props.errors.repositoryUrl)}
-          aria-describedby={
-            props.errors.repositoryUrl ? 'bounty-repository-error' : undefined
-          }
-        />
-      </Field>
+
       <Field
         label={t('Bounty title')}
         htmlFor='bounty-title'
@@ -2209,7 +2230,7 @@ function DraftDialog(props: {
         />
       </Field>
       <Field
-        label={t('Project and defect scope')}
+        label={t(props.draft.kind === 'general' ? 'Description' : 'Project and defect scope')}
         htmlFor='bounty-description'
         error={errorFor('description')}
       >
@@ -2243,13 +2264,38 @@ function DraftDialog(props: {
             props.errors.rules ? 'bounty-rules-error' : undefined
           }
           placeholder={t(
-            'Describe eligible defects, required tests, review criteria, and exclusions.'
+            'Acceptance rules'
           )}
         />
       </Field>
+      <GeneralBountyFields
+        value={props.draft}
+        onChange={props.setDraft}
+        disabled={props.publishedEditing}
+        generalSupported={props.generalSupported}
+        deadlineError={errorFor('deadlineAt')}
+      />
+      {props.draft.kind === 'open_source' && (
+      <Field
+        label={t('GitHub repository URL')}
+        htmlFor='bounty-repository'
+        error={errorFor('repositoryUrl')}
+      >
+        <Input
+          id='bounty-repository'
+          value={props.draft.repositoryUrl}
+          onChange={(e) => update('repositoryUrl', e.target.value)}
+          disabled={props.publishedEditing}
+          placeholder='https://github.com/owner/repository'
+          aria-invalid={Boolean(props.errors.repositoryUrl)}
+          aria-describedby={
+            props.errors.repositoryUrl ? 'bounty-repository-error' : undefined
+          }
+        />
+      </Field>      )}
       <div className='grid gap-4 sm:grid-cols-2'>
         <Field
-          label={`${t('Reward per fix')} (${currencyLabel})`}
+          label={`${t('Reward')} (${currencyLabel})`}
           htmlFor='bounty-reward'
           error={errorFor('rewardAmount')}
         >
@@ -2288,18 +2334,12 @@ function DraftDialog(props: {
       <Alert>
         <HugeiconsIcon icon={MoneyLockIcon} strokeWidth={2} />
         <AlertTitle>{t('Publish charge')}</AlertTitle>
-        <AlertDescription>
-          {t(
-            'Publish charge: {{total}} gross listing total. Of that amount, {{fee}} public platform fee ({{rate}}%) is credited to the super administrator and helps fund AI customer-service token costs, leaving {{netReward}} per approved fix and {{escrow}} total escrow. Current balance: {{balance}}.',
-            {
-              escrow: formatQuota(props.charge.escrow),
-              fee: formatQuota(props.charge.platformFee),
-              rate: props.charge.feeRatePercent.toFixed(2),
-              netReward: formatQuota(props.charge.netReward),
-              total: formatQuota(props.charge.total),
-              balance: formatQuota(props.availableQuota),
-            }
-          )}
+        <AlertDescription className='grid gap-3 sm:grid-cols-2'>
+          <Metric label={t('Publish charge')} value={formatQuota(props.charge.total)} />
+          <Metric label={t('Public platform fee: {{rate}}%', { rate: props.charge.feeRatePercent })} value={formatQuota(props.charge.platformFee)} />
+          <Metric label={t('Locked reward')} value={formatQuota(props.charge.netReward)} />
+          <Metric label={t('Escrow remaining')} value={formatQuota(props.charge.escrow)} />
+          <Metric label={t('Balance')} value={formatQuota(props.availableQuota)} />
         </AlertDescription>
       </Alert>
     </Dialog>
@@ -2339,14 +2379,16 @@ function Field({
 }
 
 function SubmissionDialog(props: {
-  target: { projectId: number; challenge: BountyChallenge } | null
+  target: { projectId: number; kind: BountyKind; challenge: BountyChallenge } | null
   onOpenChange: (open: boolean) => void
   submission: {
+    deliveryUrl: string
     issueUrl: string
     pullRequestUrl: string
     submissionNote: string
   }
   setSubmission: (value: {
+    deliveryUrl: string
     issueUrl: string
     pullRequestUrl: string
     submissionNote: string
@@ -2357,14 +2399,14 @@ function SubmissionDialog(props: {
   const { t } = useTranslation()
   const update = (key: keyof typeof props.submission, value: string) =>
     props.setSubmission({ ...props.submission, [key]: value })
-  const submissionLinkError = validateBountySubmissionLinks(props.submission)
+  const submissionLinkError = validateBountySubmissionLinks(props.submission, { kind: props.target?.kind })
   return (
     <Dialog
       open={Boolean(props.target)}
       onOpenChange={props.onOpenChange}
       title={t('Submit bounty work')}
       description={t(
-        'Provide a GitHub Issue URL, pull request URL, or both. The bounty publisher will review the completed work directly.'
+        props.target?.kind === 'general' ? 'A delivery trail people can actually review.' : 'Provide a GitHub Issue URL, pull request URL, or both. The bounty publisher will review the completed work directly.'
       )}
       contentClassName='sm:max-w-2xl'
       footer={
@@ -2386,6 +2428,19 @@ function SubmissionDialog(props: {
       }
     >
       <div className='flex flex-col gap-4 py-2'>
+        {props.target?.kind === 'general' ? (
+          <>
+            <Field label={`${t('Link URL')} (HTTPS)`} htmlFor='bounty-delivery-url'>
+              <Input id='bounty-delivery-url' type='url'
+                value={props.submission.deliveryUrl}
+                onChange={(event) => update('deliveryUrl', event.target.value)}
+                aria-describedby='bounty-completion-links-help' />
+            </Field>
+            <p id='bounty-completion-links-help' className='text-muted-foreground text-sm'>
+              {t('Link URL')} {t('Or')} {t('Delivery content')} (20–2000)
+            </p>
+          </>
+        ) : (<>
         <Field label={t('GitHub Issue URL')} htmlFor='bounty-issue-url'>
           <Input
             id='bounty-issue-url'
@@ -2408,8 +2463,9 @@ function SubmissionDialog(props: {
         >
           {t('Provide at least one GitHub Issue or pull request URL.')}
         </p>
+        </>)}
         <Field
-          label={t('Completion note (optional)')}
+          label={t(props.target?.kind === 'general' ? 'Delivery content' : 'Completion note (optional)')}
           htmlFor='bounty-submission-note'
         >
           <Textarea
@@ -2501,6 +2557,7 @@ export function ProjectReviewDialog(props: {
                 </Badge>
               </div>
               <div className='flex flex-wrap gap-2'>
+                {challenge.github_handle && (
                 <Button
                   variant='outline'
                   render={
@@ -2523,6 +2580,7 @@ export function ProjectReviewDialog(props: {
                     data-icon='inline-end'
                   />
                 </Button>
+                )}
               </div>
               <div className='grid gap-2 sm:grid-cols-2'>
                 <Metric
@@ -2538,6 +2596,13 @@ export function ProjectReviewDialog(props: {
                   value={formatQuota(challenge.tip_quota)}
                 />
               </div>
+              <BountyDeliveryLink url={challenge.delivery_url} />
+              {challenge.submission_note ? (
+                <div className='bg-muted/30 rounded-lg p-3'>
+                  <p className='text-xs font-medium'>{t('Delivery content')}</p>
+                  <p className='text-muted-foreground mt-1 text-sm whitespace-pre-wrap'>{challenge.submission_note}</p>
+                </div>
+              ) : null}
               {(challenge.issue_url || challenge.pull_request_url) && (
                 <div className='flex flex-wrap gap-2'>
                   {challenge.issue_url && (
@@ -2867,6 +2932,11 @@ function DisputeEvidence({ dispute }: { dispute: BountyDispute }) {
             current={!changed.has('projectRules')}
           />
           <DisputeEvidenceValue
+            label={t('Delivery evidence')}
+            value={text(dispute.delivery_url_snapshot ?? '')}
+            current={!changed.has('deliveryUrl')}
+          />
+          <DisputeEvidenceValue
             label={t('Completion note (optional)')}
             value={text(dispute.submission_note_snapshot)}
             current={!changed.has('submissionNote')}
@@ -2925,6 +2995,13 @@ function DisputeEvidence({ dispute }: { dispute: BountyDispute }) {
                 label={t('Pull request')}
                 original={text(dispute.pull_request_url_snapshot)}
                 current={text(dispute.pull_request_url)}
+              />
+            ) : null}
+            {changed.has('deliveryUrl') ? (
+              <DisputeEvidenceChange
+                label={t('Delivery evidence')}
+                original={text(dispute.delivery_url_snapshot ?? '')}
+                current={text(dispute.delivery_url ?? '')}
               />
             ) : null}
             {changed.has('submissionNote') ? (
@@ -3161,6 +3238,8 @@ function DisputesPanel({
                 </div>
               )}
               <div className='flex flex-wrap gap-2'>
+                <BountyDeliveryLink url={dispute.delivery_url_snapshot} />
+                {dispute.repository_url && (
                 <Button
                   variant='outline'
                   render={
@@ -3178,6 +3257,7 @@ function DisputesPanel({
                     data-icon='inline-end'
                   />
                 </Button>
+                )}
                 {dispute.issue_url ? (
                   <Button
                     variant='outline'
@@ -3338,18 +3418,18 @@ function RulesPanel() {
   const steps = [
     [
       '1',
-      'Find and document a real bug',
-      'Open a valid Issue with the affected project, reproducible steps, expected behavior, actual behavior, and impact.',
+      'Create bounty',
+      'Create a draft, fund it from your balance, then publish it to the board.',
     ],
     [
       '2',
-      'Submit a focused fix',
-      'Open a pull request that links the Issue and includes appropriate verification or tests.',
+      'Submit for review',
+      'A delivery trail people can actually review.',
     ],
     [
       '3',
       'Settle directly with the publisher',
-      'Submit the Issue or pull request in Open-source bounties. The publisher verifies the work, rates the contributor, and releases the escrowed reward directly.',
+      'Approve the work, release the reward, rate, tip, or dispute.',
     ],
     [
       '4',
@@ -3360,17 +3440,17 @@ function RulesPanel() {
   return (
     <div className='grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]'>
       <TitledCard
-        title={t('Real bug-fix contribution rewards')}
+        title={t('Bounties')}
         description={t(
-          'A separate incentive for genuine defects in public projects. It is not part of the Challenge II recovery process.'
+          'Every funded action leaves a visible record for project owners and contributors.'
         )}
-        icon={<HugeiconsIcon icon={Bug01Icon} strokeWidth={1.8} />}
+        icon={<HugeiconsIcon icon={Megaphone01Icon} strokeWidth={1.8} />}
         iconTone='primary'
         disableHoverEffect
       >
         <div className='grid gap-3 sm:grid-cols-2'>
           {steps.map(([number, title, description]) => (
-            <div key={number} className='flex gap-3 rounded-none border p-4'>
+            <div key={number} className='flex gap-3 rounded-xl bg-muted/20 p-4'>
               <Badge variant='secondary'>{number}</Badge>
               <div>
                 <h3 className='font-semibold'>{t(title)}</h3>
@@ -3384,7 +3464,7 @@ function RulesPanel() {
       </TitledCard>
       <TitledCard
         title={t('Quality requirements')}
-        description={t('Only genuine, reviewable engineering work qualifies.')}
+        description={t('Acceptance and verification rules')}
         icon={<HugeiconsIcon icon={Award01Icon} strokeWidth={1.8} />}
         iconTone='neutral'
         disableHoverEffect
@@ -3392,7 +3472,7 @@ function RulesPanel() {
         <div className='flex flex-col gap-4'>
           <p className='text-muted-foreground text-sm leading-relaxed'>
             {t(
-              'Low-quality reports, fabricated bugs, duplicate Issues, unrelated pull requests, mechanical spam, and changes made only to obtain a reward do not qualify.'
+              'Do not use the service to expose, infer, or misuse another person\'s sensitive personal information.'
             )}
           </p>
           <Separator />

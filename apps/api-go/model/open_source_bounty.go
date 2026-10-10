@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/pkg/bountycontract"
 	"gorm.io/gorm"
 )
 
@@ -65,6 +66,10 @@ func OpenSourceBountyErrorCode(err error) string {
 }
 
 type OpenSourceBountyProject struct {
+	// Keep legacy storage names and default existing rows to open-source tasks.
+	Kind               string `json:"kind" gorm:"type:varchar(20);not null;default:'open_source';index"`
+	PublisherType      string `json:"publisher_type" gorm:"type:varchar(20);not null;default:'individual'"`
+	DeadlineAt         int64  `json:"deadline_at" gorm:"bigint;not null;default:0;index"`
 	Id                 int    `json:"id"`
 	OwnerUserId        int    `json:"owner_user_id" gorm:"not null;index"`
 	RepositoryUrl      string `json:"repository_url" gorm:"type:varchar(512);not null;index"`
@@ -88,6 +93,7 @@ type OpenSourceBountyProject struct {
 func (OpenSourceBountyProject) TableName() string { return "open_source_bounty_projects" }
 
 type OpenSourceBountyChallenge struct {
+	DeliveryUrl              string `json:"delivery_url" gorm:"type:varchar(2048);not null;default:''"`
 	Id                       int    `json:"id"`
 	ProjectId                int    `json:"project_id" gorm:"not null;index;index:idx_open_source_bounty_project_participant,priority:1"`
 	ParticipantUserId        int    `json:"participant_user_id" gorm:"not null;index;index:idx_open_source_bounty_project_participant,priority:2"`
@@ -135,6 +141,9 @@ type OpenSourceBountyLedger struct {
 func (OpenSourceBountyLedger) TableName() string { return "open_source_bounty_ledgers" }
 
 type OpenSourceBountyDraftInput struct {
+	Kind          string `json:"kind"`
+	PublisherType string `json:"publisher_type"`
+	DeadlineAt    int64  `json:"deadline_at"`
 	RepositoryUrl string `json:"repository_url"`
 	Title         string `json:"title"`
 	Description   string `json:"description"`
@@ -193,6 +202,8 @@ type OpenSourceBountyNotification struct {
 }
 
 type OpenSourceBountyChallengeView struct {
+	Kind       string `json:"kind"`
+	DeadlineAt int64  `json:"deadline_at"`
 	OpenSourceBountyChallenge
 	ParticipantUsername      string                       `json:"participant_username"`
 	ProjectTitle             string                       `json:"project_title"`
@@ -212,6 +223,7 @@ type OpenSourceBountyProjectDetail struct {
 }
 
 type OpenSourceBountyFeeConfig struct {
+	GeneralBounties bool    `json:"general_bounties"`
 	RatePercent     float64 `json:"rate_percent"`
 	RateBasisPoints int     `json:"rate_basis_points"`
 }
@@ -233,7 +245,7 @@ func GetOpenSourceBountyFeeConfig() OpenSourceBountyFeeConfig {
 	if err != nil {
 		basisPoints = defaultOpenSourceBountyFeeRateBps
 	}
-	return OpenSourceBountyFeeConfig{RatePercent: float64(basisPoints) / 100, RateBasisPoints: basisPoints}
+	return OpenSourceBountyFeeConfig{GeneralBounties: true, RatePercent: float64(basisPoints) / 100, RateBasisPoints: basisPoints}
 }
 
 func parseOpenSourceBountyFeeRateBasisPoints(raw string) (int, error) {
@@ -306,21 +318,38 @@ func GetOpenSourceBountyPlatformFeeRecipient() (*User, error) {
 }
 
 func normalizeBountyDraft(input OpenSourceBountyDraftInput) (OpenSourceBountyDraftInput, error) {
-	repositoryUrl, err := NormalizeGithubRepositoryUrl(input.RepositoryUrl)
+	kind, err := bountycontract.Kind(input.Kind, input.RepositoryUrl)
 	if err != nil {
-		return input, err
+		return input, bountyError("BOUNTY_INVALID_KIND", err.Error())
 	}
-	input.RepositoryUrl = repositoryUrl
+	input.Kind = kind
+	publisherType, err := bountycontract.PublisherType(input.PublisherType)
+	if err != nil {
+		return input, bountyError("BOUNTY_INVALID_PUBLISHER_TYPE", err.Error())
+	}
+	input.PublisherType = publisherType
+	if !bountycontract.RecruitmentOpen(input.DeadlineAt, common.GetTimestamp()) {
+		return input, bountyError("BOUNTY_INVALID_DEADLINE", "recruitment deadline must be in the future or zero for no deadline")
+	}
+	input.RepositoryUrl = strings.TrimSpace(input.RepositoryUrl)
+	if kind == bountycontract.OpenSource {
+		input.RepositoryUrl, err = NormalizeGithubRepositoryUrl(input.RepositoryUrl)
+		if err != nil {
+			return input, err
+		}
+	} else if input.RepositoryUrl != "" {
+		return input, bountyError("BOUNTY_INVALID_KIND", "general tasks use requirements for reference links, not repository_url")
+	}
 	input.Title = strings.TrimSpace(input.Title)
 	input.Description = strings.TrimSpace(input.Description)
 	input.Rules = strings.TrimSpace(input.Rules)
-	if len(input.Title) < 4 || len(input.Title) > 120 {
+	if !bountycontract.ValidText(input.Title, 4, 120) {
 		return input, bountyError("OPEN_SOURCE_BOUNTY_INVALID_TITLE", "title must contain 4 to 120 characters")
 	}
-	if len(input.Description) < 20 || len(input.Description) > 2000 {
+	if !bountycontract.ValidText(input.Description, 20, 2000) {
 		return input, bountyError("OPEN_SOURCE_BOUNTY_INVALID_DESCRIPTION", "description must contain 20 to 2000 characters")
 	}
-	if len(input.Rules) < 20 || len(input.Rules) > 5000 {
+	if !bountycontract.ValidText(input.Rules, 20, 5000) {
 		return input, bountyError("OPEN_SOURCE_BOUNTY_INVALID_RULES", "rules must contain 20 to 5000 characters")
 	}
 	if input.RewardQuota <= 0 {
@@ -345,7 +374,7 @@ func bountyCharge(rewardQuota int, rewardSlots int) (int, error) {
 
 func NormalizeGithubRepositoryUrl(raw string) (string, error) {
 	u, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil || !strings.EqualFold(u.Scheme, "https") || !strings.EqualFold(u.Hostname(), "github.com") {
+	if err != nil || !strings.EqualFold(u.Scheme, "https") || !strings.EqualFold(u.Hostname(), "github.com") || u.User != nil || u.Port() != "" || strings.Contains(raw, "\\") {
 		return "", bountyError("OPEN_SOURCE_BOUNTY_INVALID_REPOSITORY", "repository must be a public GitHub HTTPS URL")
 	}
 	parts := strings.Split(strings.Trim(strings.TrimSpace(u.Path), "/"), "/")
@@ -374,14 +403,14 @@ func normalizeGithubEvidence(raw string, repositoryUrl string, kind string) (str
 		return "", nil
 	}
 	u, err := url.Parse(raw)
-	if err != nil || !strings.EqualFold(u.Scheme, "https") || !strings.EqualFold(u.Hostname(), "github.com") {
+	if err != nil || !strings.EqualFold(u.Scheme, "https") || !strings.EqualFold(u.Hostname(), "github.com") || u.User != nil || u.Port() != "" || strings.Contains(raw, "\\") {
 		return "", bountyError("OPEN_SOURCE_BOUNTY_INVALID_EVIDENCE", "submitted Issue and pull request links must be GitHub HTTPS URLs")
 	}
 	parts := strings.Split(strings.Trim(u.Path, "/"), "/")
 	if len(parts) != 4 || parts[2] != kind {
 		return "", bountyError("OPEN_SOURCE_BOUNTY_INVALID_EVIDENCE", "Issue or pull request URL has an invalid path")
 	}
-	if _, err := strconv.ParseInt(parts[3], 10, 64); err != nil {
+	if number, err := strconv.ParseInt(parts[3], 10, 64); err != nil || number <= 0 {
 		return "", bountyError("OPEN_SOURCE_BOUNTY_INVALID_EVIDENCE", "Issue or pull request number is invalid")
 	}
 	repository, err := NormalizeGithubRepositoryUrl("https://github.com/" + parts[0] + "/" + parts[1])
@@ -402,6 +431,7 @@ func CreateOpenSourceBountyDraft(ownerUserId int, input OpenSourceBountyDraftInp
 	now := common.GetTimestamp()
 	project := &OpenSourceBountyProject{
 		OwnerUserId: ownerUserId, RepositoryUrl: normalized.RepositoryUrl, Title: normalized.Title,
+		Kind: normalized.Kind, PublisherType: normalized.PublisherType, DeadlineAt: normalized.DeadlineAt,
 		Description: normalized.Description, Rules: normalized.Rules,
 		RewardQuota: normalized.RewardQuota, RewardSlots: normalized.RewardSlots, Status: OpenSourceBountyStatusDraft,
 		CreatedAt: now, UpdatedAt: now,
@@ -421,6 +451,7 @@ func UpdateOpenSourceBountyDraft(ownerUserId int, projectId int, input OpenSourc
 		Where("id = ? AND owner_user_id = ? AND status = ?", projectId, ownerUserId, OpenSourceBountyStatusDraft).
 		Updates(map[string]interface{}{
 			"repository_url": normalized.RepositoryUrl, "title": normalized.Title, "description": normalized.Description,
+			"kind": normalized.Kind, "publisher_type": normalized.PublisherType, "deadline_at": normalized.DeadlineAt,
 			"rules": normalized.Rules, "reward_quota": normalized.RewardQuota,
 			"reward_slots": normalized.RewardSlots, "updated_at": common.GetTimestamp(),
 		})
@@ -472,13 +503,13 @@ func UpdateOpenSourceBountyContent(actorUserId int, projectId int, input OpenSou
 
 func normalizeBountyText(title, description, rules string) (OpenSourceBountyDraftInput, error) {
 	input := OpenSourceBountyDraftInput{Title: strings.TrimSpace(title), Description: strings.TrimSpace(description), Rules: strings.TrimSpace(rules)}
-	if len(input.Title) < 4 || len(input.Title) > 120 {
+	if !bountycontract.ValidText(input.Title, 4, 120) {
 		return input, bountyError("OPEN_SOURCE_BOUNTY_INVALID_TITLE", "title must contain 4 to 120 characters")
 	}
-	if len(input.Description) < 20 || len(input.Description) > 2000 {
+	if !bountycontract.ValidText(input.Description, 20, 2000) {
 		return input, bountyError("OPEN_SOURCE_BOUNTY_INVALID_DESCRIPTION", "description must contain 20 to 2000 characters")
 	}
-	if len(input.Rules) < 20 || len(input.Rules) > 5000 {
+	if !bountycontract.ValidText(input.Rules, 20, 5000) {
 		return input, bountyError("OPEN_SOURCE_BOUNTY_INVALID_RULES", "rules must contain 20 to 5000 characters")
 	}
 	return input, nil
@@ -542,6 +573,9 @@ func publishOpenSourceBounty(ownerUserId int, projectId int, operation *OpenSour
 		}
 		if project.Status != OpenSourceBountyStatusDraft {
 			return bountyError("OPEN_SOURCE_BOUNTY_INVALID_STATE", "only a draft bounty can be published")
+		}
+		if !bountycontract.RecruitmentOpen(project.DeadlineAt, common.GetTimestamp()) {
+			return bountyError("BOUNTY_DEADLINE_PASSED", "recruitment deadline has passed; update the draft before publishing")
 		}
 		charge, err := CalculateOpenSourceBountyPublicationCharge(&project)
 		if err != nil {
@@ -640,9 +674,13 @@ func SetOpenSourceBountyPaused(ownerUserId int, projectId int, paused bool) (*Op
 	if !paused {
 		from, to = OpenSourceBountyStatusPaused, OpenSourceBountyStatusPublished
 	}
-	result := DB.Model(&OpenSourceBountyProject{}).
-		Where("id = ? AND owner_user_id = ? AND status = ?", projectId, ownerUserId, from).
-		Updates(map[string]interface{}{"status": to, "updated_at": common.GetTimestamp()})
+	query := DB.Model(&OpenSourceBountyProject{}).
+		Where("id = ? AND owner_user_id = ? AND status = ?", projectId, ownerUserId, from)
+	now := common.GetTimestamp()
+	if !paused {
+		query = query.Where("deadline_at = 0 OR deadline_at > ?", now)
+	}
+	result := query.Updates(map[string]interface{}{"status": to, "updated_at": now})
 	if result.Error != nil {
 		return nil, result.Error
 	}
@@ -1107,7 +1145,7 @@ func attachOpenSourceBountyDisputes(views []OpenSourceBountyChallengeView) error
 
 func openSourceBountyChallengeViewQuery(db *gorm.DB) *gorm.DB {
 	return db.Table("open_source_bounty_challenges AS c").
-		Select(`c.*, participant.username AS participant_username, p.title AS project_title, p.repository_url, owner.username AS owner_username,
+		Select(`c.*, participant.username AS participant_username, p.title AS project_title, p.repository_url, p.kind, p.deadline_at, owner.username AS owner_username,
 			COALESCE((SELECT AVG(history.owner_rating_score) FROM open_source_bounty_challenges history WHERE history.participant_user_id = c.participant_user_id AND history.owner_rating_score > 0 AND history.owner_rating_overturned = false), 0) AS participant_rating_average,
 			(SELECT COUNT(*) FROM open_source_bounty_challenges history WHERE history.participant_user_id = c.participant_user_id AND history.owner_rating_score > 0 AND history.owner_rating_overturned = false) AS participant_rating_count,
 			COALESCE((SELECT AVG(history.contributor_rating_score) FROM open_source_bounty_challenges history JOIN open_source_bounty_projects history_project ON history_project.id = history.project_id WHERE history_project.owner_user_id = p.owner_user_id AND history.contributor_rating_score > 0), 0) AS owner_rating_average,
@@ -1150,18 +1188,25 @@ func ListAcceptedOpenSourceBountiesLimited(participantUserId int, limit int) ([]
 }
 
 func AcceptOpenSourceBounty(participantUserId int, projectId int, rawGithubHandle string) (*OpenSourceBountyChallenge, error) {
-	handle, err := normalizeGithubHandle(rawGithubHandle)
-	if err != nil {
-		return nil, err
-	}
 	var challenge OpenSourceBountyChallenge
-	err = DB.Transaction(func(tx *gorm.DB) error {
+	err := DB.Transaction(func(tx *gorm.DB) error {
 		var project OpenSourceBountyProject
 		if err := lockForUpdate(tx).Where("id = ?", projectId).First(&project).Error; err != nil {
 			return bountyError("OPEN_SOURCE_BOUNTY_NOT_FOUND", "bounty project was not found")
 		}
 		if project.Status != OpenSourceBountyStatusPublished {
 			return bountyError("OPEN_SOURCE_BOUNTY_NOT_ACCEPTING", "bounty is not accepting new challenges")
+		}
+		if !bountycontract.RecruitmentOpen(project.DeadlineAt, common.GetTimestamp()) {
+			return bountyError("BOUNTY_DEADLINE_PASSED", "recruitment deadline has passed")
+		}
+		handle := ""
+		if project.Kind != bountycontract.General {
+			var err error
+			handle, err = normalizeGithubHandle(rawGithubHandle)
+			if err != nil {
+				return err
+			}
 		}
 		if project.OwnerUserId == participantUserId {
 			return bountyError("OPEN_SOURCE_BOUNTY_OWNER_CANNOT_ACCEPT", "bounty owner cannot accept their own challenge")
@@ -1238,15 +1283,30 @@ func AcceptOpenSourceBounty(participantUserId int, projectId int, rawGithubHandl
 	return &challenge, DB.First(&challenge, challenge.Id).Error
 }
 
+// SubmitOpenSourceBountyChallenge retains the internal legacy signature.
 func SubmitOpenSourceBountyChallenge(participantUserId int, projectId int, issueUrl string, pullRequestUrl string, submissionNote string) (*OpenSourceBountyChallenge, error) {
-	submissionNote = strings.TrimSpace(submissionNote)
-	if len(submissionNote) > 2000 {
+	return SubmitBountyChallenge(participantUserId, projectId, BountySubmissionInput{
+		IssueUrl: issueUrl, PullRequestUrl: pullRequestUrl, SubmissionNote: submissionNote,
+	})
+}
+
+type BountySubmissionInput struct {
+	IssueUrl       string `json:"issue_url"`
+	PullRequestUrl string `json:"pull_request_url"`
+	DeliveryUrl    string `json:"delivery_url"`
+	SubmissionNote string `json:"submission_note"`
+}
+
+func SubmitBountyChallenge(participantUserId int, projectId int, input BountySubmissionInput) (*OpenSourceBountyChallenge, error) {
+	issueUrl, pullRequestUrl := input.IssueUrl, input.PullRequestUrl
+	submissionNote := strings.TrimSpace(input.SubmissionNote)
+	if !bountycontract.ValidText(submissionNote, 0, 2000) {
 		return nil, bountyError("OPEN_SOURCE_BOUNTY_INVALID_SUBMISSION", "completion note must contain at most 2000 characters")
 	}
 	var challenge OpenSourceBountyChallenge
 	err := DB.Transaction(func(tx *gorm.DB) error {
 		var project OpenSourceBountyProject
-		if err := tx.Where("id = ?", projectId).First(&project).Error; err != nil {
+		if err := lockForUpdate(tx).Where("id = ?", projectId).First(&project).Error; err != nil {
 			return bountyError("OPEN_SOURCE_BOUNTY_NOT_FOUND", "bounty project was not found")
 		}
 		if err := lockForUpdate(tx).Where("project_id = ? AND participant_user_id = ? AND status = ?", projectId, participantUserId, OpenSourceBountyChallengeAccepted).
@@ -1256,16 +1316,32 @@ func SubmitOpenSourceBountyChallenge(participantUserId int, projectId int, issue
 		if challenge.Status != OpenSourceBountyChallengeAccepted {
 			return bountyError("OPEN_SOURCE_BOUNTY_INVALID_CHALLENGE_STATE", "only an accepted challenge can be submitted")
 		}
-		normalizedIssue, err := normalizeGithubEvidence(issueUrl, project.RepositoryUrl, "issues")
-		if err != nil {
-			return err
-		}
-		normalizedPullRequest, err := normalizeGithubEvidence(pullRequestUrl, project.RepositoryUrl, "pull")
-		if err != nil {
-			return err
-		}
-		if normalizedIssue == "" && normalizedPullRequest == "" {
-			return bountyError("OPEN_SOURCE_BOUNTY_EVIDENCE_REQUIRED", "provide at least one GitHub Issue or pull request URL")
+		normalizedIssue, normalizedPullRequest, deliveryUrl := "", "", ""
+		var err error
+		if project.Kind == bountycontract.General {
+			if strings.TrimSpace(issueUrl) != "" || strings.TrimSpace(pullRequestUrl) != "" {
+				return bountyError("BOUNTY_INVALID_DELIVERY", "general tasks use delivery_url or submission_note")
+			}
+			deliveryUrl, submissionNote, err = bountycontract.ValidateDelivery(input.DeliveryUrl, submissionNote)
+			if err != nil {
+				return bountyError("BOUNTY_INVALID_DELIVERY", err.Error())
+			}
+		} else {
+			normalizedIssue, err = normalizeGithubEvidence(issueUrl, project.RepositoryUrl, "issues")
+			if err != nil {
+				return err
+			}
+			normalizedPullRequest, err = normalizeGithubEvidence(pullRequestUrl, project.RepositoryUrl, "pull")
+			if err != nil {
+				return err
+			}
+			if normalizedIssue == "" && normalizedPullRequest == "" {
+				return bountyError("OPEN_SOURCE_BOUNTY_EVIDENCE_REQUIRED", "provide at least one GitHub Issue or pull request URL")
+			}
+			deliveryUrl, err = bountycontract.DeliveryURL(input.DeliveryUrl)
+			if err != nil {
+				return bountyError("BOUNTY_INVALID_DELIVERY", err.Error())
+			}
 		}
 		var duplicate int64
 		if normalizedPullRequest != "" {
@@ -1281,8 +1357,8 @@ func SubmitOpenSourceBountyChallenge(participantUserId int, projectId int, issue
 		now := common.GetTimestamp()
 		return tx.Model(&challenge).Updates(map[string]interface{}{
 			"issue_url": normalizedIssue, "pull_request_url": normalizedPullRequest,
-			"submission_note": submissionNote,
-			"status":          OpenSourceBountyChallengeSubmitted, "submitted_at": now, "updated_at": now,
+			"submission_note": submissionNote, "delivery_url": deliveryUrl,
+			"status": OpenSourceBountyChallengeSubmitted, "submitted_at": now, "updated_at": now,
 		}).Error
 	})
 	if err != nil {

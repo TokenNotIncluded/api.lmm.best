@@ -166,6 +166,7 @@ export function acceptBounty(projectId: number, githubHandle: string) {
 export function submitChallenge(
   projectId: number,
   input: {
+    delivery_url?: string
     issue_url: string
     pull_request_url: string
     submission_note: string
