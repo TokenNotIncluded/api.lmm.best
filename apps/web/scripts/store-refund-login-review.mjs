@@ -176,9 +176,7 @@ try {
     page.on('pageerror', (error) => errors.push(error.message))
     try {
       await page.goto(new URL(pickup, base).href)
-      const signIn = page
-        .getByRole('link', { name: 'Sign in', exact: true })
-        .first()
+      const signIn = page.locator('a[href^="/sign-in?redirect="]').first()
       await signIn.waitFor()
       const target = new URL(await signIn.getAttribute('href'), base)
       assert.equal(target.pathname, '/sign-in')

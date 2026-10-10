@@ -41,7 +41,7 @@ function fixture() {
   })
   const wheel = (
     deltaY: number,
-    options: ConstructorParameters<typeof view.WheelEvent>[1] = {},
+    options: Omit<WheelEventInit, 'view'> = {},
     target = doc.body
   ) => {
     const event = new view.WheelEvent('wheel', {
@@ -50,6 +50,10 @@ function fixture() {
       deltaY,
       ...options,
     })
+    // Happy DOM omits wheel modifiers. Set the browser fields explicitly.
+    for (const key of ['ctrlKey', 'altKey', 'metaKey', 'shiftKey'] as const) {
+      Object.defineProperty(event, key, { value: options[key] ?? false })
+    }
     target.dispatchEvent(event)
     return event
   }
