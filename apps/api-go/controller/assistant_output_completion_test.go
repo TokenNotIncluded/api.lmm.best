@@ -151,29 +151,74 @@ func TestAssistantLengthEmptyResponseDoesNotRetry(t *testing.T) {
 }
 
 func TestAssistantStreamPreservesLengthAndClearsItBeforeRetry(t *testing.T) {
-	for _, upstream := range []string{
-		"data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}]}\n\ndata: [DONE]\n\n",
-		`{"choices":[{"message":{"content":"partial"},"finish_reason":"length"}]}`,
-		`{"choices":[{"message":{"content":""},"finish_reason":"length"}]}`,
+	for _, upstream := range []struct {
+		name, body string
+	}{
+		{"sse", "data: {\"choices\":[{\"delta\":{\"content\":\"partial\"}}]}\n\ndata: {\"choices\":[{\"delta\":{},\"finish_reason\":\"length\"}]}\n\ndata: [DONE]\n\n"},
+		{"json", `{"choices":[{"message":{"content":"partial"},"finish_reason":"length"}]}`},
+		{"json-empty", `{"choices":[{"message":{"content":""},"finish_reason":"length"}]}`},
 	} {
-		c, _ := assistantCompletionTestContext(t, true)
-		writer := newAssistantStreamingRelayWriter(c.Writer, assistantStreamSessionFrom(c))
-		_, err := writer.Write([]byte(upstream))
-		require.NoError(t, err)
-		body, err := writer.responseBody()
-		require.NoError(t, err)
-		parsed, err := parseAssistantResponse(body)
-		require.NoError(t, err)
-		assert.True(t, assistantOutputLengthLimited(parsed))
-		require.NoError(t, writer.ResetForRelayRetry())
-		_, err = writer.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"complete\"},\"finish_reason\":\"stop\"}]}\n\n"))
-		require.NoError(t, err)
-		body, err = writer.responseBody()
-		require.NoError(t, err)
-		parsed, err = parseAssistantResponse(body)
-		require.NoError(t, err)
-		assert.Equal(t, "stop", parsed.Choices[0].FinishReason)
-		assert.Equal(t, "complete", assistantResponseContent(parsed.Choices[0].Message.Content))
+		for _, attempt := range []struct {
+			name   string
+			status int
+		}{
+			{"successful-response", http.StatusOK},
+			{"failed-response", http.StatusServiceUnavailable},
+		} {
+			t.Run(upstream.name+"/"+attempt.name, func(t *testing.T) {
+				c, recorder := assistantCompletionTestContext(t, true)
+				session := assistantStreamSessionFrom(c)
+				writer := newAssistantStreamingRelayWriter(c.Writer, session)
+				writer.WriteHeader(attempt.status)
+				writer.Header().Set("X-Test-Attempt", "initial")
+				_, err := writer.Write([]byte(upstream.body))
+				require.NoError(t, err)
+				body, err := writer.responseBody()
+				require.NoError(t, err)
+				parsed, err := parseAssistantResponse(body)
+				require.NoError(t, err)
+				assert.True(t, assistantOutputLengthLimited(parsed))
+
+				if attempt.status == http.StatusOK {
+					// A length-limited successful response is still billable work.
+					// Reject the retry without discarding accepted or visible data.
+					accepted := append([]byte(nil), writer.body.Bytes()...)
+					visible, content := recorder.Body.String(), session.safeContent()
+					finishReason := writer.finishReason
+					require.ErrorContains(t, writer.ResetForRelayRetry(), "successful response body")
+					assert.Equal(t, accepted, writer.body.Bytes())
+					assert.Equal(t, visible, recorder.Body.String())
+					assert.Equal(t, content, session.safeContent())
+					assert.Equal(t, finishReason, writer.finishReason)
+					assert.Equal(t, http.StatusOK, writer.Status())
+					assert.True(t, writer.Written())
+					assert.Equal(t, "initial", writer.Header().Get("X-Test-Attempt"))
+					unchanged, err := writer.responseBody()
+					require.NoError(t, err)
+					assert.JSONEq(t, string(body), string(unchanged))
+					return
+				}
+
+				// Only a failed response can reset the internal writer. Its
+				// finish reason and buffered data must not enter the next attempt.
+				require.NoError(t, writer.ResetForRelayRetry())
+				assert.Empty(t, writer.finishReason)
+				assert.Empty(t, writer.body.Bytes())
+				assert.Empty(t, writer.Header())
+				assert.Empty(t, session.safeContent())
+				assert.False(t, writer.Written())
+				assert.Equal(t, http.StatusOK, writer.Status())
+				_, err = writer.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"complete\"},\"finish_reason\":\"stop\"}]}\n\ndata: [DONE]\n\n"))
+				require.NoError(t, err)
+				body, err = writer.responseBody()
+				require.NoError(t, err)
+				parsed, err = parseAssistantResponse(body)
+				require.NoError(t, err)
+				require.Len(t, parsed.Choices, 1)
+				assert.Equal(t, "stop", parsed.Choices[0].FinishReason)
+				assert.Equal(t, "complete", assistantResponseContent(parsed.Choices[0].Message.Content))
+			})
+		}
 	}
 }
 

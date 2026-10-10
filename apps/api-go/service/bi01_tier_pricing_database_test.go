@@ -18,6 +18,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
 	"github.com/LIghtJUNction/api.lmm.best/setting"
 	hosttypes "github.com/LIghtJUNction/api.lmm.best/types"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 )
 
@@ -25,6 +26,24 @@ import (
 // existing fixture owns an isolated SQLite database and a local Redis test
 // server. Never point this test at an application or production database.
 func TestBI01TierUsageWalletAndConsumeLog(t *testing.T) {
+	// Own the currency fixture instead of depending on another test or on
+	// application startup. Parent cleanup runs after every child DB/cache
+	// fixture has drained its workers and closed its isolated database.
+	previousAnchor, previousAnchorErr := common.CreditsPerUSD()
+	previousLegacy, _ := common.LegacyPricingQuotaPerUnit()
+	previousQuotaPerUnit := common.QuotaPerUnit
+	t.Cleanup(func() {
+		common.QuotaPerUnit = previousQuotaPerUnit
+		if previousAnchorErr != nil {
+			common.ClearCreditsPerUSD()
+		} else {
+			require.NoError(t, common.SetCreditCurrencyBasis(previousAnchor, previousLegacy))
+		}
+	})
+	common.QuotaPerUnit = float64(common.FixedCreditsPerUSD)
+	anchor := decimal.NewFromInt(common.FixedCreditsPerUSD)
+	require.NoError(t, common.SetCreditCurrencyBasis(anchor, anchor))
+
 	const openingBalance = 100_000_000
 	for _, tc := range []struct {
 		name, requested, actual      string
