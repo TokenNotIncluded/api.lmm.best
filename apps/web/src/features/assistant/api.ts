@@ -415,7 +415,6 @@ export type AssistantAdminChangeAction =
 
 export type AssistantNavigationPath =
   | '/'
-  | '/getting-started'
   | '/pricing'
   | '/wallet'
   | '/usage-logs/common'
@@ -818,7 +817,6 @@ export function parseAssistantIntent(
 
 const ASSISTANT_NAVIGATION_PATHS = new Set<AssistantNavigationPath>([
   '/',
-  '/getting-started',
   '/pricing',
   '/wallet',
   '/usage-logs/common',

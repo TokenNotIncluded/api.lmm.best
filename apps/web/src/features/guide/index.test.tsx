@@ -144,7 +144,7 @@ async function renderGuide(user: AuthUser | null) {
   })
   const destinations = [
     '/sign-in',
-    '/getting-started',
+    '/wallet',
     '/keys',
     '/support',
     '/pricing',

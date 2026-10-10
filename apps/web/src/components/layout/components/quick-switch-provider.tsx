@@ -72,9 +72,9 @@ export function QuickSwitchProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
   const pendingPrefixRef = useRef<number | null>(null)
 
-  // Record visits. Overlays and the assistant route are not worth recalling.
+  // Record visits to console routes.
   useEffect(() => {
-    if (!pathname || pathname === '/getting-started') return
+    if (!pathname) return
     setRecentRoutes((previous) => {
       const next = [
         pathname,

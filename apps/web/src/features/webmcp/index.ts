@@ -102,7 +102,6 @@ export const SITE_PAGES = {
   '/sign-in': 'Sign in',
   '/sign-up': 'Create an account',
   '/forgot-password': 'Reset a forgotten password',
-  '/getting-started': 'Account onboarding',
   '/dashboard': 'Account dashboard overview',
   '/dashboard/overview': 'Account dashboard overview',
   '/wallet': 'Wallet balance and top-up',

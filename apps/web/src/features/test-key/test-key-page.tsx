@@ -411,8 +411,8 @@ export function TestKeyPage() {
         ) : !isConsoleActivated(user) ? (
           <>
             <p className='mb-4 text-sm'>{q('access')}</p>
-            <Button render={<Link to='/getting-started' />}>
-              {t('Getting started')}
+            <Button render={<Link to='/wallet' />}>
+              {t('Check API access status')}
             </Button>
           </>
         ) : (

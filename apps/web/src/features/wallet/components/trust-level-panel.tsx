@@ -286,7 +286,7 @@ export function TrustLevelPanel({
               <Button
                 variant='outline'
                 size='sm'
-                render={<a href='/getting-started' />}
+                render={<a href='/guide' />}
               >
                 {t('Continue setup')}
               </Button>

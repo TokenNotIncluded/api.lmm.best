@@ -196,7 +196,6 @@ import { useAssistantSupport } from './use-assistant-support'
 
 type AssistantActionPath =
   | '/'
-  | '/getting-started'
   | '/pricing'
   | '/wallet'
   | '/usage-logs'

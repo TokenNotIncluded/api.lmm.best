@@ -17,7 +17,7 @@ const pagePaths = {
   keys: '/keys',
   wallet: '/wallet',
   tools: '/tool-market',
-  setup: '/getting-started',
+  setup: '/guide',
   profile: '/profile',
   support: '/support',
 } satisfies Record<(typeof OPENUI_PAGES)[number], string>

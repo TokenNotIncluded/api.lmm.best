@@ -32,6 +32,8 @@ describe('authenticated sidebar discovery', () => {
     assert.ok(onboardingSection)
     assert.match(onboardingSection, /title: t\('Challenges'\)/)
     assert.match(onboardingSection, /url: '\/challenges'/)
+    assert.match(onboardingSection, /url: '\/wallet'/)
+    assert.doesNotMatch(onboardingSection, /getting-started/)
     assert.match(onboardingSection, /title: t\('Models and pricing'\)/)
     assert.match(onboardingSection, /url: '\/pricing'/)
     assert.doesNotMatch(
@@ -86,7 +88,7 @@ describe('authenticated sidebar discovery', () => {
         activated.indexOf(`id: '${next}'`)
       )
     assert.match(section('general', 'developer'), /title: t\('Use AI'\)/)
-    assert.match(section('general', 'developer'), /url: '\/getting-started'/)
+    assert.doesNotMatch(section('general', 'developer'), /getting-started/)
     assert.match(section('general', 'developer'), /url: '\/chat-management'/)
     assert.match(section('developer', 'forge'), /url: '\/keys'/)
     assert.match(section('developer', 'forge'), /url: '\/guide'/)

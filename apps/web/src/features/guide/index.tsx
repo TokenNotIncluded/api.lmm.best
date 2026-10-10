@@ -418,11 +418,11 @@ export function Guide() {
     }
     requestAssistantOpen(preset, message)
     if (user) {
-      void navigate({ to: '/getting-started' })
+      void navigate({ to: isConsoleActivated(user) ? '/dashboard' : '/wallet' })
     } else {
       void navigate({
         to: '/sign-in',
-        search: { redirect: '/getting-started' },
+        search: { redirect: '/dashboard' },
       })
     }
   }

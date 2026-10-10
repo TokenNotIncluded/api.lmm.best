@@ -175,7 +175,7 @@ async function mount(
     path: '/test-key',
     component: options.component ?? TestKeyPage,
   })
-  const children = ['/sign-in', '/getting-started', '/keys'].map((path) =>
+  const children = ['/sign-in', '/wallet', '/keys'].map((path) =>
     createRoute({
       getParentRoute: () => rootRoute,
       path,
@@ -272,7 +272,7 @@ describe('test key popup', () => {
   })
   test('keeps unactivated accounts on the setup path', async () => {
     const page = await mount({ inactive: true })
-    assert.ok(page.container.querySelector('a[href="/getting-started"]'))
+    assert.ok(page.container.querySelector('a[href="/wallet"]'))
     assert.equal(page.container.querySelector('form'), null)
     assert.equal(page.posts.length, 0)
     await page.unmount()

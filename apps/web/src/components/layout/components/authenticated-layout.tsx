@@ -63,8 +63,6 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
     select: (state) => state.location.pathname,
   })
   const settingsPage = pathname.startsWith('/system-settings/')
-  const assistantPage = pathname === '/getting-started'
-  const focusedOnboarding = assistantPage && !consoleActivated
 
   return (
     <MobileScrollChromeProvider resetKey={pathname}>
@@ -80,20 +78,18 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
                 >
                   <SkipToMain />
                   <div className='flex min-h-0 w-full min-w-0 flex-1 basis-0 flex-col flex-nowrap md:flex-row'>
-                    {focusedOnboarding ? null : <AppSidebar />}
+                    <AppSidebar />
                     <SidebarInset className='min-h-0 min-w-0 flex-1 overflow-hidden'>
                       <MobileScrollChrome>
                         <AppHeader
                           showTopNav={false}
-                          showSidebarTrigger={!focusedOnboarding}
-                          showBrand={focusedOnboarding}
-                          showLanguageSwitcher={focusedOnboarding}
-                          showConfigDrawer={focusedOnboarding}
-                          showAssistant={!focusedOnboarding}
-                          showMobileAssistant={!assistantPage}
-                          leftContent={
-                            focusedOnboarding ? undefined : <ConsoleLocation />
-                          }
+                          showSidebarTrigger
+                          showBrand={false}
+                          showLanguageSwitcher={false}
+                          showConfigDrawer={false}
+                          showAssistant
+                          showMobileAssistant
+                          leftContent={<ConsoleLocation />}
                         />
                       </MobileScrollChrome>
                       <FrontendUpdateNotice />
@@ -102,24 +98,18 @@ export function AuthenticatedLayout(props: AuthenticatedLayoutProps) {
                           className={cn(
                             '@container/content flex flex-col',
                             'min-h-0 min-w-0 flex-1 basis-0 overflow-hidden',
-                            assistantPage
-                              ? 'pb-0'
-                              : 'pb-[env(safe-area-inset-bottom)] xl:pb-0'
+                            'pb-[env(safe-area-inset-bottom)] xl:pb-0'
                           )}
                         >
                           {props.children ?? <AnimatedOutlet />}
                         </div>
-                        {!focusedOnboarding && (
-                          <AssistantLauncher hideMobileLauncher />
-                        )}
+                        <AssistantLauncher hideMobileLauncher />
                       </div>
                     </SidebarInset>
                   </div>
                   <MobileScrollChrome>
                     <div className='console-shell-footer'>
-                      {consoleActivated && !assistantPage && (
-                        <ConsoleMobileDock />
-                      )}
+                      {consoleActivated && <ConsoleMobileDock />}
                       <AccessRestrictionNotice compact>
                         <SourceConsent />
                       </AccessRestrictionNotice>

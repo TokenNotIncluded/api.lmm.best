@@ -39,7 +39,6 @@ const userRoutes = [
   '/dashboard/overview',
   '/dashboard/models',
   '/dashboard/flow',
-  '/getting-started',
   '/keys',
   '/wallet',
   '/company',
