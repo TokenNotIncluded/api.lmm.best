@@ -1508,3 +1508,35 @@ async fn stopping_the_actual_go_extension_does_not_cut_a_rust_http_stream() {
         "actual Go extension pid={pid} killed after first HTTP output; Rust emitted later output and settled once; no Rust restart was performed"
     );
 }
+
+#[tokio::test]
+async fn error_packets_obey_the_same_chunk_limit_as_model_output() {
+    let upstream = Upstream::start(Script::sse(first_text("partial"))).await;
+    let limits = Limits {
+        queue_chunks: 2,
+        chunk_bytes: 17,
+        ..Limits::default()
+    };
+    let money = Arc::new(Money::default());
+    let relay = relay(&upstream, UpstreamProtocol::Chat, limits.clone(), money);
+    let Session {
+        head,
+        mut body,
+        completion,
+        ..
+    } = relay
+        .start(request(ClientProtocol::Chat, true, &limits), context())
+        .unwrap();
+    timeout(WAIT, head).await.unwrap().unwrap().unwrap();
+    let mut bytes = Vec::new();
+    while let Some(chunk) = timeout(WAIT, body.next_chunk()).await.unwrap() {
+        let chunk = chunk.unwrap();
+        assert!(chunk.len() <= 17);
+        bytes.extend(chunk);
+    }
+    let done = timeout(WAIT, completion).await.unwrap().unwrap();
+    assert_eq!(done.error, Some(RelayError::Truncated));
+    let body = String::from_utf8(bytes).unwrap();
+    assert!(body.contains("invalid_upstream_response"));
+    assert!(!body.contains("[DONE]"));
+}

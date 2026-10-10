@@ -322,8 +322,10 @@ impl Encoder {
                 if self.stream && self.client == ClientProtocol::Chat {
                     let delta = if matches!(b.kind, BlockKind::Tool { .. }) {
                         json!({"tool_calls":[{"index":b.tool_index,"provider_metadata":{"protocol":provider,"signature":value}}]})
-                    } else {
+                    } else if matches!(b.kind, BlockKind::Thinking) {
                         json!({"reasoning_details":[{"index":index,"type":"signature_delta","protocol":provider,"signature":value}]})
+                    } else {
+                        json!({"content_details":[{"index":index,"type":"signature_delta","protocol":provider,"signature":value}]})
                     };
                     out.push(self.chat_chunk(delta, None)?);
                 }
@@ -388,7 +390,13 @@ impl Encoder {
         let mut refusal = String::new();
         let mut calls = Vec::new();
         let mut details = Vec::new();
+        let mut content_details = Vec::new();
         for (i, b) in self.blocks.iter().enumerate() {
+            if matches!(b.kind, BlockKind::Text | BlockKind::Refusal)
+                && let Some((provider, signature)) = &b.signature
+            {
+                content_details.push(json!({"index":i,"protocol":provider,"signature":signature}));
+            }
             match &b.kind {
                 BlockKind::Text => content.push_str(&b.text),
                 BlockKind::Refusal => refusal.push_str(&b.text),
@@ -416,6 +424,9 @@ impl Encoder {
         }
         if !calls.is_empty() {
             message["tool_calls"] = json!(calls);
+        }
+        if !content_details.is_empty() {
+            message["content_details"] = json!(content_details);
         }
         if details.len() == 1 {
             message["provider_metadata"] =

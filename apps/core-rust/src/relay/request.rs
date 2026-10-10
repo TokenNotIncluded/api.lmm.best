@@ -408,6 +408,11 @@ impl Request {
                         ],
                     )?;
                     let role = Role::parse(&m["role"])?;
+                    if role == Role::Tool {
+                        keys(m, &["role", "content", "tool_call_id"])?;
+                    } else if m.get("tool_call_id").is_some() {
+                        return Err(RelayError::Invalid("tool_call_id requires tool role"));
+                    }
                     let mut content = Vec::new();
                     if role == Role::Tool {
                         content.push(InputBlock::ToolResult {
@@ -475,7 +480,13 @@ impl Request {
                         .as_array()
                         .ok_or(RelayError::Invalid("input must be a string or array"))?
                     {
-                        match i.get("type").and_then(Value::as_str).unwrap_or("message") {
+                        let kind = match i.get("type") {
+                            None => "message",
+                            Some(kind) => kind
+                                .as_str()
+                                .ok_or(RelayError::Invalid("invalid Responses input type"))?,
+                        };
+                        match kind {
                             "message" => {
                                 keys(i, &["type", "role", "content"])?;
                                 let role = Role::parse(&i["role"])?;
@@ -570,6 +581,19 @@ impl Request {
     pub(crate) fn upstream(&self, route: &Route) -> Result<Value, RelayError> {
         for m in &self.messages {
             for b in &m.content {
+                if route.protocol == UpstreamProtocol::Anthropic
+                    && matches!(
+                        b,
+                        InputBlock::ToolCall {
+                            signature: Some(_),
+                            ..
+                        }
+                    )
+                {
+                    return Err(RelayError::Unsupported(
+                        "Anthropic tool history cannot carry standalone signatures",
+                    ));
+                }
                 let sig = match b {
                     InputBlock::Thinking { signature, .. }
                     | InputBlock::ToolCall { signature, .. } => signature,

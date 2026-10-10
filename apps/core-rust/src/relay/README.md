@@ -28,14 +28,15 @@ required semantic end is an error, never an invented success.
 
 Anthropic cache-read and cache-creation tokens are added to its uncached input
 count. Gemini thoughts are included in normalized output usage. Missing usage
-stays `None`, not zero. Counters cannot decrease or overflow. Thinking text
+stays `None`, not zero. Counters cannot decrease or overflow; invalid counters leave the last accepted snapshot unchanged. Thinking text
 uses `reasoning_content` for Chat and reasoning-summary items for Responses.
+Plain-text signatures use the Chat `content_details` extension or Responses item metadata. These details are preserved on output; replay of signed plain-text history is not yet supported.
 Opaque signatures remain provider-tagged metadata, not fabricated OpenAI
 reasoning tokens. They cannot be replayed to a different provider.
 
 This is deliberately not a universal lossless bridge. Images, audio, video,
 multiple candidates, hosted/server tools, encrypted or stateful Responses
-history, unknown request fields, unsupported provider content blocks and
+history, unknown request fields, annotated Responses output, unsupported provider content blocks and
 unsupported finish reasons fail explicitly. Anthropic redacted-thinking blocks
 are not supported. Chat streams that fragment the tool name/ID before the
 initial complete identity are not supported. Multiple signed thinking blocks
@@ -96,7 +97,7 @@ not an RSS guarantee. Allocator, TLS, HTTP, JSON tree and kernel socket buffers
 are additional. Increase concurrency/output caps only after a memory load test.
 
 Defaults: 5 s connect; 30 s headers; 30 s idle read; 10 s slow-client write;
-300 s total; 10 s per billing/routing hook. Client-body drop cancels reading,
+300 s forwarding deadline; 10 s per billing/routing hook. Bounded money cleanup can continue after the forwarding deadline. Client-body drop cancels reading,
 writing and the upstream request. The reservation and finalizer have their own
 short deadline and are not aborted just because the client disconnected.
 

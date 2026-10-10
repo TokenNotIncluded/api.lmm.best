@@ -119,6 +119,45 @@ fn finish_reason(
         _ => Err(RelayError::Protocol("unsupported upstream finish reason")),
     }
 }
+fn plain_response_part(part: &Value) -> Result<(), RelayError> {
+    if part
+        .get("annotations")
+        .is_some_and(|a| !a.is_null() && a.as_array().is_none_or(|a| !a.is_empty()))
+    {
+        return Err(RelayError::Protocol(
+            "annotated Responses output is not supported",
+        ));
+    }
+    Ok(())
+}
+fn plain_response_item(item: &Value) -> Result<(), RelayError> {
+    if item.get("encrypted_content").is_some_and(|v| !v.is_null()) {
+        return Err(RelayError::Protocol(
+            "encrypted Responses output is not supported",
+        ));
+    }
+    if let Some(parts) = item.get("content").filter(|v| !v.is_null()) {
+        for part in parts
+            .as_array()
+            .ok_or(RelayError::Protocol("invalid Responses content"))?
+        {
+            plain_response_part(part)?;
+        }
+    }
+    Ok(())
+}
+fn plain_response(response: &Value) -> Result<(), RelayError> {
+    if let Some(items) = response.get("output").filter(|v| !v.is_null()) {
+        for item in items
+            .as_array()
+            .ok_or(RelayError::Protocol("invalid Responses output"))?
+        {
+            plain_response_item(item)?;
+        }
+    }
+    Ok(())
+}
+
 impl Decoder {
     pub fn new(protocol: UpstreamProtocol, limits: &Limits) -> Self {
         Self {
@@ -351,6 +390,7 @@ impl Decoder {
         match self.protocol {
             UpstreamProtocol::Chat => self.chat(v, true, &mut out)?,
             UpstreamProtocol::Responses => {
+                plain_response(v)?;
                 self.start(v["id"].as_str(), &mut out)?;
                 for (i, item) in v["output"]
                     .as_array()
@@ -623,6 +663,15 @@ impl Decoder {
         Ok(())
     }
     fn responses_event(&mut self, v: &Value, out: &mut Vec<Event>) -> Result<(), RelayError> {
+        if let Some(item) = v.get("item") {
+            plain_response_item(item)?;
+        }
+        if let Some(part) = v.get("part") {
+            plain_response_part(part)?;
+        }
+        if let Some(response) = v.get("response") {
+            plain_response(response)?;
+        }
         match v["type"].as_str() {
             Some("response.created" | "response.in_progress") => {
                 self.start(v["response"]["id"].as_str(), out)?

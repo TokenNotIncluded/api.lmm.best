@@ -351,21 +351,23 @@ impl Usage {
             }
             Ok(())
         }
-        field(&mut self.input_tokens, next.input_tokens)?;
-        field(&mut self.output_tokens, next.output_tokens)?;
-        field(&mut self.cached_input_tokens, next.cached_input_tokens)?;
+        let mut combined = *self;
+        field(&mut combined.input_tokens, next.input_tokens)?;
+        field(&mut combined.output_tokens, next.output_tokens)?;
+        field(&mut combined.cached_input_tokens, next.cached_input_tokens)?;
         field(
-            &mut self.cache_creation_input_tokens,
+            &mut combined.cache_creation_input_tokens,
             next.cache_creation_input_tokens,
         )?;
         field(
-            &mut self.reasoning_output_tokens,
+            &mut combined.reasoning_output_tokens,
             next.reasoning_output_tokens,
         )?;
-        if let (Some(i), Some(o)) = (self.input_tokens, self.output_tokens) {
+        if let (Some(i), Some(o)) = (combined.input_tokens, combined.output_tokens) {
             i.checked_add(o)
                 .ok_or(RelayError::Protocol("usage overflow"))?;
         }
+        *self = combined;
         Ok(())
     }
     pub(crate) fn wire(&self, client: ClientProtocol) -> Value {

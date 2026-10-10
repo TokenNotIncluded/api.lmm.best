@@ -6,6 +6,8 @@ mod decode;
 mod encode;
 mod request;
 mod sse;
+#[cfg(test)]
+mod tests;
 mod types;
 pub use request::{FunctionTool, InputBlock, Message, Request, Role, ToolChoice};
 pub use types::*;
@@ -684,7 +686,21 @@ impl Worker {
                     Err(e.clone())
                 };
                 // Error delivery cannot keep a cancelled or stalled request alive.
-                let _ = timeout(Duration::from_millis(100), self.sender.send(packet)).await;
+                let _ = timeout(Duration::from_millis(100), async {
+                    match packet {
+                        Ok(bytes) => {
+                            for chunk in bytes.chunks(self.inner.limits.chunk_bytes) {
+                                self.sender
+                                    .send(Ok(Bytes::copy_from_slice(chunk)))
+                                    .await
+                                    .map_err(|_| ())?;
+                            }
+                        }
+                        Err(error) => self.sender.send(Err(error)).await.map_err(|_| ())?,
+                    }
+                    Ok::<(), ()>(())
+                })
+                .await;
             }
         }
         let _ = self.done.send(Completion {
