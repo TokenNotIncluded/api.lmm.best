@@ -45,6 +45,7 @@ async function loadAnnouncements(
   if (!userID) throw new Error('Unable to load announcements')
   try {
     const response = await api.get('/api/user/self/announcements', {
+      timeout: 10_000,
       signal,
       authScope: {
         userId: userID,
@@ -81,11 +82,14 @@ export function MandatoryAnnouncements({ children }: { children: ReactNode }) {
     queryKey,
     queryFn: ({ signal }) => loadAnnouncements(userID, signal),
     enabled: !!userID,
+    // Let the bounded request reach the error view when the browser is offline.
+    networkMode: 'always',
     retry: false,
     staleTime: (query) =>
       query.state.data?.supported === false ? 5 * 60_000 : 0,
     refetchOnMount: true,
     refetchOnWindowFocus: false,
+    refetchOnReconnect: true,
     refetchInterval: (query) =>
       query.state.data?.supported === false ? false : 60_000,
   })
@@ -141,6 +145,7 @@ export function MandatoryAnnouncements({ children }: { children: ReactNode }) {
               '/api/user/self/announcements/read',
               { id: item.id, revision: item.revision },
               {
+                timeout: 10_000,
                 authScope: { userId: userID, sessionId: sessionID },
                 skipErrorHandler: true,
                 skipBusinessError: true,
