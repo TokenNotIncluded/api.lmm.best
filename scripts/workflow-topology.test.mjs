@@ -100,7 +100,7 @@ test('manual checks reuse the exact core and extension verification pipeline', (
     'go mod verify', 'go vet ./...', 'go test -race', 'scripts/test-core-rpc-docker.py', 'scripts/test-core-boundaries.py',
     'scripts/test-local-release-tests.py', 'scripts/generate-core-protocol.sh --check',
     'apps/api-go/internal/modules/store/pgtest', 'go test -mod=readonly -race',
-    'contracts/proto/tests/process_recovery.py']) {
+    'contracts/proto/tests/process_recovery.py', 'LMM_RELAY_EXTENSION_BIN']) {
     assert.ok(source.includes(command), command);
   }
   assert.match(source, /services:\n      postgres:/);
