@@ -116,9 +116,10 @@ func SetApiRouter(router *gin.Engine) {
 		//apiRouter.GET("/midjourney", controller.GetMidjourney)
 		apiRouter.GET("/home_page_content", controller.GetHomePageContent)
 		piRemoteRoute := apiRouter.Group("/remote-control/v1/pi")
-		piRemoteRoute.Use(middleware.UserAuth(), middleware.DisableCache())
+		piRemoteRoute.Use(middleware.PiRemoteAuth(), middleware.DisableCache())
 		{
 			piRemoteRoute.GET("/sessions", controller.PiRemoteListSessions)
+			piRemoteRoute.DELETE("/sessions/:session_id", controller.PiRemoteDeleteSession)
 			piRemoteRoute.PUT("/sessions/:session_id", middleware.RequestBodyLimit(24<<10), controller.PiRemoteUpsertSession)
 			piRemoteRoute.GET("/sessions/:session_id/messages", controller.PiRemoteGetMessages)
 			piRemoteRoute.POST("/sessions/:session_id/messages", middleware.RequestBodyLimit(80<<10), controller.PiRemoteAppendMessage)

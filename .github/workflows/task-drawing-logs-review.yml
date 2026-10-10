@@ -2,16 +2,6 @@ name: Task and drawing logs review
 
 on:
   workflow_dispatch:
-  push:
-    branches: [fix/task-drawing-logs-20261010]
-    paths:
-      - .github/workflows/task-drawing-logs-review.yml
-      - apps/web/src/features/usage-logs/**
-      - apps/web/src/routes/_authenticated/usage-logs/**
-      - apps/api-go/controller/midjourney.go
-      - apps/api-go/model/midjourney*.go
-      - apps/api-rust/src/routes/control_tasks.rs
-
 permissions:
   contents: read
 

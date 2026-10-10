@@ -21,6 +21,9 @@ test('media URL character checks retain ordinary Unicode and URL policy', () => 
     'https://example.test/a.mp4'
   )
   assert.equal(safeMediaUrl('javascript:alert(1)'), undefined)
-  assert.equal(safeMediaUrl('https://user:password@example.test/a.mp4'), undefined)
+  assert.equal(
+    safeMediaUrl('https://user:password@example.test/a.mp4'),
+    undefined
+  )
   assert.equal(safeMediaUrl('//example.test/a.mp4'), undefined)
 })

@@ -14,6 +14,8 @@ export type RemoteControlMessageType =
   | 'tool_call'
   | 'tool_result'
   | 'ask_user'
+  | 'state'
+  | 'ack'
 
 export type RemoteControlMessage = {
   id?: string
@@ -24,6 +26,12 @@ export type RemoteControlMessage = {
   arguments?: unknown
   question?: string
   options?: string[]
+  command_id?: string
+  ok?: boolean
+  busy?: boolean
+  provider?: string
+  model?: string
+  requests?: RemoteQuestion[]
   created_at?: string | number
 }
 
@@ -50,6 +58,7 @@ export type PiRemoteSession = {
   id: string
   deviceId: string
   active: boolean
+  capabilities?: string[]
   startedAt?: string | number
   runtime?: string
   directory?: string
@@ -64,3 +73,14 @@ export type PiSessionsResponse = {
 }
 
 export type PiMessagesResponse = PiSessionsResponse
+
+export type RemoteQuestion = {
+  request_id: string
+  kind: 'select' | 'confirm' | 'input' | 'custom'
+  title?: string
+  question: string
+  content?: string
+  placeholder?: string
+  options?: string[]
+  expires_at?: number
+}
