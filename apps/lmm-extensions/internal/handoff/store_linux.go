@@ -239,15 +239,20 @@ func owned(d *Snapshot, o Owner) error {
 	return nil
 }
 
-// Receive returns only after file fsync + rename + directory fsync. Repeat
-// delivery with the same key and content is accepted, including after done.
+// Receive persists new events with file fsync, rename, and directory fsync.
+// A repeat reads and validates the existing snapshot under the same file lock;
+// it does not rewrite unchanged data. This also applies after completion.
 // A changed payload under the same key cannot replace the stored event.
 func (s *Store) Receive(key string, payload []byte) (Task, error) {
 	var out Task
 	if !validID.MatchString(key) || len(payload) == 0 || len(payload) > MaxPayload {
 		return out, ErrLimit
 	}
-	err := s.change(func(d *Snapshot) error {
+	err := s.locked(func() error {
+		d, err := s.load()
+		if err != nil {
+			return err
+		}
 		if t, ok := d.Tasks[key]; ok {
 			if t.Digest != digest(payload) {
 				return ErrConflict
@@ -260,7 +265,7 @@ func (s *Store) Receive(key string, payload []byte) (Task, error) {
 		}
 		out = Task{Key: key, Digest: digest(payload), Payload: append([]byte(nil), payload...), State: "pending", Version: 1}
 		d.Tasks[key] = out
-		return nil
+		return s.save(d)
 	})
 	return out, err
 }
