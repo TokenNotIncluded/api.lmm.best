@@ -27,7 +27,7 @@ CREATE TABLE core_billing.ledger_operations (
     scope TEXT NOT NULL CHECK (length(scope) BETWEEN 1 AND 64),
     operation_key TEXT NOT NULL CHECK (length(operation_key) BETWEEN 1 AND 128),
     request JSONB NOT NULL CHECK (jsonb_typeof(request) = 'object'),
-    result JSONB NOT NULL CHECK (result->>'status' IN ('posted', 'rejected')),
+    result JSONB NOT NULL CHECK (COALESCE(result->>'status' IN ('posted', 'rejected'), FALSE)),
     created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
     PRIMARY KEY (scope, operation_key)
 );
@@ -182,7 +182,7 @@ DECLARE
     prior core_billing.ledger_operations%ROWTYPE;
     original core_billing.ledger_journals%ROWTYPE;
     payer BIGINT; payee BIGINT; held BIGINT; revenue BIGINT; clearing BIGINT;
-    amount BIGINT; parent_id BIGINT; journal_id BIGINT; refunded NUMERIC;
+    amount BIGINT; parent_id BIGINT; posted_id BIGINT; refunded NUMERIC;
     payment_ref TEXT; legs JSONB; leg JSONB; result JSONB; err TEXT; violated TEXT;
 BEGIN
     IF current_setting('transaction_isolation') <> 'read committed' THEN
@@ -302,18 +302,18 @@ BEGIN
         INSERT INTO core_billing.ledger_journals(scope, operation_key, kind, payer_id, payee_id,
             amount_units, parent_journal_id, payment_reference, actor_user_id, reason)
             VALUES (op_scope, op_key, action_kind, payer, payee, amount, parent_id, payment_ref,
-                (p_request->>'actor_user_id')::BIGINT, p_request->>'reason') RETURNING id INTO journal_id;
+                (p_request->>'actor_user_id')::BIGINT, p_request->>'reason') RETURNING id INTO posted_id;
         FOR leg IN SELECT value FROM jsonb_array_elements(legs)
             WHERE (value->>'units')::BIGINT <> 0 ORDER BY (value->>'id')::BIGINT
         LOOP
             INSERT INTO core_billing.ledger_entries(journal_id, ledger_account_id, delta_units)
-                VALUES (journal_id, (leg->>'id')::BIGINT, (leg->>'units')::BIGINT);
+                VALUES (posted_id, (leg->>'id')::BIGINT, (leg->>'units')::BIGINT);
         END LOOP;
-        SELECT jsonb_build_object('status', 'posted', 'journal_id', post_ledger.journal_id, 'entries',
+        SELECT jsonb_build_object('status', 'posted', 'journal_id', posted_id, 'entries',
             jsonb_agg(jsonb_build_object('ledger_account_id', e.ledger_account_id, 'delta_units', e.delta_units,
                 'balance_after_units', e.balance_after_units, 'balance_revision', e.balance_revision)
                 ORDER BY e.ledger_account_id)) INTO result
-            FROM core_billing.ledger_entries e WHERE e.journal_id = post_ledger.journal_id;
+            FROM core_billing.ledger_entries e WHERE e.journal_id = posted_id;
     EXCEPTION
         WHEN SQLSTATE 'P1002' OR SQLSTATE 'P1003' OR SQLSTATE 'P1004'
             OR SQLSTATE 'P1005' OR SQLSTATE 'P1006' OR SQLSTATE 'P1007' THEN
