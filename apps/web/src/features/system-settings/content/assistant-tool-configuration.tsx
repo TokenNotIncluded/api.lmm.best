@@ -5,6 +5,7 @@ import { useEffect, useId, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
+import { AssistantToolTextEditor } from './assistant-tool-text-editor'
 import {
   Dialog,
   DialogContent,
@@ -294,6 +295,13 @@ export function AssistantToolConfiguration({
               />
             )}
           </fieldset>
+          <AssistantToolTextEditor
+            key={tool.name}
+            tool={tool}
+            rule={rule}
+            disabled={disabled || !rulesSupported}
+            onChange={change}
+          />
           {children}
         </div>
         <footer className='flex flex-wrap items-center justify-between gap-3 border-t pt-4'>
