@@ -33,11 +33,15 @@ func checkAssistantGiftLimitTx(tx *gorm.DB, credits int) error {
 	return CheckAssistantGiftCreditLimit(credits, cap)
 }
 
+// The administrator's upper bound is exclusive. Check again at claim time.
 func CheckAssistantGiftCreditLimit(credits, cap int) error {
-	if cap == 0 {
+	if credits < 0 {
+		return assistantGiftError("invalid_decision", ErrAssistantGiftInvalid)
+	}
+	if cap <= 0 {
 		return assistantGiftError("gift_disabled", ErrAssistantGiftDisabled)
 	}
-	if credits > cap {
+	if credits >= cap {
 		return assistantGiftError("gift_limit_exceeded", ErrAssistantGiftLimit)
 	}
 	return nil
