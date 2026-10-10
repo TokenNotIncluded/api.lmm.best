@@ -154,10 +154,25 @@ test('rejects malformed policies, duplicate or escaped duplicate keys and oversi
     '{"version":1,"tools":{"list_my_keys":true,"list_my_keys":false}}',
     '{"version":1,"tools":{"list_my_keys":true,"\\u006cist_my_keys":false}}',
     '{"version":1,"tools":{"__proto__":true}}',
-    ' '.repeat(16_385),
-    `{"version":1,"${'界'.repeat(6000)}":false}`,
+    ' '.repeat(262_145),
+    `{"version":1,"${'界'.repeat(87_382)}":false}`,
   ]) {
     assert.equal(parseAssistantToolPolicy(raw), null, raw.slice(0, 120))
+    assert.equal(assistantToolPolicySchema.safeParse(raw).success, false)
+  }
+})
+
+test('enforces the server policy budget in UTF-8 bytes before trimming', () => {
+  for (const raw of [' '.repeat(262_144), '\u3000'.repeat(87_381)]) {
+    assert.deepEqual(parseAssistantToolPolicy(raw), {
+      version: 1,
+      groups: {},
+      tools: {},
+    })
+    assert.equal(assistantToolPolicySchema.safeParse(raw).success, true)
+  }
+  for (const raw of [' '.repeat(262_145), '\u3000'.repeat(87_382)]) {
+    assert.equal(parseAssistantToolPolicy(raw), null)
     assert.equal(assistantToolPolicySchema.safeParse(raw).success, false)
   }
 })

@@ -335,7 +335,7 @@ describe('assistant search provider settings', () => {
       '{"version":1,"groups":{},"tools":{"web_search":0}}',
       '{"version":1,"groups":{},"tools":{},"unknown":true}',
       '{"version":1,"version":1,"groups":{},"tools":{}}',
-      ' '.repeat(16385),
+      ' '.repeat(262_145),
     ]) {
       const result = assistantSettingsSchema.safeParse({
         ...baseValues,

@@ -62,13 +62,20 @@ async function render() {
 }
 
 test('appearance preview changes real provider output without saving cookies', async () => {
+  // Happy DOM may briefly expose the empty preset cookie marked for deletion.
+  // Compare persistent values while retaining all other cookie assertions.
+  const persistentCookies = () =>
+    document.cookie
+      .split('; ')
+      .filter((cookie) => cookie !== 'theme_preset=')
+      .join('; ')
   const mounted = await render()
   try {
     await act(async () => {
       mounted.current().theme.setTheme('light')
       mounted.current().style.setPreset('default')
     })
-    const cookies = document.cookie
+    const cookies = persistentCookies()
     let stopMode!: () => void
     let stopPreset!: () => void
     await act(async () => {
@@ -80,11 +87,11 @@ test('appearance preview changes real provider output without saving cookies', a
     assert.equal(mounted.current().theme.resolvedTheme, 'dark')
     assert.equal(mounted.current().theme.theme, 'light')
     assert.equal(mounted.current().style.customization.preset, 'default')
-    assert.equal(document.cookie, cookies)
+    assert.equal(persistentCookies(), cookies)
     await act(async () => { stopMode(); stopPreset() })
     assert.equal(document.documentElement.classList.contains('light'), true)
     assert.equal(document.body.getAttribute('data-theme-preset'), null)
-    assert.equal(document.cookie, cookies)
+    assert.equal(persistentCookies(), cookies)
   } finally {
     await mounted.close()
   }

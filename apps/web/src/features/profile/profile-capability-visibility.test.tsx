@@ -222,10 +222,10 @@ test('rewards retain a useful destination without gifts or check-in', async () =
       )
     )
     assert.match(container.textContent ?? '', /Referral Program/)
-    assert.match(container.textContent ?? '', /first real paid top-up/)
+    assert.match(container.textContent ?? '', /qualifying first cash payment/)
     assert.match(
       container.textContent ?? '',
-      /purchased balance is not deducted/
+      /Reward debt never deducts purchased balance/
     )
     assert.equal(container.querySelector('a')?.getAttribute('href'), '/wallet')
     assert.equal(container.querySelector('a')?.textContent, 'Wallet')

@@ -40,11 +40,9 @@ describe('authenticated layout responsive contract', () => {
       /flex min-h-0 w-full min-w-0 flex-1 basis-0 flex-col flex-nowrap md:flex-row/
     )
     assert.match(source, /'min-h-0 min-w-0 flex-1 basis-0 overflow-hidden'/)
-    assert.match(
-      source,
-      /assistantPage[\s\S]*\? 'pb-0'[\s\S]*: 'pb-\[env\(safe-area-inset-bottom\)\] xl:pb-0'/
-    )
-    assert.match(source, /showMobileAssistant=\{!assistantPage\}/)
+    assert.match(source, /'pb-\[env\(safe-area-inset-bottom\)\] xl:pb-0'/)
+    assert.match(source, /showMobileAssistant\s/)
+    assert.doesNotMatch(source, /assistantPage/)
     assert.match(source, /<AssistantLauncher hideMobileLauncher \/>/)
     assert.match(documentSource, /interactive-widget=resizes-content/)
   })
