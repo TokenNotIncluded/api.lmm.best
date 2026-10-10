@@ -1,6 +1,8 @@
-//! Exact credit values and immutable request ownership. This is not a ledger.
-//! Durable reservation, idempotency and reconciliation are required before HTTP
-//! forwarding can be enabled. No extension may perform these transitions.
+//! Exact credit values and immutable request ownership. Durable wallet operations
+//! live in `ledger`; forwarding still requires integrated authorization and budgets.
+//! No extension may perform these transitions directly.
+pub mod ledger;
+
 use serde::{Deserialize, Serialize};
 
 use crate::accounts::{Account, AccountKind};
