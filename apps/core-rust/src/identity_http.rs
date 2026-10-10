@@ -1,3 +1,5 @@
+mod auth;
+mod lifecycle;
 use crate::{
     accounts::{Account, AccountKind},
     funding::FundingPolicy,
@@ -18,15 +20,20 @@ type Result<T> = std::result::Result<T, IdentityError>;
 
 pub fn router(store: IdentityStore) -> Router {
     Router::new()
+        .merge(auth::routes(store.clone()))
+        .merge(lifecycle::routes())
         .route("/core/v1/identity", get(identity))
         .route("/core/v1/keys", post(issue_key))
         .route("/core/v1/credentials/{id}", delete(revoke))
         .route("/core/v1/teams", get(list_teams).post(create_team))
-        .route("/core/v1/teams/{id}/invites", post(invite))
+        .route(
+            "/core/v1/teams/{id}/invites",
+            post(invite).get(lifecycle::team_invites),
+        )
         .route("/core/v1/invites/accept", post(accept_invite))
         .route(
             "/core/v1/teams/{team_id}/members/{user_id}",
-            delete(remove_member),
+            delete(remove_member).patch(lifecycle::update_member),
         )
         .layer(DefaultBodyLimit::max(16 * 1024))
         .layer(middleware::from_fn(no_store))
@@ -37,6 +44,18 @@ async fn no_store(request: Request, next: Next) -> Response {
     response
         .headers_mut()
         .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response.headers_mut().insert(
+        header::REFERRER_POLICY,
+        HeaderValue::from_static("no-referrer"),
+    );
+    response.headers_mut().insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    response.headers_mut().insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static("default-src 'none'; frame-ancestors 'none'"),
+    );
     response
 }
 fn bearer(headers: &HeaderMap) -> Result<&str> {

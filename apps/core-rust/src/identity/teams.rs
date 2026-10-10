@@ -12,6 +12,10 @@ pub struct InviteRequest {
 #[derive(Serialize)]
 pub struct TeamSummary {
     pub id: i64,
+    pub account_id: i64,
+    pub created_by_user_id: i64,
+    pub version: i64,
+    pub name: String,
     pub role: TeamRole,
     pub membership_version: i64,
     pub can_spend: bool,
@@ -30,13 +34,17 @@ impl IdentityStore {
         if actor.credential_kind != CredentialKind::Session {
             return Err(IdentityError::Forbidden);
         }
-        let rows = sqlx::query("SELECT t.id,t.owner_user_id,m.role,m.version,m.can_spend FROM core_identity.teams t JOIN core_identity.accounts a ON a.id=t.account_id LEFT JOIN core_identity.memberships m ON m.team_id=t.id AND m.user_id=$1 WHERE t.active AND a.active AND t.id>$2 AND (t.owner_user_id=$1 OR m.active) ORDER BY t.id LIMIT 100")
+        let rows = sqlx::query("SELECT t.id,t.account_id,t.created_by_user_id,t.version AS team_version,t.name,t.owner_user_id,m.role,m.version,m.can_spend FROM core_identity.teams t JOIN core_identity.accounts a ON a.id=t.account_id LEFT JOIN core_identity.memberships m ON m.team_id=t.id AND m.user_id=$1 WHERE t.active AND a.active AND t.id>$2 AND (t.owner_user_id=$1 OR m.active) ORDER BY t.id LIMIT 100")
             .bind(actor.user_id).bind(after).fetch_all(&mut *tx).await?;
         let mut teams = Vec::with_capacity(rows.len());
         for row in rows {
             let owner = row.try_get::<i64, _>("owner_user_id")? == actor.user_id;
             teams.push(TeamSummary {
                 id: row.try_get("id")?,
+                account_id: row.try_get("account_id")?,
+                created_by_user_id: row.try_get("created_by_user_id")?,
+                version: row.try_get("team_version")?,
+                name: row.try_get("name")?,
                 role: if owner {
                     TeamRole::Owner
                 } else {
@@ -54,7 +62,7 @@ impl IdentityStore {
         let actor = session(&mut tx, secret).await?;
         let account_id = new_account(&mut tx, "team", 0).await?;
         let id: i64 = sqlx::query_scalar(
-            "INSERT INTO core_identity.teams(account_id,owner_user_id) VALUES ($1,$2) RETURNING id",
+            "INSERT INTO core_identity.teams(account_id,owner_user_id,created_by_user_id) VALUES ($1,$2,$2) RETURNING id",
         )
         .bind(account_id)
         .bind(actor.user_id)
@@ -121,7 +129,10 @@ impl IdentityStore {
         Ok(IssuedCredential { id, secret: issued })
     }
     pub async fn accept_invite(&self, secret: &str, invite_secret: &str) -> Result<i64> {
-        let hashed = digest(invite_secret)?;
+        self.accept_invite_digest(secret, digest(invite_secret)?)
+            .await
+    }
+    pub(super) async fn accept_invite_digest(&self, secret: &str, hashed: Vec<u8>) -> Result<i64> {
         let mut tx = self.pool.begin().await?;
         let actor = session(&mut tx, secret).await?;
         let team_id: i64 =
@@ -131,7 +142,7 @@ impl IdentityStore {
                 .await?
                 .ok_or(IdentityError::Forbidden)?;
         let team = lock_team(&mut tx, team_id).await?;
-        let invite = sqlx::query("SELECT * FROM core_identity.invites WHERE digest=$1 AND accepted_at IS NULL AND expires_at>clock_timestamp() FOR UPDATE")
+        let invite = sqlx::query("SELECT * FROM core_identity.invites WHERE digest=$1 AND accepted_at IS NULL AND rejected_at IS NULL AND withdrawn_at IS NULL AND expires_at>clock_timestamp() FOR UPDATE")
             .bind(hashed).fetch_optional(&mut *tx).await?.ok_or(IdentityError::Conflict)?;
         if invite.try_get::<i64, _>("recipient_user_id")? != actor.user_id
             || invite.try_get::<i64, _>("team_version")? != team.try_get::<i64, _>("version")?
