@@ -1,7 +1,6 @@
 package controller
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -292,7 +291,15 @@ func (s *assistantStreamSession) writeJSONEventLocked(event string, payload any)
 	return s.writeRawEventLocked(event, data)
 }
 
-func (s *assistantStreamSession) writeRawEventLocked(event string, data []byte) error {
+func (s *assistantStreamSession) writeRawEventLocked(event string, data []byte) (err error) {
+	defer func() {
+		if err != nil {
+			s.finished = true
+			if s.cancel != nil {
+				s.cancel()
+			}
+		}
+	}()
 	if event == "" {
 		return fmt.Errorf("assistant stream event name is empty")
 	}
@@ -401,61 +408,6 @@ func assistantWantsStream(c *gin.Context) bool {
 	return strings.Contains(strings.ToLower(c.GetHeader("Accept")), "text/event-stream")
 }
 
-// assistantSSEDecoder accepts both the relay's data-only events and standard
-// SSE events. Writes from an HTTP response are not guaranteed to align with
-// event boundaries, so parsing is deliberately byte-based and incremental.
-type assistantSSEDecoder struct {
-	buffer bytes.Buffer
-	data   bytes.Buffer
-}
-
-func (d *assistantSSEDecoder) feed(input []byte, dispatch func(string)) {
-	if d == nil || len(input) == 0 {
-		return
-	}
-	d.buffer.Write(input)
-	for {
-		line, ok := readAssistantSSELine(&d.buffer)
-		if !ok {
-			return
-		}
-		if len(line) == 0 {
-			if d.data.Len() > 0 {
-				dispatch(strings.TrimSuffix(d.data.String(), "\n"))
-				d.data.Reset()
-			}
-			continue
-		}
-		if bytes.HasPrefix(line, []byte("data:")) {
-			value := line[len("data:"):]
-			if len(value) > 0 && value[0] == ' ' {
-				value = value[1:]
-			}
-			d.data.Write(value)
-			d.data.WriteByte('\n')
-		}
-	}
-}
-
-func (d *assistantSSEDecoder) flush(dispatch func(string)) {
-	if d == nil || d.data.Len() == 0 {
-		return
-	}
-	dispatch(strings.TrimSuffix(d.data.String(), "\n"))
-	d.data.Reset()
-}
-
-func readAssistantSSELine(buffer *bytes.Buffer) ([]byte, bool) {
-	value := buffer.Bytes()
-	index := bytes.IndexByte(value, '\n')
-	if index < 0 {
-		return nil, false
-	}
-	line := append([]byte(nil), value[:index]...)
-	buffer.Next(index + 1)
-	return bytes.TrimSuffix(line, []byte{'\r'}), true
-}
-
 type assistantChatStreamChunk struct {
 	Choices []struct {
 		FinishReason string `json:"finish_reason"`
@@ -476,17 +428,18 @@ type assistantChatStreamChunk struct {
 
 type assistantStreamingRelayWriter struct {
 	gin.ResponseWriter
-	header       http.Header
-	body         *common.LimitBuffer
-	status       int
-	wroteHeader  bool
-	writeErr     error
-	decoder      assistantSSEDecoder
-	session      *assistantStreamSession
-	content      strings.Builder
-	toolCalls    map[int]agent.Call
-	toolCallSeen bool
-	finishReason string
+	header           http.Header
+	body             *common.LimitBuffer
+	status           int
+	wroteHeader      bool
+	writeErr         error
+	decoder          assistantSSEDecoder
+	session          *assistantStreamSession
+	content          strings.Builder
+	toolCalls        map[int]agent.Call
+	toolCallSeen     bool
+	finishReason     string
+	bufferedResponse bool
 }
 
 func mergeAssistantStreamFragment(current, next string) string {
@@ -577,6 +530,11 @@ func (r *assistantStreamingRelayWriter) Written() bool {
 }
 
 func (r *assistantStreamingRelayWriter) ResetForRelayRetry() error {
+	// A successful response body may already represent billable model work.
+	// Clearing the buffer cannot undo it or authorize another upstream POST.
+	if r.Status() >= 200 && r.Status() < 300 && r.body.Len() > 0 {
+		return errors.New("cannot retry assistant relay after a successful response body")
+	}
 	sessionErr := r.session.resetContent()
 	clear(r.header)
 	r.body = common.NewLimitBuffer(assistantUpstreamResponseMaxBytes)
@@ -588,6 +546,7 @@ func (r *assistantStreamingRelayWriter) ResetForRelayRetry() error {
 	clear(r.toolCalls)
 	r.toolCallSeen = false
 	r.finishReason = ""
+	r.bufferedResponse = false
 	return sessionErr
 }
 
@@ -658,6 +617,7 @@ func (r *assistantStreamingRelayWriter) responseBody() ([]byte, error) {
 			return body, nil
 		}
 		if response, err := agent.Parse(body); err == nil && len(response.Choices) > 0 {
+			r.bufferedResponse = true
 			message := response.Choices[0].Message
 			r.finishReason = response.Choices[0].FinishReason
 			if len(message.ToolCalls) > 0 {
@@ -671,6 +631,12 @@ func (r *assistantStreamingRelayWriter) responseBody() ([]byte, error) {
 				}
 			}
 		}
+	}
+
+	// A normalized SSE response needs its own complete terminal event. A
+	// complete buffered JSON response remains a separate supported protocol.
+	if !r.bufferedResponse && !r.decoder.done {
+		return nil, errors.New("assistant upstream stream ended before completion")
 	}
 
 	message := map[string]any{
