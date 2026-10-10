@@ -58,6 +58,14 @@ jobs:
         if: ${{ !cancelled() && steps.rust.outcome == 'success' }}
         working-directory: apps/core-rust
         run: cargo test --locked --all-targets --no-fail-fast 2>&1 | tee "$RUNNER_TEMP/identity-tests.log"
+      - name: Repeat rejected event acknowledgement regression
+        if: ${{ !cancelled() && steps.rust.outcome == 'success' }}
+        working-directory: apps/core-rust
+        run: |
+          for attempt in {1..10}; do
+            echo "Regression run $attempt/10" | tee -a "$RUNNER_TEMP/identity-events-repeated.log"
+            cargo test --locked --lib events::tests::service_scope_and_consumer_backlog_limit_cannot_be_bypassed -- --exact 2>&1 | tee -a "$RUNNER_TEMP/identity-events-repeated.log"
+          done
       - name: Preserve exact sources and test evidence
         if: ${{ !cancelled() && steps.checkout.outcome == 'success' }}
         run: |

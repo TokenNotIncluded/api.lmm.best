@@ -317,35 +317,18 @@ impl EventStore {
     ) -> Result<bool> {
         check_receipt(id, token)?;
         let mut tx = self.pool.begin().await?;
-        lock_capacity(&mut tx).await?;
-        subscription(&mut tx, service, consumer).await?;
-        let row = receipt(&mut tx, consumer, id, token).await?;
-        if row.try_get::<bool, _>("acked")? {
-            tx.commit().await?;
-            return Ok(true);
+        match acknowledge_transaction(&mut tx, service, consumer, id, token).await {
+            Ok(repeated) => {
+                tx.commit().await?;
+                Ok(repeated)
+            }
+            Err(error) => {
+                // Drop only queues rollback. Finish it before reporting a
+                // rejected receipt so a following request can take NOWAIT locks.
+                tx.rollback().await?;
+                Err(error)
+            }
         }
-        if !row.try_get::<bool, _>("leased")? {
-            return Err(EventError::LeaseLost);
-        }
-        sqlx::query("UPDATE core_events.deliveries SET acknowledged_at=clock_timestamp(),lease_until=NULL WHERE consumer_id=$1 AND event_id=$2")
-            .bind(consumer).bind(id).execute(&mut *tx).await?;
-        sqlx::query("UPDATE core_events.subscriptions SET pending=pending-1 WHERE consumer_id=$1")
-            .bind(consumer)
-            .execute(&mut *tx)
-            .await?;
-        let event = sqlx::query("UPDATE core_events.outbox SET pending_deliveries=pending_deliveries-1 WHERE id=$1 RETURNING pending_deliveries,octet_length(payload) AS bytes")
-            .bind(id).fetch_one(&mut *tx).await?;
-        if event.try_get::<i64, _>("pending_deliveries")? == 0 {
-            let bytes: i32 = event.try_get("bytes")?;
-            sqlx::query("UPDATE core_events.outbox SET payload=NULL WHERE id=$1")
-                .bind(id)
-                .execute(&mut *tx)
-                .await?;
-            sqlx::query("UPDATE core_events.capacity SET pending_events=pending_events-1,pending_bytes=pending_bytes-$1 WHERE singleton")
-                .bind(i64::from(bytes)).execute(&mut *tx).await?;
-        }
-        tx.commit().await?;
-        Ok(false)
     }
     /// Durable capped exponential retry; never drops a poison event. Repeating
     /// the same release does not move its next attempt further into the future.
@@ -376,6 +359,41 @@ impl EventStore {
         tx.commit().await?;
         Ok(false)
     }
+}
+async fn acknowledge_transaction(
+    c: &mut PgConnection,
+    service: &str,
+    consumer: &str,
+    id: i64,
+    token: &[u8],
+) -> Result<bool> {
+    lock_capacity(c).await?;
+    subscription(c, service, consumer).await?;
+    let row = receipt(c, consumer, id, token).await?;
+    if row.try_get::<bool, _>("acked")? {
+        return Ok(true);
+    }
+    if !row.try_get::<bool, _>("leased")? {
+        return Err(EventError::LeaseLost);
+    }
+    sqlx::query("UPDATE core_events.deliveries SET acknowledged_at=clock_timestamp(),lease_until=NULL WHERE consumer_id=$1 AND event_id=$2")
+        .bind(consumer).bind(id).execute(&mut *c).await?;
+    sqlx::query("UPDATE core_events.subscriptions SET pending=pending-1 WHERE consumer_id=$1")
+        .bind(consumer)
+        .execute(&mut *c)
+        .await?;
+    let event = sqlx::query("UPDATE core_events.outbox SET pending_deliveries=pending_deliveries-1 WHERE id=$1 RETURNING pending_deliveries,octet_length(payload) AS bytes")
+        .bind(id).fetch_one(&mut *c).await?;
+    if event.try_get::<i64, _>("pending_deliveries")? == 0 {
+        let bytes: i32 = event.try_get("bytes")?;
+        sqlx::query("UPDATE core_events.outbox SET payload=NULL WHERE id=$1")
+            .bind(id)
+            .execute(&mut *c)
+            .await?;
+        sqlx::query("UPDATE core_events.capacity SET pending_events=pending_events-1,pending_bytes=pending_bytes-$1 WHERE singleton")
+            .bind(i64::from(bytes)).execute(&mut *c).await?;
+    }
+    Ok(false)
 }
 async fn lock_capacity(c: &mut PgConnection) -> Result<sqlx::postgres::PgRow> {
     // Immediate admission failure instead of an unbounded wait on business work.
