@@ -5,6 +5,7 @@ export type StoreCatalogueSort = 'comprehensive' | 'sales' | 'newest'
 export type StoreCatalogueStock = 'in_stock' | 'out_of_stock'
 export type StoreCatalogueTag =
   | StoreCatalogueStock
+  | 'trading_paused'
   | 'guest_purchase'
   | 'auto_delivery'
   | 'ai_processing'

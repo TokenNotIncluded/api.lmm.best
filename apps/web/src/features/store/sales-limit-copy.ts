@@ -4,6 +4,8 @@ export const STORE_SALES_LIMIT_COPY = {
   unlimited: 'Unlimited sales',
   limit: 'Remaining sales quota',
   help: 'This quota includes unpaid reservations. Paid orders reduce it; adding inventory does not increase it. Set 0 to stop new orders.',
+  stockHelp:
+    'Unlimited sales removes the sales quota, not the inventory requirement. Import stock for inventory-based variants, or use fixed content for unlimited supply.',
   save: 'Save sales quota',
   invalid: 'Enter a whole sales limit of 0 or more.',
   inventory: 'Undelivered inventory: {{count}}',

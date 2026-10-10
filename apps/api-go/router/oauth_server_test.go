@@ -242,7 +242,7 @@ func TestOAuthHTTPDiscoveryAndDisabled(t *testing.T) {
 	require.NoError(t, json.Unmarshal(response.Body.Bytes(), &metadata))
 	require.Equal(t, oauthTestIssuer+"/api/oauth2/authorize", metadata.AuthorizationEndpoint)
 	require.Equal(t, []string{"S256"}, metadata.CodeChallengeMethodsSupported)
-	require.ElementsMatch(t, []string{service.OAuthCatalogScope, service.OAuthBalanceScope, service.OAuthUsageScope, service.OAuthInvokeScope, service.OAuthMCPBountiesScope, service.OAuthMCPDrawingScope, service.OAuthMarketDiscoverScope, service.OAuthMarketInvokeScope, service.OAuthMarketManageScope}, metadata.ScopesSupported)
+	require.ElementsMatch(t, []string{service.OAuthCatalogScope, service.OAuthBalanceScope, service.OAuthUsageScope, service.OAuthInvokeScope, service.OAuthMCPBountiesScope, service.OAuthMCPDrawingScope, service.OAuthMarketDiscoverScope, service.OAuthMarketInvokeScope, service.OAuthMarketManageScope, service.OAuthRemoteControlScope}, metadata.ScopesSupported)
 	require.Equal(t, "no-store", response.Header().Get("Cache-Control"))
 	disabled := gin.New()
 	MountOAuthServerRoutes(disabled, nil)

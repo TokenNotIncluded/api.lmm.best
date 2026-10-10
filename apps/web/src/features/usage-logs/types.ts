@@ -62,6 +62,8 @@ export interface CommonLogFilters extends CommonFilters {
  */
 export interface DrawingLogFilters extends CommonFilters {
   mjId?: string
+  status?: string
+  action?: string
 }
 
 /**
@@ -69,6 +71,9 @@ export interface DrawingLogFilters extends CommonFilters {
  */
 export interface TaskLogFilters extends CommonFilters {
   taskId?: string
+  status?: string
+  action?: string
+  platform?: string
 }
 
 /**
@@ -310,6 +315,8 @@ export interface MidjourneyLog {
   buttons?: string
   properties?: string
   image_url?: string
+  video_url?: string
+  video_urls?: string
   status: string // NOT_START, SUBMITTED, IN_PROGRESS, SUCCESS, FAILURE, MODAL
   other?: string
   created_at?: number
@@ -332,7 +339,8 @@ export interface TaskLog {
   finish_time?: number // seconds
   progress?: string
   progress_message_en?: string
-  data?: string // JSON string
+  data?: unknown // JSON value; legacy servers can return a JSON string
+  result_url?: string
   fail_reason?: string
   status: string // NOT_START, SUBMITTED, IN_PROGRESS, SUCCESS, FAILURE, QUEUED, UNKNOWN
   other?: string
@@ -398,6 +406,8 @@ export interface GetMidjourneyLogsParams {
   page_size?: number
   channel_id?: string
   mj_id?: string
+  status?: string
+  action?: string
   start_timestamp?: number
   end_timestamp?: number
 }
@@ -411,6 +421,9 @@ export interface GetTaskLogsParams {
   page_size?: number
   channel_id?: string
   task_id?: string
+  status?: string
+  action?: string
+  platform?: string
   start_timestamp?: number
   end_timestamp?: number
 }

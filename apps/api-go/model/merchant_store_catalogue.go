@@ -91,6 +91,26 @@ func storeCatalogueNetSalesSQL() string {
 	return "COALESCE((SELECT SUM(CASE WHEN o.quantity>" + refunded + " THEN o.quantity-" + refunded + " ELSE 0 END) FROM merchant_store_orders o WHERE o.product_id=merchant_store_products.id AND o.price_quota>0 AND o.buyer_id<>o.seller_id AND (o.buyer_id>0 OR (o.buyer_id=0 AND LENGTH(COALESCE(o.guest_id,''))=36)) AND (o.paid_at>0 OR o.status='paid' OR o.verified_payment_issue_at>0)),0)"
 }
 
+func merchantStoreCatalogueStockTag(p *MerchantStoreProduct) string {
+	if !p.TradingPaused && (p.SaleAvailable > 0 || (p.UnlimitedSupply && p.SaleLimit == nil)) {
+		return "in_stock"
+	}
+	if p.TradingPaused {
+		// Supply and permission to trade are different facts. A price, payment,
+		// fee or quota restriction must not disguise existing stock as empty.
+		if p.Variants != nil {
+			for _, variant := range p.Variants {
+				if variant.Enabled && (variant.UnlimitedSupply || variant.InventoryAvailable > 0) {
+					return "trading_paused"
+				}
+			}
+		} else if p.UnlimitedSupply || p.InventoryAvailable > 0 || p.AvailableStock > 0 {
+			return "trading_paused"
+		}
+	}
+	return "out_of_stock"
+}
+
 func PopulateMerchantStoreCatalogue(tx *gorm.DB, p *MerchantStoreProduct) error {
 	metadata := MerchantStoreCatalogueMetadata{ProductID: p.ID, CustomTags: []string{}}
 	if tx.Migrator().HasTable(&MerchantStoreCatalogueMetadata{}) {
@@ -106,12 +126,7 @@ func PopulateMerchantStoreCatalogue(tx *gorm.DB, p *MerchantStoreProduct) error 
 		metadata.CustomTags = []string{}
 	}
 	p.Catalogue = &metadata
-	p.DisplayTags = []string{}
-	if p.SaleAvailable > 0 && !p.TradingPaused {
-		p.DisplayTags = append(p.DisplayTags, "in_stock")
-	} else {
-		p.DisplayTags = append(p.DisplayTags, "out_of_stock")
-	}
+	p.DisplayTags = []string{merchantStoreCatalogueStockTag(p)}
 	if supported && MerchantStoreProductVisibility(p) == "public" && !p.PurchaseLoginRequired {
 		p.DisplayTags = append(p.DisplayTags, "guest_purchase")
 	}

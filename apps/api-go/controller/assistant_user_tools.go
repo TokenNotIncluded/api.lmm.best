@@ -266,7 +266,6 @@ func executeAssistantNavigateTool(c *gin.Context, actorUserID int, input map[str
 	page := strings.TrimSpace(inputString(input, "page"))
 	paths := map[string]string{
 		"home":                 "/",
-		"getting-started":      "/getting-started",
 		"pricing":              "/pricing",
 		"wallet":               "/wallet",
 		"keys":                 "/keys",

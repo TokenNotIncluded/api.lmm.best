@@ -73,6 +73,14 @@ prepare() {
   bsdtar -xf "${archive}"
 
   local bundle="${srcdir}/${_artifact}-${_release_arch}"
+  if [[ -e ${bundle}/lmm-api-deploy-engine || -L ${bundle}/lmm-api-deploy-engine ]]; then
+    [[ -f ${bundle}/lmm-api-deploy-engine && ! -L ${bundle}/lmm-api-deploy-engine && -x ${bundle}/lmm-api-deploy-engine ]] || return 1
+    [[ -f ${bundle}/lmm-api-deploy && ! -L ${bundle}/lmm-api-deploy ]] || return 1
+    grep -Fq 'exec /usr/lib/lmm-api-deploy/engine "$@"' "${bundle}/lmm-api-deploy" || return 1
+  elif [[ -f ${bundle}/lmm-api-deploy ]] && grep -Fq '/usr/lib/lmm-api-deploy/engine' "${bundle}/lmm-api-deploy"; then
+    printf '%s\n' 'signed release lacks its required deployment tool' >&2
+    return 1
+  fi
   if lmm_go_package_is_verified_legacy "$pkgname" "$pkgver"; then
     # Explicit N-1 migration evidence: go-v0.1.69 shipped the provider payload
     # as lmm-api. Only this signed release may be remapped to lmm-api-go.
@@ -143,6 +151,9 @@ package() {
   # local recipe when reconstructing an older rollback package.
   if [[ -f ${bundle}/lmm-api-deploy ]]; then
     install -Dm0755 "${bundle}/lmm-api-deploy" "${pkgdir}/usr/bin/lmm-api-deploy"
+  fi
+  if [[ -f ${bundle}/lmm-api-deploy-engine ]]; then
+    install -Dm0755 "${bundle}/lmm-api-deploy-engine" "${pkgdir}/usr/lib/lmm-api-deploy/engine"
   fi
   lmm_go_package_assert_payload "$pkgdir" "$pkgname" "$pkgver"
   install -Dm0644 "${bundle}/lmm-api.service" \

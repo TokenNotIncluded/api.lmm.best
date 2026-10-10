@@ -24,7 +24,7 @@ export const Route = createFileRoute('/_authenticated/playground/')({
   beforeLoad: () => {
     requestAssistantOpen('api-key')
     throw redirect({
-      to: '/getting-started',
+      to: '/dashboard',
       replace: true,
     })
   },

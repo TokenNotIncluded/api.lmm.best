@@ -26,7 +26,7 @@ import { smooth, type Sculpture } from './sculptures/geometry'
 import * as market from './sculptures/market'
 import { claudeMark, openaiMark } from './sculptures/marks'
 import { moonFarSide } from './sculptures/moon-far-side'
-import { cloud, dandelion, dragonfly, fish, jellyfish } from './sculptures/nature'
+import { dandelion, dragonfly, fish, jellyfish } from './sculptures/nature'
 import { smilingPortrait } from './sculptures/portrait'
 import {
   atomicExplosion,
@@ -40,7 +40,6 @@ const factories = {
   fish,
   jellyfish,
   dandelion,
-  cloud,
   dragonfly,
   claudeMark,
   openaiMark,
@@ -64,7 +63,6 @@ export const HOME_SEQUENCES = [
     'fish',
     'jellyfish',
     'dandelion',
-    'cloud',
     'dragonfly',
     'claudeMark',
     'openaiMark',

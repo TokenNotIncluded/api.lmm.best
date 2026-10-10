@@ -1,29 +1,28 @@
 # Contributing to LMM Forge
 
-Welcome to LMM Forge contribution. This file defines the expected process for
-code, docs, and operational changes.
+This file defines the process for code, documentation, and operational changes.
+Agents should also read [AGENTS.md](AGENTS.md) and the [skill index](.agents/skills/README.md).
 
 ## Scope
 
-This repository primarily accepts:
-
-- Bounty workflow logic and delivery-tracking product behavior.
-- Go backend compatibility and admin-facing behavior changes.
-- Frontend workflow and governance UX changes.
-- Security-hardening and operational reliability updates.
+This repository accepts focused improvements to model access, client integrations,
+tool and bounty workflows, the frontend, backend compatibility, security, and
+operational reliability. Keep work limited to the requested branch and objective.
+A pending architecture change is not the default branch's current behavior.
 
 For third-party deployment/hosting issues, cloud pricing issues, or private fork
-customization, please contact the corresponding owner instead of opening issues.
+customization, contact the corresponding owner instead of opening unrelated issues.
 
 ## Before opening an Issue
 
-- Confirm the request is in this repository scope and not in third-party infra.
-- Check existing issues to avoid duplicates.
-- Remove API keys, cookies, DSN, passwords, and tokens from screenshots/logs.
-- Prefer minimal reproducible details (exact endpoint, expected behavior, actual behavior).
+- Check existing issues and pull requests to avoid duplicate work.
+- Remove API keys, cookies, DSN, passwords, and tokens from screenshots and logs.
+- Give reproducible details: exact endpoint, expected behavior, actual behavior,
+  revision, and relevant environment information without secrets.
 
-Issue and PR templates in `.github/ISSUE_TEMPLATE` and `.github/PULL_REQUEST_TEMPLATE.md`
-are required by maintainers during review.
+Use the [Issue templates](.github/ISSUE_TEMPLATE) and
+[PR template](.github/PULL_REQUEST_TEMPLATE.md). Security reports follow
+[SECURITY.md](SECURITY.md), not a public issue containing exploit details or secrets.
 
 ## Development setup
 
@@ -34,72 +33,70 @@ in a separate terminal on port 5173 as shown in that guide.
 `just dev` and `just dev-rust` require a locally supplied `docker-compose.dev.yml`;
 the repository does not include it. They are not fresh-checkout shortcuts.
 
-For README or logo changes, also run `python3 scripts/check-docs-brand.py` and
-inspect light/dark placements and small icon sizes.
+## Select checks for the change
 
-## Quality gates
+For README, documentation, or skill changes, run from the repository root:
 
-Before opening a PR, run at least:
+```bash
+python3 -B scripts/check-docs-brand.py --docs-only
+python3 -B -m unittest discover -s scripts -p test_check_docs_brand.py
+```
 
-- `just format`
-- `just lint`
-- `just test`
+For translation helper changes, also run:
 
-For production-facing changes:
+```bash
+node --test .agents/skills/i18n-translate/scripts/apply-translations.test.mjs
+```
 
-- `just build`
-- `just check`
-- Any affected app-level test suite in `apps/api-go`, `apps/api-rust`, or `apps/web`.
+For logo changes, run `python3 -B scripts/check-docs-brand.py` without the filter
+and inspect light/dark placements and small icon sizes. The documentation checker
+covers maintained entry documents and project skill entry points, not all Markdown
+files, remote URLs, heading anchors, or application behavior.
 
-If checks are skipped, list the reason clearly in PR description.
+For application changes, run relevant formatting checks, lint, and tests. The
+root recipes include `just format-check`, `just lint`, and `just test`. Apply
+formatting only to files in scope; do not run whole-tree `just format` for a docs
+change. For production-facing code, also run `just build`, `just check`, and the
+relevant app-level checks in `apps/api-go`, `apps/api-rust`, or `apps/web`.
 
-CI runs for pull requests, pushes to `main`, all tag pushes, and manual dispatches.
-Open a PR or dispatch CI manually to check a feature branch. A new PR commit
-cancels that PR's obsolete CI run; checks for distinct `main` commits remain
-available for release verification.
+Record actual commands, results, tested revision, and skipped checks with reasons.
+A syntax check or fixture test is not a full application, database, browser, or
+production acceptance test.
 
-The AUR CI gate verifies the release pinned in the checked-out package metadata,
-including its signed tag and asset integrity. Publishing a newer release does
-not invalidate that pin. Before publishing an AUR update, also run
-`bash packaging/aur/verify-go-release-pins.sh --latest` to check release freshness
-and published AUR versions; see [the AUR guide](packaging/aur/README.md).
+## CI and release evidence
+
+Tests run locally. The current [CI workflow](.github/workflows/ci.yml) supports
+manual `workflow_dispatch`; a PR, main push, or tag does not automatically trigger
+that workflow. Check each auxiliary workflow's actual `on` block separately.
+Do not infer a trigger from a job name, old comment, or documentation snapshot.
+
+Go/Web signing workflows require source-matched `local_test_evidence`. They do
+not use an assumed automatic PR test run as publication evidence. See
+[Actions](docs/ci-workflow-layout.md) and the [deployment workflow](docs/deployment-workflow.md).
+Do not change triggers or publish a release as a side effect of a docs update.
+
+The AUR verification tools distinguish checking a pinned release from checking
+release freshness. Before publishing an AUR update, use
+`bash packaging/aur/verify-go-release-pins.sh --latest` as described in the
+[AUR guide](packaging/aur/README.md). Do not treat this network/publishing workflow
+as a prerequisite for a documentation-only change.
 
 ## PR expectations
 
-### Mandatory PR checklist
+Describe the change, compatibility impact, related issue, tests, and documentation
+updates. Use the current PR template even when no automatic description check runs.
+Preserve source attribution, copyright headers, `NOTICE`, `FORK.md`, and licenses.
+Keep unrelated formatting, generated output, dependency upgrades, and refactors out.
 
-- Scope is bounded to the stated objective.
-- Behavior and compatibility impact are described clearly.
-- Related docs are updated.
-- Sensitive data is redacted in evidence, logs, and snapshots.
-- Upstream relationship is explicitly stated when applicable.
-- Release notes or changelog intent is updated if behavior is user-facing.
+A checked checklist item does not mean every possible test ran. Explain skipped
+checks. Maintainers decide to merge, request changes, or close based on the code,
+tests, scope, and review. Account age, profile completeness, and use of AI tools do
+not determine the quality of a contribution.
 
-### Merge requirements
+For an incorrect closure, comment with the relevant evidence. Before closing a
+duplicate, identify the replacement. Do not close an underlying bug merely because
+one proposed fix was rejected.
 
-- Upstream fork attribution rules and notices remain intact (see `NOTICE` and `FORK.md`).
-- No unrelated refactors, cosmetic-only formatting, or broad tree-wide edits.
-
-### Automated PR handling
-
-- `PR Check` validates the current description against the repository's actual PR
-  template. Fill in the summary, verification, applicable options, and checklist.
-  Describe skipped checks honestly; a checked item does not claim every test ran.
-- Missing information produces an actionable job summary. Editing the description
-  reruns the check. The workflow has read-only permissions and cannot close, label,
-  or lock contributions. Dependency bots keep their generated descriptions.
-- Account age, profile completeness, merge history, and use of AI tools are not
-  grounds for automatic rejection. Contributors remain responsible for reviewing
-  their changes and providing reproducible evidence.
-- Maintainers decide whether to merge, request changes, or close a PR based on its
-  code, tests, scope, and review. For an incorrect closure, comment on the PR with
-  the relevant evidence. Maintainers should reopen it and remove stale automation
-  labels; if its changes are already merged, link the replacement before closing
-  the duplicate.
-
-The policy can be tested locally with `node --test scripts/pr-quality.test.mjs`.
-
-## Communication
-
-For all bug reports and feature requests, use GitHub templates.
-For security vulnerabilities, use the procedure in [`SECURITY.md`](./SECURITY.md).
+A request to edit does not authorize merging, releasing, production access, or
+moving funds. Keep commits on a task branch, report the PR, and respect the user's
+explicit merge and deployment instructions.

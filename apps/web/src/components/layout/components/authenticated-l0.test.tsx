@@ -104,11 +104,9 @@ await i18n
   .init({ lng: 'en', resources: { en: { translation: {} } } })
 after(() => domWindow.close())
 
-test('L0 renders the wallet header and no sidebar assistant even when a previous rail was open', async () => {
+test('L0 retains the wallet header and normal assistant shell', async () => {
   const originalGet = api.get
-  const calls: string[] = []
   api.get = (async (url) => {
-    calls.push(String(url))
     return {
       data: {
         success: true,
@@ -133,16 +131,16 @@ test('L0 renders the wallet header and no sidebar assistant even when a previous
   const rootRoute = createRootRoute({ component: Outlet })
   const route = createRoute({
     getParentRoute: () => rootRoute,
-    path: '/getting-started',
+    path: '/wallet',
     component: () => (
       <AuthenticatedLayout>
-        <main data-testid='l0-inline-content'>Inline conversation</main>
+        <main data-testid='l0-wallet-content'>Wallet</main>
       </AuthenticatedLayout>
     ),
   })
   const router = createRouter({
     routeTree: rootRoute.addChildren([route]),
-    history: createMemoryHistory({ initialEntries: ['/getting-started'] }),
+    history: createMemoryHistory({ initialEntries: ['/wallet'] }),
   })
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -169,25 +167,15 @@ test('L0 renders the wallet header and no sidebar assistant even when a previous
       await flush()
     })
     await act(flush)
-    assert.ok(container.querySelector('[data-testid="l0-inline-content"]'))
+    assert.ok(container.querySelector('[data-testid="l0-wallet-content"]'))
     const wallet = container.querySelector<HTMLElement>(
       '[data-testid="account-balance-badge"]'
     )
     const walletLinks =
       wallet?.querySelectorAll<HTMLAnchorElement>('a[href="/wallet"]')
-    assert.equal(walletLinks?.length, 2)
+    assert.ok(walletLinks && walletLinks.length > 0)
     assert.match(wallet?.textContent ?? '', /Top up/)
-    assert.equal(container.querySelector('[data-sidebar="trigger"]'), null)
-    assert.equal(
-      container.querySelector('button[aria-label="Open AI assistant"]'),
-      null
-    )
-    assert.equal(
-      container.querySelector(
-        '[data-testid="assistant-rail"], [data-testid="assistant-mobile-launcher"], #ai-assistant-panel'
-      ),
-      null
-    )
+    assert.ok(container.querySelector('[data-sidebar="trigger"]'))
     await act(async () => {
       window.dispatchEvent(
         new domWindow.KeyboardEvent('keydown', {
@@ -198,15 +186,10 @@ test('L0 renders the wallet header and no sidebar assistant even when a previous
       )
       await flush()
     })
-    assert.equal(
-      container.querySelector(
-        '[data-testid="assistant-rail"], [data-testid="assistant-mobile-launcher"], #ai-assistant-panel'
-      ),
-      null
-    )
-    assert.equal(
-      calls.some((url) => url.includes('/assistant/')),
-      false
+    assert.ok(
+      document.querySelector(
+        '[data-testid="assistant-rail"], #ai-assistant-panel'
+      )
     )
   } finally {
     await act(async () => root.unmount())

@@ -27,7 +27,7 @@ const user: AuthUser = { id: 1, username: 'new-user', role: 1 }
 test('L0 guidance uses the current access decision, not old applications', () => {
   assert.equal(getAccountNextStep(null).to, '/sign-in')
   assert.deepEqual(getAccountNextStep(user), {
-    to: '/getting-started',
+    to: '/wallet',
     label: 'Enable L1 access',
   })
 })

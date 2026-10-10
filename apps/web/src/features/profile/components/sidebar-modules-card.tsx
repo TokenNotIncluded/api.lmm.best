@@ -80,15 +80,9 @@ function buildSectionDefs(t: (key: string) => string): SectionDef[] {
   const sections: SectionDef[] = [
     {
       id: 'onboarding',
-      title: t('Getting started'),
-      description: t('Start here and review available work'),
+      title: t('Explore'),
+      description: t('Explore available features'),
       modules: [
-        {
-          id: '/getting-started',
-          key: 'getting-started',
-          title: t('Getting started'),
-          description: t('Getting started and AI tools'),
-        },
         {
           id: '/open-source-bounties',
           key: 'open-source-bounties',
@@ -349,11 +343,10 @@ function buildSectionDefs(t: (key: string) => string): SectionDef[] {
     ],
   }
   general.title = t('Use AI')
-  general.description = t('Getting started and AI tools')
+  general.description = t('AI conversations and tools')
   // Presentation groups no longer align one-to-one with backend capability switches.
   delete general.configSection
   general.modules = [
-    module('/getting-started', 'Getting started'),
     module('/pricing', 'Models and pricing'),
     ...chat.modules,
     ...general.modules.filter((item) => !developerRoutes.has(item.id)),
@@ -391,7 +384,6 @@ const DEFAULT_ROUTES: DefaultRouteDef[] = [
     requiresConsole: true,
   },
   { route: '/dashboard/models', title: 'Dashboard', requiresConsole: true },
-  { route: '/getting-started', title: 'Getting started' },
   {
     route: '/chat-management',
     title: 'Conversation records',

@@ -77,7 +77,7 @@ export function PersonaDebugPanel() {
     resetPersonaDebugRuntime()
     queryClient.clear()
     setPersona('l0')
-    void navigate({ to: '/getting-started', replace: true })
+    void navigate({ to: '/wallet', replace: true })
   }
 
   return (

@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-"""Check entry-document links, release badges, and shared logo assets offline."""
+"""Check maintained docs, local skills, README badges, and logo assets offline."""
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 import re
@@ -15,7 +16,8 @@ from urllib.parse import unquote, urlsplit
 ROOT = Path(__file__).resolve().parents[1]
 DOCUMENTS = (
     "README.md", "README_EN.md", "docs/README.md", "docs/development.md",
-    "CONTRIBUTING.md", "DESIGN.md", ".github/assets/README.md",
+    "CONTRIBUTING.md", "DESIGN.md", ".github/assets/README.md", "AGENTS.md",
+    ".agents/skills/README.md", "docs/agent-workflows.md", "docs/ci-workflow-layout.md",
 )
 SYMBOLS = (
     ".github/assets/lmm-symbol.svg", ".github/assets/lmm-logo.svg",
@@ -38,25 +40,119 @@ class Links(HTMLParser):
             self.images.append(values["src"])
 
 
+def prose(text: str) -> str:
+    """Remove fenced and inline code, not the prose after a fenced example."""
+    lines = []
+    fence = ""
+    for line in text.splitlines(keepends=True):
+        marker = re.match(r"^ {0,3}(`{3,}|~{3,})", line)
+        if fence:
+            if re.match(r"^ {0,3}" + re.escape(fence[0]) +
+                        "{" + str(len(fence)) + r",}\s*$", line):
+                fence = ""
+            continue
+        if marker:
+            fence = marker[1]
+            continue
+        lines.append(line)
+    return re.sub(r"(`+)(?!`)(.+?)(?<!`)\1(?!`)", "", "".join(lines), flags=re.S)
+
+
 def document_links(text: str) -> list[str]:
-    # These entry documents use inline links. Ignore examples inside code fences.
-    text = re.sub(r"```.*?```", "", text, flags=re.S)
+    # Supports this repository's HTML, inline, and reference-style links.
+    # This is a path check, not a complete Markdown parser or an anchor check.
+    text = prose(text)
     parser = Links()
     parser.feed(text)
-    return parser.targets + re.findall(r"!?\[[^\]]*\]\(([^\s)]+)\)", text)
+    inline = re.findall(
+        r"!?\[[^\]\n]*\]\(\s*(?:<([^>\n]+)>|((?:\\.|[^\s()\\]|\([^()\n]*\))+))"
+        r"(?:\s+(?:\"[^\"\n]*\"|'[^'\n]*'))?\s*\)", text,
+    )
+    references = re.findall(
+        r"^ {0,3}\[[^\]\n]+\]:\s*(?:<([^>\n]+)>|(\S+))", text, flags=re.M,
+    )
+    return parser.targets + [a or b for a, b in inline + references]
 
 
-def check_links(root: Path) -> list[str]:
+def skill_files(root: Path) -> list[Path]:
+    # Only project-owned entry points. Do not discover vendored reference copies.
+    return sorted((root / ".agents/skills").glob("*/SKILL.md"))
+
+
+def check_links(root: Path, documents: tuple[str, ...] | None = None) -> list[str]:
     errors = []
-    for name in DOCUMENTS:
+    names = documents if documents is not None else (
+        *DOCUMENTS, *(path.relative_to(root).as_posix() for path in skill_files(root))
+    )
+    for name in names:
         source = root / name
-        for target in document_links(source.read_text()):
-            url = urlsplit(unescape(target))
-            if url.scheme or url.netloc or not url.path:
-                continue
-            path = (source.parent / unquote(url.path)).resolve()
-            if not path.is_relative_to(root.resolve()) or not path.exists():
-                errors.append(f"{name}: missing local target {target}")
+        try:
+            targets = document_links(source.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError) as error:
+            errors.append(f"{name}: cannot read document: {error}")
+            continue
+        for target in targets:
+            try:
+                url = urlsplit(unescape(target))
+                if url.scheme or url.netloc or not url.path:
+                    continue
+                path = (source.parent / unquote(url.path)).resolve()
+                if not path.is_relative_to(root.resolve()) or not path.exists():
+                    errors.append(f"{name}: missing local target {target}")
+            except (OSError, ValueError, RuntimeError) as error:
+                errors.append(f"{name}: invalid local target {target}: {error}")
+    return errors
+
+
+def frontmatter_field(header: str, key: str) -> str:
+    """Read required string fields; this deliberately is not a YAML parser."""
+    match = re.search(r"^" + re.escape(key) + r":[ \t]*(.*)$", header, re.M)
+    if not match:
+        return ""
+    value = match[1].strip()
+    if re.fullmatch(r"[>|][-+]?", value):
+        parts = []
+        for line in header[match.end():].splitlines():
+            if line.strip() and not line.startswith((" ", "\t")):
+                break
+            parts.append(line.strip())
+        return " ".join(parts).strip()
+    if value.startswith('"'):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, str) else ""
+        except ValueError:
+            return ""
+    if value.startswith("'"):
+        return value[1:-1].replace("''", "'") if value.endswith("'") else ""
+    return "" if value in ("null", "~") or value.startswith(("#", "[", "{")) else value
+
+
+def check_skills(root: Path) -> list[str]:
+    errors = []
+    paths = skill_files(root)
+    if not paths:
+        return [".agents/skills: no project SKILL.md files found"]
+    for path in paths:
+        name = path.relative_to(root).as_posix()
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as error:
+            errors.append(f"{name}: cannot read skill: {error}")
+            continue
+        header = re.match(r"\A---\r?\n(.*?)\r?\n---(?:\r?\n|$)", text, re.S)
+        if not header:
+            errors.append(f"{name}: missing delimited frontmatter")
+            continue
+        declared = frontmatter_field(header[1], "name")
+        if declared != path.parent.name or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", declared):
+            errors.append(f"{name}: name must match its lower-case directory name")
+        if not frontmatter_field(header[1], "description"):
+            errors.append(f"{name}: missing non-empty description")
+        if re.search(r"(?<![/\w.-])web/(?:src|scripts|components\.json)", text) or re.search(
+            r"\bcd[ \t]+web(?=[ \t;&\r\n]|$)", text
+        ):
+            errors.append(f"{name}: stale frontend path; use apps/web")
     return errors
 
 
@@ -76,7 +172,7 @@ def check_badges(root: Path) -> list[str]:
     ]
     return [f"{name}: unexpected CI, component release, or license badges"
             for name in ("README.md", "README_EN.md")
-            if badge_urls((root / name).read_text()) != expected]
+            if badge_urls((root / name).read_text(encoding="utf-8")) != expected]
 
 
 def check_svg(path: Path, symbol: str) -> list[str]:
@@ -120,16 +216,24 @@ def check_assets(root: Path) -> list[str]:
     return errors
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--docs-only", action="store_true", help="skip logo asset checks")
+    args = parser.parse_args(argv)
     try:
-        errors = check_links(ROOT) + check_badges(ROOT) + check_assets(ROOT)
+        errors = check_links(ROOT) + check_skills(ROOT) + check_badges(ROOT)
+        if not args.docs_only:
+            errors += check_assets(ROOT)
     except (OSError, ValueError, KeyError, ET.ParseError) as error:
         errors = [str(error)]
     for error in errors:
         print(f"ERROR: {error}", file=sys.stderr)
     if errors:
         return 1
-    print("PASS: entry-document paths, README badges, SVGs, shared geometry, and raster hashes")
+    checked = "maintained document paths, skill metadata, and README badges"
+    if not args.docs_only:
+        checked += ", SVGs, shared geometry, and raster hashes"
+    print(f"PASS: {checked}")
     return 0
 
 

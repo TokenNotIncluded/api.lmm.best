@@ -72,7 +72,7 @@ export const Route = createFileRoute('/_authenticated')({
       !isConsoleActivated(auth.user) &&
       !isContributorRoute(location.pathname)
     ) {
-      throw redirect({ to: '/getting-started' })
+      throw redirect({ to: '/wallet', replace: true })
     }
   },
   component: DirectoryAwareLayout,

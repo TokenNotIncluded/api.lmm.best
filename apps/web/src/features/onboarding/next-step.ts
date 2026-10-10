@@ -29,7 +29,7 @@ export function getAccountNextStep(
   if (!user) return { to: '/sign-in', label: 'Sign in to get started' }
   const state = getOnboardingState(user)
   if (!state.activationComplete) {
-    return { to: '/getting-started', label: 'Enable L1 access' }
+    return { to: '/wallet', label: 'Enable L1 access' }
   }
   if (state.firstRequestComplete) {
     return { to: '/dashboard', label: 'Open dashboard' }

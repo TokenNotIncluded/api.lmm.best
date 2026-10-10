@@ -54,3 +54,38 @@ func TestPiRemoteRejectsUnsafeIdentifiersAndCiphertext(t *testing.T) {
 	_, err = store.upsert(1, "session_123456", piRemoteUpsertRequest{DeviceID: "device_123456", Metadata: piRemoteCiphertext{Nonce: "not base64!", Ciphertext: "bad"}})
 	require.Error(t, err)
 }
+
+func TestPiRemoteGenerationDeviceBindingAndOwnerDeletion(t *testing.T) {
+	store := newPiRemoteStore()
+	request := piRemoteUpsertRequest{DeviceID: "device_123456", Metadata: piRemoteTestCiphertext("metadata")}
+	first, err := store.upsert(1, "session_123456", request)
+	require.NoError(t, err)
+	require.NotEmpty(t, first.Generation)
+	refreshed, err := store.upsert(1, "session_123456", request)
+	require.NoError(t, err)
+	require.Equal(t, first.Generation, refreshed.Generation)
+	_, err = store.upsert(1, "session_123456", piRemoteUpsertRequest{DeviceID: "device_different", Metadata: request.Metadata})
+	require.Error(t, err)
+	require.NoError(t, store.remove(2, "session_123456"))
+	require.Len(t, store.list(1), 1)
+	require.NoError(t, store.remove(1, "session_123456"))
+	require.Empty(t, store.list(1))
+	second, err := store.upsert(1, "session_123456", request)
+	require.NoError(t, err)
+	require.NotEqual(t, first.Generation, second.Generation)
+}
+
+func TestPiRemoteMessagesBoundMemoryAndPreserveNewestCommands(t *testing.T) {
+	store := newPiRemoteStore()
+	payload := piRemoteTestCiphertext("opaque")
+	_, err := store.upsert(1, "session_123456", piRemoteUpsertRequest{DeviceID: "device_123456", Metadata: payload})
+	require.NoError(t, err)
+	for i := 0; i < piRemoteMaxMessages+4; i++ {
+		_, err = store.append(1, "session_123456", piRemoteAppendRequest{Sender: "controller", Nonce: payload.Nonce, Ciphertext: payload.Ciphertext})
+		require.NoError(t, err)
+	}
+	messages, err := store.messages(1, "session_123456", 0)
+	require.NoError(t, err)
+	require.Len(t, messages, piRemoteMaxMessages)
+	require.Equal(t, uint64(5), messages[0].Sequence)
+}

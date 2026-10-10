@@ -63,7 +63,13 @@ function DirectoryItem({ item }: { item: AIDirectoryLink }) {
 
   return (
     <article className='ai-directory-item'>
-      <div className='ai-directory-item-top'>
+      <a
+        className='ai-directory-item-top'
+        href={href}
+        target='_blank'
+        rel='noopener noreferrer'
+        aria-label={t('Open {{name}} in a new tab', { name: item.name })}
+      >
         <span className='ai-directory-mark' aria-hidden='true'>
           {icon ? getLobeIcon(icon, 27) : item.name.charAt(0).toUpperCase()}
         </span>
@@ -71,16 +77,10 @@ function DirectoryItem({ item }: { item: AIDirectoryLink }) {
           <h3 className='ai-directory-name'>{item.name}</h3>
           <span className='ai-directory-domain'>{hostname}</span>
         </div>
-        <a
-          className='ai-directory-visit'
-          href={href}
-          target='_blank'
-          rel='noopener noreferrer'
-          aria-label={t('Open {{name}} in a new tab', { name: item.name })}
-        >
-          <ArrowUpRight size={18} aria-hidden='true' />
-        </a>
-      </div>
+        <span className='ai-directory-visit' aria-hidden='true'>
+          <ArrowUpRight size={18} />
+        </span>
+      </a>
       {item.summary && (
         <p className='ai-directory-summary'>{t(item.summary)}</p>
       )}
@@ -134,6 +134,11 @@ export function AIDirectory() {
     return result
   }, [query.data])
 
+  const totalCount = Object.values(categoryCounts).reduce(
+    (sum, value) => sum + value,
+    0
+  )
+
   return (
     <SectionPageLayout className='ai-directory-page'>
       <SectionPageLayout.Title>{t('AI directory')}</SectionPageLayout.Title>
@@ -173,7 +178,21 @@ export function AIDirectory() {
       )}
       <SectionPageLayout.Content>
         <div className='ai-directory-shell'>
-          <SponsoredDirectorySection />
+          <header className='ai-directory-intro'>
+            <div>
+              <h2>{t('Explore AI websites')}</h2>
+              {query.isSuccess && (
+                <p>
+                  {t('{{count}} curated websites, grouped by what they do.', {
+                    count: totalCount,
+                  })}
+                </p>
+              )}
+            </div>
+            <div className='ai-directory-intro-symbol' aria-hidden='true'>
+              <Globe2 strokeWidth={1.2} />
+            </div>
+          </header>
 
           <div className='ai-directory-tools'>
             <label className='ai-directory-search'>
@@ -184,6 +203,7 @@ export function AIDirectory() {
                 onChange={(event) => setSearch(event.target.value)}
                 placeholder={t('Search curated websites')}
                 type='search'
+                aria-controls='ai-directory-results'
               />
             </label>
             <div
@@ -194,9 +214,11 @@ export function AIDirectory() {
               <button
                 type='button'
                 aria-pressed={category === 'all'}
+                aria-controls='ai-directory-results'
                 onClick={() => setCategory('all')}
               >
                 {t('All websites')}
+                {query.isSuccess && <span>{totalCount}</span>}
               </button>
               {AI_DIRECTORY_CATEGORIES.filter(
                 (value) => categoryCounts[value] > 0
@@ -205,79 +227,73 @@ export function AIDirectory() {
                   key={value}
                   type='button'
                   aria-pressed={category === value}
+                  aria-controls='ai-directory-results'
                   onClick={() => setCategory(value)}
                 >
                   {t(categoryLabels[value])}
+                  <span>{categoryCounts[value]}</span>
                 </button>
               ))}
             </div>
           </div>
 
-          {query.isPending && (
-            <p className='ai-directory-state'>{t('Loading websites...')}</p>
-          )}
-          {query.isError && (
-            <ErrorState
-              title={t('Unable to load websites')}
-              description={t('Try loading the directory again.')}
-              onRetry={() => void query.refetch()}
-            />
-          )}
-          {query.isSuccess && visible.length === 0 && (
-            <div className='ai-directory-state'>
-              <p>{t('No websites match your search.')}</p>
-              {(search || category !== 'all') && (
-                <Button
-                  variant='link'
-                  onClick={() => {
-                    setSearch('')
-                    setCategory('all')
-                  }}
-                >
-                  {t('Clear filters')}
-                </Button>
-              )}
-            </div>
-          )}
-          {query.isSuccess && visible.length > 0 && (
-            <div className='ai-directory-groups'>
-              {AI_DIRECTORY_CATEGORIES.map((value) => {
-                const items = visible.filter((item) => item.category === value)
-                if (!items.length) return null
-                return (
-                  <section key={value} className='ai-directory-group'>
-                    <div className='ai-directory-group-heading'>
-                      <h2>{t(categoryLabels[value])}</h2>
-                      <span>{items.length}</span>
-                    </div>
-                    <div className='ai-directory-grid'>
-                      {items.map((item) => (
-                        <DirectoryItem item={item} key={item.id} />
-                      ))}
-                    </div>
-                  </section>
-                )
-              })}
-            </div>
-          )}
+          <SponsoredDirectorySection />
+
+          <div id='ai-directory-results' aria-busy={query.isPending}>
+            {query.isPending && (
+              <p className='ai-directory-state' role='status'>
+                {t('Loading websites...')}
+              </p>
+            )}
+            {query.isError && (
+              <ErrorState
+                title={t('Unable to load websites')}
+                description={t('Try loading the directory again.')}
+                onRetry={() => void query.refetch()}
+              />
+            )}
+            {query.isSuccess && visible.length === 0 && (
+              <div className='ai-directory-state'>
+                <p>{t('No websites match your search.')}</p>
+                {(search || category !== 'all') && (
+                  <Button
+                    variant='link'
+                    onClick={() => {
+                      setSearch('')
+                      setCategory('all')
+                    }}
+                  >
+                    {t('Clear filters')}
+                  </Button>
+                )}
+              </div>
+            )}
+            {query.isSuccess && visible.length > 0 && (
+              <div className='ai-directory-groups'>
+                {AI_DIRECTORY_CATEGORIES.map((value) => {
+                  const items = visible.filter(
+                    (item) => item.category === value
+                  )
+                  if (!items.length) return null
+                  return (
+                    <section key={value} className='ai-directory-group'>
+                      <div className='ai-directory-group-heading'>
+                        <h2>{t(categoryLabels[value])}</h2>
+                        <span>{items.length}</span>
+                      </div>
+                      <div className='ai-directory-grid'>
+                        {items.map((item) => (
+                          <DirectoryItem item={item} key={item.id} />
+                        ))}
+                      </div>
+                    </section>
+                  )
+                })}
+              </div>
+            )}
+          </div>
 
           <div className='ai-directory-help'>
-            <div className='ai-directory-intro'>
-              <div>
-                <h2>{t('Explore AI websites')}</h2>
-                <p>
-                  {t('{{count}} curated websites, grouped by what they do.', {
-                    count: Object.values(categoryCounts).reduce(
-                      (sum, value) => sum + value,
-                      0
-                    ),
-                  })}
-                </p>
-              </div>
-              <div className='ai-directory-intro-symbol' aria-hidden='true'>
-                <Globe2 strokeWidth={1.2} />
-              </div>
-            </div>
             <BookmarkletInstall compact />
           </div>
         </div>

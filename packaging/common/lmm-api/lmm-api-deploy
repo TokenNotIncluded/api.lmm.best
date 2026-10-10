@@ -5,4 +5,4 @@ if [[ $# -eq 0 ]]; then
   printf 'Usage: %s build|frontend|production ...\n' "${0##*/}" >&2
   exit 64
 fi
-exec /usr/bin/lmm-api operator "$@"
+exec /usr/lib/lmm-api-deploy/engine "$@"

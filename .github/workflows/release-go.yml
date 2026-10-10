@@ -79,7 +79,8 @@ jobs:
           [[ $(readlink "$contract_cli_dir/lmm-api") == lmm-api-go ]]
           [[ $(sha256sum "$contract_cli_dir/lmm-api" | cut -d' ' -f1) == \
              $(sha256sum "$contract_cli_dir/lmm-api-go" | cut -d' ' -f1) ]]
-          contract_revision=$("$contract_cli_dir/lmm-api" operator contract route print)
+          (cd apps/api-go && go build -p 2 -trimpath -o "$contract_cli_dir/lmm-api-deploy-engine" ./cmd/lmm-api-deploy)
+          contract_revision=$("$contract_cli_dir/lmm-api-deploy-engine" contract route print)
           merchant_writer_capability=$("$contract_cli_dir/lmm-api" merchant-store-writer-gate capability)
           [[ "$merchant_writer_capability" =~ ^[1-9]$ ]]
           {
@@ -138,12 +139,15 @@ jobs:
             go build -p 2 -trimpath \
               -ldflags="-s -w -X github.com/LIghtJUNction/api.lmm.best/common.Version=${RELEASE_VERSION}" \
               -o "../../${bundle}/lmm-api-go" .
+            go build -p 2 -trimpath -ldflags="-s -w -X main.version=${RELEASE_VERSION}" \
+              -o "../../${bundle}/lmm-api-deploy-engine" ./cmd/lmm-api-deploy
           )
           file "$bundle/lmm-api-go"
           if ldd "$bundle/lmm-api-go" 2>&1 | grep -qvE 'not a dynamic executable|statically linked'; then
             echo 'Go release binary is dynamically linked' >&2
             exit 1
           fi
+          bash scripts/check-static-go-binary.sh "$bundle/lmm-api-deploy-engine"
           cp packaging/common/lmm-api/lmm-api-deploy "$bundle/"
           cp packaging/common/lmm-api/lmm-api.service "$bundle/"
           cp packaging/common/lmm-api/lmm-api-go.env "$bundle/"

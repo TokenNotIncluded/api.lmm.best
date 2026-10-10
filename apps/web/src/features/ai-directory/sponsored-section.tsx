@@ -489,7 +489,7 @@ export function SponsoredDirectorySection() {
               size='sm'
               render={
                 isSignedIn ? (
-                  <Link to='/getting-started' />
+                  <Link to='/wallet' />
                 ) : (
                   <Link to='/sign-in' search={{ redirect: '/ai-directory' }} />
                 )

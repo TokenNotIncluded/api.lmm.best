@@ -23,9 +23,9 @@ import { palette, Shape, type Vec3 } from './sculptures/geometry'
 test('five sequences include the reference portrait and preserve the existing scenes', () => {
   assert.deepEqual(
     HOME_SEQUENCES.map((list) => list.length),
-    [10, 3, 6, 7, 4]
+    [9, 3, 6, 7, 4]
   )
-  assert.equal(new Set(HOME_SEQUENCES.flat()).size, 30)
+  assert.equal(new Set(HOME_SEQUENCES.flat()).size, 29)
   assert.equal(HOME_SEQUENCES[0].at(-1), 'moonFarSide')
   assert.deepEqual(HOME_SEQUENCES[4], [
     'pelicanBicycle',
@@ -37,7 +37,7 @@ test('five sequences include the reference portrait and preserve the existing sc
 
 test('retired scenes are absent and scene clocks continue across morphs', () => {
   const ids = new Set<string>(HOME_SEQUENCES.flat())
-  for (const id of ['lotus', 'rose', 'emperorBicycle', 'catBomb']) {
+  for (const id of ['lotus', 'rose', 'emperorBicycle', 'catBomb', 'cloud']) {
     assert.equal(ids.has(id), false)
   }
   assert.equal(HOME_SEQUENCES[0][0], 'smilingPortrait')

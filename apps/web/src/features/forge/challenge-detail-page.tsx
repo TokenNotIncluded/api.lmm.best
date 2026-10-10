@@ -238,7 +238,7 @@ export function ChallengeDetailPage(props: ChallengeDetailPageProps) {
           variant='outline'
           size='sm'
           className='w-full'
-          render={<Link to='/getting-started' />}
+          render={<Link to='/wallet' />}
         >
           {t('Start with AI assistant')}
           <HugeiconsIcon

@@ -209,7 +209,7 @@ test('onboarding status reports exact L0 credit progress and the next step witho
   })
   assert.doesNotMatch(JSON.stringify(result.paid_access), /_usd|9999/)
   assert.deepEqual(result.next_step, {
-    path: '/getting-started',
+    path: '/wallet',
     label: 'Enable L1 access',
   })
 })
@@ -256,7 +256,7 @@ test('opening the assistant queues only a fixed preset', async () => {
   )
 })
 
-test('L0 onboarding help navigates to the inline page without opening a second assistant', async () => {
+test('L0 onboarding help opens the assistant from the wallet', async () => {
   useAuthStore.getState().auth.setUser({
     id: 1,
     username: 'l0',
@@ -268,8 +268,8 @@ test('L0 onboarding help navigates to the inline page without opening a second a
     { preset: 'onboarding' },
     { signal: signal() }
   )
-  assert.deepEqual(calls, [{ to: '/getting-started' }])
-  assert.equal(consumeQueuedAssistantRequest(), undefined)
+  assert.deepEqual(calls, [{ to: '/wallet' }])
+  assert.equal(consumeQueuedAssistantRequest()?.preset, 'onboarding')
 })
 
 test('setup status reads without exposing setup credentials', async () => {

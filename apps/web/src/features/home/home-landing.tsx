@@ -144,11 +144,6 @@ export function HomeLanding({
           <div className='lmm-poster-brand' aria-hidden='true'>
             {brandName}
           </div>
-          <div className='lmm-poster-caption' aria-hidden='true'>
-            {t('Chat')} · {t('Image')} · {t('Audio')}
-            <br />
-            MCP · OAuth · {t('Community')}
-          </div>
           <section
             className='lmm-intro lmm-scene-panel'
             data-cinema-panel='0'

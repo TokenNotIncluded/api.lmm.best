@@ -24,6 +24,12 @@ jobs:
           bun-version: '1.3.14'
       - name: Install locked dependencies
         run: bun install --frozen-lockfile
+      - name: Check directory entry and sculpture regressions
+        working-directory: apps/web
+        run: |
+          bun src/features/forge/home-directory-link.test.ts
+          bun src/features/forge/home-directory-gesture.test.ts
+          bun src/features/home/home-sculptures.test.ts
       - name: Build production frontend
         run: bun run --filter @lmm/web build
       - name: Install isolated browser tools
@@ -43,6 +49,7 @@ jobs:
             if curl --fail --silent http://127.0.0.1:4175/ >/dev/null; then break; fi
             sleep 1
           done
+          PLAYWRIGHT_MODULE="$RUNNER_TEMP/home-browser/node_modules/playwright/index.mjs" node scripts/directory-design-review.mjs
           PLAYWRIGHT_MODULE="$RUNNER_TEMP/home-browser/node_modules/playwright/index.mjs" node scripts/home-design-review.mjs
       - name: Preserve screenshots and review revision
         if: always()

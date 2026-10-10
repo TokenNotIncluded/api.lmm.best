@@ -4,10 +4,15 @@ import { useTranslation } from 'react-i18next'
 import { Badge } from '@/components/ui/badge'
 
 import type { StoreCatalogueProduct } from './catalogue-types'
+import {
+  storeProductDisplayTags,
+  type StoreStockTagProduct,
+} from './stock-status'
 
 const STORE_CATALOGUE_TAG_LABELS = {
   in_stock: 'In stock',
   out_of_stock: 'Out of stock',
+  trading_paused: 'Trading paused',
   auto_delivery: 'Automatic delivery',
   ai_processing: 'AI processing',
   guest_purchase: 'Guest purchase available',
@@ -16,12 +21,12 @@ const STORE_CATALOGUE_TAG_LABELS = {
 export function StoreCatalogueTags({
   product,
 }: {
-  product: Pick<StoreCatalogueProduct, 'display_tags' | 'catalogue'>
+  product: StoreStockTagProduct & Pick<StoreCatalogueProduct, 'catalogue'>
 }) {
   const { t } = useTranslation()
-  // Tags are supplied by the visibility-aware server projection. Inventory
-  // totals and collection credentials do not establish purchase availability.
-  const tags = [...new Set(product.display_tags ?? [])]
+  // Normalize older visibility-aware projections without inferring checkout
+  // permission from physical inventory or collection credentials.
+  const tags = storeProductDisplayTags(product)
   const customTags = [...new Set(product.catalogue?.custom_tags ?? [])]
   if (!tags.length && !customTags.length) return null
   return (
@@ -31,6 +36,11 @@ export function StoreCatalogueTags({
           key={tag}
           variant='secondary'
           className='max-w-full break-words whitespace-normal'
+          title={
+            tag === 'trading_paused'
+              ? t('This product or payment method is currently unavailable.')
+              : undefined
+          }
         >
           {tag in STORE_CATALOGUE_TAG_LABELS
             ? t(
