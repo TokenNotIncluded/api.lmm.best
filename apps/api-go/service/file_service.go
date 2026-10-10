@@ -2,6 +2,7 @@ package service
 
 import (
 	"bytes"
+	"crypto/sha256"
 	"encoding/base64"
 	"encoding/binary"
 	"fmt"
@@ -31,15 +32,26 @@ func getContextCacheKey(url string) string {
 }
 
 // getBase64ContextCacheKey 生成 base64 context 缓存的 key
-// 使用 length + MIME + 前 128 字符作为输入，避免对整个 base64 数据做 hash
+// Hash the complete Base64 input; equal lengths and prefixes are not identities.
 func getBase64ContextCacheKey(data string, mimeType string) string {
-	keyMaterial := fmt.Sprintf("%d:%s:", len(data), mimeType)
-	if len(data) > 128 {
-		keyMaterial += data[:128]
-	} else {
-		keyMaterial += data
-	}
+	digest := base64ContentDigest(data)
+	keyMaterial := fmt.Sprintf("%d:%s:%x", len(data), mimeType, digest)
 	return fmt.Sprintf("b64_cache_%s", common.GenerateHMAC(keyMaterial))
+}
+
+// base64ContentDigest hashes the full string in bounded chunks, without a
+// temporary byte slice as large as the input.
+func base64ContentDigest(data string) [sha256.Size]byte {
+	hasher := sha256.New()
+	var chunk [4096]byte
+	for remaining := data; len(remaining) > 0; {
+		n := copy(chunk[:], remaining)
+		_, _ = hasher.Write(chunk[:n])
+		remaining = remaining[n:]
+	}
+	var digest [sha256.Size]byte
+	hasher.Sum(digest[:0])
+	return digest
 }
 
 // LoadFileSource 加载文件源数据
@@ -142,14 +154,24 @@ func registerSourceForCleanup(c *gin.Context, source types.FileSource) {
 // CleanupFileSources 清理请求中所有注册的 FileSource
 // 应在请求结束时调用（通常由中间件自动调用）
 func CleanupFileSources(c *gin.Context) {
+	if c == nil {
+		return
+	}
 	key := string(constant.ContextKeyFileSourcesToCleanup)
-	if sources, exists := c.Get(key); exists {
-		for _, source := range sources.([]types.FileSource) {
-			if cache := source.GetCache(); cache != nil {
-				cache.Close()
-			}
+	value, exists := c.Get(key)
+	if !exists {
+		return
+	}
+	sources, ok := value.([]types.FileSource)
+	if !ok || len(sources) == 0 {
+		return
+	}
+	// Preserve the slice's type so repeated terminal cleanup is safe.
+	c.Set(key, []types.FileSource(nil))
+	for _, source := range sources {
+		if cache := source.GetCache(); cache != nil {
+			_ = cache.Close()
 		}
-		c.Set(key, nil)
 	}
 }
 
