@@ -1,0 +1,62 @@
+{
+  "repository": "https://github.com/TokenNotIncluded/api.lmm.best",
+  "base_commit": "72667564c0431754d4856dc2e0db55f360bd2745",
+  "base_tree": "d6af55df5419109a7e75ea9a472e99d25f63af1f",
+  "source_access": "GitHub connector read-only commit, tree, and source reads; direct Git download failed DNS",
+  "checkout_scope": "partial source checkout; NOT a full repository clone/build",
+  "git_integrity": "Original signed commit bytes and every modified-path ancestor tree were reconstructed from read-only GitHub data. SHA-1 matches verified exactly. Unchanged tree/blob IDs are preserved without claiming their files were compiled.",
+  "source_blobs": [
+    {
+      "path": "apps/lmm-core/src/internal_rpc.rs",
+      "git_blob_sha1": "d2260dfea28dd1b4384e72dff0238938149db4d4",
+      "url": "https://github.com/TokenNotIncluded/api.lmm.best/blob/72667564c0431754d4856dc2e0db55f360bd2745/apps/lmm-core/src/internal_rpc.rs"
+    },
+    {
+      "path": "apps/lmm-extensions/internal/coreclient/client.go",
+      "git_blob_sha1": "2ba6ba2910ed6d56ab968cef21f1182b424ed061",
+      "url": "https://github.com/TokenNotIncluded/api.lmm.best/blob/72667564c0431754d4856dc2e0db55f360bd2745/apps/lmm-extensions/internal/coreclient/client.go"
+    },
+    {
+      "path": "apps/lmm-extensions/internal/coreclient/payments.go",
+      "git_blob_sha1": "7c9646480d7b2509d996a9a26d5031ec5071b878",
+      "url": "https://github.com/TokenNotIncluded/api.lmm.best/blob/72667564c0431754d4856dc2e0db55f360bd2745/apps/lmm-extensions/internal/coreclient/payments.go"
+    },
+    {
+      "path": "apps/lmm-core/src/identity/credentials.rs",
+      "git_blob_sha1": "47cbed2356124d2864011f775d61c195c0db77de",
+      "url": "https://github.com/TokenNotIncluded/api.lmm.best/blob/72667564c0431754d4856dc2e0db55f360bd2745/apps/lmm-core/src/identity/credentials.rs"
+    },
+    {
+      "path": "apps/lmm-core/src/identity/auth.rs",
+      "git_blob_sha1": "90a529fe63046e7e23075c514a81d95780b8d9a0",
+      "url": "https://github.com/TokenNotIncluded/api.lmm.best/blob/72667564c0431754d4856dc2e0db55f360bd2745/apps/lmm-core/src/identity/auth.rs"
+    },
+    {
+      "path": "contracts/proto/lmm/core/v1/control.proto",
+      "git_blob_sha1": "2f05ba8306cb90fb830ef0a53adc725480775b3f",
+      "url": "https://github.com/TokenNotIncluded/api.lmm.best/blob/72667564c0431754d4856dc2e0db55f360bd2745/contracts/proto/lmm/core/v1/control.proto"
+    },
+    {
+      "path": ".github/workflows/core-protocol.yml",
+      "git_blob_sha1": "2ccaf0b6773d5600c26976cc53c640cbd3d8a7c8",
+      "url": "https://github.com/TokenNotIncluded/api.lmm.best/blob/72667564c0431754d4856dc2e0db55f360bd2745/.github/workflows/core-protocol.yml"
+    },
+    {
+      "path": ".github/workflows/ci.yml",
+      "git_blob_sha1": "de72610e9f73b6cceb6984dfa0812659cfa6125a",
+      "url": "https://github.com/TokenNotIncluded/api.lmm.best/blob/72667564c0431754d4856dc2e0db55f360bd2745/.github/workflows/ci.yml"
+    }
+  ],
+  "tested_files_sha256": {
+    "apps/lmm-extensions/internal/coreclient/transportpolicy/policy.go": "90542729200297374685980dd4e82f225c854e32703b211ea74c4bfb3e3e530a",
+    "apps/lmm-extensions/internal/coreclient/transportpolicy/fixture_test.go": "3c6440d25f68b6fe77095ac0a5725e5f61fdbdaf08c3197b08d26aa363230ce7",
+    "apps/lmm-extensions/internal/coreclient/transportpolicy/tls_test.go": "979db20ce912be052d85eebef8aaa060dbcf4496863f173824ddaab9f977bafa",
+    "apps/lmm-extensions/internal/coreclient/transportpolicy/policy_test.go": "e77b618ad40d3bea17cc523cac3997747667795fc436183a4f92d03c6775f5ca",
+    "experiments/deploy/dp-24/run.sh": "8955b84e695a07bb6ac88f8aeea8f896458f5fc636a4d7a4730aca353dd64e71",
+    "experiments/deploy/dp-24/lab.py": "f8328851a9545e138d9af00c14a42500e84d3a77dbf5311684760f7c7df4161d"
+  },
+  "remote_writes": false,
+  "production_network_tests": false,
+  "remote_ci": false,
+  "full_acceptance_passed": false
+}
