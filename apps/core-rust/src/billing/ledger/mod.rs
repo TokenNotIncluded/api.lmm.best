@@ -242,15 +242,16 @@ impl Ledger {
         Self { pool }
     }
 
-    async fn begin(&self) -> Result<Transaction<'_, Postgres>, Error> {
+    async fn begin(&self) -> Result<Transaction<'static, Postgres>, Error> {
         let mut tx = self.pool.begin().await?;
-        sqlx::raw_sql(
-            "SET TRANSACTION ISOLATION LEVEL READ COMMITTED; \
-             SET LOCAL lock_timeout = '3s'; SET LOCAL statement_timeout = '10s'; \
-             SET LOCAL synchronous_commit = on;",
-        )
-        .execute(&mut *tx)
-        .await?;
+        for statement in [
+            "SET TRANSACTION ISOLATION LEVEL READ COMMITTED",
+            "SET LOCAL lock_timeout = '3s'",
+            "SET LOCAL statement_timeout = '10s'",
+            "SET LOCAL synchronous_commit = on",
+        ] {
+            sqlx::query(statement).execute(&mut *tx).await?;
+        }
         Ok(tx)
     }
 
@@ -260,12 +261,11 @@ impl Ledger {
             return Err(Error::InvalidRequest);
         }
         let mut tx = self.begin().await?;
-        let Json(wallet) = sqlx::query_scalar::<_, Json<Wallet>>(
-            "SELECT core_billing.open_ledger_wallet($1)",
-        )
-        .bind(account_id)
-        .fetch_one(&mut *tx)
-        .await?;
+        let Json(wallet) =
+            sqlx::query_scalar::<_, Json<Wallet>>("SELECT core_billing.open_ledger_wallet($1)")
+                .bind(account_id)
+                .fetch_one(&mut *tx)
+                .await?;
         tx.commit().await?;
         Ok(wallet)
     }
@@ -275,12 +275,11 @@ impl Ledger {
     pub async fn execute(&self, request: &Request) -> Result<Outcome, Error> {
         request.validate()?;
         let mut tx = self.begin().await?;
-        let Json(outcome) = sqlx::query_scalar::<_, Json<Outcome>>(
-            "SELECT core_billing.post_ledger($1)",
-        )
-        .bind(Json(request))
-        .fetch_one(&mut *tx)
-        .await?;
+        let Json(outcome) =
+            sqlx::query_scalar::<_, Json<Outcome>>("SELECT core_billing.post_ledger($1)")
+                .bind(Json(request))
+                .fetch_one(&mut *tx)
+                .await?;
         tx.commit().await?;
         Ok(outcome)
     }
@@ -314,15 +313,15 @@ mod tests {
     #[test]
     fn requests_reject_floats_negative_amounts_and_unknown_fields() {
         for amount in ["1.5", "-1", "9223372036854775808"] {
-            let raw = format!(
-                r#"{{"kind":"charge","account_id":1,"amount_units":{amount}}}"#
-            );
+            let raw = format!(r#"{{"kind":"charge","account_id":1,"amount_units":{amount}}}"#);
             assert!(serde_json::from_str::<Action>(&raw).is_err());
         }
-        assert!(serde_json::from_str::<Action>(
-            r#"{"kind":"charge","account_id":1,"amount_units":1,"set_balance":999}"#
-        )
-        .is_err());
+        assert!(
+            serde_json::from_str::<Action>(
+                r#"{"kind":"charge","account_id":1,"amount_units":1,"set_balance":999}"#
+            )
+            .is_err()
+        );
         assert_eq!(super::super::CREDITS_PER_USD, 500_000);
     }
 

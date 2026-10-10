@@ -309,7 +309,7 @@ BEGIN
             INSERT INTO core_billing.ledger_entries(journal_id, ledger_account_id, delta_units)
                 VALUES (journal_id, (leg->>'id')::BIGINT, (leg->>'units')::BIGINT);
         END LOOP;
-        SELECT jsonb_build_object('status', 'posted', 'journal_id', journal_id, 'entries',
+        SELECT jsonb_build_object('status', 'posted', 'journal_id', post_ledger.journal_id, 'entries',
             jsonb_agg(jsonb_build_object('ledger_account_id', e.ledger_account_id, 'delta_units', e.delta_units,
                 'balance_after_units', e.balance_after_units, 'balance_revision', e.balance_revision)
                 ORDER BY e.ledger_account_id)) INTO result
