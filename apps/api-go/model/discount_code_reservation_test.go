@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestLimitedDiscountReservationPreventsOversubscriptionWithoutBlockingPaidOrders(t *testing.T) {
+func TestLimitedDiscountReservationRemainsHeldUntilOrderTerminates(t *testing.T) {
 	db := setupExternalTopUpSettlementDB(t, 1)
 	require.NoError(t, db.AutoMigrate(&DiscountCode{}, &DiscountCodeReservation{}))
 	previousRedisEnabled := common.RedisEnabled
@@ -49,11 +49,16 @@ func TestLimitedDiscountReservationPreventsOversubscriptionWithoutBlockingPaidOr
 	_, blocked := newPending("blocked")
 	require.ErrorIs(t, blocked.Insert(), ErrDiscountCodeExhausted)
 
-	// Expiry permits another checkout, but does not invalidate a provider
-	// payment that may already be in flight for the first order.
+	// The provider checkout may remain payable after this timestamp, so expiry
+	// alone must not make its limited-use coupon slot available again.
 	require.NoError(t, db.Model(&DiscountCodeReservation{}).
 		Where("top_up_trade_no = ?", first.TradeNo).
 		Update("expires_time", common.GetTimestamp()-1).Error)
+	_, stillBlocked := newPending("still-blocked")
+	require.ErrorIs(t, stillBlocked.Insert(), ErrDiscountCodeExhausted)
+
+	// A terminal order transition explicitly releases the slot.
+	require.NoError(t, UpdatePendingTopUpStatus(first.TradeNo, PaymentProviderWaffoPancake, common.TopUpStatusFailed))
 	secondUser, second := newPending("second")
 	require.NoError(t, second.Insert())
 
@@ -70,19 +75,24 @@ func TestLimitedDiscountReservationPreventsOversubscriptionWithoutBlockingPaidOr
 		require.NoError(t, err)
 	}
 	settle(second, 2)
-	settle(first, 1)
 
-	for _, user := range []*User{firstUser, secondUser} {
-		var reloaded User
-		require.NoError(t, db.First(&reloaded, user.Id).Error)
-		require.EqualValues(t, 1_000, reloaded.Quota)
-	}
+	var reloadedFirst User
+	require.NoError(t, db.First(&reloadedFirst, firstUser.Id).Error)
+	require.Zero(t, reloadedFirst.Quota)
+	var reloadedSecond User
+	require.NoError(t, db.First(&reloadedSecond, secondUser.Id).Error)
+	require.EqualValues(t, 1_000, reloadedSecond.Quota)
 	var consumed DiscountCode
 	require.NoError(t, db.First(&consumed, code.Id).Error)
-	require.EqualValues(t, 2, consumed.UsedCount)
+	require.EqualValues(t, 1, consumed.UsedCount)
 	var consumedReservations int64
 	require.NoError(t, db.Model(&DiscountCodeReservation{}).
 		Where("discount_code_id = ? AND status = ?", code.Id, DiscountCodeReservationStatusConsumed).
 		Count(&consumedReservations).Error)
-	require.EqualValues(t, 2, consumedReservations)
+	require.EqualValues(t, 1, consumedReservations)
+	var releasedReservations int64
+	require.NoError(t, db.Model(&DiscountCodeReservation{}).
+		Where("discount_code_id = ? AND status = ?", code.Id, DiscountCodeReservationStatusReleased).
+		Count(&releasedReservations).Error)
+	require.EqualValues(t, 1, releasedReservations)
 }

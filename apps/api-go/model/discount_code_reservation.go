@@ -20,9 +20,9 @@ const (
 )
 
 // DiscountCodeReservation atomically prevents two unpaid orders from both
-// claiming the last limited-use coupon slot. A later signed payment is always credited even
-// when its reservation expired or was released; provider settlement must never
-// fail because coupon capacity changed after checkout.
+// claiming the last limited-use coupon slot. Reserved slots remain active until
+// the associated order is either settled or moved to a terminal failure state;
+// ExpiresTime is retained as checkout metadata, not as a capacity release.
 type DiscountCodeReservation struct {
 	Id             int    `json:"id"`
 	DiscountCodeId int    `json:"discount_code_id" gorm:"not null;index"`
@@ -91,7 +91,7 @@ func reserveDiscountCodeUsageTx(tx *gorm.DB, topUp *TopUp) error {
 	if code.MaxUses > 0 {
 		var activeReservations int64
 		if err := tx.Model(&DiscountCodeReservation{}).
-			Where("discount_code_id = ? AND status = ? AND expires_time > ?", code.Id, DiscountCodeReservationStatusReserved, now).
+			Where("discount_code_id = ? AND status = ?", code.Id, DiscountCodeReservationStatusReserved).
 			Count(&activeReservations).Error; err != nil {
 			return err
 		}
