@@ -25,8 +25,11 @@ MAX_FILES = 20000
 
 def safe_path(name: str) -> str:
     path = PurePosixPath(name)
+    # Exact public discovery resource, not a blanket hidden-file exception.
+    public_discovery = name in {".well-known/webmcp.json", "dist/.well-known/webmcp.json"}
     if (not name or path.is_absolute() or str(path) != name or "\\" in name or ":" in name
-            or any(part in {".", ".."} or part.startswith(".") for part in path.parts)
+            or any(part in {".", ".."} or (part.startswith(".") and not public_discovery)
+                   for part in path.parts)
             or any(ord(char) < 32 for char in name)):
         raise ValueError("unsafe archive path")
     if any(part in {"node_modules", "target", "__pycache__", "site.json"} for part in path.parts):

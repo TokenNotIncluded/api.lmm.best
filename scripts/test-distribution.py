@@ -98,6 +98,23 @@ class DistributionTests(unittest.TestCase):
                     self.build("web")
                 path.unlink()
 
+    def test_public_discovery_is_preserved_without_allowing_hidden_files(self):
+        public = self.inputs / ".well-known"
+        public.mkdir()
+        source = ROOT / "apps/web/public/.well-known/webmcp.json"
+        shutil.copyfile(source, public / "webmcp.json")
+        archive = self.build("web", output=self.root / "discovery")
+        manifest = DIST.verify(archive, SHA)
+        self.assertIn("dist/.well-known/webmcp.json", manifest["files"])
+        for name in (".well-known/.env", ".well-known/private.json",
+                     "dist/.well-known/.env", "dist/.well-known/private.json",
+                     "config/.well-known/webmcp.json"):
+            with self.subTest(name=name), self.assertRaises(ValueError):
+                DIST.safe_path(name)
+        (public / "private.json").write_text("not public")
+        with self.assertRaises(ValueError):
+            self.build("web", output=self.root / "private")
+
     def test_identity_validation(self):
         for changes in ({"version":"../../x"}, {"revision":"short"}, {"platform":"any"}, {"epoch":-1}):
             with self.subTest(changes=changes), self.assertRaises(ValueError):
