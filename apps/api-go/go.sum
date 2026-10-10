@@ -2000,6 +2000,8 @@ github.com/waffo-com/waffo-go/v2 v2.1.0 h1:s2siKsm7cHLCC71qfVXsSQ4Q81Jt7UTpKsFhV
 github.com/waffo-com/waffo-go/v2 v2.1.0/go.mod h1:kF+fIGnxhABoOGt8hb2TDj/5PFzhb+vkT/iMgbI2cEY=
 github.com/waffo-com/waffo-pancake-sdk-go v0.11.0 h1:Gf3i6LVcp+PBLnlHVI11eUeOZrmM1hX6iqKfDd9fs1k=
 github.com/waffo-com/waffo-pancake-sdk-go v0.11.0/go.mod h1:OB2MyFIQaefoPO0FV3J+yu9sDP8RVFQ+sbFsXqGuObc=
+github.com/waffo-com/waffo-pancake-sdk-go v0.17.0 h1:435iBQizm4BkLsSK+8MS0Q/llhhVcBeP2JVJV9FNvSI=
+github.com/waffo-com/waffo-pancake-sdk-go v0.17.0/go.mod h1:OB2MyFIQaefoPO0FV3J+yu9sDP8RVFQ+sbFsXqGuObc=
 github.com/willf/bitset v1.1.11-0.20200630133818-d5bec3311243/go.mod h1:RjeCKbqT1RxIR/KWY6phxZiaY1IyutSBfGjNPySAYV4=
 github.com/willf/bitset v1.1.11/go.mod h1:83CECat5yLh5zVOf4P1ErAgKA5UDvKtgyUABdr3+MjI=
 github.com/x448/float16 v0.8.4 h1:qLwI1I70+NjRFUR3zs1JPUCgaCXSh3SW62uAKT1mSBM=

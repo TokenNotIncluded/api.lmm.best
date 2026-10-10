@@ -54,6 +54,37 @@ external ID 绑定本地订单；订阅事件只有 `WAFFO_PANCAKE_SUB-*` 订单
 `refundStatus` 必须与事件类型一致。字段缺失仍兼容旧载荷；签名有效但状态
 自相矛盾的事件会记录错误并确认，不会入账，也不会因为同一份坏载荷反复重试。
 
+## 2026-10-10 SDK 与付款金额适配
+
+Go 后端固定使用 SDK `v0.17.0`。本节核对范围为 2026-09-10 至 2026-10-10；
+上文的 TypeScript 测试脚本不因 Go 依赖升级而自动改变。
+依据为[官方版本记录](https://github.com/waffo-com/waffo-pancake-sdk-go/blob/v0.17.0/CHANGELOG.md)
+及[付款回调文档](https://docs.waffo.ai/api-reference/webhooks)。
+
+从 SDK `v0.14.0` 起，写请求不再自动带 `X-Idempotency-Key`。本项目显式绑定
+钱包收银台的订单号，以及创建店铺、创建及发布商品的操作标识。商店退款使用原订单号
+和退款号生成固定标识，不能使用每次查询都会变化的临时令牌。Waffo 的去重窗口为
+24 小时；本地付款收据、退款状态和数据库唯一限制仍是重复记账的最终保护。
+鉴权令牌和商品查询不能共用收银台的防重标识。退款超时后仍仅查询，不自动重提。
+
+付款事件优先使用 `chargedAmount`，退款事件优先使用 `refundedAmount`。
+`0.00` 表示明确的零金额，不能用商品原价替换。新格式有价格快照、但通道金额
+缺失时，不得回退到旧 `amount` 字段，因为它可能使用原价兜底。
+旧格式没有这些新字段时，继续保留原有金额处理和订单金额校验。
+
+`listPrice`、`originalPayment`、`planPrice` 分别描述付款标价、被退款付款的
+价格快照、订阅阶段价格。它们不证明实际收款或退款。
+已知的 `originalChargedAmount` 是单笔退款上限的额外依据；累计退款还必须通过
+原有本地流水校验，不能只检查一份回调。金额未知时不得入账或冲销余额。
+
+保留可选的 `periodNumber`，不把它当成成功扣款次数或回调防重键。值为零的
+授权阶段不能触发付款发放。现有账期关联仍按下节所述使用付款日期；本次没有
+增加按 `orderId + periodNumber` 关联的数据库迁移。
+
+SDK 新增的换套餐入口和免邮箱验证客户门户不在本次更新中启用。
+收银台继续显式使用 45 分钟有效期，不采用新文档中的 24 小时默认值。
+本次不改变币种、金额快照、计费倍率或其他支付商的行为。
+
 ## 2026-09-06 订阅 webhook 变更
 
 `subscription.payment_succeeded.data` 已移除 `billingPeriod`、
@@ -111,7 +142,7 @@ SDK 默认的 45 分钟签名重放窗口。可通过
 
 ```sh
 cd apps/api-go
-go test ./model ./service ./controller -run 'WaffoPancake|PaymentWebhook' -count=1
+go test ./model ./service ./controller -run 'WaffoPancake|PaymentWebhook|MerchantStoreRefund' -count=1
 ```
 
 

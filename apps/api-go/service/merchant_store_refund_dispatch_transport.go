@@ -18,9 +18,10 @@ import (
 // The checkout transport intentionally strips Authorization, so this separate
 // transport permits exactly one documented customer action and no redirects.
 type merchantStoreRefundCustomerTransport struct {
-	base        http.RoundTripper
-	token       string
-	environment string
+	base           http.RoundTripper
+	token          string
+	environment    string
+	idempotencyKey string
 }
 
 func (t merchantStoreRefundCustomerTransport) RoundTrip(r *http.Request) (*http.Response, error) {
@@ -32,6 +33,10 @@ func (t merchantStoreRefundCustomerTransport) RoundTrip(r *http.Request) (*http.
 	c.Header.Del("Cookie")
 	c.Header.Del("Proxy-Authorization")
 	c.Header.Del("X-Idempotency-Key")
+	// Use the frozen refund identity, never an incoming key or a query lease.
+	if t.idempotencyKey != "" {
+		c.Header.Set("X-Idempotency-Key", t.idempotencyKey)
+	}
 	resp, e := t.base.RoundTrip(c)
 	if e != nil {
 		return nil, ErrMerchantStoreRefundProvider
@@ -66,7 +71,7 @@ func merchantStoreRefundCustomer(ctx context.Context, d *model.MerchantStoreRefu
 	if e != nil || time.Until(expiry) < 30*time.Second {
 		return nil, ErrMerchantStoreRefundProvider
 	}
-	httpClient := &http.Client{Transport: merchantStoreRefundCustomerTransport{base: merchantStoreRefundRawTransport(d.Order.ID), token: tok.Token, environment: frozen.Config.Environment}, Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return ErrMerchantStoreRefundProvider }}
+	httpClient := &http.Client{Transport: merchantStoreRefundCustomerTransport{base: merchantStoreRefundRawTransport(d.Order.ID), token: tok.Token, environment: frozen.Config.Environment, idempotencyKey: waffoPancakeRequestKey("create-refund-ticket", frozen.Config.MerchantID, d.Order.ID, d.Refund.ID)}, Timeout: 30 * time.Second, CheckRedirect: func(*http.Request, []*http.Request) error { return ErrMerchantStoreRefundProvider }}
 	client, e := pancake.New(pancake.Config{MerchantID: frozen.Config.MerchantID, PrivateKey: frozen.Config.PrivateKey, Environment: pancake.Environment(frozen.Config.Environment), BaseURL: pancake.DefaultBaseURL, HTTPClient: httpClient})
 	if e != nil {
 		return nil, ErrMerchantStoreRefundProvider
