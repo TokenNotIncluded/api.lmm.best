@@ -1,0 +1,29 @@
+{
+  "first_pull": {
+    "received_payload_bytes": 871491,
+    "http_requests": 4,
+    "wall_seconds": 0.004666869999937262,
+    "cache_allocated_bytes": 888832,
+    "http_headers_tcp_tls_overhead_counted": false,
+    "docker_used": false,
+    "scope": "standalone probe OCI blobs only"
+  },
+  "single_probe_update": {
+    "received_payload_bytes": 871324,
+    "http_requests": 3,
+    "wall_seconds": 0.00325972400014507,
+    "cache_allocated_bytes": 1769472,
+    "http_headers_tcp_tls_overhead_counted": false,
+    "docker_used": false,
+    "scope": "standalone probe OCI blobs only"
+  },
+  "after_pre_pull": {
+    "received_payload_bytes": 0,
+    "http_requests": 0,
+    "wall_seconds": 0.0006143549999251263,
+    "cache_allocated_bytes": 1769472,
+    "http_headers_tcp_tls_overhead_counted": false,
+    "docker_used": false,
+    "scope": "standalone probe OCI blobs only"
+  }
+}
