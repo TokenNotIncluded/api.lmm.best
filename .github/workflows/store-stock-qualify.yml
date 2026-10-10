@@ -2,7 +2,9 @@ name: Stock merge qualification
 on:
   push:
     branches: [review/store-stock-finish-20261010]
-    paths: [.github/workflows/store-stock-qualify.yml]
+    paths:
+      - .github/workflows/store-stock-qualify.yml
+      - scripts/merge-stock-candidate.mjs
 permissions:
   contents: write
 jobs:
@@ -11,7 +13,7 @@ jobs:
     timeout-minutes: 20
     env:
       GOMAXPROCS: '2'
-      STOCK_FINAL_OUTPUT: ${{ runner.temp }}/stock-qualified
+      STOCK_FINAL_OUTPUT: /tmp/stock-qualified
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
@@ -61,7 +63,7 @@ jobs:
         working-directory: apps/web
         env:
           PLAYWRIGHT_MODULE: ${{ runner.temp }}/stock-browser/node_modules/playwright/index.mjs
-          STOCK_REVIEW_OUTPUT: ${{ runner.temp }}/stock-qualified
+          STOCK_REVIEW_OUTPUT: /tmp/stock-qualified
           STOCK_REVIEW_URL: http://127.0.0.1:4189
         run: |
           bun run build > "$STOCK_FINAL_OUTPUT/build.log" 2>&1
@@ -84,6 +86,6 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: stock-qualified-candidate
-          path: ${{ runner.temp }}/stock-qualified
+          path: /tmp/stock-qualified
           if-no-files-found: error
           retention-days: 7
