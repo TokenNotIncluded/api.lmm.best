@@ -40,9 +40,14 @@ func AdminGetAssistantToolCatalogue(c *gin.Context) {
 	if !requireAssistantBrowserSession(c) {
 		return
 	}
+	_, policy, err := refreshAssistantToolPolicy(c)
+	if err != nil {
+		common.ApiError(c, err)
+		return
+	}
 	common.ApiSuccess(c, gin.H{
-		"groups":       setting.AssistantToolCatalogue(),
-		"capabilities": gin.H{"policy_rules": true},
+		"groups": assistantToolCatalogueWithText(policy),
+		"capabilities": gin.H{"policy_rules": true, "tool_descriptions": true},
 	})
 }
 

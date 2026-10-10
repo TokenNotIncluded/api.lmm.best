@@ -113,14 +113,17 @@ func assistantToolDefinitions() []assistantOpenAIToolDefinition {
 }
 
 func assistantRefreshGiftToolDefinition(catalogue []assistantOpenAIToolDefinition) []assistantOpenAIToolDefinition {
-	for index, definition := range catalogue {
+	cap, err := assistantCurrentGiftMaxCredits()
+	if err != nil {
+		cap = 0
+	}
+	tools := append([]assistantOpenAIToolDefinition(nil), catalogue...)
+	for index, definition := range tools {
 		if definition.Function.Name == "prepare_new_user_gift" {
-			tools := append([]assistantOpenAIToolDefinition(nil), catalogue...)
-			tools[index] = assistantNewUserGiftToolDefinition()
-			return tools
+			tools[index] = assistantNewUserGiftToolDefinitionWithCap(cap)
 		}
 	}
-	return catalogue
+	return assistantConfiguredToolDefinitions(tools, cap)
 }
 
 // buildAssistantTools creates one immutable catalogue. Request handling only
@@ -589,7 +592,8 @@ func buildAssistantTools() []assistantOpenAIToolDefinition {
 func assistantToolDefinitionsForContext(userContext assistantUserContext) []assistantOpenAIToolDefinition {
 	set := &assistantToolSets[keyForTools(userContext)]
 	set.once.Do(func() {
-		all := assistantToolDefinitions()
+		// Cache raw definitions. Apply operator text after filtering.
+		all := assistantTools()
 		set.tools = make([]assistantOpenAIToolDefinition, 0, len(all))
 		for _, definition := range all {
 			if assistantToolPermittedForContext(definition.Function.Name, userContext) {
@@ -668,18 +672,9 @@ func assistantDirectL1GrantAllowed(context assistantUserContext) bool {
 }
 
 func assistantNewUserGiftToolAllowed(context assistantUserContext) bool {
-	if context.RewardTopic == "weekly_discount" || context.RewardTopic == "other" || assistantNewUserGiftStatusWorkflowRequired(context) || assistantWeeklyDiscountStatusWorkflowRequired(context) {
-		return false
-	}
-	// An unused opportunity survives L0 -> L1 upgrades. Deterministic server
-	// checks still reject disabled/disposable/abusive accounts and the unique
-	// gift row makes the decision one-time. Keep the existing high-risk and
-	// promotion guard at the tool boundary so the assistant does not invite a
-	// known-abusive conversation into a reward flow.
-	if context.AdministratorMode || context.GiftRewardBlocked {
-		return false
-	}
-	return context.CustomerProfile != assistantProfilePromotion && context.CustomerProfile != assistantProfileSecurityRisk
+	// Wording and conversation length are model decisions, not permission gates.
+	// Account eligibility and duplicate issuance are still checked in storage.
+	return !context.AdministratorMode
 }
 
 func assistantWeeklyDiscountToolAllowed(context assistantUserContext) bool {
@@ -2053,10 +2048,7 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 	if !assistantConfiguredLevelAllowed(c, policy, name) {
 		return map[string]any{"ok": false, "status": "tool_level_denied", "error": "the current account does not meet this tool's configured level range"}
 	}
-	if assistantRewardReadOnlyRequest(c) {
-		if name == "prepare_new_user_gift" {
-			return assistantGiftReadOnlyRequestResult()
-		}
+	if name != "prepare_new_user_gift" && assistantRewardReadOnlyRequest(c) {
 		if name == "prepare_weekly_discount" {
 			return assistantWeeklyDiscountReadOnlyRequestResult()
 		}
