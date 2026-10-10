@@ -1,0 +1,379 @@
+{
+  "blocked": 1,
+  "duration_seconds": 11.573,
+  "failed": 0,
+  "grpc_version": "1.80.0",
+  "not_verified": [
+    "Rust compilation/runtime",
+    "production Go gRPC integration",
+    "real PostgreSQL credentials and ledger",
+    "real multi-server deployment",
+    "1c1g capacity",
+    "server hard connection cap",
+    "CA trust-root live rotation",
+    "automatic service discovery/controller",
+    "bounded old channel drain across manifest generations"
+  ],
+  "passed": 32,
+  "python": "3.13.5",
+  "scope": "local isolated protocol experiment; Python gRPC server, SQLite fixture; NOT Rust/Go production integration",
+  "started_unix": 1791645135.9230564,
+  "tests": [
+    {
+      "detail": {
+        "client_namespace": "net:[4026532177]",
+        "client_routes": "10.203.24.0/30 dev dxa proto kernel scope link src 10.203.24.1 \n10.203.25.0/30 dev dxb proto kernel scope link src 10.203.25.1 \n",
+        "nodes": {
+          "a": {
+            "ip": "10.203.24.2",
+            "netns": "net:[4026532244]",
+            "routes": "10.203.24.0/30 dev dca proto kernel scope link src 10.203.24.2 \n"
+          },
+          "b": {
+            "ip": "10.203.25.2",
+            "netns": "net:[4026532313]",
+            "routes": "10.203.25.0/30 dev dcb proto kernel scope link src 10.203.25.2 \n"
+          }
+        }
+      },
+      "name": "three_isolated_network_namespaces",
+      "seconds": 0.0096,
+      "status": "pass"
+    },
+    {
+      "detail": {
+        "a": "08011001",
+        "b": "08011001",
+        "repeat": "08011001"
+      },
+      "name": "mTLS_and_connection_reuse",
+      "seconds": 0.0061,
+      "status": "pass"
+    },
+    {
+      "detail": "UNAVAILABLE",
+      "name": "plaintext_rejected",
+      "seconds": 0.0019,
+      "status": "pass"
+    },
+    {
+      "detail": "UNAVAILABLE",
+      "name": "missing_client_certificate_rejected",
+      "seconds": 0.0055,
+      "status": "pass"
+    },
+    {
+      "detail": "UNAVAILABLE",
+      "name": "wrong_server_name_rejected",
+      "seconds": 0.0018,
+      "status": "pass"
+    },
+    {
+      "detail": "UNAVAILABLE",
+      "name": "expired_client_certificate_rejected",
+      "seconds": 0.0042,
+      "status": "pass"
+    },
+    {
+      "detail": "PERMISSION_DENIED",
+      "name": "valid_CA_wrong_service_identity_rejected",
+      "seconds": 0.0039,
+      "status": "pass"
+    },
+    {
+      "detail": "UNAUTHENTICATED",
+      "name": "service_identity_is_not_user_authority",
+      "seconds": 0.0025,
+      "status": "pass"
+    },
+    {
+      "detail": "UNAUTHENTICATED",
+      "name": "duplicate_authorization_rejected",
+      "seconds": 0.0011,
+      "status": "pass"
+    },
+    {
+      "detail": "FAILED_PRECONDITION",
+      "name": "wrong_protocol_major_rejected",
+      "seconds": 0.0009,
+      "status": "pass"
+    },
+    {
+      "detail": "UNIMPLEMENTED",
+      "name": "unknown_method_is_not_enabled",
+      "seconds": 0.001,
+      "status": "pass"
+    },
+    {
+      "detail": {
+        "api_key": {
+          "same_response": true,
+          "wire_hex": "080c1002186520012a0408011065"
+        },
+        "session": {
+          "same_response": true,
+          "wire_hex": "080b1001186520012a0408011065"
+        }
+      },
+      "name": "same_session_and_key_across_nodes_fixture",
+      "seconds": 0.0068,
+      "status": "pass"
+    },
+    {
+      "detail": {
+        "a": "UNAUTHENTICATED",
+        "b": "UNAUTHENTICATED"
+      },
+      "name": "user_key_revocation_across_reused_channels_fixture",
+      "seconds": 0.0053,
+      "status": "pass"
+    },
+    {
+      "detail": {
+        "a": "UNAVAILABLE",
+        "b_success": true
+      },
+      "name": "disconnected_authority_does_not_use_cached_grants_fixture",
+      "seconds": 0.0048,
+      "status": "pass"
+    },
+    {
+      "detail": {
+        "existing_channels_checked": true,
+        "new_after_explicit_revoke": "PERMISSION_DENIED",
+        "old_after_overlap": "PERMISSION_DENIED"
+      },
+      "name": "bounded_certificate_overlap_and_explicit_revoke",
+      "seconds": 0.416,
+      "status": "pass"
+    },
+    {
+      "detail": {
+        "new_token": "accepted",
+        "old_token_after_overlap": "UNAUTHENTICATED"
+      },
+      "name": "bounded_service_token_rotation",
+      "seconds": 0.3579,
+      "status": "pass"
+    },
+    {
+      "detail": {
+        "established_connection": "PERMISSION_DENIED",
+        "new_handshake": "UNAVAILABLE",
+        "wait_seconds": 2.553
+      },
+      "name": "certificate_expiry_on_existing_TLS_connection",
+      "seconds": 2.5586,
+      "status": "pass"
+    },
+    {
+      "detail": {
+        "Authorize": "PERMISSION_DENIED",
+        "Capabilities": "OK"
+      },
+      "name": "exact_service_method_allowlist",
+      "seconds": 0.0036,
+      "status": "pass"
+    },
+    {
+      "detail": "UNAUTHENTICATED",
+      "name": "expired_policy_lease_fails_closed",
+      "seconds": 0.257,
+      "status": "pass"
+    },
+    {
+      "detail": {
+        "malformed": "UNAUTHENTICATED",
+        "rollback": "UNAUTHENTICATED"
+      },
+      "name": "malformed_and_rollback_policy_denied",
+      "seconds": 0.0039,
+      "status": "pass"
+    },
+    {
+      "detail": {
+        "REAL_LEDGER_TEST": false,
+        "committed_rows": 1,
+        "lost_reply": "UNAVAILABLE",
+        "operation_id": "dp24-fixed-operation-1",
+        "payload_change": "ALREADY_EXISTS",
+        "receipt_on_b": {
+          "operation_id": "dp24-fixed-operation-1",
+          "status": "committed"
+        },
+        "remaining_fixture_units": 9983
+      },
+      "name": "lost_reply_same_identifier_receipt_and_dedup_FIXTURE_ONLY",
+      "seconds": 0.0092,
+      "status": "pass"
+    },
+    {
+      "detail": "RESOURCE_EXHAUSTED",
+      "name": "message_limit",
+      "seconds": 0.001,
+      "status": "pass"
+    },
+    {
+      "detail": {
+        "active_after": 0,
+        "handler_peak": 8,
+        "outcomes": {
+          "OK": 8,
+          "RESOURCE_EXHAUSTED": 8
+        }
+      },
+      "name": "eight_global_calls_and_resource_recovery",
+      "seconds": 0.356,
+      "status": "pass"
+    },
+    {
+      "detail": {
+        "elapsed_ms": 123.06,
+        "handler_released": true
+      },
+      "name": "deadline_and_handler_release",
+      "seconds": 0.2037,
+      "status": "pass"
+    },
+    {
+      "command": [
+        "tc",
+        "qdisc",
+        "add",
+        "dev",
+        "dxa",
+        "root",
+        "netem",
+        "delay",
+        "40ms",
+        "loss",
+        "10%"
+      ],
+      "error": "Error: Specified qdisc kind is unknown.",
+      "name": "real_netem_delay_and_packet_loss",
+      "seconds": 0.0031,
+      "status": "blocked"
+    },
+    {
+      "detail": {
+        "a": "DEADLINE_EXCEEDED",
+        "after_fault_removed_ms": 4.015,
+        "b_new_request": "OK",
+        "chunks_seen": 1,
+        "existing_stream_migrated": false,
+        "interface_state": "3: dxa@if2: <BROADCAST,MULTICAST> mtu 1500 qdisc noqueue state DOWN mode DEFAULT group default qlen 1000\n    link/ether 4e:97:c1:6e:0c:9e brd ff:ff:ff:ff:ff:ff link-netnsid 0 promiscuity 0 allmulti 0 minmtu 68 maxmtu 65535 \n    veth addrgenmode eui64 numtxqueues 5 numrxqueues 5 gso_max_size 65536 gso_max_segs 65535 tso_max_size 524280 tso_max_segs 65535 gro_max_size 65536 gso_ipv4_max_size 65536 gro_ipv4_max_size 65536 \n",
+        "stream_error": "DEADLINE_EXCEEDED",
+        "stream_nodes": [
+          "a"
+        ]
+      },
+      "name": "partial_link_down_and_no_stream_migration",
+      "seconds": 1.2256,
+      "status": "pass"
+    },
+    {
+      "detail": {
+        "bounded_query_attempts": [
+          "a",
+          "b"
+        ],
+        "session_survives_fixture_restart": true,
+        "switch_ms": 4.989
+      },
+      "name": "node_down_bounded_query_failover_and_restart",
+      "seconds": 1.2428,
+      "status": "pass"
+    },
+    {
+      "detail": {
+        "new_endpoint": "accepted",
+        "new_port": 51053,
+        "old_connection": "UNAVAILABLE",
+        "old_port": 51051,
+        "stable_tls_name": "core-b.dp24.test"
+      },
+      "name": "address_change_with_stable_verified_identity",
+      "seconds": 1.2478,
+      "status": "pass"
+    },
+    {
+      "detail": {
+        "calls": 200,
+        "max_ms": 9.2235,
+        "p50_ms": 1.2117,
+        "p95_ms": 3.1819
+      },
+      "name": "latency_UDS_grpc_fixture",
+      "seconds": 0.3139,
+      "status": "pass"
+    },
+    {
+      "detail": {
+        "calls": 200,
+        "max_ms": 15.8665,
+        "p50_ms": 1.3765,
+        "p95_ms": 2.7546
+      },
+      "name": "latency_mTLS_grpc_fixture",
+      "seconds": 0.331,
+      "status": "pass"
+    },
+    {
+      "detail": {
+        "count": 30,
+        "includes_tcp_connect": true,
+        "p50_ms": 1.888,
+        "p95_ms": 2.8097,
+        "runtime": "CPython/OpenSSL, not Rust"
+      },
+      "name": "TLS13_handshake_cost_fixture",
+      "seconds": 0.0649,
+      "status": "pass"
+    },
+    {
+      "detail": {
+        "accepted_handler_calls": 2,
+        "core_database_and_server_keys": "masked in a separate mount namespace",
+        "result": "=== RUN   TestGoGRPCFixture\n    fixture_test.go:134: real gRPC wire accepted twice; one connection reused; revocation blocked next RPC; core files masked\n--- PASS: TestGoGRPCFixture (0.01s)\nPASS\n",
+        "revoked_third_rpc_reached_handler": false,
+        "runtime": "Go standard-library HTTP/2 client \u2192 Python gRPC fixture"
+      },
+      "name": "Go_mTLS_grpc_wire_and_core_credential_isolation",
+      "seconds": 1.1235,
+      "status": "pass"
+    },
+    {
+      "detail": {
+        "client": {
+          "cpu_seconds": 1.85,
+          "fds": 22,
+          "rss_MiB": 119.5,
+          "threads": 17,
+          "vms_MiB": 2261.535
+        },
+        "cpu_1c_constraint": false,
+        "memory_1GiB_constraint": false,
+        "nodes": {
+          "a": {
+            "cpu_seconds": 1.91,
+            "fds": 16,
+            "rss_MiB": 113.793,
+            "threads": 21,
+            "vms_MiB": 1235.227
+          },
+          "b": {
+            "cpu_seconds": 1.39,
+            "fds": 12,
+            "rss_MiB": 112.699,
+            "threads": 19,
+            "vms_MiB": 1091.18
+          }
+        },
+        "server_connection_limit_verified": false
+      },
+      "name": "resource_snapshot",
+      "seconds": 0.0008,
+      "status": "pass"
+    }
+  ]
+}

@@ -1,0 +1,4 @@
+=== RUN   TestGoGRPCFixture
+    fixture_test.go:134: real gRPC wire accepted twice; one connection reused; revocation blocked next RPC; core files masked
+--- PASS: TestGoGRPCFixture (0.01s)
+PASS
