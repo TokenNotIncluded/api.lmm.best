@@ -1,14 +1,23 @@
 name: Core protobuf transport checks
 on:
   workflow_dispatch:
+  push:
+    branches: [wip/rust-core-go-extensions]
+    paths:
+      - apps/core-rust/**
+      - apps/api-go/**
+      - contracts/**
+      - deployment/docker/**
+      - scripts/generate-core-protocol.sh
+      - scripts/test-core-*.py
 permissions:
   contents: read
 defaults:
   run:
     shell: bash
 concurrency:
-  group: core-protocol-${{ github.ref }}-${{ github.run_id }}
-  cancel-in-progress: false
+  group: core-protocol-${{ github.ref }}
+  cancel-in-progress: true
 jobs:
   protocol:
     runs-on: ubuntu-latest
@@ -36,7 +45,7 @@ jobs:
       - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
         with:
           go-version: '1.27.2'
-          cache-dependency-path: apps/extensions-go/go.sum
+          cache-dependency-path: apps/api-go/go.sum
       - name: Install pinned Rust and protobuf compiler
         run: |
           rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
@@ -45,14 +54,18 @@ jobs:
           sudo apt-get install --no-install-recommends --yes protobuf-compiler
       - name: Check generated Go bindings
         run: bash scripts/generate-core-protocol.sh --check
+      - name: Rust formatting
+        working-directory: apps/core-rust
+        run: cargo fmt --all --check
       - name: Rust checks and real database tests
+        if: ${{ !cancelled() }}
         working-directory: apps/core-rust
         run: |
-          cargo fmt --all --check
           cargo clippy --locked --all-targets -- -D warnings
           cargo test --locked --all-targets
       - name: Go contract and race tests
-        working-directory: apps/extensions-go
+        if: ${{ !cancelled() }}
+        working-directory: apps/api-go
         run: |
           bash ../../scripts/check-go-format.sh .
           go mod verify
@@ -60,6 +73,8 @@ jobs:
           go test -race ./... -count=1
           CGO_ENABLED=0 go build -mod=readonly -trimpath -o "$RUNNER_TEMP/lmm-extensions" ./cmd/extensions
       - name: Native protobuf round trips and failure recovery
+        if: ${{ !cancelled() }}
         run: python3 -B scripts/test-core-rpc-docker.py
       - name: Service boundary contracts
+        if: ${{ !cancelled() }}
         run: python3 -B scripts/test-core-boundaries.py
