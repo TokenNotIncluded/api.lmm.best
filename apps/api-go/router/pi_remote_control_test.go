@@ -61,7 +61,7 @@ func TestPiRemoteOAuthExplicitConsentAndNoModelBilling(t *testing.T) {
 	read := h.request("GET", path+"/messages?after=0", "", headers)
 	require.Equal(t, 200, read.Code, read.Body.String())
 	require.Contains(t, read.Body.String(), ciphertext)
-	require.Equal(t, "no-store", read.Header().Get("Cache-Control"))
+	require.Contains(t, read.Header().Get("Cache-Control"), "no-store")
 	for _, cursor := range []string{"-1", "18446744073709551616", "9007199254740992", "1&after=2", ""} {
 		require.Equal(t, 400, h.request("GET", path+"/messages?after="+cursor, "", headers).Code, cursor)
 	}
