@@ -61,8 +61,9 @@ export function storeRefundAmountMax(view: StoreRefundView): number {
 }
 
 export function storeRefundModes(view: StoreRefundView): StoreRefundMode[] {
-  if (view.provider_reconciliation_pending || !positive(view.remaining_quota))
+  if (view.provider_reconciliation_pending || !positive(view.remaining_quota)) {
     return []
+  }
   const modes: StoreRefundMode[] = ['full']
   const partial =
     view.payment_method === 'balance' || view.native_basis_verified

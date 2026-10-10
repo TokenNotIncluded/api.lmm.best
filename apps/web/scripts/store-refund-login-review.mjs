@@ -90,7 +90,7 @@ try {
       let data
       let status = 200
       let failure
-      if (url.pathname === '/api/status')
+      if (url.pathname === '/api/status') {
         data = {
           system_name: 'Store test',
           self_use_mode_enabled: false,
@@ -101,9 +101,9 @@ try {
           user_agreement_enabled: false,
           privacy_policy_enabled: false,
         }
-      else if (url.pathname === '/api/setup')
+      } else if (url.pathname === '/api/setup') {
         data = { status: true, root_init: true }
-      else if (url.pathname === '/api/user/auth/refresh') data = bundle(user)
+      } else if (url.pathname === '/api/user/auth/refresh') data = bundle(user)
       else if (url.pathname === '/api/user/self') data = bundle(user).user
       else if (url.pathname === '/api/notice') data = ''
       else if (url.pathname === '/api/user/login') {
@@ -127,7 +127,7 @@ try {
               message:
                 'Pickup code is incorrect. Check the original pickup code and try again.',
             }
-          } else
+          } else {
             data = {
               ...metadata(),
               product_id: 'synthetic-product',
@@ -137,8 +137,9 @@ try {
               fixed_content:
                 '# Verified private delivery\n\nSynthetic delivery only.',
             }
+          }
         }
-      } else if (url.pathname.includes('/refunds'))
+      } else if (url.pathname.includes('/refunds')) {
         data = {
           order_id: 'synthetic-order',
           product_title: 'Purchased private guide',
@@ -163,9 +164,10 @@ try {
           provider_reconciliation_pending: false,
           refunds: [],
         }
-      else if (req.method() === 'GET') data = []
-      else
+      } else if (req.method() === 'GET') data = []
+      else {
         throw new Error(`Unexpected mutation: ${req.method()} ${url.pathname}`)
+      }
       await route.fulfill({
         status,
         contentType: 'application/json',
