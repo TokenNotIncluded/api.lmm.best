@@ -1,0 +1,35 @@
+{
+  "target_base_commit": "72667564c0431754d4856dc2e0db55f360bd2745",
+  "target_base_branch": "wip/rust-core-go-extensions",
+  "proposed_branch": "research/dp-29-release-control",
+  "related_pr": 675,
+  "delivery": "additive local patch, not a full checkout or Git commit",
+  "local_git_fetch": "failed: Could not resolve host github.com",
+  "git_base_verified_via": "GitHub read-only connector commit response",
+  "remote_write_operations": 0,
+  "remote_ci_runs_triggered": 0,
+  "production_operations": 0,
+  "scope": [
+    "experiments/deploy/dp-29/"
+  ],
+  "source_reads": [
+    "https://github.com/TokenNotIncluded/api.lmm.best/blob/72667564c0431754d4856dc2e0db55f360bd2745/README.md",
+    "https://github.com/TokenNotIncluded/api.lmm.best/blob/72667564c0431754d4856dc2e0db55f360bd2745/docs/core-protocol.md",
+    "https://github.com/TokenNotIncluded/api.lmm.best/blob/72667564c0431754d4856dc2e0db55f360bd2745/apps/lmm-core/src/main.rs",
+    "https://github.com/TokenNotIncluded/api.lmm.best/blob/72667564c0431754d4856dc2e0db55f360bd2745/apps/lmm-extensions/internal/app/run.go",
+    "https://github.com/TokenNotIncluded/api.lmm.best/blob/72667564c0431754d4856dc2e0db55f360bd2745/.github/workflows/ci.yml",
+    "https://github.com/TokenNotIncluded/api.lmm.best/blob/72667564c0431754d4856dc2e0db55f360bd2745/.github/workflows/core-protocol.yml"
+  ],
+  "dependency_directory_check": "experiments/deploy at the target base returned 404",
+  "dependency_branch_check": "git/matching-refs/heads/research/dp- returned an empty array at inspection",
+  "documentation_command_smoke_test": "passed: init -> plan -> run(completed) -> rollback -> run(rolled_back)",
+  "limitations": [
+    "no full-base Git worktree",
+    "no Docker",
+    "no Rust compiler",
+    "no native mixed-version binaries",
+    "no PostgreSQL or real billing acceptance",
+    "no real cross-node network",
+    "no 1c1g capacity measurement"
+  ]
+}
