@@ -28,16 +28,7 @@ class CoreBoundaryTests(unittest.TestCase):
                 continue
             text = path.read_text()
             self.assertNotIn("AutoMigrate(", text, str(path))
-            if path.relative_to(ROOT).as_posix() == "apps/api-go/internal/coreclient/sqlinbox.go":
-                # Caller-owned extension DB only. No connection creation, core
-                # tables, credentials or network address belongs in this adapter.
-                self.assertNotIn("sql.Open(", text)
-                self.assertNotIn("sql.OpenDB(", text)
-                self.assertNotIn("core_identity.", text)
-                self.assertNotIn("core_events.", text)
-                self.assertIn("extension_events.inbox", text)
-            else:
-                self.assertNotIn('"database/sql"', text, str(path))
+            self.assert_extension_storage(path.relative_to(ROOT).as_posix(), text)
             if path.name != "environment.go":
                 for forbidden in ("SQL_DSN", "LMM_CORE_DATABASE_URL"):
                     self.assertNotIn(forbidden, text, str(path))
@@ -48,6 +39,39 @@ class CoreBoundaryTests(unittest.TestCase):
         for operation in ("Capabilities", "Authorize", "ListTeams"):
             self.assertIn(operation, identity)
         self.assertIn("corepb", identity)
+
+    def assert_extension_storage(self, path, text):
+        stores = {
+            "apps/api-go/internal/coreclient/sqlinbox.go": "extension_events.",
+            "apps/api-go/internal/modules/store/postgres.go": "lmm_store.",
+            "apps/api-go/internal/modules/support/postgres.go": "lmm_support.",
+        }
+        if path not in stores:
+            self.assertNotIn('"database/sql"', text, path)
+            return
+        # Only an injected extension pool. Never open a connection, reference a
+        # core table, or access another extension's schema from these adapters.
+        self.assertNotIn("sql.Open(", text, path)
+        self.assertNotIn("sql.OpenDB(", text, path)
+        self.assertIn(stores[path], text, path)
+        schemas = ("core_meta.", "core_identity.", "core_billing.",
+                   "core_events.", "core_runtime.") + tuple(stores.values())
+        for schema in schemas:
+            if schema != stores[path]:
+                self.assertNotIn(schema, text, path)
+
+    def test_extension_storage_guard_rejects_core_and_cross_module_access(self):
+        path = "apps/api-go/internal/modules/store/postgres.go"
+        source = (ROOT / path).read_text()
+        self.assert_extension_storage(path, source)
+        for forbidden in ("core_identity.users", "core_billing.balance_state",
+                          "core_events.outbox", "lmm_support.messages",
+                          "sql.Open(", "sql.OpenDB("):
+            with self.subTest(forbidden=forbidden):
+                with self.assertRaises(AssertionError):
+                    self.assert_extension_storage(path, source + "\n" + forbidden)
+        with self.assertRaises(AssertionError):
+            self.assert_extension_storage("apps/api-go/internal/app/unapproved.go", source)
 
     def test_fresh_schema_is_explicit_and_relational(self):
         schema = (ROOT / "apps/core-rust/schema/identity.sql").read_text()

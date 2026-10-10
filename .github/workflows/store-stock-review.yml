@@ -12,23 +12,7 @@ concurrency:
 
 jobs:
   database:
-    runs-on: ubuntu-24.04
-    timeout-minutes: 20
-    env:
-      GOMAXPROCS: '2'
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
-        with:
-          go-version-file: apps/api-go/go.mod
-          cache-dependency-path: |
-            apps/api-go/go.sum
-            apps/api-go/relaykit/go.sum
-      - name: Stock, sales quota and fixed-content database tests
-        working-directory: apps/api-go
-        run: go test -race -p 2 ./model -run 'TestMerchantStore(Catalogue|Sales|Remaining|Fixed|Stock)' -count=1 -timeout=10m
+    uses: ./.github/workflows/core-protocol.yml
 
   browser:
     runs-on: ubuntu-24.04

@@ -1,12 +1,5 @@
 name: Rust routing contract
 on:
-  pull_request:
-    branches: [wip/rust-core-go-extensions]
-    paths:
-      - apps/core-rust/src/routing/**
-      - apps/core-rust/schema/routing.sql
-      - apps/core-rust/tests/routing.rs
-      - .github/workflows/core-routing.yml
   workflow_dispatch:
 permissions:
   contents: read

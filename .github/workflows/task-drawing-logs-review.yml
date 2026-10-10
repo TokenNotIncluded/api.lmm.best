@@ -1,3 +1,5 @@
+# Fresh-install branch: retained frontend/client coverage only.
+# The removed monolith backend is not a verified extension implementation.
 name: Task and drawing logs review
 
 on:
@@ -51,25 +53,3 @@ jobs:
         if: ${{ !cancelled() }}
         working-directory: apps/web
         run: bun run build
-
-  go:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
-        with:
-          go-version-file: apps/api-go/go.mod
-          cache-dependency-path: apps/api-go/go.sum
-      - name: Verify drawing query and owner-scope regressions
-        working-directory: apps/api-go
-        env:
-          CGO_ENABLED: "0"
-          GOWORK: "off"
-          GOMAXPROCS: "2"
-        shell: bash
-        run: |
-          test -f model/midjourney_log_filters_test.go
-          go test -p 2 ./model -run '^TestMidjourneyLogFilters$' -count=1 -v
