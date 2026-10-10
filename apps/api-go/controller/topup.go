@@ -841,11 +841,11 @@ func parsePositivePaymentRate(paymentMethod, field, raw string) (decimal.Decimal
 // configuredPlatformUnitsPerUSD is the immutable compatibility batch ratio K/QPU.
 // Current FX and recharge discounts never redefine credit purchasing power.
 func configuredPlatformUnitsPerUSD() (decimal.Decimal, error) {
-	rates, err := paymentpricing.CurrentRates()
-	if err != nil {
-		return decimal.Zero, err
-	}
-	return rates.PlatformUnitsPerUSD()
+	// Top-up amounts are USD-denominated platform credits. Display and
+	// settlement FX rates affect only the fiat charge; deriving this value
+	// from CNY/USD would undercharge non-USD purchases while granting the
+	// full USD credit.
+	return decimal.NewFromInt(1), nil
 }
 
 func standardSettlementPricing(settlementCurrency string) (payMethodSettlementPricing, error) {
