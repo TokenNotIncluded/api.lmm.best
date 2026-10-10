@@ -13,11 +13,6 @@ on:
   workflow_run:
     workflows: ["LMM web release"]
     types: [completed]
-  workflow_dispatch:
-    inputs:
-      release_tag:
-        description: Existing web release tag to (re)deploy, e.g. web-v0.1.85
-        required: true
 
 permissions:
   actions: read
@@ -35,7 +30,7 @@ jobs:
     name: Publish web release to production origins
     # A workflow_run carries no trust of its own; only a successful run of the
     # release workflow reaches this job.
-    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: production
@@ -43,30 +38,22 @@ jobs:
       - name: Resolve release tag
         id: release
         env:
-          EVENT_NAME: ${{ github.event_name }}
-          INPUT_TAG: ${{ inputs.release_tag }}
           RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
-            tag="$INPUT_TAG"
-          else
-            # The release workflow publishes on a tag ref. `head_branch` is the
-            # tag name for that case, but it is not guaranteed across dispatch
-            # styles, so resolve the release from the run's immutable commit
-            # instead and require exactly one match.
-            mapfile -t matches < <(
-              gh release list --repo "$GITHUB_REPOSITORY" \
-                --limit 50 --json tagName,targetCommitish \
-                --jq ".[] | select(.targetCommitish == \"$RUN_HEAD_SHA\") | .tagName"
-            )
-            [[ ${#matches[@]} -eq 1 ]] || {
-              echo "expected exactly one release for ${RUN_HEAD_SHA}, found ${#matches[@]}" >&2
-              exit 1
-            }
-            tag=${matches[0]}
-          fi
+          # Resolve the release produced by this successful workflow run from
+          # its immutable commit and require exactly one match.
+          mapfile -t matches < <(
+            gh release list --repo "$GITHUB_REPOSITORY" \
+              --limit 50 --json tagName,targetCommitish \
+              --jq ".[] | select(.targetCommitish == \"$RUN_HEAD_SHA\") | .tagName"
+          )
+          [[ ${#matches[@]} -eq 1 ]] || {
+            echo "expected exactly one release for ${RUN_HEAD_SHA}, found ${#matches[@]}" >&2
+            exit 1
+          }
+          tag=${matches[0]}
           [[ "$tag" =~ ^web-v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
             echo "unexpected web release tag: $tag" >&2
             exit 1
@@ -75,25 +62,47 @@ jobs:
           echo "tag=$tag" >>"$GITHUB_OUTPUT"
           echo "version=$version" >>"$GITHUB_OUTPUT"
 
+      - name: Install cosign
+        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
       - name: Download signed release archive
         env:
           GH_TOKEN: ${{ github.token }}
           RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RUN_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
           VERSION: ${{ steps.release.outputs.version }}
         run: |
           set -euo pipefail
+          archive="lmm-api-web-${VERSION}.tar.gz"
+          expected_assets=$(printf '%s\n' \
+            "$archive" "$archive.sha256" "$archive.sigstore.json" | sort)
+          release=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
+            --json tagName,targetCommitish,name,isDraft,isPrerelease,assets)
+          [[ $(jq -r '.tagName' <<<"$release") == "$RELEASE_TAG" ]]
+          [[ $(jq -r '.targetCommitish' <<<"$release") == "$RUN_HEAD_SHA" ]]
+          [[ $(jq -r '.name' <<<"$release") == "LMM web $RELEASE_TAG" ]]
+          [[ $(jq -r '.isDraft, .isPrerelease' <<<"$release") == $'false\nfalse' ]]
+          [[ $(jq -r '.assets | map(.name) | sort | .[]' <<<"$release") == "$expected_assets" ]]
+
           mkdir -p deploy
           gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" \
             --dir deploy \
-            --pattern "lmm-api-web-${VERSION}.tar.gz" \
-            --pattern "lmm-api-web-${VERSION}.tar.gz.sha256"
+            --pattern "$archive" \
+            --pattern "$archive.sha256" \
+            --pattern "$archive.sigstore.json"
           cd deploy
-          sha256sum --check "lmm-api-web-${VERSION}.tar.gz.sha256"
-          [[ -s "lmm-api-web-${VERSION}.tar.gz" ]]
+          cosign verify-blob \
+            --bundle "$archive.sigstore.json" \
+            --certificate-identity \
+              "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/.github/workflows/release-web.yml@refs/tags/${RELEASE_TAG}" \
+            --certificate-oidc-issuer 'https://token.actions.githubusercontent.com' \
+            "$archive"
+          sha256sum --check "$archive.sha256"
+          [[ -s "$archive" ]]
           # List once into a file: piping tar into `grep -q` makes grep exit on
           # the first match, and the resulting SIGPIPE fails the whole pipeline
           # under `set -o pipefail`.
-          tar -tzf "lmm-api-web-${VERSION}.tar.gz" > archive-contents.txt
+          tar -tzf "$archive" > archive-contents.txt
           grep -qx 'dist/index.html' archive-contents.txt
           grep -qx 'REVISION' archive-contents.txt
 
