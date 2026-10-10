@@ -29,6 +29,7 @@ import { DEFAULT_LOGO, DEFAULT_SYSTEM_NAME } from '@/lib/constants'
 import { HomeDirectoryLink } from './home-directory-link'
 
 import './forge-public-shell.css'
+import './forge-navigation.css'
 
 type ForgePublicShellProps = {
   children: React.ReactNode
