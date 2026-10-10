@@ -254,7 +254,9 @@ describe('subscription purchase checkout', () => {
       closed: false,
       name: '',
       opener: {} as Window | null,
-      close: () => { popup.closed = true },
+      close: () => {
+        popup.closed = true
+      },
       focus: () => undefined,
       location: { href: '' },
     }
@@ -271,7 +273,9 @@ describe('subscription purchase checkout', () => {
     }) as typeof api.post
     let checkoutStarted = 0
     const rendered = await renderDialog({
-      onCheckoutStarted: () => { checkoutStarted += 1 },
+      onCheckoutStarted: () => {
+        checkoutStarted += 1
+      },
     })
     try {
       const stripeButton = [...document.querySelectorAll('button')].find(

@@ -1053,14 +1053,19 @@ describe('assistant chat retry policy', () => {
         globalThis.fetch = (async () => {
           calls += 1
           return Response.json(
-            { message: 'rate limited', ...(grant === undefined ? {} : { retryable: grant }) },
+            {
+              message: 'rate limited',
+              ...(grant === undefined ? {} : { retryable: grant }),
+            },
             { status: 429 }
           )
         }) as typeof globalThis.fetch
         await assert.rejects(
           sendAssistantMessage('hello', [], undefined, undefined, {
             onDelta: () => undefined,
-            onReset: () => { resets += 1 },
+            onReset: () => {
+              resets += 1
+            },
           }),
           /rate limited/
         )
@@ -1081,7 +1086,10 @@ describe('assistant chat retry policy', () => {
         attempt: new Headers(init?.headers).get('X-LMM-Assistant-Attempt'),
       })
       return requests.length === 1
-        ? Response.json({ message: 'rate limited', retryable: true }, { status: 429 })
+        ? Response.json(
+            { message: 'rate limited', retryable: true },
+            { status: 429 }
+          )
         : Response.json({
             choices: [{ message: { content: 'Windows setup instructions' } }],
           })

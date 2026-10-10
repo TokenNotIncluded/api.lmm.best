@@ -44,7 +44,9 @@ async function render() {
   await act(async () => {
     root.render(
       <ThemeProvider defaultTheme='light'>
-        <ThemeCustomizationProvider><Harness /></ThemeCustomizationProvider>
+        <ThemeCustomizationProvider>
+          <Harness />
+        </ThemeCustomizationProvider>
       </ThemeProvider>
     )
   })
@@ -88,7 +90,10 @@ test('appearance preview changes real provider output without saving cookies', a
     assert.equal(mounted.current().theme.theme, 'light')
     assert.equal(mounted.current().style.customization.preset, 'default')
     assert.equal(persistentCookies(), cookies)
-    await act(async () => { stopMode(); stopPreset() })
+    await act(async () => {
+      stopMode()
+      stopPreset()
+    })
     assert.equal(document.documentElement.classList.contains('light'), true)
     assert.equal(document.body.getAttribute('data-theme-preset'), null)
     assert.equal(persistentCookies(), cookies)
@@ -114,9 +119,15 @@ test('manual choices, including the same saved value, win over old preview clean
       mounted.current().theme.setTheme('light')
       mounted.current().style.setPreset('ocean-breeze')
     })
-    await act(async () => { stopMode(); stopPreset() })
+    await act(async () => {
+      stopMode()
+      stopPreset()
+    })
     assert.equal(mounted.current().theme.resolvedTheme, 'light')
-    assert.equal(document.body.getAttribute('data-theme-preset'), 'ocean-breeze')
+    assert.equal(
+      document.body.getAttribute('data-theme-preset'),
+      'ocean-breeze'
+    )
     assert.equal(getCookie('theme_preset'), 'ocean-breeze')
   } finally {
     await mounted.close()
