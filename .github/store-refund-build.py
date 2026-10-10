@@ -1,7 +1,8 @@
 """One-time, hash-checked reconstruction of the reviewed task tree.
 
 No production access, refunds, database writes, main writes or PR-branch writes.
-The resulting tree is published only to a new, fixed temporary review branch.
+Only source changes are published to a new temporary review branch. Workflow
+changes are excluded: they require the separately authorized GitHub connection.
 """
 import hashlib
 import json
@@ -64,10 +65,16 @@ assert not Path(".github/workflows/store-refund-build.yml").exists()
 git("config", "user.name", "github-actions[bot]")
 git("config", "user.email", "41898282+github-actions[bot]@users.noreply.github.com")
 tree = git("write-tree")
-commit = git("commit-tree", tree, "-p", data["head"], "-p", data["main"], input=b"fix(store): integrate latest main and verify original-payment refund synchronization\n")
+# Actions has contents permission, not workflows permission. Keep every workflow
+# exactly as in the sole parent of this source-only transport commit.
+git("rm", "-r", "--cached", "--", ".github/workflows")
+git("checkout", data["main"], "--", ".github/workflows")
+source_tree = git("write-tree")
+assert git("rev-parse", source_tree + ":.github/workflows") == git("rev-parse", data["main"] + ":.github/workflows")
+commit = git("commit-tree", source_tree, "-p", data["main"], input=b"chore(store): stage reviewed source objects without workflow changes\n")
 # Empty expected value means the staging ref MUST NOT already exist.
 ref = "refs/heads/review/store-refund-verified-20261010"
 git("push", "--force-with-lease=" + ref + ":", "origin", commit + ":" + ref)
-result = {"commit": commit, "tree": tree, "parents": [data["head"], data["main"]], "manifest_sha256": digest, "files": len(manifest)}
+result = {"commit": commit, "reviewed_tree": tree, "source_tree": source_tree, "intended_parents": [data["head"], data["main"]], "manifest_sha256": digest, "files": len(manifest)}
 (result_dir / "result.json").write_text(json.dumps(result, indent=2) + "\n")
 print(json.dumps(result))
