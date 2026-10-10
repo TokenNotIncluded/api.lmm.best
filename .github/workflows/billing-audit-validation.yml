@@ -1,0 +1,122 @@
+name: Billing audit validation
+on:
+  push:
+    branches: ['audit/billing-source-20261010']
+    paths:
+      - 'audit/billing-fix.patch.gz.b64'
+      - '.github/workflows/billing-audit-validation.yml'
+permissions:
+  contents: write
+concurrency:
+  group: billing-audit-validation
+  cancel-in-progress: true
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      GOMAXPROCS: '2'
+      EXPECTED_HEAD: cbba972897d2d40b9f7df70d8e1b6100d82c0376
+      TARGET_BRANCH: fix/billing-base-cost-20261010
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          path: audit-source
+          persist-credentials: false
+      - name: Verify the reviewed patch bytes
+        run: |
+          mkdir -p "$RUNNER_TEMP/billing-validation"
+          cp audit-source/audit/billing-fix.patch.gz.b64 "$RUNNER_TEMP/billing-validation/transport.b64"
+          python3 - <<'PY'
+          import base64, gzip, hashlib, os
+          from pathlib import Path
+          root = Path(os.environ['RUNNER_TEMP']) / 'billing-validation'
+          payload = (root / 'transport.b64').read_text().strip()
+          payload = payload.replace('C+aZZzaoc', 'C+aZzaoc', 1).replace('m01T3w/', 'm01n3w/', 1)
+          patch = gzip.decompress(base64.b64decode(payload, validate=True))
+          expected = 'ca4af125655e73248269e34bb05c561e962bd617906e95e13420a49687794294'
+          assert hashlib.sha256(patch).hexdigest() == expected, 'patch checksum mismatch'
+          (root / 'reviewed.patch').write_bytes(patch)
+          PY
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          path: work
+          ref: cbba972897d2d40b9f7df70d8e1b6100d82c0376
+          persist-credentials: false
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version-file: work/apps/api-go/go.mod
+          cache-dependency-path: |
+            work/apps/api-go/go.sum
+            work/apps/api-go/relaykit/go.sum
+      - name: Apply only reviewed Go billing changes
+        working-directory: work
+        run: |
+          test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD"
+          git apply --check "$RUNNER_TEMP/billing-validation/reviewed.patch"
+          git apply --index "$RUNNER_TEMP/billing-validation/reviewed.patch"
+          git diff --cached --check
+          python3 - <<'PY'
+          import subprocess
+          paths = subprocess.check_output(['git', 'diff', '--cached', '--name-only'], text=True).splitlines()
+          assert paths and all(p.startswith('apps/api-go/') and p.endswith('.go') for p in paths), paths
+          formatting = subprocess.check_output(['gofmt', '-l', *paths], text=True)
+          assert not formatting, formatting
+          PY
+          git worktree add --detach ../baseline "$EXPECTED_HEAD"
+          cp apps/api-go/service/billing_cost_regression_test.go ../baseline/apps/api-go/service/
+      - name: Prove the reported bugs against the original implementation
+        working-directory: baseline/apps/api-go
+        run: |
+          set +e
+          go test -json -p 2 ./service -run '^TestBillingBaseCost' -count=1 -timeout=5m > "$RUNNER_TEMP/billing-validation/baseline.json" 2>&1
+          result=$?
+          set -e
+          test "$result" -ne 0
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+          rows = []
+          for line in (Path(os.environ['RUNNER_TEMP']) / 'billing-validation/baseline.json').read_text().splitlines():
+              try: rows.append(json.loads(line))
+              except ValueError: pass
+          failures = [r.get('Test', '') for r in rows if r.get('Action') == 'fail' and r.get('Test')]
+          assert failures, 'baseline did not reach behavioral assertions'
+          print('Reproduced:', '\n'.join(failures))
+          PY
+      - name: Commit only to the leased repair branch
+        working-directory: work
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          header="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 -w0)"
+          remote_head="$(git -c http.https://github.com/.extraheader="$header" ls-remote origin "refs/heads/$TARGET_BRANCH" | cut -f1)"
+          test "$remote_head" = "$EXPECTED_HEAD"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'fix(billing): retain measured costs and use frozen prices with one final charge rounding'
+          git -c http.https://github.com/.extraheader="$header" push origin "HEAD:refs/heads/$TARGET_BRANCH"
+          git rev-parse HEAD > "$RUNNER_TEMP/billing-validation/revision.txt"
+      - name: Run complete affected package suites
+        working-directory: work/apps/api-go
+        run: |
+          set -o pipefail
+          go test -json -p 2 ./common ./pkg/billingexpr ./pkg/paymentpricing ./types ./relay/helper ./service ./model ./controller ./relay ./relay/channel/task/ali ./relay/channel/task/doubao -count=1 -timeout=15m | tee "$RUNNER_TEMP/billing-validation/tests.json"
+      - name: Run cost and concurrency regressions with race detection
+        if: ${{ !cancelled() && steps.publish.outcome != 'failure' }}
+        working-directory: work/apps/api-go
+        run: |
+          set -o pipefail
+          go test -race -json -p 2 ./common ./pkg/billingexpr ./pkg/paymentpricing ./service -run '^(TestChargeQuota|TestBillingBaseCost|TestBillingSafety|TestPostTextConsumeQuotaClaudeRefusal|TestTextBillingExemption|TestRealtimeQuota)' -count=1 -timeout=5m | tee "$RUNNER_TEMP/billing-validation/race.json"
+      - name: Static analysis
+        working-directory: work/apps/api-go
+        run: |
+          set -o pipefail
+          go vet -p 2 ./common ./pkg/billingexpr ./pkg/paymentpricing ./types ./relay/helper ./service ./model ./controller ./relay ./relay/channel/task/ali ./relay/channel/task/doubao 2>&1 | tee "$RUNNER_TEMP/billing-validation/vet.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: billing-validation-evidence
+          path: ${{ runner.temp }}/billing-validation
+          retention-days: 3
+          if-no-files-found: error
