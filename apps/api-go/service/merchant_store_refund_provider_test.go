@@ -76,7 +76,7 @@ func merchantStoreRefundProviderQueryFixture(request MerchantStoreRefundNativeRe
 	return merchantStorePancakeRefundQueryData{
 		RefundTicketsCount: &ticketCount, RefundsCount: &refundCount,
 		RefundTickets: []merchantStorePancakeRefundQueryTicket{ticket},
-		Refunds:       []merchantStorePancakeRefundQueryExecution{{ID: "provider-refund-execution-1", Status: "succeeded", OrderMerchantExternalID: "MS123456789012345678901234567890", RefundTicketMerchantExternalID: request.RefundID, PSPAmountDetails: merchantStoreRefundQueryAmount{Amount: "0.25", Currency: request.Currency}}},
+		Refunds:       []merchantStorePancakeRefundQueryExecution{{ID: "provider-refund-execution-1", PaymentID: request.Payment.PaymentReference, Status: "succeeded", OrderMerchantExternalID: "MS123456789012345678901234567890", RefundTicketMerchantExternalID: request.RefundID, PSPAmountDetails: merchantStoreRefundQueryAmount{Amount: "0.25", Currency: request.Currency}}},
 	}
 }
 
