@@ -1,0 +1,41 @@
+name: Apply store refund review corrections
+on:
+  push:
+    branches: [fix/store-claim-refund-sync-20261010]
+    paths: ['.github/store-refund-followup.b64', '.github/workflows/store-refund-followup.yml']
+permissions:
+  contents: read
+jobs:
+  apply:
+    if: github.repository == 'TokenNotIncluded/api.lmm.best' && github.ref == 'refs/heads/fix/store-claim-refund-sync-20261010'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with: {persist-credentials: false}
+      - name: Apply exact checked follow-up
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import base64, hashlib, lzma, os
+          patch = lzma.decompress(base64.b64decode(Path('.github/store-refund-followup.b64').read_text(), validate=True))
+          assert len(patch) == 24199
+          assert hashlib.sha256(patch).hexdigest() == '2636d99ed07687007f44f887f92692c818034ddb3c450f1f02156356fafb7b6d'
+          Path(os.environ['RUNNER_TEMP'], 'followup.patch').write_bytes(patch)
+          PY
+          git apply --check --whitespace=error "$RUNNER_TEMP/followup.patch"
+          git apply --whitespace=error "$RUNNER_TEMP/followup.patch"
+          rm .github/store-refund-followup.b64
+          git diff --check
+      - name: Commit corrections only on review branch
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add -A
+          git commit -m 'fix(store): preserve distinct refund receipts and update writer qualification'
+          git -c credential.helper='!f() { echo username=x-access-token; echo password="$GH_TOKEN"; }; f' push origin HEAD:refs/heads/fix/store-claim-refund-sync-20261010
+          git rev-parse HEAD
