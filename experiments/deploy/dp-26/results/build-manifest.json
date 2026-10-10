@@ -1,0 +1,35 @@
+{
+  "verified_utc": "2026-10-10T15:19:34.508372+00:00",
+  "base_commit": "72667564c0431754d4856dc2e0db55f360bd2745",
+  "go_version": "go version go1.23.2 linux/amd64",
+  "build_args": [
+    "go",
+    "test",
+    "-c",
+    "-trimpath"
+  ],
+  "build_env": {
+    "CGO_ENABLED": "0",
+    "GOMAXPROCS": "2",
+    "GOTOOLCHAIN": "local",
+    "GOPROXY": "off",
+    "GOSUMDB": "off",
+    "GOWORK": "off"
+  },
+  "default_run_env": {
+    "GOMAXPROCS": "1",
+    "GOGC": "100",
+    "GOMEMLIMIT": "96MiB"
+  },
+  "binary_hashes_rechecked_after_all_runs": true,
+  "binaries": {
+    "baseline": "90967f5039a38a15dffbae2508439f771c0862048be5b53e62a6b8297d203e57",
+    "candidate": "266fd9159a947cbd2e67d87940956b2ba04b56fc96216c5d00d5036a57d15199"
+  },
+  "test_source_sha256": {
+    "experiments/deploy/dp-26/load_test.go": "6a520739a447d385101ad85e2b0d98c10d80598aaca7225d57aade984f6decb1",
+    "experiments/deploy/dp-26/extract.go": "9289b4d10fc0f7915297f355628d3dda3d87b77703cf781ec75f2bafd5dd0a2d",
+    "apps/lmm-extensions/internal/modules/toolmarket/mcp_runtime_test.go": "9cf32f83a2db00338aa3f0afecfcaafac26f081013254d4423fa4323437b574e"
+  },
+  "scope": "source-slice only; full project go.mod untouched"
+}
