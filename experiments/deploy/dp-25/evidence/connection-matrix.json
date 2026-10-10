@@ -1,0 +1,344 @@
+[
+  {
+    "nodes": 1,
+    "measurement_kind": "configured_upper_bound_not_observation",
+    "steady": {
+      "measurement_kind": "configured_upper_bound_not_observation",
+      "scope": "enabled identity host only; NOT the completed business stack",
+      "base_commit": "72667564c0431754d4856dc2e0db55f360bd2745",
+      "max_connections": 32,
+      "protected_reserves": 6,
+      "application_budget": 26,
+      "steady_application_connections": 10,
+      "peak_application_connections": 10,
+      "peak_with_reserves": 16,
+      "peak_headroom": 16,
+      "known_peak_lower_bound": 10,
+      "within_connection_budget": true,
+      "gate": "blocked",
+      "reasons": [
+        "runtime role separation and reserved-slot protection are not verified"
+      ],
+      "pools": [
+        {
+          "id": "core-http",
+          "steady": 8,
+          "peak": 8
+        },
+        {
+          "id": "core-rpc",
+          "steady": 2,
+          "peak": 2
+        },
+        {
+          "id": "offline-admin",
+          "steady": 0,
+          "peak": 0
+        }
+      ],
+      "business_capacity_accepted": false
+    },
+    "one_surging_instance": {
+      "measurement_kind": "configured_upper_bound_not_observation",
+      "scope": "enabled identity host only; NOT the completed business stack",
+      "base_commit": "72667564c0431754d4856dc2e0db55f360bd2745",
+      "max_connections": 32,
+      "protected_reserves": 6,
+      "application_budget": 26,
+      "steady_application_connections": 10,
+      "peak_application_connections": 20,
+      "peak_with_reserves": 26,
+      "peak_headroom": 6,
+      "known_peak_lower_bound": 20,
+      "within_connection_budget": true,
+      "gate": "blocked",
+      "reasons": [
+        "runtime role separation and reserved-slot protection are not verified"
+      ],
+      "pools": [
+        {
+          "id": "core-http",
+          "steady": 8,
+          "peak": 16
+        },
+        {
+          "id": "core-rpc",
+          "steady": 2,
+          "peak": 4
+        },
+        {
+          "id": "offline-admin",
+          "steady": 0,
+          "peak": 0
+        }
+      ],
+      "business_capacity_accepted": false
+    },
+    "full_overlap": {
+      "measurement_kind": "configured_upper_bound_not_observation",
+      "scope": "enabled identity host only; NOT the completed business stack",
+      "base_commit": "72667564c0431754d4856dc2e0db55f360bd2745",
+      "max_connections": 32,
+      "protected_reserves": 6,
+      "application_budget": 26,
+      "steady_application_connections": 10,
+      "peak_application_connections": 20,
+      "peak_with_reserves": 26,
+      "peak_headroom": 6,
+      "known_peak_lower_bound": 20,
+      "within_connection_budget": true,
+      "gate": "blocked",
+      "reasons": [
+        "runtime role separation and reserved-slot protection are not verified"
+      ],
+      "pools": [
+        {
+          "id": "core-http",
+          "steady": 8,
+          "peak": 16
+        },
+        {
+          "id": "core-rpc",
+          "steady": 2,
+          "peak": 4
+        },
+        {
+          "id": "offline-admin",
+          "steady": 0,
+          "peak": 0
+        }
+      ],
+      "business_capacity_accepted": false
+    }
+  },
+  {
+    "nodes": 3,
+    "measurement_kind": "configured_upper_bound_not_observation",
+    "steady": {
+      "measurement_kind": "configured_upper_bound_not_observation",
+      "scope": "enabled identity host only; NOT the completed business stack",
+      "base_commit": "72667564c0431754d4856dc2e0db55f360bd2745",
+      "max_connections": 32,
+      "protected_reserves": 6,
+      "application_budget": 26,
+      "steady_application_connections": 30,
+      "peak_application_connections": 30,
+      "peak_with_reserves": 36,
+      "peak_headroom": -4,
+      "known_peak_lower_bound": 30,
+      "within_connection_budget": false,
+      "gate": "blocked",
+      "reasons": [
+        "peak physical connections plus reserves exceed max_connections",
+        "runtime role separation and reserved-slot protection are not verified"
+      ],
+      "pools": [
+        {
+          "id": "core-http",
+          "steady": 24,
+          "peak": 24
+        },
+        {
+          "id": "core-rpc",
+          "steady": 6,
+          "peak": 6
+        },
+        {
+          "id": "offline-admin",
+          "steady": 0,
+          "peak": 0
+        }
+      ],
+      "business_capacity_accepted": false
+    },
+    "one_surging_instance": {
+      "measurement_kind": "configured_upper_bound_not_observation",
+      "scope": "enabled identity host only; NOT the completed business stack",
+      "base_commit": "72667564c0431754d4856dc2e0db55f360bd2745",
+      "max_connections": 32,
+      "protected_reserves": 6,
+      "application_budget": 26,
+      "steady_application_connections": 30,
+      "peak_application_connections": 40,
+      "peak_with_reserves": 46,
+      "peak_headroom": -14,
+      "known_peak_lower_bound": 40,
+      "within_connection_budget": false,
+      "gate": "blocked",
+      "reasons": [
+        "peak physical connections plus reserves exceed max_connections",
+        "runtime role separation and reserved-slot protection are not verified"
+      ],
+      "pools": [
+        {
+          "id": "core-http",
+          "steady": 24,
+          "peak": 32
+        },
+        {
+          "id": "core-rpc",
+          "steady": 6,
+          "peak": 8
+        },
+        {
+          "id": "offline-admin",
+          "steady": 0,
+          "peak": 0
+        }
+      ],
+      "business_capacity_accepted": false
+    },
+    "full_overlap": {
+      "measurement_kind": "configured_upper_bound_not_observation",
+      "scope": "enabled identity host only; NOT the completed business stack",
+      "base_commit": "72667564c0431754d4856dc2e0db55f360bd2745",
+      "max_connections": 32,
+      "protected_reserves": 6,
+      "application_budget": 26,
+      "steady_application_connections": 30,
+      "peak_application_connections": 60,
+      "peak_with_reserves": 66,
+      "peak_headroom": -34,
+      "known_peak_lower_bound": 60,
+      "within_connection_budget": false,
+      "gate": "blocked",
+      "reasons": [
+        "peak physical connections plus reserves exceed max_connections",
+        "runtime role separation and reserved-slot protection are not verified"
+      ],
+      "pools": [
+        {
+          "id": "core-http",
+          "steady": 24,
+          "peak": 48
+        },
+        {
+          "id": "core-rpc",
+          "steady": 6,
+          "peak": 12
+        },
+        {
+          "id": "offline-admin",
+          "steady": 0,
+          "peak": 0
+        }
+      ],
+      "business_capacity_accepted": false
+    }
+  },
+  {
+    "nodes": 5,
+    "measurement_kind": "configured_upper_bound_not_observation",
+    "steady": {
+      "measurement_kind": "configured_upper_bound_not_observation",
+      "scope": "enabled identity host only; NOT the completed business stack",
+      "base_commit": "72667564c0431754d4856dc2e0db55f360bd2745",
+      "max_connections": 32,
+      "protected_reserves": 6,
+      "application_budget": 26,
+      "steady_application_connections": 50,
+      "peak_application_connections": 50,
+      "peak_with_reserves": 56,
+      "peak_headroom": -24,
+      "known_peak_lower_bound": 50,
+      "within_connection_budget": false,
+      "gate": "blocked",
+      "reasons": [
+        "peak physical connections plus reserves exceed max_connections",
+        "runtime role separation and reserved-slot protection are not verified"
+      ],
+      "pools": [
+        {
+          "id": "core-http",
+          "steady": 40,
+          "peak": 40
+        },
+        {
+          "id": "core-rpc",
+          "steady": 10,
+          "peak": 10
+        },
+        {
+          "id": "offline-admin",
+          "steady": 0,
+          "peak": 0
+        }
+      ],
+      "business_capacity_accepted": false
+    },
+    "one_surging_instance": {
+      "measurement_kind": "configured_upper_bound_not_observation",
+      "scope": "enabled identity host only; NOT the completed business stack",
+      "base_commit": "72667564c0431754d4856dc2e0db55f360bd2745",
+      "max_connections": 32,
+      "protected_reserves": 6,
+      "application_budget": 26,
+      "steady_application_connections": 50,
+      "peak_application_connections": 60,
+      "peak_with_reserves": 66,
+      "peak_headroom": -34,
+      "known_peak_lower_bound": 60,
+      "within_connection_budget": false,
+      "gate": "blocked",
+      "reasons": [
+        "peak physical connections plus reserves exceed max_connections",
+        "runtime role separation and reserved-slot protection are not verified"
+      ],
+      "pools": [
+        {
+          "id": "core-http",
+          "steady": 40,
+          "peak": 48
+        },
+        {
+          "id": "core-rpc",
+          "steady": 10,
+          "peak": 12
+        },
+        {
+          "id": "offline-admin",
+          "steady": 0,
+          "peak": 0
+        }
+      ],
+      "business_capacity_accepted": false
+    },
+    "full_overlap": {
+      "measurement_kind": "configured_upper_bound_not_observation",
+      "scope": "enabled identity host only; NOT the completed business stack",
+      "base_commit": "72667564c0431754d4856dc2e0db55f360bd2745",
+      "max_connections": 32,
+      "protected_reserves": 6,
+      "application_budget": 26,
+      "steady_application_connections": 50,
+      "peak_application_connections": 100,
+      "peak_with_reserves": 106,
+      "peak_headroom": -74,
+      "known_peak_lower_bound": 100,
+      "within_connection_budget": false,
+      "gate": "blocked",
+      "reasons": [
+        "peak physical connections plus reserves exceed max_connections",
+        "runtime role separation and reserved-slot protection are not verified"
+      ],
+      "pools": [
+        {
+          "id": "core-http",
+          "steady": 40,
+          "peak": 80
+        },
+        {
+          "id": "core-rpc",
+          "steady": 10,
+          "peak": 20
+        },
+        {
+          "id": "offline-admin",
+          "steady": 0,
+          "peak": 0
+        }
+      ],
+      "business_capacity_accepted": false
+    }
+  }
+]
