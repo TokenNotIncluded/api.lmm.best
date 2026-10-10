@@ -1,0 +1,12 @@
+{
+  "diagnostic_file_bytes": 4096,
+  "diagnostic_files": 3,
+  "diagnostic_keep_seconds": 86400,
+  "growth_bytes": 65536,
+  "growth_inodes": 16,
+  "max_artifact_bytes": 67108864,
+  "max_artifact_files": 128,
+  "max_draining_versions": 2,
+  "recovery_bytes": 131072,
+  "recovery_inodes": 16
+}
