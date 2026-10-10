@@ -1,0 +1,55 @@
+name: PR675 isolated rebase inspection
+on:
+  push:
+    branches: [work/pr675-rebase-e1d04c82]
+    paths: [.github/workflows/pr675-rebase-probe.yml]
+permissions:
+  contents: read
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Preserve pinned source and attempt rebase without remote writes
+        shell: bash
+        env:
+          OLD_BASE: 7f09e17d68a27c4dd7ada3e43fe0474795f71f6e
+          MAIN_SHA: e1d04c82dbfcd6111cf7e94713fd079084414299
+          WIP_SHA: 4355ec8043d9da054897a69291fd3884942f307e
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/pr675-rebase"
+          mkdir -p "$out"
+          git cat-file -e "$MAIN_SHA^{commit}"
+          git cat-file -e "$WIP_SHA^{commit}"
+          git update-ref refs/heads/inspection-main "$MAIN_SHA"
+          git update-ref refs/heads/inspection-wip "$WIP_SHA"
+          git bundle create "$out/source.bundle" refs/heads/inspection-main refs/heads/inspection-wip
+          git diff --name-status "$OLD_BASE" "$MAIN_SHA" > "$out/main-changed-paths.txt"
+          git log --format='%H %s' "$OLD_BASE..$MAIN_SHA" > "$out/main-commits.txt"
+          git switch --detach "$WIP_SHA"
+          git config user.name 'PR675 integration inspection'
+          git config user.email 'noreply@users.noreply.github.com'
+          set +e
+          GIT_EDITOR=true git rebase --rebase-merges --onto "$MAIN_SHA" "$OLD_BASE" > "$out/rebase.log" 2>&1
+          result=$?
+          set -e
+          printf '%s\n' "$result" > "$out/rebase-exit-code.txt"
+          git status --short > "$out/rebase-status.txt"
+          git diff --name-only --diff-filter=U > "$out/conflicted-paths.txt"
+          cat "$out/rebase-exit-code.txt" "$out/conflicted-paths.txt"
+          tail -n 30 "$out/rebase.log"
+          sha256sum "$out/source.bundle" > "$out/source.sha256"
+          printf 'old_base=%s\nmain=%s\nwip=%s\n' "$OLD_BASE" "$MAIN_SHA" "$WIP_SHA" > "$out/revisions.txt"
+      - name: Save inspection evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: pr675-rebase-inspection-${{ github.run_id }}
+          path: ${{ runner.temp }}/pr675-rebase/
+          if-no-files-found: error
+          retention-days: 1
