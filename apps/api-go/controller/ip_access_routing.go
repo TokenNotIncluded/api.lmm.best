@@ -76,12 +76,17 @@ func relayTokenKeyFromAuthorizationHeader(header string) string {
 // the existing job of authenticateRelayToken once the request reaches the
 // Go application layer.
 func keyBypassesIPPolicy(c *gin.Context) bool {
+	clientIP := strings.TrimSpace(c.GetHeader("X-Original-Client-IP"))
 	key := relayTokenKeyFromAuthorizationHeader(c.GetHeader("Authorization"))
 	if key == "" {
 		return false
 	}
+	if !ipPolicyInvalidKeyLimiter.Check(clientIP, ipPolicyInvalidKeyLimit, ipPolicyInvalidKeyWindowSeconds) {
+		return false
+	}
 	token, err := model.ValidateUserToken(key)
 	if err != nil {
+		ipPolicyInvalidKeyLimiter.Request(clientIP, ipPolicyInvalidKeyLimit, ipPolicyInvalidKeyWindowSeconds)
 		return false
 	}
 	userCache, err := model.GetUserCache(token.UserId)
@@ -95,17 +100,24 @@ func keyBypassesIPPolicy(c *gin.Context) bool {
 	return userCache.GetSetting().AllowKeyBypassIPPolicy
 }
 
+const (
+	ipPolicyInvalidKeyLimit         = 10
+	ipPolicyInvalidKeyWindowSeconds = 60
+)
+
+// The edge policy endpoint deliberately sits ahead of the normal API rate
+// limiter. Keep invalid bypass credentials from turning that endpoint into an
+// unbounded token-database and log oracle. The cache has a hard cardinality
+// and byte budget, and X-Original-Client-IP is supplied by the trusted Nginx
+// subrequest rather than by the internet client.
+var ipPolicyInvalidKeyLimiter common.InMemoryRateLimiter
+
 // CheckIPAccessRoutingPolicy is consumed only by Nginx auth_request. The
 // handler requires a loopback peer and evaluates the administrator's ordered
 // inbound route rules against edge-owned request metadata.
 func CheckIPAccessRoutingPolicy(c *gin.Context) {
 	if !loopbackPeer(c.Request.RemoteAddr) {
 		ipAccessRoutingError(c, http.StatusForbidden, "INTERNAL_ONLY", "internal policy endpoint")
-		return
-	}
-
-	if keyBypassesIPPolicy(c) {
-		c.Status(http.StatusNoContent)
 		return
 	}
 
@@ -149,6 +161,12 @@ func CheckIPAccessRoutingPolicy(c *gin.Context) {
 		return
 	}
 	if action == setting.IPAccessRouteReject {
+		// Only a request the inexpensive source policy rejected needs the
+		// comparatively expensive API-key bypass lookup.
+		if keyBypassesIPPolicy(c) {
+			c.Status(http.StatusNoContent)
+			return
+		}
 		common.SysLog(fmt.Sprintf("IP access routing rejected client_ip=%s country=%s rule_line=%d", originalIP, edgeCountry, lineNumber))
 		ipAccessRoutingError(c, http.StatusForbidden, "IP_ACCESS_ROUTE_REJECTED", "request rejected by IP access routing")
 		return

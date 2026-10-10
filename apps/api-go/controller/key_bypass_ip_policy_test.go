@@ -64,6 +64,48 @@ func TestKeyBypassesIPPolicyWithoutAuthorizationHeaderNeverTouchesDatabase(t *te
 	assert.False(t, keyBypassesIPPolicy(c))
 }
 
+func TestKeyBypassesIPPolicyRateLimitsInvalidKeysByOriginalClientIP(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	clientIP := "198.51.100.77"
+	for range ipPolicyInvalidKeyLimit {
+		assert.True(t, ipPolicyInvalidKeyLimiter.Request(clientIP, ipPolicyInvalidKeyLimit, ipPolicyInvalidKeyWindowSeconds))
+	}
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/internal/access-ip-policy", nil)
+	c.Request.Header.Set("Authorization", "Bearer sk-never-query-this-key")
+	c.Request.Header.Set("X-Original-Client-IP", clientIP)
+
+	// model.DB stays nil: a database lookup after the source exhausts its
+	// invalid-key budget would panic.
+	assert.False(t, keyBypassesIPPolicy(c))
+}
+
+func TestCheckIPAccessRoutingPolicyAllowedSourceSkipsKeyLookup(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	originalRules := setting.GetIPAccessRoutingRules()
+	require.NoError(t, setting.UpdateIPAccessRoutingRules("fallback: direct"))
+	previousDB := model.DB
+	model.DB = nil
+	t.Cleanup(func() {
+		model.DB = previousDB
+		require.NoError(t, setting.UpdateIPAccessRoutingRules(originalRules))
+	})
+
+	recorder := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(recorder)
+	c.Request = httptest.NewRequest(http.MethodGet, "/internal/access-ip-policy", nil)
+	c.Request.RemoteAddr = "127.0.0.1:42000"
+	c.Request.Header.Set("X-Original-Client-IP", "192.0.2.44")
+	c.Request.Header.Set("Authorization", "Bearer sk-invalid-key-must-not-be-queried")
+
+	// model.DB is nil, so this would panic if an allowed source performed the
+	// bypass-key lookup before the inexpensive routing decision.
+	CheckIPAccessRoutingPolicy(c)
+	assert.Equal(t, http.StatusNoContent, c.Writer.Status())
+}
+
 func setupKeyBypassIPPolicyTest(t *testing.T) {
 	t.Helper()
 	previousDB := model.DB
