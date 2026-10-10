@@ -1,0 +1,632 @@
+[
+  {
+    "manifest_sha256": "c355c928fafca2b9ef67a1f5a93daaaa178e1ba42cdd60c9b3170e2367aa569f",
+    "manifest": {
+      "archive_bytes": 265826,
+      "archive_sha256": "e0845c25e68e7b3ffb00d1ddac339e890aff9ed0ec7749bec4e9dea2a11d1331",
+      "files": [
+        {
+          "bytes": 16416,
+          "mode": 365,
+          "name": "probe",
+          "sha256": "ae71be6222078fe6fd1af3a81a378b4eac02c18070339ae81c338877320d3271"
+        },
+        {
+          "bytes": 262144,
+          "mode": 292,
+          "name": "payload.bin",
+          "sha256": "fbdc0b37423e95a739359d6110c7791a5d3f063a5816fb184c8b624ee2b5a0ce"
+        },
+        {
+          "bytes": 5,
+          "mode": 292,
+          "name": "version.txt",
+          "sha256": "d841cb7f6ac19114c4ef8642f3899a2564c9b9f25bc338d34bb33b2773cf787b"
+        }
+      ],
+      "kind": "dp28-native-fixture",
+      "project": "api.lmm.best",
+      "release": "r000"
+    }
+  },
+  {
+    "manifest_sha256": "2762b2fcd08f71d6dd2bdc44ea597f1190cda392e937e1210b8356496d699350",
+    "manifest": {
+      "archive_bytes": 265828,
+      "archive_sha256": "95e4e1d6cee716a2a478b9115b24390fe7e80333d701184cbfbe2dac4610b8df",
+      "files": [
+        {
+          "bytes": 16416,
+          "mode": 365,
+          "name": "probe",
+          "sha256": "ae71be6222078fe6fd1af3a81a378b4eac02c18070339ae81c338877320d3271"
+        },
+        {
+          "bytes": 262144,
+          "mode": 292,
+          "name": "payload.bin",
+          "sha256": "7ef8db372a5c7cb2cf46fefe87ed36e8b3e707247dcd78d38bae910ed64163f7"
+        },
+        {
+          "bytes": 5,
+          "mode": 292,
+          "name": "version.txt",
+          "sha256": "8364d6b8d926ffa9b27d5bd14756496825abc78d64a4125a748b4adbfd6d9296"
+        }
+      ],
+      "kind": "dp28-native-fixture",
+      "project": "api.lmm.best",
+      "release": "r001"
+    }
+  },
+  {
+    "manifest_sha256": "abca5558d9851db2051238479539baf301baf8ce4bcd114d1b075ed95fa6711a",
+    "manifest": {
+      "archive_bytes": 265829,
+      "archive_sha256": "e29702a0fd2b3b55bc995b2fdeff490c90fb2f383eb7d7de6dcf9c71137ca896",
+      "files": [
+        {
+          "bytes": 16416,
+          "mode": 365,
+          "name": "probe",
+          "sha256": "ae71be6222078fe6fd1af3a81a378b4eac02c18070339ae81c338877320d3271"
+        },
+        {
+          "bytes": 262144,
+          "mode": 292,
+          "name": "payload.bin",
+          "sha256": "290ca4d11f2f76f8b8f1cceee2e1210eb1794aabf17382ddd999de1d23c98bfd"
+        },
+        {
+          "bytes": 5,
+          "mode": 292,
+          "name": "version.txt",
+          "sha256": "318b5de27c64e65dd84da2d047893cbb423da5c481621f1f3600a8687ef7750a"
+        }
+      ],
+      "kind": "dp28-native-fixture",
+      "project": "api.lmm.best",
+      "release": "r002"
+    }
+  },
+  {
+    "manifest_sha256": "d32cdbc3a5d821b173759ef09d6af134ef80fbb3a0b4ce34a7e440238581d5d6",
+    "manifest": {
+      "archive_bytes": 265827,
+      "archive_sha256": "9e4b17ba80351f102ba5fa4fff8fc535c4f7c5f3c596d1619a2f92b9813461f2",
+      "files": [
+        {
+          "bytes": 16416,
+          "mode": 365,
+          "name": "probe",
+          "sha256": "ae71be6222078fe6fd1af3a81a378b4eac02c18070339ae81c338877320d3271"
+        },
+        {
+          "bytes": 262144,
+          "mode": 292,
+          "name": "payload.bin",
+          "sha256": "96a6ea3f94913f5bc92bde8d26e6c411fbb27d987d63236fa848008a2360f8a6"
+        },
+        {
+          "bytes": 5,
+          "mode": 292,
+          "name": "version.txt",
+          "sha256": "d1a2d39ded56a417aa4e6ba5d847638350d898851fd2b50c435b6f1ae53ecdee"
+        }
+      ],
+      "kind": "dp28-native-fixture",
+      "project": "api.lmm.best",
+      "release": "r003"
+    }
+  },
+  {
+    "manifest_sha256": "f6fa45c9af3ebeeffec3086a66945bf086757bcf18a09b4726f485e5977a6cd2",
+    "manifest": {
+      "archive_bytes": 265823,
+      "archive_sha256": "a1ea8145a28572d0497aaba0d9ac2b04e975ae9ab328b6a63661098ee3390a9e",
+      "files": [
+        {
+          "bytes": 16416,
+          "mode": 365,
+          "name": "probe",
+          "sha256": "ae71be6222078fe6fd1af3a81a378b4eac02c18070339ae81c338877320d3271"
+        },
+        {
+          "bytes": 262144,
+          "mode": 292,
+          "name": "payload.bin",
+          "sha256": "6f1c772e450f334c60655a6b84261880c0beb44a55f9cfa2efe4f59d4e11a05a"
+        },
+        {
+          "bytes": 5,
+          "mode": 292,
+          "name": "version.txt",
+          "sha256": "4760bcbfc5b7fa8b8122d70c2448d52d7a9c73b0c44d037c52328742d6b12428"
+        }
+      ],
+      "kind": "dp28-native-fixture",
+      "project": "api.lmm.best",
+      "release": "r004"
+    }
+  },
+  {
+    "manifest_sha256": "43ad96b875e1928edee3c7871a3b24dab818490a6db132041d14e1693a95db51",
+    "manifest": {
+      "archive_bytes": 265823,
+      "archive_sha256": "be2e825d05de0f2bdabe6c06a161b51e3f9703ff8e9a2d7134c286f95aad10b5",
+      "files": [
+        {
+          "bytes": 16416,
+          "mode": 365,
+          "name": "probe",
+          "sha256": "ae71be6222078fe6fd1af3a81a378b4eac02c18070339ae81c338877320d3271"
+        },
+        {
+          "bytes": 262144,
+          "mode": 292,
+          "name": "payload.bin",
+          "sha256": "0498e42035e692d886af085d498c45a31fbd7d8e5e90ba6d346f8269d6f20559"
+        },
+        {
+          "bytes": 5,
+          "mode": 292,
+          "name": "version.txt",
+          "sha256": "61af8a2ff9c26ca2c13f27686386e986add6a64482a11d0d8cf897f6212ee81e"
+        }
+      ],
+      "kind": "dp28-native-fixture",
+      "project": "api.lmm.best",
+      "release": "r005"
+    }
+  },
+  {
+    "manifest_sha256": "499ca5096f7de536faec1bd9009d918e613f6f6b606221ec812593d9d1f8f8bc",
+    "manifest": {
+      "archive_bytes": 265821,
+      "archive_sha256": "5edfd33f51334528a2a84b4ed0f0d233f6a89b49a880d7607e2c0139680a99be",
+      "files": [
+        {
+          "bytes": 16416,
+          "mode": 365,
+          "name": "probe",
+          "sha256": "ae71be6222078fe6fd1af3a81a378b4eac02c18070339ae81c338877320d3271"
+        },
+        {
+          "bytes": 262144,
+          "mode": 292,
+          "name": "payload.bin",
+          "sha256": "2530182eddea34f25812d2c47048b2aac032c6010c6d7bebd8bfb450f54d6df5"
+        },
+        {
+          "bytes": 5,
+          "mode": 292,
+          "name": "version.txt",
+          "sha256": "6179e3c687be85fb81526f68ac132057e69706f8289c94afc09c5024f875ea02"
+        }
+      ],
+      "kind": "dp28-native-fixture",
+      "project": "api.lmm.best",
+      "release": "r006"
+    }
+  },
+  {
+    "manifest_sha256": "411dff42922b6161e61a95cbcac01e67f5d686ff286e86ad89c5d67e45f57a99",
+    "manifest": {
+      "archive_bytes": 265824,
+      "archive_sha256": "81deeb9cdf1cee4099f493e33e93bf7a51cd9d016ea369aab82b0ab811ff3191",
+      "files": [
+        {
+          "bytes": 16416,
+          "mode": 365,
+          "name": "probe",
+          "sha256": "ae71be6222078fe6fd1af3a81a378b4eac02c18070339ae81c338877320d3271"
+        },
+        {
+          "bytes": 262144,
+          "mode": 292,
+          "name": "payload.bin",
+          "sha256": "64ca1c5710a72011e72536d32cff06ee30871c8331e20bb575ad370cab8be4a8"
+        },
+        {
+          "bytes": 5,
+          "mode": 292,
+          "name": "version.txt",
+          "sha256": "899cfab58a9c9f401d4a24bb17dcb6e7f27960fccf28719e087c47aacfb45436"
+        }
+      ],
+      "kind": "dp28-native-fixture",
+      "project": "api.lmm.best",
+      "release": "r007"
+    }
+  },
+  {
+    "manifest_sha256": "8ce0c0660b7771d3d3cf32fdac361f0d72ab68f648a94223ae5b7798e9f4c394",
+    "manifest": {
+      "archive_bytes": 265821,
+      "archive_sha256": "630d3d916f598280778bfcbea01a894efd4e807f670aade857685f9e2c5e92c4",
+      "files": [
+        {
+          "bytes": 16416,
+          "mode": 365,
+          "name": "probe",
+          "sha256": "ae71be6222078fe6fd1af3a81a378b4eac02c18070339ae81c338877320d3271"
+        },
+        {
+          "bytes": 262144,
+          "mode": 292,
+          "name": "payload.bin",
+          "sha256": "54e855a6c63dfdd5fd73139d2bf24cae83c006fd3d33486760c5001e40c2f62a"
+        },
+        {
+          "bytes": 5,
+          "mode": 292,
+          "name": "version.txt",
+          "sha256": "ee9a49a1c7f774518ae1f4b891075240cf57250a7edbf5191ef3df24017cff10"
+        }
+      ],
+      "kind": "dp28-native-fixture",
+      "project": "api.lmm.best",
+      "release": "r008"
+    }
+  },
+  {
+    "manifest_sha256": "a139a283b05ad27815c18511c4aaac9610a9a0384761ebad54d2df9586ce78af",
+    "manifest": {
+      "archive_bytes": 265829,
+      "archive_sha256": "a58ef97e58296a981042c12607cf20af946a0fdee99642b12da1b5643789eeca",
+      "files": [
+        {
+          "bytes": 16416,
+          "mode": 365,
+          "name": "probe",
+          "sha256": "ae71be6222078fe6fd1af3a81a378b4eac02c18070339ae81c338877320d3271"
+        },
+        {
+          "bytes": 262144,
+          "mode": 292,
+          "name": "payload.bin",
+          "sha256": "c505f7319c231400dc3c607b413a7033612ae5c872aa87b2c4bd56329baa16f5"
+        },
+        {
+          "bytes": 5,
+          "mode": 292,
+          "name": "version.txt",
+          "sha256": "23c5fcaca64e99755595e0e2a1a034b0069e822f1ce59ec39f0de790584aaa27"
+        }
+      ],
+      "kind": "dp28-native-fixture",
+      "project": "api.lmm.best",
+      "release": "r009"
+    }
+  },
+  {
+    "manifest_sha256": "4f54dfc0f9e67e4abf4a3d1423d5986531b54855e3be380c8356fa12e3ab2108",
+    "manifest": {
+      "archive_bytes": 265823,
+      "archive_sha256": "175fa333290002bc685c43aa7d636ca8a4630eb2cec4d0f3de05eb09796ed9e9",
+      "files": [
+        {
+          "bytes": 16416,
+          "mode": 365,
+          "name": "probe",
+          "sha256": "ae71be6222078fe6fd1af3a81a378b4eac02c18070339ae81c338877320d3271"
+        },
+        {
+          "bytes": 262144,
+          "mode": 292,
+          "name": "payload.bin",
+          "sha256": "a8ad53eff49eee28b77127fea599725dd9a50cf4eae1a916b6e55dffc7dbcb8d"
+        },
+        {
+          "bytes": 5,
+          "mode": 292,
+          "name": "version.txt",
+          "sha256": "265980638ffaaf8b92ced860f29f0f7f5c779df49ed4a3c6c9b0bdbd15cde761"
+        }
+      ],
+      "kind": "dp28-native-fixture",
+      "project": "api.lmm.best",
+      "release": "r010"
+    }
+  },
+  {
+    "manifest_sha256": "be2609bbd36ee548f13fdfead0c79dbd9f5e0f17408d4756328eb0dafcd84760",
+    "manifest": {
+      "archive_bytes": 265829,
+      "archive_sha256": "7664f6d675ad2f54f5f8eb43a7043c4d8dff403ff7d5558c2e0b3abc295cb7b1",
+      "files": [
+        {
+          "bytes": 16416,
+          "mode": 365,
+          "name": "probe",
+          "sha256": "ae71be6222078fe6fd1af3a81a378b4eac02c18070339ae81c338877320d3271"
+        },
+        {
+          "bytes": 262144,
+          "mode": 292,
+          "name": "payload.bin",
+          "sha256": "0498f448c5a8082c2526b00a5c3cbcebef006ee836a64a368c566b6cf2ca69e6"
+        },
+        {
+          "bytes": 5,
+          "mode": 292,
+          "name": "version.txt",
+          "sha256": "7887d0bb02848a73e2bf5aa808d529e65deb74fee82ee87abb857b00b0559162"
+        }
+      ],
+      "kind": "dp28-native-fixture",
+      "project": "api.lmm.best",
+      "release": "r011"
+    }
+  },
+  {
+    "manifest_sha256": "f61ed470e5ac5cbedac1ea1799a28eac738c8c4029b6ce82c474f9546dbba6dc",
+    "manifest": {
+      "archive_bytes": 265827,
+      "archive_sha256": "f0ef9375c143b3a79841570ce1630923ab8598be7638b2747dfb5853385c73e1",
+      "files": [
+        {
+          "bytes": 16416,
+          "mode": 365,
+          "name": "probe",
+          "sha256": "ae71be6222078fe6fd1af3a81a378b4eac02c18070339ae81c338877320d3271"
+        },
+        {
+          "bytes": 262144,
+          "mode": 292,
+          "name": "payload.bin",
+          "sha256": "581bbc964d8bdc26298d5ceb1d39001384f9f90a3358c0101d2db5899094303e"
+        },
+        {
+          "bytes": 5,
+          "mode": 292,
+          "name": "version.txt",
+          "sha256": "b7acc0f9488e20e56a2946e2450262a3a714d2d28129f83dd6eb092ce627ab93"
+        }
+      ],
+      "kind": "dp28-native-fixture",
+      "project": "api.lmm.best",
+      "release": "r012"
+    }
+  },
+  {
+    "manifest_sha256": "ecec5cbcda0ce513d452c020054ea3ce41e11a1065f24bfb44fa2d26b2540cbd",
+    "manifest": {
+      "archive_bytes": 265821,
+      "archive_sha256": "79416401c2b2fc80ced4051608fb69763414c644df2b385cb590dde45c648e32",
+      "files": [
+        {
+          "bytes": 16416,
+          "mode": 365,
+          "name": "probe",
+          "sha256": "ae71be6222078fe6fd1af3a81a378b4eac02c18070339ae81c338877320d3271"
+        },
+        {
+          "bytes": 262144,
+          "mode": 292,
+          "name": "payload.bin",
+          "sha256": "43a3e74836fe1dcbe64655c0da3a5e0630c4030cd554e1a3aca42b71122088a8"
+        },
+        {
+          "bytes": 5,
+          "mode": 292,
+          "name": "version.txt",
+          "sha256": "671c2f5f855f14519333e11447ab95dcc956e07d7fc7dbf44b1f786ac3f2b57a"
+        }
+      ],
+      "kind": "dp28-native-fixture",
+      "project": "api.lmm.best",
+      "release": "r013"
+    }
+  },
+  {
+    "manifest_sha256": "f2aed480803fb6cdfaa6928bf0199c913b5e0fbdc6e635577dd8f64b86f30694",
+    "manifest": {
+      "archive_bytes": 265824,
+      "archive_sha256": "8e7ffedca06582ad32e19a9a7eb45b6827eab79e428a67121f4e90844b9cc37c",
+      "files": [
+        {
+          "bytes": 16416,
+          "mode": 365,
+          "name": "probe",
+          "sha256": "ae71be6222078fe6fd1af3a81a378b4eac02c18070339ae81c338877320d3271"
+        },
+        {
+          "bytes": 262144,
+          "mode": 292,
+          "name": "payload.bin",
+          "sha256": "afedcc51121a5cfe236e851c88b3c329892335ee6f0f2c70063a0d8955a41e29"
+        },
+        {
+          "bytes": 5,
+          "mode": 292,
+          "name": "version.txt",
+          "sha256": "cbdf4d2e5942550e2bfbf8657cfeb2c0364960feaafc31e7a4554e140e5aaa7c"
+        }
+      ],
+      "kind": "dp28-native-fixture",
+      "project": "api.lmm.best",
+      "release": "r014"
+    }
+  },
+  {
+    "manifest_sha256": "1bf22f26912ec8e36e6ca2a5c70f5d29dd90522fb367f6e3c1ddee0089d7500e",
+    "manifest": {
+      "archive_bytes": 265829,
+      "archive_sha256": "6c79fbb89e7d32de6efe0662283255be34a9abb5e16c5858d69438f74b763124",
+      "files": [
+        {
+          "bytes": 16416,
+          "mode": 365,
+          "name": "probe",
+          "sha256": "ae71be6222078fe6fd1af3a81a378b4eac02c18070339ae81c338877320d3271"
+        },
+        {
+          "bytes": 262144,
+          "mode": 292,
+          "name": "payload.bin",
+          "sha256": "37131d8d852772abc9acc52a23ead6d366c363c3505fe716aceed8a906e3fc05"
+        },
+        {
+          "bytes": 5,
+          "mode": 292,
+          "name": "version.txt",
+          "sha256": "f6b0e27abc495c54dedd8c06bb81c11d1472780201307885f83d145357ce5e3b"
+        }
+      ],
+      "kind": "dp28-native-fixture",
+      "project": "api.lmm.best",
+      "release": "r015"
+    }
+  },
+  {
+    "manifest_sha256": "313b2a3eda22cd34ea9507bd27c7d47424f610be654adf42c50e0f692f8cdf6d",
+    "manifest": {
+      "archive_bytes": 265826,
+      "archive_sha256": "ecaa627c230cf6f71cc97d06503d4b793bdde6e4da40f6f019031fcdb66703e9",
+      "files": [
+        {
+          "bytes": 16416,
+          "mode": 365,
+          "name": "probe",
+          "sha256": "ae71be6222078fe6fd1af3a81a378b4eac02c18070339ae81c338877320d3271"
+        },
+        {
+          "bytes": 262144,
+          "mode": 292,
+          "name": "payload.bin",
+          "sha256": "c825a7f4befdf83449707cc030b509161a603929318bfd7871c7f861c2458163"
+        },
+        {
+          "bytes": 5,
+          "mode": 292,
+          "name": "version.txt",
+          "sha256": "a81307aa4399ab3520516d7ab22668a80f1eb7a97c5722d587eaf2646a7fbf7e"
+        }
+      ],
+      "kind": "dp28-native-fixture",
+      "project": "api.lmm.best",
+      "release": "r016"
+    }
+  },
+  {
+    "manifest_sha256": "cd46252603d19c6ecd9e5631b1f10582d6abbbc16849cbafe8efb35ce0937aee",
+    "manifest": {
+      "archive_bytes": 265825,
+      "archive_sha256": "3f8e7784d57d50d502d59dafee31eeff36e8dc242e74e12acbd6efc3a706a36b",
+      "files": [
+        {
+          "bytes": 16416,
+          "mode": 365,
+          "name": "probe",
+          "sha256": "ae71be6222078fe6fd1af3a81a378b4eac02c18070339ae81c338877320d3271"
+        },
+        {
+          "bytes": 262144,
+          "mode": 292,
+          "name": "payload.bin",
+          "sha256": "14603dbb243fa0d8ea5666c41c1a20c6f3e11921ad64f2eb27accac8854f7ce9"
+        },
+        {
+          "bytes": 5,
+          "mode": 292,
+          "name": "version.txt",
+          "sha256": "deda989d8086a728ecf0c05c55a67d3f5e6cffd1b81170607307f17cc683a3f9"
+        }
+      ],
+      "kind": "dp28-native-fixture",
+      "project": "api.lmm.best",
+      "release": "r017"
+    }
+  },
+  {
+    "manifest_sha256": "69435aec033a22ae59fcdb71078ffdce9b7c8fa15afdf1c363f6de852b2b100e",
+    "manifest": {
+      "archive_bytes": 265827,
+      "archive_sha256": "1946a2fb99479a023c7aba1fcd914d351e4197f17ef39b04afc26996288f67d8",
+      "files": [
+        {
+          "bytes": 16416,
+          "mode": 365,
+          "name": "probe",
+          "sha256": "ae71be6222078fe6fd1af3a81a378b4eac02c18070339ae81c338877320d3271"
+        },
+        {
+          "bytes": 262144,
+          "mode": 292,
+          "name": "payload.bin",
+          "sha256": "7d6e6bc0b054547a1481869917a5325008111b3491c8ca79488fbcfbbb2315f4"
+        },
+        {
+          "bytes": 5,
+          "mode": 292,
+          "name": "version.txt",
+          "sha256": "d0cafcb7e7f353f55359d73fc89b4cc9e296cef6a7ef62de131ffb519088e54f"
+        }
+      ],
+      "kind": "dp28-native-fixture",
+      "project": "api.lmm.best",
+      "release": "r018"
+    }
+  },
+  {
+    "manifest_sha256": "a72c1deef6e207a9de3f9044c33a1a82477fc5977685227177f2f7e5c059e9ab",
+    "manifest": {
+      "archive_bytes": 265828,
+      "archive_sha256": "f9c4319695b74a27ce53b65373bdc4a816727bea01aafa45329eede54eacf0f9",
+      "files": [
+        {
+          "bytes": 16416,
+          "mode": 365,
+          "name": "probe",
+          "sha256": "ae71be6222078fe6fd1af3a81a378b4eac02c18070339ae81c338877320d3271"
+        },
+        {
+          "bytes": 262144,
+          "mode": 292,
+          "name": "payload.bin",
+          "sha256": "f19e84bc3a96583c4073c48841705859b0eaff93f4260480104b74215034419b"
+        },
+        {
+          "bytes": 5,
+          "mode": 292,
+          "name": "version.txt",
+          "sha256": "72b8dc91eaeee46323b0c2eef4cfea58d842570faec014b2aa10b9a153a813d8"
+        }
+      ],
+      "kind": "dp28-native-fixture",
+      "project": "api.lmm.best",
+      "release": "r019"
+    }
+  },
+  {
+    "manifest_sha256": "c6bd7e4e82b198387ab4f706cec9a9875d54872dcb9e51cd066033ab5fef6149",
+    "manifest": {
+      "archive_bytes": 265823,
+      "archive_sha256": "56d547d0bc8d987fddf8fa2861044f04b44067b05ce25218d4d22a787ea7e0c3",
+      "files": [
+        {
+          "bytes": 16416,
+          "mode": 365,
+          "name": "probe",
+          "sha256": "ae71be6222078fe6fd1af3a81a378b4eac02c18070339ae81c338877320d3271"
+        },
+        {
+          "bytes": 262144,
+          "mode": 292,
+          "name": "payload.bin",
+          "sha256": "7323497aa95f33084906ad5edae02c4e0c8478fe64395922ea5dd25b6da21a1a"
+        },
+        {
+          "bytes": 5,
+          "mode": 292,
+          "name": "version.txt",
+          "sha256": "b1e4e16f61ccc4318cbaf55c067b852ec03c736ca262b7239a6fe761f99efac2"
+        }
+      ],
+      "kind": "dp28-native-fixture",
+      "project": "api.lmm.best",
+      "release": "r020"
+    }
+  }
+]
