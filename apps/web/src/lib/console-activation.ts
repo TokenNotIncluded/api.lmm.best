@@ -179,9 +179,14 @@ export function getAuthenticatedLandingRoute(
 
 export function isContributorRoute(pathname: string): boolean {
   // L0 can explore and reach checkout before paid activation. Payment methods
-  // remain subject to the server's payment access gate; developer and bounty
-  // management routes still require L1.
+  // remain subject to the server's payment access gate. Account settings and
+  // the API key access explanation are also available; the key management
+  // components still require the explicit server developer-access decision.
   return (
+    pathname === '/keys' ||
+    pathname === '/keys/' ||
+    pathname === '/profile' ||
+    pathname === '/profile/' ||
     pathname === '/support' ||
     pathname === '/support/' ||
     pathname === '/todos' ||
