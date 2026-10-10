@@ -56,7 +56,7 @@ func assistantExplicitGiftDecisionRequest(text string) bool {
 		return false
 	}
 	return assistantTextContainsAny(strings.ToLower(text),
-		"申请", "领取", "想领", "要领", "帮我领", "给我", "送我", "发我", "希望给",
+		"申请", "领取", "想领", "要领", "帮我领", "给我", "送我", "发我", "希望给", "很需要", "需要礼包", "想要礼包", "想获得礼包",
 		"请评估", "帮我评估", "评估我", "评估一下", "评估新", "评估礼包", "现在评估", "想评估", "我要评估", "你来评估", "麻烦评估", "请决定", "帮我决定", "决定给我",
 		"apply", "i want to claim", "i'd like to claim", "claim my", "claim the", "please claim", "give me", "grant me", "please evaluate", "evaluate my", "evaluate me", "evaluate the", "please decide", "decide my", "decide the",
 	)

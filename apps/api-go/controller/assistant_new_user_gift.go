@@ -211,6 +211,9 @@ func assistantConversationEvidence(c *gin.Context) (turns int, runes int) {
 }
 
 func executeAssistantNewUserGiftTool(c *gin.Context, userID int, input map[string]any) map[string]any {
+	if assistantRewardReadOnlyRequest(c) {
+		return assistantGiftReadOnlyRequestResult()
+	}
 	turns, runes := assistantConversationEvidence(c)
 	var gift *model.AssistantNewUserGift
 	var created bool

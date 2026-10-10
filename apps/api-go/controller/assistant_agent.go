@@ -672,9 +672,12 @@ func assistantDirectL1GrantAllowed(context assistantUserContext) bool {
 }
 
 func assistantNewUserGiftToolAllowed(context assistantUserContext) bool {
-	// Wording and conversation length are model decisions, not permission gates.
-	// Account eligibility and duplicate issuance are still checked in storage.
-	return !context.AdministratorMode
+	// User-authored project details can authorize applying without a new phrase.
+	// Pure status questions remain read-only. Eligibility is checked in storage.
+	return !context.AdministratorMode &&
+		context.RewardTopic != "weekly_discount" && context.RewardTopic != "other" &&
+		!assistantNewUserGiftStatusWorkflowRequired(context) &&
+		!assistantWeeklyDiscountStatusWorkflowRequired(context)
 }
 
 func assistantWeeklyDiscountToolAllowed(context assistantUserContext) bool {
@@ -2048,7 +2051,10 @@ func executeAssistantTool(c *gin.Context, call assistantOpenAIToolCall) map[stri
 	if !assistantConfiguredLevelAllowed(c, policy, name) {
 		return map[string]any{"ok": false, "status": "tool_level_denied", "error": "the current account does not meet this tool's configured level range"}
 	}
-	if name != "prepare_new_user_gift" && assistantRewardReadOnlyRequest(c) {
+	if assistantRewardReadOnlyRequest(c) {
+		if name == "prepare_new_user_gift" {
+			return assistantGiftReadOnlyRequestResult()
+		}
 		if name == "prepare_weekly_discount" {
 			return assistantWeeklyDiscountReadOnlyRequestResult()
 		}
