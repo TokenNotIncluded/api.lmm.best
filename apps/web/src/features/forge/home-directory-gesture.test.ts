@@ -41,7 +41,7 @@ function fixture() {
   })
   const wheel = (
     deltaY: number,
-    options: ConstructorParameters<typeof view.WheelEvent>[1] = {},
+    options: WheelEventInit = {},
     target = doc.body
   ) => {
     const event = new view.WheelEvent('wheel', {
@@ -49,7 +49,7 @@ function fixture() {
       cancelable: true,
       deltaY,
       ...options,
-    })
+    } as ConstructorParameters<typeof view.WheelEvent>[1])
     target.dispatchEvent(event)
     return event
   }
