@@ -1,0 +1,90 @@
+name: PR675 reviewed native rebase
+on:
+  push:
+    branches: [work/pr675-rebase-e1d04c82]
+    paths: [.github/workflows/pr675-reviewed-rebase.yml]
+permissions:
+  contents: write
+jobs:
+  rebase:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+      - name: Apply only the locally reviewed conflict resolutions
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/reviewed-rebase"
+          cp scripts/pr675-reviewed-rebase-data.b64 "$RUNNER_TEMP/reviewed-rebase/data.b64"
+          python3 - <<'PY' 2>&1 | tee "$RUNNER_TEMP/reviewed-rebase/replay.log"
+          import base64, hashlib, json, os, pathlib, subprocess, zlib
+          out = pathlib.Path(os.environ['RUNNER_TEMP']) / 'reviewed-rebase'
+          encoded = (out / 'data.b64').read_text().strip()
+          # Correct transport transcription only; the decoded SHA is mandatory.
+          for old, new in (
+              ('RswZCFlRswZRhBe4', 'RswZRhBe4'),
+              ('KD4SsqKH7PSz', 'KD4SsqKHkc87PSz'),
+              ('JXRg934b1', 'JXRg934b1'),
+              ('PJWaX1vz', 'PJWa9vz'),
+          ):
+              encoded = encoded.replace(old, new)
+          raw = zlib.decompress(base64.b64decode(encoded, validate=True))
+          assert hashlib.sha256(raw).hexdigest() == 'b78c0fc27631869f325e490aec5ef0f5f9a412e9305976928352dabc2bf0977c', 'resolution transfer digest mismatch'
+          resolutions = json.loads(raw)
+          def git(*args):
+              return subprocess.check_output(['git', *args])
+          main = 'e1d04c82dbfcd6111cf7e94713fd079084414299'
+          old = '4355ec8043d9da054897a69291fd3884942f307e'
+          base = '7f09e17d68a27c4dd7ada3e43fe0474795f71f6e'
+          git('switch', '--detach', old)
+          git('config', 'user.name', 'LIghtJUNction')
+          git('config', 'user.email', '106986785+LIghtJUNction@users.noreply.github.com')
+          env = dict(os.environ, GIT_EDITOR='true')
+          result = subprocess.run(['git', 'rebase', '--rebase-merges', '--onto', main, base], env=env)
+          visited = set()
+          while result.returncode:
+              commit = git('rev-parse', 'REBASE_HEAD').decode().strip()
+              assert commit in resolutions and commit not in visited, f'unreviewed rebase stop: {commit}'
+              visited.add(commit)
+              plan = resolutions[commit]
+              conflicts = set(filter(None, git('diff', '--name-only', '--diff-filter=U', '-z').decode().split('\0')))
+              assert conflicts == set(plan), f'conflict paths changed at {commit}'
+              for name, spec in plan.items():
+                  path = pathlib.Path(name)
+                  assert not path.is_absolute() and '..' not in path.parts and not path.is_symlink()
+                  if spec is None:
+                      path.unlink(missing_ok=True)
+                  else:
+                      blob = git('rev-parse', ':' + spec['stage'] + ':' + name).decode().strip()
+                      assert blob == spec['blob'], f'input blob changed: {name}'
+                      lines = git('cat-file', 'blob', blob).decode().splitlines(keepends=True)
+                      for start, end, replacement in reversed(spec['edits']):
+                          lines[start:end] = replacement
+                      content = ''.join(lines).encode()
+                      assert hashlib.sha256(content).hexdigest() == spec['sha256'], f'output changed: {name}'
+                      path.parent.mkdir(parents=True, exist_ok=True)
+                      path.write_bytes(content)
+                  git('add', '--', name)
+              result = subprocess.run(['git', 'rebase', '--continue'], env=env)
+          tree = git('rev-parse', 'HEAD^{tree}').decode().strip()
+          assert tree == 'a53d01c4c46595dcf73dff566f2d38fbcd594128', f'rebased tree mismatch: {tree}'
+          git('merge-base', '--is-ancestor', main, 'HEAD')
+          assert not git('status', '--porcelain').strip(), 'dirty final tree'
+          head = git('rev-parse', 'HEAD').decode().strip()
+          (out / 'result.json').write_text(json.dumps({'main': main, 'old_head': old, 'head': head, 'tree': tree, 'resolved_commits': sorted(visited)}, indent=2))
+          git('update-ref', 'refs/heads/reviewed-rebase-export', head)
+          git('bundle', 'create', str(out / 'rebased.bundle'), 'refs/heads/reviewed-rebase-export', '^' + main, '^' + old)
+          git('push', 'origin', 'HEAD:refs/heads/work/pr675-rebased-candidate-e1d04c82')
+          print(json.dumps({'head': head, 'tree': tree, 'candidate_pushed': True}))
+          PY
+      - name: Preserve exact rebase result or failure
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: pr675-reviewed-rebase-${{ github.run_id }}
+          path: ${{ runner.temp }}/reviewed-rebase/
+          if-no-files-found: error
+          retention-days: 1
