@@ -757,11 +757,11 @@ func parsePositivePaymentRate(paymentMethod, field, raw string) (decimal.Decimal
 // Display mode is deliberately irrelevant. Platform units are accounting
 // credits, not fiat USD, even when the UI uses a dollar-like symbol.
 func configuredPlatformUnitsPerUSD() (decimal.Decimal, error) {
-	rates, err := paymentpricing.CurrentRates()
-	if err != nil {
-		return decimal.Zero, err
-	}
-	return rates.PlatformUnitsPerUSD()
+	// Top-up amounts are USD-denominated platform credits. Display and
+	// settlement FX rates affect only the fiat charge; deriving this value
+	// from CNY/USD would undercharge non-USD purchases while granting the
+	// full USD credit.
+	return decimal.NewFromInt(1), nil
 }
 
 func standardSettlementPricing(settlementCurrency string) (payMethodSettlementPricing, error) {
