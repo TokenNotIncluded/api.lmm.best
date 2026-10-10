@@ -31,9 +31,9 @@ export function RemoteQuestionCard({ question, send, disabled }: { question: Rem
     void submit({ action: 'ui_input', request_id: question.request_id, key: value })
   }
   return (
-    <section className='bg-primary/5 space-y-3 rounded-2xl p-4 sm:p-5' aria-label={t('Pi needs your answer')}>
+    <section className='bg-primary/5 min-w-0 max-w-full space-y-3 rounded-2xl p-4 sm:p-5' aria-label={t('Pi needs your answer')}>
       <p className='text-primary text-xs font-semibold'>{t('Pi needs your answer')}</p>
-      {question.title ? <h3 className='font-medium'>{question.title}</h3> : null}
+      {question.title ? <h3 className='font-medium break-words'>{question.title}</h3> : null}
       <p className='whitespace-pre-wrap text-sm break-words'>{question.question}</p>
       {question.kind === 'select' ? (
         <div className='grid gap-2'>
@@ -48,7 +48,7 @@ export function RemoteQuestionCard({ question, send, disabled }: { question: Rem
         </div>
       ) : question.kind === 'custom' ? (
         <>
-          <pre className='bg-background max-h-96 overflow-auto rounded-xl p-3 text-xs whitespace-pre-wrap break-words' aria-label={t('Pi terminal view')}>{question.content}</pre>
+          <pre className='bg-background min-w-0 max-h-96 max-w-full overflow-auto rounded-xl p-3 text-xs whitespace-pre' aria-label={t('Pi terminal view')}>{question.content}</pre>
           <div className='flex flex-wrap gap-2' role='group' aria-label={t('Terminal controls')}>
             {([['up', '↑'], ['down', '↓'], ['left', '←'], ['right', '→'], ['enter', t('Enter')], ['escape', t('Cancel')], ['tab', 'Tab'], ['space', t('Space')], ['backspace', '⌫'], ['ctrl+s', t('Submit')]] as [RemoteKey, string][]).map(([value, label]) => (
               <Button type='button' key={value} variant='outline' className='min-h-11 min-w-11' aria-label={value} disabled={blocked} onClick={() => key(value)}>{label}</Button>
@@ -93,7 +93,7 @@ export function RemoteComposer({ send, disabled, busy, hasQuestion }: { send: Se
     catch (cause) { setError(cause instanceof Error ? t(cause.message) : t('Command failed')) }
   }
   return (
-    <form className='bg-muted/40 space-y-3 rounded-2xl p-4' onSubmit={submit}>
+    <form className='bg-muted/40 min-w-0 max-w-full space-y-3 rounded-2xl p-4' onSubmit={submit}>
       <Textarea aria-label={t('Send a task to Pi')} placeholder={hasQuestion ? t('Answer the question above first') : t('Send a task to Pi')} value={content} maxLength={8000} onChange={(event) => setContent(event.target.value)} disabled={disabled || sending || hasQuestion} autoComplete='off' />
       <div className='flex flex-wrap items-center justify-between gap-2'>
         <label className='text-muted-foreground flex items-center gap-2 text-sm'>
