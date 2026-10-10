@@ -115,5 +115,55 @@ class LocalReleaseTests(unittest.TestCase):
         self.assertFalse(self.record.exists())
 
 
+    def add_microkernel_fixture(self):
+        for name in ('apps/api-go/host.go', 'apps/core-rust/schema/identity.sql',
+                     'contracts/proto/lmm/core/v1/control.proto',
+                     'deployment/docker/compose.rpc-core.yml',
+                     'deployment/docker/compose.rpc-extensions.yml'):
+            path = self.repo / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text('original fixture\n')
+        self.commit()
+
+    def record_component(self, component):
+        self.record = self.root / (component + '-record.json')
+        result = self.call('run', '--component', component, '--output', str(self.record), '--',
+                           sys.executable, '-c', 'print("evidence gate fixture")')
+        self.assertEqual(0, result.returncode, result.stderr)
+        return self.record
+
+    def test_extension_evidence_tracks_the_canonical_go_directory(self):
+        self.add_microkernel_fixture()
+        self.record_component('extensions')
+        (self.repo / 'apps/api-go/host.go').write_text('changed host\n')
+        self.commit()
+        self.assertEqual(1, self.verify('extensions').returncode)
+
+    def test_protocol_change_invalidates_both_core_and_extension_evidence(self):
+        self.add_microkernel_fixture()
+        records = {component: self.record_component(component) for component in ('core', 'extensions')}
+        (self.repo / 'contracts/proto/lmm/core/v1/control.proto').write_text('changed contract\n')
+        self.commit()
+        for component, record in records.items():
+            self.record = record
+            self.assertEqual(1, self.verify(component).returncode, component)
+
+    def test_extension_only_change_does_not_invalidate_core_evidence(self):
+        self.add_microkernel_fixture()
+        self.record_component('core')
+        (self.repo / 'apps/api-go/host.go').write_text('independent extension change\n')
+        self.commit()
+        self.assertEqual(0, self.verify('core').returncode)
+        (self.repo / 'apps/core-rust/schema/identity.sql').write_text('changed core schema\n')
+        self.commit()
+        self.assertEqual(1, self.verify('core').returncode)
+
+    def test_missing_component_source_cannot_produce_success_evidence(self):
+        result = self.call('run', '--component', 'extensions', '--output', str(self.record), '--',
+                           sys.executable, '-c', 'raise SystemExit(0)')
+        self.assertEqual(1, result.returncode)
+        self.assertIn('source directory is missing', result.stderr)
+        self.assertFalse(self.record.exists())
+
 if __name__ == '__main__':
     unittest.main()
