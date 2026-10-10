@@ -1,0 +1,65 @@
+{
+  "schema_version": 1,
+  "common": [
+    "LICENSE",
+    "NOTICE",
+    "THIRD-PARTY-LICENSES.md"
+  ],
+  "components": {
+    "core": {
+      "package": "lmm-core",
+      "binaries": [
+        "lmm-core",
+        "lmm-core-admin"
+      ],
+      "platforms": [
+        "linux-amd64",
+        "linux-arm64"
+      ],
+      "resources": []
+    },
+    "extensions": {
+      "package": "lmm-extensions",
+      "binaries": [
+        "lmm-extensions"
+      ],
+      "platforms": [
+        "linux-amd64",
+        "linux-arm64"
+      ],
+      "resources": [
+        "config/legal/site.example.json",
+        "docs/legal/README.md",
+        "config/legal/templates/zh-CN/user-agreement.md",
+        "config/legal/templates/zh-CN/privacy-policy.md",
+        "config/legal/templates/zh-CN/refund-policy.md",
+        "config/legal/templates/en/user-agreement.md",
+        "config/legal/templates/en/privacy-policy.md",
+        "config/legal/templates/en/refund-policy.md"
+      ]
+    },
+    "cli": {
+      "package": "lmm",
+      "binaries": [
+        "lmm"
+      ],
+      "platforms": [
+        "linux-amd64",
+        "linux-arm64",
+        "macos-amd64",
+        "macos-arm64",
+        "windows-amd64",
+        "windows-arm64"
+      ],
+      "resources": []
+    },
+    "web": {
+      "package": "lmm-web",
+      "binaries": [],
+      "platforms": [
+        "any"
+      ],
+      "resources": []
+    }
+  }
+}

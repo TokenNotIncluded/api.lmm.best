@@ -1,12 +1,5 @@
-# Setup record persistence at startup
+# Setup record persistence at startup（历史资料）
 
-When migration-write startup finds an existing root user without a setup record,
-it creates the existing singleton setup record before marking setup complete.
-Failure to persist that record now returns a startup error through the existing
-migration-session cleanup path, instead of logging the error and continuing with
-an initialized in-memory state.
+本文描述已移除的 Go 单体或旧数据库升级流程，不适用于本分支。当前操作请使用 [Docker 开发栈](../deployment/docker/README.md)与[打包指南](release-architecture.md)。
 
-An empty database remains legitimately uninitialized. An existing setup record
-is preserved, and repeated successful checks do not create extra records.
-Read-only startup still requires exactly one setup record and a root user.
-This change does not alter first-time setup's transaction/concurrency protocol.
+[查看退役前原文](https://github.com/TokenNotIncluded/api.lmm.best/blob/72667564c0431754d4856dc2e0db55f360bd2745/docs/setup-startup.md)。不将旧命令作为新架构的回退或安装方式。其他记录见[历史文档说明](archive.md)。

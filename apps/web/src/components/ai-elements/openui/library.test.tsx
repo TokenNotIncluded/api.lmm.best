@@ -1,6 +1,5 @@
 /* Copyright (C) 2026 LIghtJUNction; licensed under AGPL-3.0-or-later. */
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import { describe, it } from 'node:test'
 
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -24,12 +23,13 @@ describe('assistant OpenUI component contract', () => {
       'Stack',
     ])
   })
-  it('keeps the server prompt identical to the frontend component contract', () => {
-    const file = new URL(
-      '../../../../../api-go/controller/assistant_openui_prompt.txt',
-      import.meta.url
-    )
-    assert.equal(readFileSync(file, 'utf8'), assistantOpenUIPrompt())
+  it('generates a stable prompt from the current component definitions', () => {
+    const prompt = assistantOpenUIPrompt()
+    assert.ok(prompt.length > 0)
+    assert.equal(prompt, assistantOpenUIPrompt())
+    for (const name of Object.keys(assistantOpenUILibrary.components)) {
+      assert.ok(prompt.includes(name))
+    }
   })
   it('keeps the account, billing and confirmation boundaries in the prompt', () => {
     const prompt = assistantOpenUIPrompt()

@@ -18,6 +18,19 @@ on:
       - deployment/docker/**
       - scripts/generate-core-protocol.sh
       - scripts/test-core-*.py
+      - scripts/build-distribution.py
+      - scripts/test-distribution.py
+      - scripts/test-legal-process.py
+      - scripts/check-docs-brand.py
+      - scripts/test_docs_brand.py
+      - scripts/test-docs-microservices.py
+      - .github/workflows/microservice-distribution.yml
+      - config/legal/**
+      - packaging/distribution.json
+      - docs/**
+      - README.md
+      - README_EN.md
+      - CONTRIBUTING.md
 permissions:
   contents: read
 defaults:
@@ -67,6 +80,10 @@ jobs:
           node --test scripts/workflow-topology.test.mjs
           python3 -B scripts/test-core-boundaries.py
           python3 -B scripts/test-local-release-tests.py
+          python3 -B scripts/check-docs-brand.py
+          python3 -B scripts/test_docs_brand.py
+          python3 -B scripts/test-distribution.py
+          python3 -B scripts/test-docs-microservices.py
       - name: Check generated Go bindings
         run: bash scripts/generate-core-protocol.sh --check
       - name: Build actual Go host for Rust stream isolation
@@ -74,6 +91,8 @@ jobs:
         run: |
           CGO_ENABLED=0 go build -mod=readonly -trimpath -o "$RUNNER_TEMP/lmm-extensions" ./cmd/extensions
           echo "LMM_RELAY_EXTENSION_BIN=$RUNNER_TEMP/lmm-extensions" >> "$GITHUB_ENV"
+      - name: Public legal reads with the actual Go host
+        run: LMM_EXTENSION_TEST_BIN="$RUNNER_TEMP/lmm-extensions" python3 -B scripts/test-legal-process.py
       - name: Rust formatting
         working-directory: apps/lmm-core
         run: cargo fmt --all --check
