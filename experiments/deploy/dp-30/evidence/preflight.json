@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "scope": "read_only_local_preflight",
+  "source_sha": "72667564c0431754d4856dc2e0db55f360bd2745",
+  "tools": {
+    "docker": null,
+    "podman": null,
+    "cargo": null,
+    "rustc": null,
+    "go": "/usr/local/go/bin/go",
+    "psql": null
+  },
+  "memory_max": "4294967296",
+  "cpu_max": "400000 100000",
+  "cgroup_writable": false,
+  "integration_status": "unverified",
+  "deployments_started": 0
+}

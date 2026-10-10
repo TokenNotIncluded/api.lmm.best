@@ -1,0 +1,232 @@
+{
+  "schema_version": 1,
+  "audited_base_sha": "72667564c0431754d4856dc2e0db55f360bd2745",
+  "integration_sha": null,
+  "status": "unverified",
+  "common_workload_origin": "DP30_PROVISIONAL_NOT_DP21",
+  "dp21_workload_sha256": null,
+  "dp21_budget_sha256": null,
+  "limits": {
+    "concurrency": 8,
+    "max_concurrency": 16,
+    "max_requests_per_run": 256,
+    "max_seconds_per_run": 60,
+    "max_total_input_bytes": 4194304,
+    "max_response_bytes_per_request": 262144,
+    "max_evidence_bytes_per_file": 16777216,
+    "max_evidence_bytes_per_run": 67108864,
+    "max_live_versions_per_component": 2,
+    "max_queued_releases": 1,
+    "max_fault_seconds": 5
+  },
+  "offered_load": {
+    "requests_per_second": 1,
+    "stream_seconds": 5,
+    "request_deadline_seconds": 12,
+    "retry_count": 0
+  },
+  "safety": {
+    "isolated_only": true,
+    "production_allowed": false,
+    "real_money_allowed": false,
+    "notifications_allowed": false,
+    "remote_ci_allowed": false,
+    "force_old_exit_to_improve_frequency": false
+  },
+  "groups": [
+    {
+      "name": "no_update",
+      "repeats": 3,
+      "schedule_seconds": 20,
+      "post_schedule_observation_seconds": 15,
+      "scheduled_rounds": 0
+    },
+    {
+      "name": "normal_update",
+      "repeats": 3,
+      "schedule_seconds": 20,
+      "post_schedule_observation_seconds": 15,
+      "rounds": [
+        {
+          "round": 1,
+          "requested_offset_s": 0,
+          "component": "go"
+        },
+        {
+          "round": 2,
+          "requested_offset_s": 1,
+          "component": "rust"
+        },
+        {
+          "round": 3,
+          "requested_offset_s": 2,
+          "component": "config"
+        },
+        {
+          "round": 4,
+          "requested_offset_s": 3,
+          "component": "frontend"
+        },
+        {
+          "round": 5,
+          "requested_offset_s": 4,
+          "component": "go"
+        },
+        {
+          "round": 6,
+          "requested_offset_s": 5,
+          "component": "rust"
+        },
+        {
+          "round": 7,
+          "requested_offset_s": 6,
+          "component": "config"
+        },
+        {
+          "round": 8,
+          "requested_offset_s": 7,
+          "component": "frontend"
+        },
+        {
+          "round": 9,
+          "requested_offset_s": 8,
+          "component": "go"
+        },
+        {
+          "round": 10,
+          "requested_offset_s": 9,
+          "component": "rust"
+        },
+        {
+          "round": 11,
+          "requested_offset_s": 10,
+          "component": "config"
+        },
+        {
+          "round": 12,
+          "requested_offset_s": 11,
+          "component": "frontend"
+        },
+        {
+          "round": 13,
+          "requested_offset_s": 12,
+          "component": "go"
+        },
+        {
+          "round": 14,
+          "requested_offset_s": 13,
+          "component": "rust"
+        },
+        {
+          "round": 15,
+          "requested_offset_s": 14,
+          "component": "config"
+        },
+        {
+          "round": 16,
+          "requested_offset_s": 15,
+          "component": "frontend"
+        },
+        {
+          "round": 17,
+          "requested_offset_s": 16,
+          "component": "go"
+        },
+        {
+          "round": 18,
+          "requested_offset_s": 17,
+          "component": "rust"
+        },
+        {
+          "round": 19,
+          "requested_offset_s": 18,
+          "component": "config"
+        },
+        {
+          "round": 20,
+          "requested_offset_s": 19,
+          "component": "frontend"
+        }
+      ]
+    },
+    {
+      "name": "new_start_failure",
+      "repeats": 3,
+      "separate_from_normal_update": true,
+      "inject_once": true,
+      "max_fault_seconds": 5,
+      "max_run_seconds": 60
+    },
+    {
+      "name": "slow_old_exit",
+      "repeats": 3,
+      "separate_from_normal_update": true,
+      "inject_once": true,
+      "max_fault_seconds": 5,
+      "max_run_seconds": 60
+    },
+    {
+      "name": "bad_config",
+      "repeats": 3,
+      "separate_from_normal_update": true,
+      "inject_once": true,
+      "max_fault_seconds": 5,
+      "max_run_seconds": 60
+    },
+    {
+      "name": "key_rotation",
+      "repeats": 3,
+      "separate_from_normal_update": true,
+      "inject_once": true,
+      "max_fault_seconds": 5,
+      "max_run_seconds": 60
+    },
+    {
+      "name": "node_partition",
+      "repeats": 3,
+      "separate_from_normal_update": true,
+      "inject_once": true,
+      "max_fault_seconds": 5,
+      "max_run_seconds": 60
+    },
+    {
+      "name": "database_unavailable",
+      "repeats": 3,
+      "separate_from_normal_update": true,
+      "inject_once": true,
+      "max_fault_seconds": 5,
+      "max_run_seconds": 60
+    },
+    {
+      "name": "disk_full",
+      "repeats": 3,
+      "separate_from_normal_update": true,
+      "inject_once": true,
+      "max_fault_seconds": 5,
+      "max_run_seconds": 60
+    },
+    {
+      "name": "controller_exit",
+      "repeats": 3,
+      "separate_from_normal_update": true,
+      "inject_once": true,
+      "max_fault_seconds": 5,
+      "max_run_seconds": 60
+    },
+    {
+      "name": "forced_death",
+      "repeats": 3,
+      "separate_from_normal_update": true,
+      "allow_interrupted_streams": true,
+      "retry_count": 0,
+      "max_run_seconds": 60
+    }
+  ],
+  "execution_notes": [
+    "20 rounds are requested inputs, not a production frequency promise.",
+    "Keep the same offered arrival schedule in baseline and update groups.",
+    "Record queue wait; when versions or queue hit the cap, stop admitting updates.",
+    "Do not kill draining instances to make the schedule appear faster.",
+    "No dp22-dp29 adapter is supplied here. This file does not deploy anything."
+  ]
+}

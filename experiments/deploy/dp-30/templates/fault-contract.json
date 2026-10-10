@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "status": "not_executed",
+  "owner": "dp22-dp29 adapters; DP30 only supplies load and observations",
+  "max_fault_seconds": 5,
+  "max_run_seconds": 60,
+  "repetitions": 3,
+  "adapter": null,
+  "cases": [
+    {
+      "fault": "new_start_failure",
+      "injection": "新进程在就绪前失败",
+      "acceptance": "旧实例持续处理；新实例不接用户请求；记录失败和等待。",
+      "observed": false,
+      "recovery_ms": null
+    },
+    {
+      "fault": "slow_old_exit",
+      "injection": "旧实例仍有受控长流",
+      "acceptance": "保留旧实例；达到版本上限时等待或拒绝新发布；不能强杀。",
+      "observed": false,
+      "recovery_ms": null
+    },
+    {
+      "fault": "bad_config",
+      "injection": "只给候选版本错误测试配置",
+      "acceptance": "候选版本未就绪时不能切流；旧版本配置不能变化。",
+      "observed": false,
+      "recovery_ms": null
+    },
+    {
+      "fault": "key_rotation",
+      "injection": "只轮换隔离环境的服务凭据",
+      "acceptance": "检查交叠期及撤销期；原用户会话和 Key 不应随服务凭据轮换失效。",
+      "observed": false,
+      "recovery_ms": null
+    },
+    {
+      "fault": "node_partition",
+      "injection": "仅阻断测试网络中的指定节点",
+      "acceptance": "最多 5 秒；不能修改宿主生产防火墙；分别记录服务和结算恢复。",
+      "observed": false,
+      "recovery_ms": null
+    },
+    {
+      "fault": "database_unavailable",
+      "injection": "仅关闭隔离数据库测试连接",
+      "acceptance": "最多 5 秒；不确定提交必须按原命令标识核对，不能产生新扣款命令。",
+      "observed": false,
+      "recovery_ms": null
+    },
+    {
+      "fault": "disk_full",
+      "injection": "仅耗尽私有、有限大小的测试卷",
+      "acceptance": "禁止填满宿主磁盘；证据存放在另一有限目录；检查拒绝、回退和清理。",
+      "observed": false,
+      "recovery_ms": null
+    },
+    {
+      "fault": "controller_exit",
+      "injection": "只停止登记的测试控制进程",
+      "acceptance": "独立观察进程继续采样；核心继续服务；发布锁与待清理状态可恢复。",
+      "observed": false,
+      "recovery_ms": null
+    },
+    {
+      "fault": "forced_death",
+      "injection": "另组停止登记的测试服务进程",
+      "acceptance": "不计入正常更新；记录断流数、已消费金额和恢复；不自动重发。",
+      "observed": false,
+      "recovery_ms": null
+    }
+  ],
+  "recovery_definition": "Report first success and sustained recovery separately. Sustained recovery requires at least three new successful model probes, valid auth probes, and confirmed ledger reconciliation. Never substitute a health page. Use one observer monotonic clock; mark deadline-censored results null."
+}
