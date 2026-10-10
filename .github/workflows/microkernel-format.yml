@@ -1,0 +1,47 @@
+name: Microkernel Rust formatting
+on:
+  push:
+    branches: [wip/rust-core-go-extensions]
+    paths: [.github/workflows/microkernel-format.yml]
+permissions:
+  contents: read
+jobs:
+  format:
+    if: github.repository == 'TokenNotIncluded/api.lmm.best' && github.ref == 'refs/heads/wip/rust-core-go-extensions'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: true
+      - name: Install the branch formatter
+        run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt
+      - name: Format the Rust crate without changing behavior
+        working-directory: apps/core-rust
+        run: |
+          cargo +1.99.0 fmt --all
+          cargo +1.99.0 fmt --all --check
+      - name: Commit formatting to the same branch without force
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --name-only > "$RUNNER_TEMP/format-paths.txt"
+          while IFS= read -r path; do
+            case "$path" in
+              apps/core-rust/src/*.rs|apps/core-rust/tests/*.rs) ;;
+              *) echo "Unexpected formatter path: $path" >&2; exit 1 ;;
+            esac
+          done < "$RUNNER_TEMP/format-paths.txt"
+          git add -- apps/core-rust/src apps/core-rust/tests
+          if git diff --cached --quiet; then
+            echo 'No formatting changes.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'style(core): apply pinned Rust formatter to fresh-schema implementation'
+          git push origin HEAD:refs/heads/wip/rust-core-go-extensions
+          git rev-parse HEAD
