@@ -1,0 +1,56 @@
+name: Billing one-x review
+
+on:
+  push:
+    branches: [fix/billing-one-x-audit-20261010]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: billing-one-x-review-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  go-billing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      GOMAXPROCS: "2"
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - name: Export tracked source for reproducible review
+        run: |
+          mkdir -p "$RUNNER_TEMP/billing-review"
+          git archive --format=tar.gz HEAD > "$RUNNER_TEMP/billing-review/source.tar.gz"
+          git rev-parse HEAD > "$RUNNER_TEMP/billing-review/source-revision.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: billing-review-source-${{ github.sha }}
+          path: ${{ runner.temp }}/billing-review/
+          retention-days: 3
+          if-no-files-found: error
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: |
+            apps/api-go/go.sum
+            apps/api-go/relaykit/go.sum
+      - name: Test payment, price sync and billing packages
+        working-directory: apps/api-go
+        run: |
+          go test -p 2 -count=1 -timeout=5m ./common ./pkg/billingexpr ./setting/... ./relay/helper ./service ./controller ./model 2>&1 | tee "$RUNNER_TEMP/billing-go-tests.log"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: billing-review-results-${{ github.sha }}
+          path: ${{ runner.temp }}/billing-go-tests.log
+          retention-days: 7
+          if-no-files-found: ignore
