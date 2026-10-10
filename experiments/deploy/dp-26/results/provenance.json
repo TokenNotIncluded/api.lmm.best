@@ -1,0 +1,18 @@
+{
+  "base": "72667564c0431754d4856dc2e0db55f360bd2745",
+  "scope": "source-slice; NOT full host / ledger / model",
+  "go_version": "go version go1.23.2 linux/amd64",
+  "blobs": {
+    "mcp.go": "b15f8540b7372052de0f8de96db23e9892cece85",
+    "schema.go": "90d97e642f0097eddf373a45749381616d96697d",
+    "network.go": "509bd77eb65fc3bbcec4803b191fcdfeab4f67c5"
+  },
+  "baseline": {
+    "mcp_git_blob": "b15f8540b7372052de0f8de96db23e9892cece85",
+    "binary_sha256": "90967f5039a38a15dffbae2508439f771c0862048be5b53e62a6b8297d203e57"
+  },
+  "candidate": {
+    "mcp_git_blob": "17cbe6a9c9ab2affebaf266359710cafbfe96c8b",
+    "binary_sha256": "266fd9159a947cbd2e67d87940956b2ba04b56fc96216c5d00d5036a57d15199"
+  }
+}
