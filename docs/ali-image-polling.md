@@ -9,9 +9,11 @@ attempt. Twenty immediate nonterminal or failed queries therefore finish after
 Polling has a **205-second overall deadline**, starting when polling begins and
 covering delays, HTTP response headers and response body reads. This is a new
 wall-clock bound, not a guarantee previously provided by the attempt counter.
-An earlier incoming request deadline or cancellation wins. Slow queries may use
-the budget before all 20 attempts run. Cancellation releases the HTTP response;
-it does not cancel the provider's image-generation job.
+Slow queries may use the budget before all 20 attempts run. Once Ali accepts a
+task, polling is detached from the incoming request deadline and cancellation:
+a client disconnect does not cancel the provider's image-generation job and
+must not cause the accepted job's pre-consumed quota to be refunded. The
+internal polling deadline remains in effect.
 
 Task queries reuse the shared HTTP client with the channel's proxy and transport
 settings. Existing `RELAY_TIMEOUT` and response-header timeout settings still

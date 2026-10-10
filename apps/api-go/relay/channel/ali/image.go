@@ -233,9 +233,11 @@ func updateTask(ctx context.Context, client *http.Client, info *relaycommon.Rela
 }
 
 func asyncTaskWait(c *gin.Context, info *relaycommon.RelayInfo, taskID string) (*AliResponse, []byte, error) {
-	// This budget includes delays, response headers and body reads. A shorter
-	// incoming deadline (or cancellation) wins, even when RELAY_TIMEOUT is zero.
-	ctx, cancel := context.WithTimeout(c.Request.Context(), aliTaskPollTimeout)
+	// Ali has already accepted the billable task at this point. Keep polling
+	// independently of the downstream client so a disconnect cannot turn
+	// accepted provider work into a refundable relay failure. The internal
+	// deadline still bounds delays, response headers, and body reads.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(c.Request.Context()), aliTaskPollTimeout)
 	defer cancel()
 	if err := ctx.Err(); err != nil {
 		return nil, nil, err

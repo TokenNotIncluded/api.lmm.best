@@ -51,7 +51,7 @@ func TestAliPollingTransportErrorsRespectAttemptBound(t *testing.T) {
 	})
 }
 
-func TestAliPollingHonorsCanceledRequest(t *testing.T) {
+func TestAliPollingContinuesAfterCanceledRequest(t *testing.T) {
 	original := http.DefaultTransport
 	t.Cleanup(func() { http.DefaultTransport = original })
 	synctest.Test(t, func(t *testing.T) {
@@ -67,10 +67,10 @@ func TestAliPollingHonorsCanceledRequest(t *testing.T) {
 		c.Request = httptest.NewRequest("POST", "/v1/images/generations", nil).WithContext(ctx)
 		info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{ChannelBaseUrl: "https://provider.invalid"}}
 		started := time.Now()
-		_, _, err := asyncTaskWait(c, info, "fictional-task")
+		response, _, err := asyncTaskWait(c, info, "fictional-task")
 		t.Logf("attempts=%d virtual_elapsed=%s returned_error=%v", attempts, time.Since(started), err)
-		if attempts != 0 || !errors.Is(err, context.Canceled) || time.Since(started) != 0 {
-			t.Error("canceled request still polled upstream and returned success")
+		if attempts != 1 || err != nil || response.Output.TaskStatus != "SUCCEEDED" || time.Since(started) != aliTaskInitialDelay {
+			t.Error("accepted task polling stopped with the canceled downstream request")
 		}
 	})
 }
@@ -157,35 +157,19 @@ type pollBlockingBody struct {
 func (b *pollBlockingBody) Read([]byte) (int, error) { <-b.ctx.Done(); return 0, b.ctx.Err() }
 func (b *pollBlockingBody) Close() error             { b.closed = true; return nil }
 
-func TestAliPollingCancellationAndOverallDeadline(t *testing.T) {
+func TestAliPollingOverallDeadline(t *testing.T) {
 	original := http.DefaultTransport
 	t.Cleanup(func() { http.DefaultTransport = original })
 	for _, tc := range []struct {
-		name           string
-		stopAfter      time.Duration
-		parentDeadline bool
-		hang           string
-		attempts       int
+		name     string
+		hang     string
+		attempts int
 	}{
-		{"initial-delay", time.Second, false, "", 0},
-		{"between-polls", 7 * time.Second, false, "", 1},
-		{"in-flight-headers", 7 * time.Second, false, "headers", 1},
-		{"in-flight-body", 7 * time.Second, false, "body", 1},
-		{"shorter-parent-deadline", 7 * time.Second, true, "headers", 1},
-		{"hung-headers-total-budget", 205 * time.Second, false, "headers", 1},
-		{"hung-body-total-budget", 205 * time.Second, false, "body", 1},
+		{"hung-headers-total-budget", "headers", 1},
+		{"hung-body-total-budget", "body", 1},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
-				ctx, cancel := context.WithCancel(context.Background())
-				defer cancel()
-				if tc.parentDeadline {
-					var stop context.CancelFunc
-					ctx, stop = context.WithTimeout(ctx, tc.stopAfter)
-					defer stop()
-				} else if tc.stopAfter < 205*time.Second {
-					go func() { time.Sleep(tc.stopAfter); cancel() }()
-				}
 				attempts := 0
 				var blocked *pollBlockingBody
 				http.DefaultTransport = pollTestTransport(func(r *http.Request) (*http.Response, error) {
@@ -201,14 +185,11 @@ func TestAliPollingCancellationAndOverallDeadline(t *testing.T) {
 					}
 					return &http.Response{StatusCode: 200, Header: make(http.Header), Body: body}, nil
 				})
-				c, info := pollTestContext(ctx)
+				c, info := pollTestContext(context.Background())
 				started := time.Now()
 				_, _, err := asyncTaskWait(c, info, "fictional-task")
-				wantErr := context.Canceled
-				if tc.parentDeadline || tc.stopAfter == 205*time.Second {
-					wantErr = context.DeadlineExceeded
-				}
-				if !errors.Is(err, wantErr) || attempts != tc.attempts || time.Since(started) != tc.stopAfter {
+				wantErr := context.DeadlineExceeded
+				if !errors.Is(err, wantErr) || attempts != tc.attempts || time.Since(started) != aliTaskPollTimeout {
 					t.Errorf("got err=%v attempts=%d elapsed=%s", err, attempts, time.Since(started))
 				}
 				if blocked != nil && !blocked.closed {
