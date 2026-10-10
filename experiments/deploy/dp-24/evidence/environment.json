@@ -1,0 +1,18 @@
+{
+  "go": "go version go1.23.2 linux/amd64",
+  "python": "3.13.5",
+  "grpcio": "1.80.0",
+  "cryptography": "46.0.4",
+  "psutil": "7.2.2",
+  "kernel": "6.18.44",
+  "architecture": "x86_64",
+  "rust_compiler_available": false,
+  "project_pinned_toolchain_used": false,
+  "network_namespaces": 3,
+  "real_machines": 0,
+  "cpu_cores_hard_limited": false,
+  "memory_1GiB_hard_limited": false,
+  "fd_limit": 256,
+  "go_compile_command": "GOTOOLCHAIN=local GOPROXY=off GOSUMDB=off GO111MODULE=off go test -race -c",
+  "purpose": "Independent standard-library helper tests only; not the project Go module build"
+}

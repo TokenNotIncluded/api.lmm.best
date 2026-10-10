@@ -1,0 +1,16 @@
+I1010 15:12:17.710480   10021 ssl_transport_security.cc:2125] Handshake failed with error SSL_ERROR_SSL: error:100000f7:SSL routines:OPENSSL_internal:WRONG_VERSION_NUMBER: Invalid certificate verification context
+I1010 15:12:17.716169   10019 ssl_transport_security.cc:2125] Handshake failed with error SSL_ERROR_SSL: error:100000c0:SSL routines:OPENSSL_internal:PEER_DID_NOT_RETURN_A_CERTIFICATE: Invalid certificate verification context
+E1010 15:12:17.718105   10020 ssl_transport_security.cc:2753] No match found for server name: not-core.dp24.test
+I1010 15:12:17.722046   10021 ssl_transport_security.cc:2125] Handshake failed with error SSL_ERROR_SSL: error:1000007d:SSL routines:OPENSSL_internal:CERTIFICATE_VERIFY_FAILED: certificate has expired
+I1010 15:12:18.793245   10021 ssl_transport_security.cc:2125] Handshake failed with error SSL_ERROR_SSL: error:1000007d:SSL routines:OPENSSL_internal:CERTIFICATE_VERIFY_FAILED: certificate has expired
+I1010 15:12:18.816397   10021 ssl_transport_security.cc:2125] Handshake failed with error SSL_ERROR_SSL: error:100000c0:SSL routines:OPENSSL_internal:PEER_DID_NOT_RETURN_A_CERTIFICATE: Invalid certificate verification context
+I1010 15:12:18.838683   10019 ssl_transport_security.cc:2125] Handshake failed with error SSL_ERROR_SSL: error:100000f7:SSL routines:OPENSSL_internal:WRONG_VERSION_NUMBER: Invalid certificate verification context
+E1010 15:12:18.853110   10020 ssl_transport_security.cc:2753] No match found for server name: not-core.dp24.test
+I1010 15:12:20.239763   10017 ssl_transport_security.cc:2125] Handshake failed with error SSL_ERROR_SSL: error:100000f7:SSL routines:OPENSSL_internal:WRONG_VERSION_NUMBER: Invalid certificate verification context
+E1010 15:12:20.267283   10018 ssl_transport_security.cc:2753] No match found for server name: not-core.dp24.test
+I1010 15:12:20.668101   10017 ssl_transport_security.cc:2125] Handshake failed with error SSL_ERROR_SSL: error:100000c0:SSL routines:OPENSSL_internal:PEER_DID_NOT_RETURN_A_CERTIFICATE: Invalid certificate verification context
+I1010 15:12:20.687331   10018 ssl_transport_security.cc:2125] Handshake failed with error SSL_ERROR_SSL: error:1000007d:SSL routines:OPENSSL_internal:CERTIFICATE_VERIFY_FAILED: certificate has expired
+I1010 15:12:21.084537   10020 ssl_transport_security.cc:2125] Handshake failed with error SSL_ERROR_SSL: error:1000007d:SSL routines:OPENSSL_internal:CERTIFICATE_VERIFY_FAILED: certificate has expired
+I1010 15:12:26.468716   10149 ssl_transport_security.cc:2125] Handshake failed with error SSL_ERROR_SSL: error:1000007d:SSL routines:OPENSSL_internal:CERTIFICATE_VERIFY_FAILED: certificate has expired
+E1010 15:12:26.591282   10150 ssl_transport_security.cc:2753] No match found for server name: not-core.dp24.test
+I1010 15:12:26.805942   10150 ssl_transport_security.cc:2125] Handshake failed with error SSL_ERROR_SSL: error:100000f7:SSL routines:OPENSSL_internal:WRONG_VERSION_NUMBER: Invalid certificate verification context
