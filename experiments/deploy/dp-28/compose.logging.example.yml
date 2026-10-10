@@ -1,0 +1,16 @@
+# Documentation-only overlay; not used by run-lab.sh and not applied anywhere.
+# Use only with the complete, matching project Compose configuration.
+# Set explicit measured per-container diagnostic budgets. No daemon-wide edits.
+x-dp28-diagnostics: &diagnostics
+  driver: local
+  options:
+    max-size: "${LMM_DIAG_MAX_SIZE:?Set the measured diagnostic file budget, for example 1m}"
+    max-file: "${LMM_DIAG_MAX_FILES:?Set the measured diagnostic file count}"
+    compress: "true"
+services:
+  core:
+    logging: *diagnostics
+  extensions:
+    logging: *diagnostics
+# This is not a financial/audit retention policy. Never put required ledger or
+# deduplication evidence only in stdout/stderr. Docker has no age option here.
