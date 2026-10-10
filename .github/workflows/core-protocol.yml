@@ -69,6 +69,11 @@ jobs:
           python3 -B scripts/test-local-release-tests.py
       - name: Check generated Go bindings
         run: bash scripts/generate-core-protocol.sh --check
+      - name: Build actual Go host for Rust stream isolation
+        working-directory: apps/api-go
+        run: |
+          CGO_ENABLED=0 go build -mod=readonly -trimpath -o "$RUNNER_TEMP/lmm-extensions" ./cmd/extensions
+          echo "LMM_RELAY_EXTENSION_BIN=$RUNNER_TEMP/lmm-extensions" >> "$GITHUB_ENV"
       - name: Rust formatting
         working-directory: apps/core-rust
         run: cargo fmt --all --check
@@ -77,7 +82,7 @@ jobs:
         working-directory: apps/core-rust
         run: |
           cargo clippy --locked --all-targets -- -D warnings
-          cargo test --locked --all-targets 2>&1 | tee "$RUNNER_TEMP/core-tests.log"
+          cargo test --locked --all-targets --no-fail-fast 2>&1 | tee "$RUNNER_TEMP/core-tests.log"
       - name: Go contract and race tests
         if: ${{ !cancelled() }}
         working-directory: apps/api-go
