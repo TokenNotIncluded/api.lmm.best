@@ -1,5 +1,4 @@
 name: CI
-
 on:
   workflow_dispatch:
     inputs:
@@ -7,197 +6,20 @@ on:
         description: Git ref for the translation regression comparison
         default: HEAD^
         type: string
-
 permissions:
   contents: read
-
 defaults:
   run:
-    # Explicit bash enables pipefail so pipelines cannot hide failed commands.
     shell: bash
-
 concurrency:
-  # Replace obsolete test runs, never a release, manual run, or production operation.
-  group: ci-${{ github.event_name }}-${{ github.event.pull_request.number || github.ref }}-${{ (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) && 'latest' || github.run_id }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref == 'refs/heads/main') }}
-
+  group: ci-${{ github.ref }}-${{ github.run_id }}
+  cancel-in-progress: false
 env:
   CI: "true"
-  CARGO_BUILD_JOBS: "2"
-  CARGO_INCREMENTAL: "0"
-  CARGO_PROFILE_DEV_DEBUG: "0"
-  CARGO_PROFILE_TEST_DEBUG: "0"
-  RUST_TOOLCHAIN: "1.99.0"
-
 jobs:
-  changes:
-    name: Select CI checks
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    outputs:
-      required: ${{ steps.plan.outputs.required }}
-    steps:
-      - name: Checkout complete comparison history
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-      - name: Select PR checks or full release evidence
-        id: plan
-        env:
-          CI_BASE_SHA: ${{ github.event.pull_request.base.sha }}
-        run: python3 -B scripts/ci_plan.py
-
-  repository-contracts:
-    needs: changes
-    if: ${{ contains(fromJSON(needs.changes.outputs.required), 'repository-contracts') }}
-    name: Workflow and resource-safety contracts
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-
-      - name: Set up Go for actionlint
-        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
-        with:
-          go-version-file: apps/api-go/go.mod
-          cache: false
-
-      - name: Lint workflow definitions
-        env:
-          GOWORK: "off"
-        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
-
-      - name: Test CI quality gate and shell guards
-        run: |
-          shellcheck scripts/check-go-format.sh scripts/check-static-go-binary.sh
-          python3 -B -m unittest discover -s scripts -p test_ci_quality_gate.py
-          python3 -B -m unittest discover -s scripts -p test_ci_plan.py
-
-      - name: Test public production acceptance
-        run: python3 -B -m unittest discover -s scripts -p test_public_production.py
-
-      - name: Test workflow topology and manual deployment boundary
-        run: |
-          node --test scripts/workflow-topology.test.mjs
-
-      - name: Test Jev marketplace 10x price preparation
-        run: python3 -B scripts/test-jev-market-pricing.py
-
-      - name: Test CI apt source preparation
-        run: python3 scripts/test-prepare-ci-apt.py
-
-      - name: Install repository contract tools
-        run: |
-          sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends --yes nginx ripgrep
-          test "$(command -v rg)" = /usr/bin/rg
-
-      - name: Verify backend-independent outage responses
-        run: node --test scripts/nginx-service-errors.test.mjs
-
-      # Native inspection, workspace lifecycle and recovery are covered by the
-      # release-artifact-contract job. The retired operator skill scripts are
-      # no longer repository runtime assets.
-
-      - name: Test component release governance tooling
-        run: |
-          shellcheck \
-            scripts/verify-release-commit-checks.sh \
-            scripts/test-verify-release-commit-checks.sh \
-            packaging/aur/check-candidate-version.sh \
-            packaging/aur/export-go-package-base.sh \
-            packaging/aur/test-export-go-package-base.sh
-          bash scripts/test-verify-release-commit-checks.sh
-
-      - name: Test pinned AUR release verification
-        env:
-          TMPDIR: ${{ runner.temp }}
-        run: |
-          shellcheck packaging/aur/verify-go-release-pins.sh packaging/aur/test-verify-go-release-pins.sh
-          bash packaging/aur/test-verify-go-release-pins.sh
-
-  release-artifact-contract:
-    needs: changes
-    if: ${{ contains(fromJSON(needs.changes.outputs.required), 'release-artifact-contract') }}
-    name: Release artifact contract
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Set up Go
-        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
-        with:
-          go-version-file: apps/api-go/go.mod
-          cache-dependency-path: apps/api-go/go.sum
-
-      - name: Install verified native-contract cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-
-      - name: Bind cosign to the native fixed system path
-        run: bash scripts/install-ci-native-cosign.sh
-
-      - name: Install archive inspection tool
-        run: |
-          sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends --yes libarchive-tools nginx curl util-linux systemd
-          test "$(command -v bsdtar)" = /usr/bin/bsdtar
-
-      - name: Verify native inspection, workspace, release, and package contracts
-        working-directory: apps/api-go
-        env:
-          TMPDIR: ${{ runner.temp }}
-        run: go test -p 2 ./internal/appcli -count=1
-
-  pi-lmm-provider:
-    needs: changes
-    if: ${{ contains(fromJSON(needs.changes.outputs.required), 'pi-lmm-provider') }}
-    name: Pi LMM provider package
-    runs-on: ubuntu-latest
-    timeout-minutes: 10
-    steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          submodules: recursive
-          persist-credentials: false
-
-      - name: Set up Node
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
-        with:
-          node-version: "22.19.0"
-          cache: npm
-          cache-dependency-path: packages/pi-lmm-provider/package-lock.json
-
-      - name: Install Pi provider dependencies
-        working-directory: packages/pi-lmm-provider
-        run: npm ci --ignore-scripts
-
-      - name: Typecheck Pi provider
-        working-directory: packages/pi-lmm-provider
-        run: npm run typecheck
-
-      - name: Test Pi provider
-        working-directory: packages/pi-lmm-provider
-        run: npm test
-
-      - name: Check Pi provider package
-        working-directory: packages/pi-lmm-provider
-        run: npm run pack:check
-
+  microkernel:
+    uses: ./.github/workflows/core-protocol.yml
   web:
-    needs: changes
-    if: ${{ contains(fromJSON(needs.changes.outputs.required), 'web') }}
     name: Web checks and production build
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -249,278 +71,7 @@ jobs:
           bun run --filter @lmm/web build
           bun run --filter @lmm/web bundle:check
 
-  go:
-    needs: changes
-    if: ${{ contains(fromJSON(needs.changes.outputs.required), 'go') }}
-    name: Go default backend, relaykit, and static build
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    env:
-      GOMAXPROCS: "2"
-    steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-
-      - name: Set up Go
-        uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
-        with:
-          go-version-file: apps/api-go/go.mod
-          cache-dependency-path: |
-            apps/api-go/go.sum
-            apps/api-go/relaykit/go.sum
-
-      - name: Check formatting and static analysis
-        working-directory: apps/api-go
-        run: |
-          bash ../../scripts/check-go-format.sh .
-          go vet ./...
-
-      - name: Install verified native-contract cosign
-        uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
-
-      - name: Bind cosign to the native fixed system path
-        run: bash scripts/install-ci-native-cosign.sh
-
-      - name: Install production contract tools
-        run: |
-          sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
-          sudo apt-get update
-          sudo apt-get install --no-install-recommends --yes libarchive-tools nginx curl util-linux systemd
-          test "$(command -v bsdtar)" = /usr/bin/bsdtar
-          bsdtar --version | sed -n '1p'
-
-      - name: Test default Go module
-        working-directory: apps/api-go
-        run: go test -p 2 ./...
-
-      - name: Test and build independent relaykit module
-        working-directory: apps/api-go/relaykit
-        env:
-          GOWORK: "off"
-        run: |
-          go vet ./...
-          go test -p 2 ./...
-          go build -p 2 ./...
-
-      - name: Build static Go production binary
-        working-directory: apps/api-go
-        env:
-          CGO_ENABLED: "0"
-        run: |
-          mkdir -p out
-          go build -p 2 -trimpath -ldflags="-s -w" -o out/lmm-api-go .
-          rm -f out/.lmm-api.next
-          ln -s lmm-api-go out/.lmm-api.next
-          mv -Tf out/.lmm-api.next out/lmm-api
-          [[ -L out/lmm-api && $(readlink out/lmm-api) == lmm-api-go ]]
-          file out/lmm-api-go
-          bash ../../scripts/check-static-go-binary.sh out/lmm-api-go
-
-  core:
-    needs: changes
-    if: ${{ contains(fromJSON(needs.changes.outputs.required), 'core') }}
-    name: Rust core formatting, lint, tests, and Docker isolation
-    runs-on: ubuntu-latest
-    timeout-minutes: 40
-    env:
-      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
-    services:
-      postgres:
-        image: postgres:17-alpine
-        env:
-          POSTGRES_PASSWORD: postgres
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd "pg_isready -U postgres" --health-interval 5s
-          --health-timeout 3s --health-retries 10
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
-        with:
-          persist-credentials: false
-      - name: Install pinned Rust
-        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal --component clippy --component rustfmt
-      - name: Validate the new core
-        working-directory: apps/core-rust
-        run: |
-          cargo fmt --all --check
-          cargo clippy --locked --all-targets -- -D warnings
-          cargo test --locked --all-targets
-      - name: Test independent Docker projects
-        run: |
-          python3 -B scripts/test-core-docker.py
-          python3 -B scripts/test-core-identity-docker.py
-
-  route-coverage-contract:
-    needs: changes
-    if: ${{ contains(fromJSON(needs.changes.outputs.required), 'route-coverage-contract') }}
-    name: Core and extension boundary contracts
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
-        with:
-          persist-credentials: false
-      - name: Validate retired paths and independent service ownership
-        run: python3 -B scripts/test-core-boundaries.py
-      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
-        with:
-          go-version-file: apps/api-go/go.mod
-          cache-dependency-path: apps/api-go/go.sum
-      - name: Validate shared native-account funding cases in Go
-        working-directory: apps/api-go
-        run: go test -race ./pkg/accountfunding -count=1
-
-  extensions:
-    needs: changes
-    if: ${{ contains(fromJSON(needs.changes.outputs.required), 'extensions') }}
-    name: Go extension module host
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
-        with:
-          go-version-file: apps/extensions-go/go.mod
-          cache: false
-      - name: Check, test and build modules
-        working-directory: apps/extensions-go
-        run: |
-          bash ../../scripts/check-go-format.sh .
-          go vet ./...
-          go test -race ./... -count=1
-          CGO_ENABLED=0 go build -trimpath ./cmd/extensions
-
-  aur-package-matrix:
-    needs: changes
-    if: ${{ contains(fromJSON(needs.changes.outputs.required), 'aur-package-matrix') }}
-    name: AUR direct-backend package contract
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-    container: archlinux:base-devel
-    steps:
-      - name: Install checkout and package validation tools
-        run: |
-          pacman --sync --refresh --noconfirm clang cosign curl git jq libarchive rust shellcheck
-          paru_revision=9ac3578807a87858651e81a02586ceb947686e7c
-          paru_archive=/tmp/paru.tar.gz
-          curl --fail --location --silent --show-error --retry 3 \
-            --connect-timeout 10 --max-time 120 \
-            "https://github.com/Morganamilo/paru/archive/${paru_revision}.tar.gz" \
-            --output "$paru_archive"
-          echo 'fa1e2da402283f9584f98458c61ae8d0bb04c92b2cddb1d2727c8ce944da457e  /tmp/paru.tar.gz' | sha256sum --check --strict
-          bsdtar --extract --file "$paru_archive" --directory /tmp
-          CARGO_TARGET_DIR=/tmp/paru-target cargo build --release --locked \
-            --manifest-path "/tmp/paru-${paru_revision}/Cargo.toml"
-          install -m0755 /tmp/paru-target/release/paru /usr/local/bin/paru
-          useradd --create-home package-builder
-          install -d -o package-builder -g package-builder /home/package-builder/lmm-ci-tmp
-
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          fetch-depth: 0
-          persist-credentials: false
-
-      - name: Validate public AUR package matrix
-        run: |
-          chown --recursive package-builder:package-builder "$GITHUB_WORKSPACE"
-          runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp bash packaging/aur/test-matrix.sh
-          shellcheck packaging/aur/test-merchant-writer-marker.sh
-          runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp bash packaging/aur/test-merchant-writer-marker.sh
-
-      - name: Verify pinned Go release integrity
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-        run: |
-          runuser --user package-builder -- env \
-            TMPDIR=/home/package-builder/lmm-ci-tmp \
-            GITHUB_TOKEN="$GITHUB_TOKEN" \
-            bash packaging/aur/verify-go-release-pins.sh --pinned
-
-      - name: Validate binary package with makepkg and paru
-        run: |
-          runuser --user package-builder -- env TMPDIR=/home/package-builder/lmm-ci-tmp bash packaging/aur/test-bin-makepkg.sh
-
-  go-web-release-gate:
-    name: Go/Web release qualification gate
-    # Manual diagnostic summary; publication requires local test evidence.
-    if: ${{ always() && github.event_name == 'workflow_dispatch' }}
-    needs:
-      - changes
-      - repository-contracts
-      - release-artifact-contract
-      - pi-lmm-provider
-      - web
-      - go
-      - route-coverage-contract
-      - aur-package-matrix
-      - translations
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Require every Go/Web qualification job to succeed
-        env:
-          CI_GO_WEB_NEEDS: ${{ toJSON(needs) }}
-        run: |
-          python3 -B - <<'PYTHON'
-          import json
-          import os
-
-          required = (
-              "changes", "repository-contracts", "release-artifact-contract",
-              "pi-lmm-provider", "web", "go", "route-coverage-contract",
-              "aur-package-matrix", "translations",
-          )
-          needs = json.loads(os.environ["CI_GO_WEB_NEEDS"])
-          if not isinstance(needs, dict) or set(needs) != set(required):
-              raise SystemExit("Go/Web qualification dependency inventory is invalid.")
-          failed = [
-              name for name in required
-              if not isinstance(needs[name], dict) or needs[name].get("result") != "success"
-          ]
-          if failed:
-              raise SystemExit("Go/Web qualification requires success: " + ", ".join(failed))
-          print("All Go/Web release qualification jobs succeeded.")
-          PYTHON
-
-  quality-gate:
-    name: CI Quality Gate
-    # Only explicitly unselected jobs may skip; all failures/cancellations still fail.
-    if: ${{ always() }}
-    needs:
-      - changes
-      - repository-contracts
-      - release-artifact-contract
-      - pi-lmm-provider
-      - web
-      - go
-      - core
-      - route-coverage-contract
-      - extensions
-      - aur-package-matrix
-      - translations
-      - rustsec
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    steps:
-      - name: Checkout
-        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-
-      - name: Require all mandatory jobs to succeed
-        env:
-          CI_NEEDS: ${{ toJSON(needs) }}
-          CI_SELECTED: ${{ needs.changes.outputs.required }}
-        run: python3 -B scripts/ci_quality_gate.py
-
   translations:
-    needs: changes
-    if: ${{ contains(fromJSON(needs.changes.outputs.required), 'translations') }}
     name: Translation regression check
     runs-on: ubuntu-latest
     timeout-minutes: 5
@@ -548,23 +99,20 @@ jobs:
             node scripts/check-i18n.mjs --base "$BASE_REF"
           fi
 
-  rustsec:
-    name: RustSec advisory scan
-    needs: changes
-    if: ${{ contains(fromJSON(needs.changes.outputs.required), 'rustsec') }}
+  quality-gate:
+    name: Implemented component checks
+    if: ${{ always() }}
+    needs: [microkernel, web, translations]
     runs-on: ubuntu-latest
-    timeout-minutes: 10
-    permissions:
-      contents: read
-      checks: write
-      issues: write
+    timeout-minutes: 5
     steps:
-      - name: Check out repository
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Audit locked Rust dependencies
-        uses: rustsec/audit-check@858dc40f52ca2b8570b7a997c1c4e35c6fc9a432 # Node 24 support
-        with:
-          token: ${{ github.token }}
-          working-directory: apps/core-rust
+      - name: Require every implemented component
+        env:
+          KERNEL_RESULT: ${{ needs.microkernel.result }}
+          WEB_RESULT: ${{ needs.web.result }}
+          TRANSLATION_RESULT: ${{ needs.translations.result }}
+        run: |
+          test "$KERNEL_RESULT" = success
+          test "$WEB_RESULT" = success
+          test "$TRANSLATION_RESULT" = success
+          echo 'These checks do not authorize production deployment.'

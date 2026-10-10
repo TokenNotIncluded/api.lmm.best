@@ -12,7 +12,9 @@ class CoreBoundaryTests(unittest.TestCase):
     def test_retired_backends_and_migration_entry_points_are_absent(self):
         for name in ("apps/api-rust", "apps/extensions-go", "apps/core-rust/migrations",
                      "apps/api-go/model", "apps/api-go/controller", "apps/api-go/relay",
-                     "apps/api-go/router", "apps/api-go/migration", "apps/api-go/internal/appcli"):
+                     "apps/api-go/router", "apps/api-go/migration", "apps/api-go/internal/appcli",
+                     "scripts/ci/qualify-go-migration-startup.sh", "scripts/deploy-systemd.py",
+                     "scripts/deploy-shared-postgres.py", "packaging/common/lmm-api/migration-compatibility.env"):
             self.assertFalse((ROOT / name).exists(), name)
         self.assertTrue((ROOT / "apps/lmm/Cargo.toml").is_file())
         self.assertTrue((ROOT / "apps/api-go/cmd/extensions/main.go").is_file())
@@ -25,8 +27,13 @@ class CoreBoundaryTests(unittest.TestCase):
             if path.name.endswith("_test.go"):
                 continue
             text = path.read_text()
-            for forbidden in ('"database/sql"', "AutoMigrate(", "SQL_DSN", "LMM_CORE_DATABASE_URL"):
+            for forbidden in ('"database/sql"', "AutoMigrate("):
                 self.assertNotIn(forbidden, text, str(path))
+            if path.name != "environment.go":
+                for forbidden in ("SQL_DSN", "LMM_CORE_DATABASE_URL"):
+                    self.assertNotIn(forbidden, text, str(path))
+        startup = (ROOT / "apps/api-go/internal/app/run.go").read_text()
+        self.assertLess(startup.index("validateEnvironment(os.Getenv)"), startup.index("readHostCredential(os.Getenv"))
         identity = (ROOT / "apps/api-go/internal/modules/identity/identity.go").read_text()
         self.assertIn("type Core interface", identity)
         for operation in ("Capabilities", "Authorize", "ListTeams"):
@@ -75,6 +82,32 @@ class CoreBoundaryTests(unittest.TestCase):
         self.assertNotIn("DATABASE_URL", extension)
         self.assertIn("COPY apps/api-go/", (ROOT / "deployment/docker/extensions.Dockerfile").read_text())
         self.assertIn("COPY apps/core-rust/schema", (ROOT / "deployment/docker/core.Dockerfile").read_text())
+
+    def test_development_and_qualification_use_only_new_entry_points(self):
+        sample = (ROOT / ".env.example").read_text()
+        for retired in ("SQL_DSN=", "SESSION_SECRET=", "SKIP_64BIT_QUOTA_SCHEMA_CHECK", "LMM_DB_MIGRATION_MODE="):
+            self.assertNotIn(retired, sample)
+        self.assertIn("LMM_EXTENSION_TOKEN_FILE=", sample)
+        for name in ("ci.yml", "server-release-qualification.yml"):
+            body = (ROOT / ".github/workflows" / name).read_text()
+            self.assertIn("uses: ./.github/workflows/core-protocol.yml", body)
+            for retired in ("migrate --", "credit-balance-rebase", "./model", "./relaykit", "apps/extensions-go"):
+                self.assertNotIn(retired, body)
+
+    def test_no_workflow_calls_deleted_go_business_packages(self):
+        retired = ("apps/api-go/relaykit", "./oauthserver", "./oidcprovider",
+                   "./internal/marketprovider", "./model", "./controller", "./router",
+                   "./service", "./middleware")
+        for path in (ROOT / ".github/workflows").glob("*.yml"):
+            body = path.read_text()
+            for package in retired:
+                self.assertNotIn(package, body, str(path))
+        self.assertFalse((ROOT / ".github/workflows/coweft-identity.yml").exists())
+        for name, expected in (("lmm.yml", "working-directory: apps/lmm"),
+                               ("codewhale-lmm-provider.yml", "packages/codewhale-lmm-provider"),
+                               ("wallet-red-packet-review.yml", "working-directory: apps/web"),
+                               ("tool-market-provider-verify.yml", "working-directory: apps/web")):
+            self.assertIn(expected, (ROOT / ".github/workflows" / name).read_text())
 
     def test_core_owns_the_funding_contract(self):
         cases = json.loads((ROOT / "contracts/core/v1/funding-cases.json").read_text())

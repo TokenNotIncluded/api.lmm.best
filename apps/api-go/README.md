@@ -19,6 +19,8 @@ go test -race ./...
 go build -trimpath -o lmm-extensions ./cmd/extensions
 ```
 
+The process reads exported environment variables, not `.env` files. It rejects non-empty `SQL_DSN`, `LOG_SQL_DSN`, `DATABASE_URL`, `LMM_CORE_DATABASE_URL`, `LMM_CORE_DATABASE_URL_FILE` and `LMM_DB_MIGRATION_MODE` before any file or network access. Errors contain variable names, never their values. Do not inherit the core process environment.
+
 Configure `LMM_EXTENSION_TOKEN_FILE` with a private service credential file. `LMM_EXTENSION_LISTEN` defaults to `0.0.0.0:8081`. Configure both `LMM_CORE_RPC_SOCKET` and `LMM_CORE_RPC_TOKEN_FILE` to enable identity reads. Construction is lazy, so an offline Rust core does not prevent the extension host from starting. Identity requests fail closed while Rust is unavailable.
 
 `LMM_EXTENSION_MODULES` selects a comma-separated list; `none` disables every module. Empty configuration enables only the explicit defaults: identity when RPC is configured, otherwise no modules. Unknown or duplicate names fail startup. New modules are not enabled automatically.

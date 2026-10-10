@@ -1,9 +1,17 @@
-name: Core protobuf transport checks
+name: Microkernel implementation checks
 on:
   workflow_dispatch:
+  workflow_call:
   push:
     branches: [wip/rust-core-go-extensions]
     paths:
+      - .github/workflows/core-protocol.yml
+      - .github/workflows/ci.yml
+      - .github/workflows/server-release-qualification.yml
+      - scripts/workflow-topology.test.mjs
+      - scripts/local-release-tests.py
+      - scripts/test-local-release-tests.py
+      - .env.example
       - apps/core-rust/**
       - apps/api-go/**
       - contracts/**
@@ -16,7 +24,7 @@ defaults:
   run:
     shell: bash
 concurrency:
-  group: core-protocol-${{ github.ref }}
+  group: microkernel-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 jobs:
   protocol:
@@ -52,6 +60,13 @@ jobs:
           sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
           sudo apt-get update
           sudo apt-get install --no-install-recommends --yes protobuf-compiler
+      - name: Lint workflows
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
+      - name: Workflow and source boundaries
+        run: |
+          node --test scripts/workflow-topology.test.mjs
+          python3 -B scripts/test-core-boundaries.py
+          python3 -B scripts/test-local-release-tests.py
       - name: Check generated Go bindings
         run: bash scripts/generate-core-protocol.sh --check
       - name: Rust formatting
@@ -62,7 +77,7 @@ jobs:
         working-directory: apps/core-rust
         run: |
           cargo clippy --locked --all-targets -- -D warnings
-          cargo test --locked --all-targets
+          cargo test --locked --all-targets 2>&1 | tee "$RUNNER_TEMP/core-tests.log"
       - name: Go contract and race tests
         if: ${{ !cancelled() }}
         working-directory: apps/api-go
@@ -70,11 +85,22 @@ jobs:
           bash ../../scripts/check-go-format.sh .
           go mod verify
           go vet ./...
-          go test -race ./... -count=1
+          go test -race ./... -count=1 -json | tee "$RUNNER_TEMP/extension-tests.jsonl"
           CGO_ENABLED=0 go build -mod=readonly -trimpath -o "$RUNNER_TEMP/lmm-extensions" ./cmd/extensions
       - name: Native protobuf round trips and failure recovery
         if: ${{ !cancelled() }}
-        run: python3 -B scripts/test-core-rpc-docker.py
+        run: python3 -B scripts/test-core-rpc-docker.py 2>&1 | tee "$RUNNER_TEMP/core-rpc-docker.log"
       - name: Service boundary contracts
         if: ${{ !cancelled() }}
         run: python3 -B scripts/test-core-boundaries.py
+      - name: Preserve implementation test evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: microkernel-checks-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/core-tests.log
+            ${{ runner.temp }}/extension-tests.jsonl
+            ${{ runner.temp }}/core-rpc-docker.log
+          if-no-files-found: warn
+          retention-days: 7

@@ -6,20 +6,9 @@ on:
 permissions:
   contents: read
 
+# Only retained client/frontend code is checked here. The old Go business
+# implementation was removed; this does not qualify its future replacement.
 jobs:
-  oauth-contract:
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/api-go
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version-file: apps/api-go/go.mod
-          cache-dependency-path: apps/api-go/go.sum
-      - run: go test ./oauthserver
-      - run: go test ./router -run TestOAuth
   check:
     strategy:
       fail-fast: false
