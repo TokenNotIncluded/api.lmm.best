@@ -28,7 +28,7 @@
 - [前端设计](frontend-design.md)、[着色器维护](shaders.md)、[Logo 规范](../.github/assets/README.md)。
 - [异步任务指标](async-task-performance-metrics.md)、[脚本插件宿主决策](task-plugin-host-decision.md)。
 - [翻译术语](translation-glossary.md) · [法语术语](translation-glossary.fr.md) · [俄语术语](translation-glossary.ru.md)。
-- [Rust 灰度与切换](rust-blue-green.md)、[Rust 隔离测试](test-single-instance.md)、[CLI 预览](../apps/lmm/README.md)。
+- [核心与扩展迁移](core-migration.md)、[Docker 开发栈](../deployment/docker/README.md)、[CLI 预览](../apps/lmm/README.md)。
 
 ## 部署与发布 · Deployment
 

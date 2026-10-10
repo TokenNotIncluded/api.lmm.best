@@ -10,6 +10,8 @@ concurrency:
   group: wallet-red-packet-review-${{ github.event.pull_request.number }}
   cancel-in-progress: true
 
+# Only retained client/frontend code is checked here. The old Go business
+# implementation was removed; this does not qualify its future replacement.
 jobs:
   frontend:
     runs-on: ubuntu-latest
@@ -59,54 +61,5 @@ jobs:
         with:
           name: wallet-red-packet-browser-evidence
           path: ${{ runner.temp }}/wallet-review
-          retention-days: 7
-          if-no-files-found: error
-  backend:
-    runs-on: ubuntu-latest
-    timeout-minutes: 25
-    services:
-      postgres:
-        image: postgres:18-alpine
-        env:
-          POSTGRES_USER: lmm_test_wallet
-          POSTGRES_PASSWORD: local-wallet-test-password
-          POSTGRES_DB: lmm_test_wallet
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd "pg_isready -U lmm_test_wallet"
-          --health-interval 5s
-          --health-timeout 5s
-          --health-retries 12
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
-        with:
-          persist-credentials: false
-      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
-        with:
-          go-version-file: apps/api-go/go.mod
-          cache-dependency-path: |
-            apps/api-go/go.sum
-            packages/relaykit/go.sum
-      - name: Model and controller regression tests
-        working-directory: apps/api-go
-        shell: bash
-        run: |
-          mkdir -p "$RUNNER_TEMP/wallet-backend"
-          git rev-parse HEAD > "$RUNNER_TEMP/wallet-backend/revision.txt"
-          test -z "$(gofmt -l model/red_packet*.go controller/topup*.go)"
-          go test -p 2 ./model ./controller -count=1 2>&1 | tee "$RUNNER_TEMP/wallet-backend/unit.log"
-      - name: PostgreSQL concurrent claim versus deletion
-        working-directory: apps/api-go
-        env:
-          TEST_POSTGRES_DSN: postgres://lmm_test_wallet:local-wallet-test-password@127.0.0.1:5432/lmm_test_wallet?sslmode=disable
-          TEST_POSTGRES_ISOLATED_SCHEMA: '1'
-        shell: bash
-        run: |
-          go test -race -p 2 -count=1 -v ./model -run '^TestRedPacketDeleteCannotEraseConcurrentClaimPostgres$' -timeout 180s 2>&1 | tee "$RUNNER_TEMP/wallet-backend/concurrency.log"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        if: always()
-        with:
-          name: wallet-red-packet-backend-evidence
-          path: ${{ runner.temp }}/wallet-backend
           retention-days: 7
           if-no-files-found: error

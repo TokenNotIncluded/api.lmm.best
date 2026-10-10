@@ -1,0 +1,130 @@
+name: Microkernel implementation checks
+on:
+  workflow_dispatch:
+  workflow_call:
+  push:
+    branches: [wip/rust-core-go-extensions]
+    paths:
+      - .github/workflows/core-protocol.yml
+      - .github/workflows/ci.yml
+      - .github/workflows/server-release-qualification.yml
+      - scripts/workflow-topology.test.mjs
+      - scripts/local-release-tests.py
+      - scripts/test-local-release-tests.py
+      - .env.example
+      - apps/core-rust/**
+      - apps/api-go/**
+      - contracts/**
+      - deployment/docker/**
+      - scripts/generate-core-protocol.sh
+      - scripts/test-core-*.py
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+concurrency:
+  group: microkernel-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  protocol:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      GOWORK: "off"
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+      CARGO_BUILD_JOBS: "2"
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
+          --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version: '1.27.2'
+          cache-dependency-path: apps/api-go/go.sum
+      - name: Install pinned Rust and protobuf compiler
+        run: |
+          rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+          sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes protobuf-compiler postgresql-client
+      - name: Lint workflows
+        run: go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
+      - name: Workflow and source boundaries
+        run: |
+          node --test scripts/workflow-topology.test.mjs
+          python3 -B scripts/test-core-boundaries.py
+          python3 -B scripts/test-local-release-tests.py
+      - name: Check generated Go bindings
+        run: bash scripts/generate-core-protocol.sh --check
+      - name: Build actual Go host for Rust stream isolation
+        working-directory: apps/api-go
+        run: |
+          CGO_ENABLED=0 go build -mod=readonly -trimpath -o "$RUNNER_TEMP/lmm-extensions" ./cmd/extensions
+          echo "LMM_RELAY_EXTENSION_BIN=$RUNNER_TEMP/lmm-extensions" >> "$GITHUB_ENV"
+      - name: Rust formatting
+        working-directory: apps/core-rust
+        run: cargo fmt --all --check
+      - name: Rust checks and real database tests
+        if: ${{ !cancelled() }}
+        working-directory: apps/core-rust
+        run: |
+          cargo clippy --locked --all-targets -- -D warnings
+          cargo test --locked --all-targets --no-fail-fast 2>&1 | tee "$RUNNER_TEMP/core-tests.log"
+      - name: Go contract and race tests
+        if: ${{ !cancelled() }}
+        working-directory: apps/api-go
+        run: |
+          bash ../../scripts/check-go-format.sh .
+          go mod verify
+          go vet ./...
+          go test -race ./... -count=1 -json | tee "$RUNNER_TEMP/extension-tests.jsonl"
+          CGO_ENABLED=0 go build -mod=readonly -trimpath -o "$RUNNER_TEMP/lmm-extensions" ./cmd/extensions
+      - name: Store and support real PostgreSQL acceptance
+        if: ${{ !cancelled() }}
+        env:
+          LMM_STORE_TEST_DSN: postgres://postgres:postgres@127.0.0.1:5432/lmm_store_test?sslmode=disable
+        run: |
+          psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE lmm_store_test'
+          trap 'psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS lmm_store_test"' EXIT
+          cd apps/api-go/internal/modules/store/pgtest
+          go mod verify
+          go vet -mod=readonly ./...
+          go test -mod=readonly -race -count=1 -json ./... | tee "$RUNNER_TEMP/store-postgres.jsonl"
+      - name: Durable cross-language event process recovery
+        if: ${{ !cancelled() }}
+        run: |
+          (cd apps/core-rust && cargo build --locked --example protocol-events-fixture)
+          (cd contracts/proto/tests/go && go vet -mod=readonly ./... && go build -mod=readonly -o "$RUNNER_TEMP/mk06-go-fixture" .)
+          MK06_GO_FIXTURE="$RUNNER_TEMP/mk06-go-fixture" python3 contracts/proto/tests/process_recovery.py 2>&1 | tee "$RUNNER_TEMP/events-process.log"
+      - name: Native protobuf round trips and failure recovery
+        if: ${{ !cancelled() }}
+        run: python3 -B scripts/test-core-rpc-docker.py 2>&1 | tee "$RUNNER_TEMP/core-rpc-docker.log"
+      - name: Service boundary contracts
+        if: ${{ !cancelled() }}
+        run: python3 -B scripts/test-core-boundaries.py
+      - name: Preserve implementation test evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: microkernel-checks-${{ github.sha }}-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/core-tests.log
+            ${{ runner.temp }}/extension-tests.jsonl
+            ${{ runner.temp }}/core-rpc-docker.log
+            ${{ runner.temp }}/store-postgres.jsonl
+            ${{ runner.temp }}/events-process.log
+          if-no-files-found: warn
+          retention-days: 7

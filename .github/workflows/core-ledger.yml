@@ -1,0 +1,9 @@
+# All merged modules share the same real fixtures and acceptance checks.
+name: Rust ledger PostgreSQL checks
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  ledger:
+    uses: ./.github/workflows/core-protocol.yml

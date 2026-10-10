@@ -4,7 +4,6 @@
   <p>模型接入、MCP 工具与开源协作，一个控制台。</p>
   <p>
     <a href="https://github.com/TokenNotIncluded/api.lmm.best/actions/workflows/ci.yml"><img src="https://github.com/TokenNotIncluded/api.lmm.best/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI" /></a>
-    <a href="https://github.com/TokenNotIncluded/api.lmm.best/releases?q=go-v"><img src="https://img.shields.io/github/v/release/TokenNotIncluded/api.lmm.best?filter=go-v%2A&amp;label=Go&amp;display_name=tag" alt="Go release" /></a>
     <a href="https://github.com/TokenNotIncluded/api.lmm.best/releases?q=web-v"><img src="https://img.shields.io/github/v/release/TokenNotIncluded/api.lmm.best?filter=web-v%2A&amp;label=Web&amp;display_name=tag" alt="Web release" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License: AGPL-3.0" /></a>
   </p>
@@ -16,7 +15,7 @@
 
 LMM Forge 是一个开源的 AI 服务控制台。它将模型调用、Remote MCP 工具市场和开源悬赏协作放在同一个账户与额度体系中。用户可以接入自己的客户端，发布收费工具，也可以通过完成开源任务获得平台余额。
 
-本项目基于 [QuantumNous/new-api](https://github.com/QuantumNous/new-api) 持续开发。Go 是默认后端，前端使用 React 与 TypeScript；Rust 后端和独立 CLI 仍为预览版。
+本项目基于 [QuantumNous/new-api](https://github.com/QuantumNous/new-api) 持续开发。Go 仍是当前生产后端，前端使用 React 与 TypeScript。新分支正迁移为 Rust 核心与 Go 扩展服务，尚不可接入生产流量；独立 CLI 仍为预览版。
 
 ## 核心能力
 
@@ -37,41 +36,19 @@ LMM Forge 是一个开源的 AI 服务控制台。它将模型调用、Remote MC
 
 ## 快速开始
 
-以下步骤用于本地开发，**不是生产安装脚本**。准备 Git、Just、Bun 1.3.14、Node.js 22.12+、Go 1.25.1+，以及独立的 PostgreSQL 和 Valkey 服务。
+**本分支是破坏性的全新架构 WIP，不是线上整站的可用替代品。** 不提供旧用户导入、旧表升级、余额换算或自动数据库迁移。
 
-```bash
-git clone https://github.com/TokenNotIncluded/api.lmm.best.git
-cd api.lmm.best
-just setup
-cp .env.example apps/api-go/.env
-```
+使用 [Docker 开发栈](deployment/docker/README.md)。通过 `lmm-core-admin init-db` 显式安装空的核心数据库；已有应用对象或重复安装都会拒绝。普通启动不建表、不改表。
 
-先编辑 `apps/api-go/.env`：填写 `SQL_DSN`、`REDIS_CONN_STRING`，并设置独立随机的 `SESSION_SECRET` 与 `CRYPTO_SECRET`。请使用开发数据库：服务启动时默认执行数据库迁移。
+`apps/core-rust` 是 Rust 核心，`apps/api-go` 是 Go 扩展服务。Go 目前只接通只读身份模块，商店、助手、支付和原控制台接口尚未接回。模型接口仍不可用。前端源码保留，但不能据此认为整站功能已经完成。
 
-在仓库根目录启动后端：
+本地命令和各服务独立的环境配置见[开发指南](docs/development.md)。不要把旧 Go 的数据库配置复制给新的扩展服务。
 
-```bash
-just dev-go
-```
+## 部署边界
 
-在第二个终端启动前端，避免与后端的 3000 端口冲突：
+核心与扩展使用独立 Docker 项目。更新 Go 不应重启核心或核心数据库。本分支不再提供旧 Go 单体的软件包和 systemd 数据库升级工具；验证流程不部署生产，也不修改生产数据库。
 
-```bash
-bun run --filter @lmm/web dev --port 5173 --host 127.0.0.1 --strict-port
-```
-
-打开 <http://localhost:5173>，完成初始化。完整配置、测试命令和 Rust 预览说明见[本地开发指南](docs/development.md)。仓库不附带开发 Compose 文件或 Dockerfile，不能直接将 `just dev` 或 Docker 构建命令当作开箱即用的入口。
-
-## 部署与升级
-
-Go 和 Web 分别以 `go-vX.Y.Z`、`web-vX.Y.Z` 发布。**合并代码或发布版本不会自动部署到生产。**
-
-| 已有安装方式 | 从这里开始 |
-| --- | --- |
-| 独立 systemd 服务 | [检查、升级、确认与回退](docs/manual-systemd-deployment.md) |
-| 软件包管理的 Go / Web | [签名发布与升级事务](docs/seamless-upgrades.md) |
-| 只更新前端 | [组件发布边界](docs/release-architecture.md) · [前端部署工作流](.github/workflows/deploy-web-frontend.yml) |
-| 数据库与缓存 | [PostgreSQL 迁移](docs/postgresql-migration.md) · [生产切换](docs/postgresql-cutover.md) · [Valkey 运维](docs/valkey-lmm-api.md) |
+参见[全新安装](deployment/docker/README.md)、[核心身份](docs/core-identity.md)、[Protobuf 通信](docs/core-protocol.md)。旧部署文档仅描述已经退役的架构，不可用于安装本分支。
 
 ## 文档
 
@@ -79,7 +56,7 @@ Go 和 Web 分别以 `go-vX.Y.Z`、`web-vX.Y.Z` 发布。**合并代码或发布
 
 - **使用与协作：**[工具发布](docs/tool-market-guide.md)、[连接与授权](docs/tool-market-connections.md)、[悬赏与结算](docs/open-source-bounties.md)。
 - **开发与接口：**[本地开发](docs/development.md)、[贡献指南](CONTRIBUTING.md)、[管理 API](docs/openapi/api.json)、[模型转发 API](docs/openapi/relay.json)。
-- **发布与维护：**[发布架构](docs/release-architecture.md)、[认证与会话](docs/authentication.md)、[Rust 预览](docs/rust-blue-green.md)。
+- **发布与维护：**[发布架构](docs/release-architecture.md)、[认证与会话](docs/authentication.md)、[核心与扩展迁移](docs/core-migration.md)。
 
 ## 贡献与安全
 

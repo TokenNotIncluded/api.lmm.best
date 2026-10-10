@@ -20,13 +20,17 @@ import shlex
 import subprocess
 import sys
 
+EXTENSION_PATHS = ('apps/api-go', 'contracts', 'deployment/docker/extensions.Dockerfile',
+                   'deployment/docker/compose.extensions.yml', 'deployment/docker/compose.rpc-extensions.yml',
+                   'scripts/generate-core-protocol.sh')
 PATHS = {
     'web': ('apps/web', 'packages', 'package.json', 'bun.lock', 'contracts/api-route',
             'packaging/common/lmm-api/lmm-api-web.install'),
-    'go': ('apps/api-go', 'contracts', 'packaging/common/lmm-api',
-           'scripts/native-shared-pg-deploy.py', 'scripts/deploy-systemd.py',
-           'scripts/maintenance-deploy-guardian.py'),
-    'rust': ('apps/api-rust', 'contracts'),
+    'go': EXTENSION_PATHS,
+    'extensions': EXTENSION_PATHS,
+    'core': ('apps/core-rust', 'contracts', 'deployment/docker/core.Dockerfile',
+             'deployment/docker/compose.core.yml', 'deployment/docker/compose.identity.yml',
+             'deployment/docker/compose.rpc-core.yml', 'scripts/generate-core-protocol.sh'),
     'full': ('.',),
 }
 SHA_RE = re.compile(r'^[0-9a-f]{40}$')
@@ -51,6 +55,10 @@ def revision(value):
 def source_objects(commit, component):
     if component == 'full':
         return {'.': git('rev-parse', commit + '^{tree}').decode().strip()}
+    required_root = {'web': 'apps/web', 'go': 'apps/api-go',
+                     'extensions': 'apps/api-go', 'core': 'apps/core-rust'}[component]
+    if not git('ls-tree', '-d', commit, '--', required_root).strip():
+        raise ValueError('component source directory is missing: ' + required_root)
     return {path: git('ls-tree', '-z', commit, '--', path).decode()
             for path in PATHS[component]}
 

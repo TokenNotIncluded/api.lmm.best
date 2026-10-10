@@ -1,0 +1,57 @@
+name: Rust routing contract
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: routing-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  routing:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+        working-directory: apps/core-rust
+    env:
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+      CARGO_BUILD_JOBS: "2"
+      CARGO_INCREMENTAL: "0"
+      CARGO_PROFILE_DEV_DEBUG: "0"
+      CARGO_PROFILE_TEST_DEBUG: "0"
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
+          --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - name: Rust toolchain
+        run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+      - name: Format
+        run: rustfmt --edition 2024 --check src/routing/mod.rs tests/routing.rs
+      - name: Compile and lint routing contract
+        if: ${{ !cancelled() }}
+        run: cargo clippy --locked --test routing -- -D warnings
+      - name: Mock upstream and real PostgreSQL tests
+        if: ${{ !cancelled() }}
+        run: cargo test --locked --test routing -- --nocapture
+      - name: Prepare formatting repair patch
+        if: ${{ always() }}
+        run: |
+          rustfmt --edition 2024 src/routing/mod.rs tests/routing.rs
+          git diff -- src/routing tests/routing.rs > "$RUNNER_TEMP/routing-format.patch"
+      - name: Preserve formatting evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: routing-format-${{ github.sha }}
+          path: ${{ runner.temp }}/routing-format.patch
+          retention-days: 7

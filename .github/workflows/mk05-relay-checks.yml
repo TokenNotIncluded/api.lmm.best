@@ -1,0 +1,94 @@
+name: MK05 relay checks
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: mk05-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+      CARGO_BUILD_JOBS: '2'
+      CARGO_INCREMENTAL: '0'
+      CARGO_PROFILE_DEV_DEBUG: '0'
+      CARGO_PROFILE_TEST_DEBUG: '0'
+      GOWORK: 'off'
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
+          --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version: '1.27.2'
+          cache-dependency-path: apps/api-go/go.sum
+      - name: Install Rust tools
+        run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            apps/core-rust/target
+          key: mk05-rust-${{ runner.os }}-${{ hashFiles('apps/core-rust/Cargo.lock') }}
+          restore-keys: mk05-rust-${{ runner.os }}-
+          save-always: true
+      - name: Record source and tool versions
+        run: |
+          set -euo pipefail
+          git rev-parse HEAD | tee "$RUNNER_TEMP/mk05-tested-commit.txt"
+          {
+            rustc +1.99.0 --version
+            cargo +1.99.0 --version
+            go version
+          } | tee "$RUNNER_TEMP/mk05-tools.log"
+      - name: Build the actual Go extension for lifecycle tests
+        working-directory: apps/api-go
+        run: go build -mod=readonly -o "$RUNNER_TEMP/lmm-extensions" ./cmd/extensions
+      - name: Rust format and strict checks
+        shell: bash
+        run: |
+          set -euo pipefail
+          cargo +1.99.0 fmt --manifest-path apps/core-rust/Cargo.toml --all --check
+          cargo +1.99.0 clippy --manifest-path apps/core-rust/Cargo.toml --locked --all-targets -- -D warnings 2>&1 | tee "$RUNNER_TEMP/mk05-clippy.log"
+      - name: Rust unit, PostgreSQL and real HTTP lifecycle tests
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          export LMM_RELAY_EXTENSION_BIN="$RUNNER_TEMP/lmm-extensions"
+          cargo +1.99.0 test --manifest-path apps/core-rust/Cargo.toml --locked --all-targets -- --nocapture 2>&1 | tee "$RUNNER_TEMP/mk05-tests.log"
+      - name: Verify service boundaries and clean sources
+        if: ${{ !cancelled() }}
+        run: |
+          set -euo pipefail
+          python3 -B scripts/test-core-boundaries.py 2>&1 | tee "$RUNNER_TEMP/mk05-boundaries.log"
+          test ! -e apps/core-rust/src/relay/.review.py
+          git diff --exit-code
+      - name: Preserve tested task sources
+        if: always()
+        run: |
+          tar -czf "$RUNNER_TEMP/mk05-source.tgz" \
+            apps/core-rust/src/relay apps/core-rust/tests/relay_http.rs \
+            apps/core-rust/src/lib.rs apps/core-rust/Cargo.toml \
+            apps/core-rust/Cargo.lock .github/workflows/mk05-relay-checks.yml
+      - name: Preserve verification evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: mk05-relay-${{ github.run_id }}
+          path: ${{ runner.temp }}/mk05-*
+          if-no-files-found: warn
+          retention-days: 14

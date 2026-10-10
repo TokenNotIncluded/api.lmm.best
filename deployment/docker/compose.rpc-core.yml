@@ -1,0 +1,15 @@
+# Combine with compose.core.yml (and optionally compose.identity.yml).
+services:
+  core:
+    environment:
+      LMM_CORE_RPC_SOCKET: /run/lmm-core-rpc/core.sock
+      LMM_CORE_RPC_TOKEN_FILE: /run/secrets/core_rpc_token
+    secrets: [core_rpc_token]
+    volumes:
+      - core-rpc:/run/lmm-core-rpc
+secrets:
+  core_rpc_token:
+    file: ${LMM_CORE_RPC_TOKEN_SECRET_FILE:-./.secrets/core-rpc-token}
+volumes:
+  core-rpc:
+    name: ${LMM_CORE_RPC_VOLUME:-lmm-core-rpc}

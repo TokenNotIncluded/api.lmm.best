@@ -1,0 +1,9 @@
+# All merged modules share the same real fixtures and acceptance checks.
+name: Task 06 protocol and events
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  protocol:
+    uses: ./.github/workflows/core-protocol.yml

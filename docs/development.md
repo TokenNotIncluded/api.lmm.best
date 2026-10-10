@@ -1,100 +1,61 @@
 # Local development
 
-[Documentation index](README.md) · [中文首页](../README.md) · [English overview](../README_EN.md)
+This branch is a fresh-install microkernel WIP. Do not connect it to an existing site database. There is no data-import, schema-upgrade, backfill, balance conversion or dual-write workflow.
 
-Use this guide for a development instance. For an existing production server, use the [deployment guides](README.md).
+## Services
 
-## Requirements
+- `apps/core-rust`: authoritative identity, accounts and permissions. Billing and model forwarding are not complete.
+- `apps/api-go`: the Go extension host. Only read-only identity queries are implemented.
+- `apps/web`: retained frontend source; the full application APIs are not connected yet.
+- `apps/lmm`: the separate CLI, not the core server.
 
-| Tool or service | Requirement |
-| --- | --- |
-| Git and Just | Clone the repository and run the recipes in [`justfile`](../justfile). |
-| Bun | 1.3.14, pinned in [`package.json`](../package.json). |
-| Node.js | 22.12 or newer. |
-| Go | 1.25.1 or newer for the default backend. |
-| PostgreSQL and Valkey | Dedicated development services, separate from production. |
-| Rust | Optional: 1.91.0 for the preview backend. |
+Rust uses the pinned toolchain in `apps/core-rust/rust-toolchain.toml`. The verification workflow pins Go 1.27.2. Web development uses Bun 1.3.14 and Node.js 22.12 or later.
 
-## Set up
+## Start a development stack
 
-```bash
-git clone https://github.com/TokenNotIncluded/api.lmm.best.git
-cd api.lmm.best
-just setup
-cp .env.example apps/api-go/.env
-```
+Use [the Docker instructions](../deployment/docker/README.md) for secrets, an isolated PostgreSQL database and the private RPC socket. The explicit `lmm-core-admin init-db` command installs an empty database once. It refuses an existing installation. Service startup only checks the installed contract.
 
-The Go development process starts from `apps/api-go`. It reads `.env` there, not the copy at the repository root.
+Core and extensions are separate Compose projects. Updating the extensions project must not replace the core or its database. Never use a database reset or delete-volume command as an upgrade path.
 
-Edit the new file before starting the service:
+## Run the Go host locally
 
-| Variable | Set it to |
-| --- | --- |
-| `SQL_DSN` | Your development PostgreSQL connection string. URL-encode reserved characters in credentials. |
-| `REDIS_CONN_STRING` | Your development Valkey connection string. |
-| `SESSION_SECRET` | A new random secret. Keep it stable across restarts. |
-| `CRYPTO_SECRET` | A different random secret. Keep it stable across restarts. |
-| `SERVER_ADDRESS` | An explicit public HTTPS origin before enabling OAuth or external callbacks. |
+Go reads exported environment variables. It does **not** load `.env` automatically.
 
-Generate each secret separately. Do not copy production credentials or commit `.env`. Startup applies schema migrations by default, so use a dedicated development database.
-
-## Start the application
-
-Run the Go backend from the repository root:
-
-```bash
+```sh
+umask 077
+# Fail rather than replace an existing credential.
+(set -C; openssl rand -hex 32 > /tmp/lmm-extension-dev-token)
+export LMM_EXTENSION_LISTEN=127.0.0.1:8081
+export LMM_EXTENSION_TOKEN_FILE=/tmp/lmm-extension-dev-token
+export LMM_EXTENSION_MODULES=none
 just dev-go
 ```
 
-In a second terminal, also from the repository root:
+The `none` configuration starts only the host and its health/inventory endpoints. To enable `identity`, configure both `LMM_CORE_RPC_SOCKET` and `LMM_CORE_RPC_TOKEN_FILE`, and set `LMM_EXTENSION_MODULES=identity`. The core remains responsible for user authorization.
 
-```bash
+Do not inherit `SQL_DSN`, `LOG_SQL_DSN`, `DATABASE_URL`, `LMM_CORE_DATABASE_URL`, `LMM_CORE_DATABASE_URL_FILE` or `LMM_DB_MIGRATION_MODE`. Go rejects these non-empty settings before file or network access. Each future business module must have its own explicitly named storage configuration.
+
+## Verification
+
+```sh
+just check-boundaries
+just check-protocol
+just test-go
+just test-core
+just test-docker
+```
+
+The Rust database tests require a disposable local PostgreSQL service and test-only `DATABASE_URL`. Do not export that variable into the Go server process. The Docker test uses randomly named temporary projects and only removes its own test volumes.
+
+`core-protocol.yml` runs the Rust database tests, Go race tests, generated protocol checks, source boundaries and actual Docker communication tests. Both manual `ci.yml` and `server-release-qualification.yml` call this same workflow. There is no old Go migration or package-release path.
+
+The optional full manual CI also retains the frontend checks and translation regression test. A green implemented-component check does not mean billing, streaming or the missing business extensions are ready for production.
+
+## Frontend
+
+```sh
+just setup
 bun run --filter @lmm/web dev --port 5173 --host 127.0.0.1 --strict-port
 ```
 
-Open <http://localhost:5173> and complete setup. The API listens on `127.0.0.1:3000`. The frontend proxies API requests to `http://localhost:3000`; use `VITE_REACT_APP_SERVER_URL` for another backend address. `just dev-web` defaults to port 3000, so use the explicit command above when both services run on the same host.
-
-## Checks
-
-```bash
-just build
-just test
-```
-
-`just build` builds Web and Go. `just test` runs their tests. Before a production-facing change, also run `just check` for formatting, lint, type checks, tests, and deployment contracts. See [CONTRIBUTING.md](../CONTRIBUTING.md) for the review process. Record skipped checks and their reasons.
-
-For documentation and logo changes:
-
-```bash
-python3 scripts/check-docs-brand.py
-```
-
-That check validates local links in the entry documents, language parity for badges, SVG safety, and shared logo geometry. It does not make network requests or replace application tests.
-
-## Optional recipes and limits
-
-| Recipe | Important limit |
-| --- | --- |
-| `just dev`, `just infra-up`, `just infra-down` | Require a local `docker-compose.dev.yml`. This file is not included. |
-| `just dev-rust` | Also requires that local Compose file and its `rust-preview` profile. |
-| `just build-all`, `just test-all` | Include the Rust preview backend. They do not establish production readiness. |
-| `just docker`, `just docker-rust` | Require local Dockerfiles, which are not included. |
-| `just package` | Requires `LMM_API_BUILD_WORKSPACE`; see the [AUR guide](../packaging/aur/README.md). |
-| `just clean-generated` | Removes generated build output. |
-
-Use `just --list` to inspect the current recipes. Do not describe missing Compose files or Dockerfiles as a ready-to-run deployment method. For Rust rollout limits, see [Rust blue-green](rust-blue-green.md). The independent [LMM CLI](../apps/lmm/README.md) is also a preview.
-
-## Repository map
-
-| Path | Purpose |
-| --- | --- |
-| [`apps/web`](../apps/web) | React and TypeScript console and public pages, built with Rsbuild. |
-| [`apps/api-go`](../apps/api-go) | Default backend and provider CLI. |
-| [`apps/api-rust`](../apps/api-rust) | Preview backend. |
-| [`apps/lmm`](../apps/lmm/README.md) | Preview setup CLI: discovery, planning, and read-only OAuth login. |
-| [`packages`](../packages) | Client integrations. |
-| [`scripts`](../scripts) | Development, checks, and deployment entry points. |
-| [`packaging`](../packaging) | Provider packages and immutable runtime assets. |
-| [`docs`](README.md) | Product, API, and operator documentation. |
-
-Go and Web releases are independent. Publishing a release does not deploy it. Use the [release architecture](release-architecture.md) and the guide for your actual installation before updating a server.
+This starts frontend development, not a complete working application. Do not treat host health checks as availability of the old `/api/*` routes. No local setup wizard or browser login is promised by the current core.
