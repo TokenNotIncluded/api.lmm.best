@@ -408,3 +408,24 @@ func TestRT18CleanupRacesAgainstBoundedLoads(t *testing.T) {
 		}
 	}
 }
+
+func TestRT18AlreadyCancelledRequestDoesNotLoad(t *testing.T) {
+	files := rt18Images(t)
+	c := rt18ContextFor(101)
+	ctx, cancel := context.WithCancel(c.Request.Context())
+	c.Request = c.Request.WithContext(ctx)
+	cancel()
+	source := types.NewBase64FileSource(files[0].encoded, "image/jpeg")
+	data, err := service.LoadFileSource(c, source)
+	if err == nil || data != nil || source.HasCache() {
+		t.Fatalf("cancelled request loaded media: %p %v", data, err)
+	}
+	registered, ok := c.Get(string(constant.ContextKeyFileSourcesToCleanup))
+	if ok && registered != nil {
+		if sources, ok := registered.([]types.FileSource); ok && len(sources) != 0 {
+			t.Fatalf("cancelled request kept %d file sources", len(sources))
+		}
+	}
+	service.CleanupFileSources(c)
+	service.CleanupFileSources(c)
+}
