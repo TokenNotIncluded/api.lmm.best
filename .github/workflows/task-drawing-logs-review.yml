@@ -48,8 +48,19 @@ jobs:
         working-directory: apps/web
         run: bun run typecheck
       - name: Run log regression tests
+        if: ${{ !cancelled() }}
         working-directory: apps/web
-        run: bun test src/features/usage-logs
+        shell: bash
+        run: |
+          failed=0
+          while IFS= read -r test_file; do
+            bun test --preload ./scripts/test-preload.mjs --timeout 15000 "$test_file" || failed=1
+          done < <(find src/features/usage-logs -type f \( -name '*.test.ts' -o -name '*.test.tsx' \) | sort)
+          exit "$failed"
+      - name: Build the frontend without deployment
+        if: ${{ !cancelled() }}
+        working-directory: apps/web
+        run: bun run build
 
   go:
     runs-on: ubuntu-latest
@@ -70,8 +81,5 @@ jobs:
           GOMAXPROCS: "2"
         shell: bash
         run: |
-          if test -f model/midjourney_log_filters_test.go; then
-            go test -p 2 ./model -run '^TestMidjourneyLogFilters$' -count=1
-          else
-            echo 'Review source captured; filter regression patch not present in this revision.'
-          fi
+          test -f model/midjourney_log_filters_test.go
+          go test -p 2 ./model -run '^TestMidjourneyLogFilters$' -count=1 -v
