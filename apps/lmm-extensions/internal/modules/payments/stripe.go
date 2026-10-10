@@ -1,6 +1,7 @@
 package payments
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -83,6 +84,7 @@ type stripeObject struct {
 	ID            string            `json:"id"`
 	Object        string            `json:"object"`
 	Status        string            `json:"status"`
+	Mode          string            `json:"mode"`
 	Amount        int64             `json:"amount"`
 	Received      int64             `json:"amount_received"`
 	Total         int64             `json:"amount_total"`
@@ -116,6 +118,25 @@ func refID(raw json.RawMessage) string {
 	}
 	return ""
 }
+
+// Creation and recovery must agree on the immutable wallet checkout fields.
+// A subscription/setup session is not evidence for a one-time wallet top-up.
+func (s *Stripe) checkoutMatches(v stripeObject, o Order) bool {
+	if !validID(v.ID) || !strings.HasPrefix(v.ID, "cs_") || v.Object != "checkout.session" || v.Mode != "payment" ||
+		v.Reference != o.ID || v.Metadata["lmm_order_id"] != o.ID || v.Total != o.Intent.AmountMinor ||
+		strings.ToUpper(v.Currency) != o.Intent.Currency || v.Livemode == nil ||
+		*v.Livemode != (s.cfg.Channel.Environment == "live") {
+		return false
+	}
+	// Checkout can legitimately have no PaymentIntent before payment begins.
+	// A present but malformed reference is not the same as a pending payment.
+	if len(v.PaymentIntent) == 0 || bytes.Equal(bytes.TrimSpace(v.PaymentIntent), []byte("null")) {
+		return true
+	}
+	id := refID(v.PaymentIntent)
+	return validID(id) && strings.HasPrefix(id, "pi_")
+}
+
 func (s *Stripe) Checkout(ctx context.Context, o Order, key string) (Checkout, error) {
 	if err := s.merchant(ctx); err != nil {
 		return Checkout{}, err
@@ -130,7 +151,7 @@ func (s *Stripe) Checkout(ctx context.Context, o Order, key string) (Checkout, e
 		return Checkout{}, err
 	}
 	var v stripeObject
-	if jsonObject(b, &v) != nil || v.Object != "checkout.session" || v.Reference != o.ID || v.Metadata["lmm_order_id"] != o.ID || v.Total != o.Intent.AmountMinor || strings.ToUpper(v.Currency) != o.Intent.Currency || v.Livemode == nil || *v.Livemode != (s.cfg.Channel.Environment == "live") {
+	if jsonObject(b, &v) != nil || !s.checkoutMatches(v, o) {
 		return Checkout{}, ErrConflict
 	}
 	u, err := secureURL(v.URL)
@@ -168,15 +189,19 @@ func (s *Stripe) Verify(r *http.Request, now time.Time) (Event, error) {
 	if err != nil || eventDigest(remote) != eventDigest(e) || remote.Evidence.EventID != e.Evidence.EventID {
 		return Event{}, ErrConflict
 	}
-	if e.OrderID == "" {
+	// Refund metadata cannot replace the original payment's order binding.
+	// Check it even when the refund already contains an order reference.
+	if e.RefundID != "" || e.OrderID == "" {
 		v, _, err := s.payment(r.Context(), e.Evidence.Transaction)
 		if err != nil {
 			return Event{}, err
 		}
-		if e.Currency != strings.ToUpper(v.Currency) || e.AmountMinor > v.Amount {
+		orderID := v.Metadata["lmm_order_id"]
+		if !validID(orderID) || e.OrderID != "" && e.OrderID != orderID ||
+			e.Currency != strings.ToUpper(v.Currency) || e.AmountMinor > v.Amount {
 			return Event{}, ErrConflict
 		}
-		e.OrderID = v.Metadata["lmm_order_id"]
+		e.OrderID = orderID
 	}
 	if e.OrderID == "" {
 		return Event{}, ErrConflict
@@ -304,6 +329,17 @@ func (s *Stripe) payment(ctx context.Context, id string) (stripeObject, []byte, 
 	}
 	return v, b, nil
 }
+func (s *Stripe) paymentForOrder(ctx context.Context, id string, o Order) (stripeObject, []byte, error) {
+	v, raw, err := s.payment(ctx, id)
+	if err != nil {
+		return stripeObject{}, nil, err
+	}
+	if v.Metadata["lmm_order_id"] != o.ID || v.Amount != o.Intent.AmountMinor || strings.ToUpper(v.Currency) != o.Intent.Currency {
+		return stripeObject{}, nil, ErrConflict
+	}
+	return v, raw, nil
+}
+
 func (s *Stripe) Lookup(ctx context.Context, o Order) ([]Event, error) {
 	if err := s.merchant(ctx); err != nil {
 		return nil, err
@@ -318,7 +354,7 @@ func (s *Stripe) Lookup(ctx context.Context, o Order) ([]Event, error) {
 			return nil, err
 		}
 		var v stripeObject
-		if jsonObject(b, &v) != nil || v.Reference != o.ID || v.Total != o.Intent.AmountMinor || strings.ToUpper(v.Currency) != o.Intent.Currency {
+		if jsonObject(b, &v) != nil || v.ID != o.Checkout.ID || !s.checkoutMatches(v, o) {
 			return nil, ErrConflict
 		}
 		paymentID = refID(v.PaymentIntent)
@@ -326,12 +362,9 @@ func (s *Stripe) Lookup(ctx context.Context, o Order) ([]Event, error) {
 			return nil, nil
 		}
 	}
-	v, raw, err := s.payment(ctx, paymentID)
+	v, raw, err := s.paymentForOrder(ctx, paymentID, o)
 	if err != nil {
 		return nil, err
-	}
-	if v.Metadata["lmm_order_id"] != o.ID || v.Amount != o.Intent.AmountMinor || strings.ToUpper(v.Currency) != o.Intent.Currency {
-		return nil, ErrConflict
 	}
 	var events []Event
 	if v.Status == "succeeded" {
@@ -388,11 +421,20 @@ func apiEvidence(e *Event, id, state string) {
 	e.Evidence.Signature = nil
 }
 func (s *Stripe) Refund(ctx context.Context, o Order, r Refund, key string) (RefundResult, error) {
-	if r.HoldReceipt == "" || !validAmount(r.AmountMinor) || o.PaymentID == "" {
+	if r.HoldReceipt == "" || !validAmount(r.AmountMinor) || r.AmountMinor > o.Intent.AmountMinor || o.PaymentID == "" {
 		return RefundResult{}, ErrInvalid
 	}
 	if err := s.merchant(ctx); err != nil {
 		return RefundResult{}, err
+	}
+	// Verify the saved transaction before the provider mutation. A timeout or
+	// conflicting binding leaves the Rust hold intact for reconciliation.
+	payment, _, err := s.paymentForOrder(ctx, o.PaymentID, o)
+	if err != nil {
+		return RefundResult{}, err
+	}
+	if payment.Status != "succeeded" || payment.Received != payment.Amount {
+		return RefundResult{}, ErrConflict
 	}
 	f := url.Values{"payment_intent": {o.PaymentID}, "amount": {strconv.FormatInt(r.AmountMinor, 10)}, "metadata[lmm_order_id]": {o.ID}, "metadata[lmm_refund_id]": {r.ID}}
 	b, err := s.api(ctx, "POST", "refunds", key, f)
@@ -400,7 +442,7 @@ func (s *Stripe) Refund(ctx context.Context, o Order, r Refund, key string) (Ref
 		return RefundResult{}, err
 	}
 	var v stripeObject
-	if jsonObject(b, &v) != nil || v.Object != "refund" || refID(v.PaymentIntent) != o.PaymentID || v.Amount != r.AmountMinor || strings.ToUpper(v.Currency) != o.Intent.Currency || v.Metadata["lmm_order_id"] != o.ID || v.Metadata["lmm_refund_id"] != r.ID {
+	if jsonObject(b, &v) != nil || !validID(v.ID) || !strings.HasPrefix(v.ID, "re_") || v.Object != "refund" || refID(v.PaymentIntent) != o.PaymentID || v.Amount != r.AmountMinor || strings.ToUpper(v.Currency) != o.Intent.Currency || v.Metadata["lmm_order_id"] != o.ID || v.Metadata["lmm_refund_id"] != r.ID {
 		return RefundResult{}, ErrConflict
 	}
 	return RefundResult{ID: v.ID, Status: v.Status}, nil

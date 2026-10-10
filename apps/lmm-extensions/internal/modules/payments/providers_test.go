@@ -161,6 +161,9 @@ func TestStripeCheckoutAndRefundUseStableKeysAndIntegerAmounts(t *testing.T) {
 		if req.URL.Path == "/v1/account" {
 			return response(`{"id":"acct_fixture"}`), nil
 		}
+		if req.URL.Path == "/v1/payment_intents/pi_top_1" {
+			return response(paymentObject), nil
+		}
 		writes++
 		if req.Method != "POST" || req.Header.Get("Idempotency-Key") != "stable_request_01" {
 			t.Error("missing idempotency")
@@ -173,7 +176,7 @@ func TestStripeCheckoutAndRefundUseStableKeysAndIntegerAmounts(t *testing.T) {
 			if req.Form.Get("line_items[0][price_data][unit_amount]") != "1000" || req.Form.Get("payment_intent_data[metadata][lmm_order_id]") != "top_1" || req.Form.Get("adaptive_pricing[enabled]") != "false" {
 				t.Error(req.Form)
 			}
-			return response(`{"id":"cs_fixture","object":"checkout.session","client_reference_id":"top_1","metadata":{"lmm_order_id":"top_1"},"amount_total":1000,"currency":"usd","livemode":false,"url":"https://checkout.stripe.com/c/pay/test"}`), nil
+			return response(`{"id":"cs_fixture","object":"checkout.session","mode":"payment","client_reference_id":"top_1","metadata":{"lmm_order_id":"top_1"},"amount_total":1000,"currency":"usd","livemode":false,"url":"https://checkout.stripe.com/c/pay/test"}`), nil
 		case "/v1/refunds":
 			if req.Form.Get("amount") != "300" || req.Form.Get("metadata[lmm_refund_id]") != r.ID {
 				t.Error(req.Form)
