@@ -180,12 +180,12 @@ func schemaMaintenanceNormalDispatchActions() []string {
 }
 
 func schemaMaintenanceAbortDispatchActions() []string {
-	return []string{"prepare-abort", "create-abort-binding", "start-abort-old", "reopen-abort", "finish-abort"}
+	return []string{"prepare-abort", "create-abort-binding", "install-abort-binding", "start-abort-old", "reopen-abort", "finish-abort"}
 }
 
 func schemaMaintenanceDispatchOrigins(plan productionSchemaMaintenancePlan, action string) ([]productionSchemaMaintenanceOriginPlan, error) {
 	switch action {
-	case "close", "stop", "install-recovery-hook", "start-recovery", "reopen", "finish", "prepare-abort", "start-abort-old", "reopen-abort", "finish-abort":
+	case "close", "stop", "install-recovery-hook", "start-recovery", "reopen", "finish", "prepare-abort", "install-abort-binding", "start-abort-old", "reopen-abort", "finish-abort":
 		return plan.Origins, nil
 	case "claim", "worker", "release", "capture-outcome", "create-abort-binding":
 		return plan.Origins[:1], nil

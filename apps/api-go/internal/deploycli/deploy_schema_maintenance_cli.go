@@ -107,6 +107,7 @@ func runProductionSchemaMaintenance(args []string, stdout, stderr io.Writer) int
 		if err != nil {
 			return fail(err)
 		}
+		controller.daemonGeneration = binding
 		raw, err := schemaMaintenanceRPCMarshal(binding)
 		if err != nil {
 			return fail(err)

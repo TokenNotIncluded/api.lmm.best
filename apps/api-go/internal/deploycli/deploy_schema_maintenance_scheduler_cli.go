@@ -53,7 +53,7 @@ func runProductionSchemaMaintenanceControllerAction(action string, args []string
 	defer lock.Close()
 	if action == "observe" {
 		switch *phase {
-		case "capture-closed", "capture-stopped", "capture-recovery", "capture-ready", "capture-startable", "capture-recovery-profile", "status":
+		case "capture-closed", "capture-stopped", "capture-recovery", "capture-ready", "capture-startable", "capture-recovery-profile", "status", "check-abort-prestate", "capture-abort-startable", "capture-abort-ready":
 		default:
 			return ExitUsage
 		}

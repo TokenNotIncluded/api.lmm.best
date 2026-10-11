@@ -12,13 +12,14 @@ import (
 )
 
 func schemaMaintenanceAbortTestPhases() []string {
-	return []string{"prepare-abort", "create-abort-binding", "start-abort-old", "reopen-abort", "finish-abort"}
+	return []string{"prepare-abort", "create-abort-binding", "install-abort-binding", "start-abort-old", "reopen-abort", "finish-abort"}
 }
 
 func TestSchemaMaintenanceRPCAbortActionsHaveFixedBudgets(t *testing.T) {
 	for action, expected := range map[string]time.Duration{
 		"prepare-abort": 20 * time.Minute, "check-abort-prestate": 20 * time.Minute,
 		"capture-abort-startable": 20 * time.Minute, "capture-abort-ready": 20 * time.Minute,
+		"capture-abort-binding": 20 * time.Minute, "install-abort-binding": 20 * time.Minute,
 		"create-abort-binding": 45 * time.Minute, "start-abort-old": 65 * time.Minute,
 		"reopen-abort": 110 * time.Minute, "finish-abort": 65 * time.Minute,
 	} {

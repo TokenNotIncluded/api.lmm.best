@@ -43,7 +43,7 @@ func schemaMaintenanceRPCActionTimeout(action string) (time.Duration, error) {
 	switch action {
 	case "worker":
 		return 15 * time.Minute, nil
-	case "close", "claim", "capture-recovery", "capture-ready", "capture-startable", "status", "capture-outcome", "capture-recovery-profile", "install-recovery-hook", "prepare-abort", "check-abort-prestate", "capture-abort-startable", "capture-abort-ready":
+	case "close", "claim", "capture-recovery", "capture-ready", "capture-startable", "status", "capture-outcome", "capture-recovery-profile", "install-recovery-hook", "prepare-abort", "check-abort-prestate", "capture-abort-startable", "capture-abort-ready", "capture-abort-binding", "install-abort-binding":
 		// One full capsule qualification checks both signed providers, each with
 		// a two-minute signature, 35-second status and five-minute verifier bound.
 		return 20 * time.Minute, nil

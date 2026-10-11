@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/internal/deploymentfence"
@@ -18,6 +19,7 @@ import (
 // three-descriptor host lease. The primary daemon additionally owns the sole PG
 // fence. RPC commands never construct a second host or re-adopt those locks.
 type productionSchemaMaintenanceController struct {
+	actionMu          sync.Mutex
 	runtime           *productionRuntime
 	plan              productionSchemaMaintenancePlan
 	planPath, planSHA string
@@ -27,6 +29,9 @@ type productionSchemaMaintenanceController struct {
 	claimUncertain    bool
 	finishUncertain   bool
 	finished          bool
+	abortFrozen       bool
+	abortFinished     bool
+	daemonGeneration  schemaMaintenanceRPCBinding
 }
 
 func (runtime *productionRuntime) newSchemaMaintenanceController(ctx context.Context, planPath, planSHA, projectionPath, projectionSHA string) (*productionSchemaMaintenanceController, error) {
@@ -481,11 +486,19 @@ func schemaMaintenanceRPCResult(value any, err error) (schemaMaintenanceRPCReply
 	return schemaMaintenanceRPCReply{Result: raw}, err
 }
 func (c *productionSchemaMaintenanceController) handle(ctx context.Context, request schemaMaintenanceRPCRequest) (schemaMaintenanceRPCReply, error) {
+	c.actionMu.Lock()
+	defer c.actionMu.Unlock()
 	if request.Binding.PlanSHA256 != c.planSHA || request.Binding.TransitionID != c.plan.TransitionID {
 		return schemaMaintenanceRPCReply{}, errors.New("schema RPC action is bound to another transition")
 	}
 	if err := c.checkPlan(ctx); err != nil {
 		return schemaMaintenanceRPCReply{}, err
+	}
+	if err := c.checkAbortActionAllowed(request.Action); err != nil {
+		return schemaMaintenanceRPCReply{}, err
+	}
+	if schemaMaintenanceAbortAction(request.Action) {
+		return c.handleAbort(ctx, request)
 	}
 	switch request.Action {
 	case "check-schema-owner":
@@ -514,7 +527,7 @@ func (c *productionSchemaMaintenanceController) handle(ctx context.Context, requ
 		if err != nil {
 			return schemaMaintenanceRPCReply{}, err
 		}
-		authority := productionSchemaMaintenanceAuthority{TransitionID: c.plan.TransitionID, PlanSHA256: c.planSHA, Workspace: c.origin.Workspace, Artifacts: artifacts, OldCapsule: old, OldCapsuleSHA256: c.origin.OldCapsule.SHA256, CheckPlan: c.checkPlan, CheckStoppedOrigins: c.checkStoppedOrigins, CheckRecoveryOrigins: c.checkRecoveryOrigins, CheckBackup: c.checkBackup}
+		authority := productionSchemaMaintenanceAuthority{TransitionID: c.plan.TransitionID, PlanSHA256: c.planSHA, Workspace: c.origin.Workspace, Artifacts: artifacts, OldCapsule: old, OldCapsuleSHA256: c.origin.OldCapsule.SHA256, CheckPlan: c.checkNormalPlan, CheckStoppedOrigins: c.checkStoppedOrigins, CheckRecoveryOrigins: c.checkRecoveryOrigins, CheckBackup: c.checkBackup}
 		intent := map[string]string{"format": "lmm-schema-maintenance-claim-intent-v1", "transition_id": c.plan.TransitionID, "plan_sha256": c.planSHA}
 		if err := c.runtime.startupBaselineNewFile(filepath.Join(c.origin.Workspace, "state", "schema-claim-intent.json"), intent); err != nil {
 			return schemaMaintenanceRPCReply{}, errors.New("schema claim was already attempted; reconcile the exact original owner without repeating claim")
@@ -621,6 +634,9 @@ func (c *productionSchemaMaintenanceController) handle(ctx context.Context, requ
 		c.finishUncertain, c.finished = false, true
 		return schemaMaintenanceRPCResult(terminal, nil)
 	case "status":
+		if c.abortFrozen {
+			return c.abortStatus(ctx)
+		}
 		if c.claimUncertain {
 			return schemaMaintenanceRPCResult(map[string]string{"phase": "CLAIM_UNCERTAIN", "host": c.origin.Host, "transition_id": c.plan.TransitionID, "plan_sha256": c.planSHA}, nil)
 		}
