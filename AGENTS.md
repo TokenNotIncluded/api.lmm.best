@@ -30,6 +30,22 @@ Commands use the repository root unless a command explicitly changes directory.
 The frontend is `apps/web`, not a root-level frontend directory. Keep app changes,
 translation changes, and generated output limited to the requested scope.
 
+## Long-term microservice iteration
+
+- Continue this architecture on `wip/rust-core-go-extensions`. Reuse the existing
+  workspace and branch by default; do not create a dated branch or worktree for
+  each fix. This WIP branch is the task branch for ongoing microservice work.
+- Inspect local changes before syncing. Fetch remote updates and preserve local
+  work; never force-push this shared branch. Run relevant checks locally and
+  distinguish pushed changes from uncommitted, unverified work.
+- Review branches and worktrees at the start and end of each iteration. Prune
+  obsolete remote-tracking refs. Remove temporary branches after verifying that
+  their commits are integrated and that no active worktree, open PR, or unfinished
+  work needs them. Clean up a temporary branch when its task is finished.
+- Preserve `main`, this WIP branch, active worktrees, and unmerged or unpushed
+  commits. Do not delete branches in bulk based only on their name or age, or
+  remove another contributor's active work.
+
 ## Safety and verification
 
 Never commit credentials, cookies, private keys, production data, or unredacted
