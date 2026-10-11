@@ -120,12 +120,18 @@ async fn browser(
     bearer: Option<&str>,
     csrf: Option<&str>,
     origin: bool,
-) -> (StatusCode,Value) {
-    let mut h=vec![("content-type".into(),"application/json".into())];
-    if origin {h.push(("origin".into(),ORIGIN.into()));}
-    if let Some(bearer)=bearer {h.push(("authorization".into(),format!("Bearer {bearer}")));}
-    if let Some(csrf)=csrf {h.push(("x-humangrant-csrf".into(),csrf.into()));}
-    call(app,method,path,body.to_string().as_bytes(),&h).await
+) -> (StatusCode, Value) {
+    let mut h = vec![("content-type".into(), "application/json".into())];
+    if origin {
+        h.push(("origin".into(), ORIGIN.into()));
+    }
+    if let Some(bearer) = bearer {
+        h.push(("authorization".into(), format!("Bearer {bearer}")));
+    }
+    if let Some(csrf) = csrf {
+        h.push(("x-humangrant-csrf".into(), csrf.into()));
+    }
+    call(app, method, path, body.to_string().as_bytes(), &h).await
 }
 
 #[sqlx::test(migrations = false)]
