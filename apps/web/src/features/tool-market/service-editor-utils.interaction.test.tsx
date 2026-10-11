@@ -373,6 +373,14 @@ test('a new service shows pricing guidance before discovery and cannot save undi
     await view.input('#market-name', 'Uninspected service')
     await view.input('#market-endpoint', 'https://tools.example.test/mcp')
     assert.equal(view.button('Save draft').disabled, true)
+    assert.match(
+      view.container.querySelector('#market-save-next-step')?.textContent ?? '',
+      /Read tool definitions first/
+    )
+    assert.equal(
+      view.button('Save draft').getAttribute('aria-describedby'),
+      'market-save-next-step'
+    )
     await view.submit()
     assert.deepEqual(requests, [])
     assert.deepEqual(view.saved, [])
@@ -405,9 +413,17 @@ test('each discovered tool can be priced independently and switching back to fre
     }
     await view.select('#billing-mode-search', 'paid')
     assert.equal(view.button('Save draft').disabled, true)
+    assert.match(
+      view.container.querySelector('#market-save-next-step')?.textContent ?? '',
+      /Fix the selected tool prices/
+    )
     await view.input('#price-search', '7')
     await view.select('#billing-mode-new_tool', 'paid')
     await view.input('#price-new_tool', '0.000014')
+    assert.match(
+      view.container.querySelector('#market-save-next-step')?.textContent ?? '',
+      /Save the draft. Next, validate/
+    )
     await view.click('Save draft')
     assert.equal(requests.drafts.length, 1)
     assert.deepEqual(

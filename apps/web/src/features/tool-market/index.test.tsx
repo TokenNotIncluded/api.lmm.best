@@ -343,7 +343,13 @@ test('a service deep link opens only the exact published detail without loading,
   )
   assert.deepEqual(reads, [{ id, mode: 'published' }])
   await click(button('Back to list', container))
-  assert.equal(container.querySelector('h3'), null)
+  assert.equal(
+    [...container.querySelectorAll('h3')].some(
+      (heading) => heading.textContent === item.version.name
+    ),
+    false
+  )
+  assert.ok(container.querySelector('[aria-label="Use a tool in 3 steps"]'))
   assert.equal(reads.length, 1, 'closing detail does not reopen it')
 })
 
@@ -629,6 +635,7 @@ test('a paused remote market keeps builtin tools runnable and invokes only after
   await click(remoteCard)
   await waitFor(() => Boolean(findButton('Run tool', container)))
   assert.equal(button('Run tool', container).disabled, true)
+  assert.ok(container.textContent?.includes('Tool calls are paused.'))
   await click(button('Back to list', container))
   const builtinCard = [...container.querySelectorAll('button')].find(
     (row) => row.querySelector('strong')?.textContent === builtin.version.name
@@ -637,6 +644,11 @@ test('a paused remote market keeps builtin tools runnable and invokes only after
   await click(builtinCard)
   await waitFor(() => Boolean(findButton('Run free tool', container)))
   assert.equal(button('Run free tool', container).disabled, false)
+  assert.ok(
+    container.textContent?.includes(
+      'Click Run free tool, fill in the parameters'
+    )
+  )
   assert.equal(calls.length, 0)
   await click(button('Run free tool', container))
   await waitFor(() => document.body.querySelector('[role="dialog"]') !== null)
@@ -650,6 +662,132 @@ test('a paused remote market keeps builtin tools runnable and invokes only after
   assert.equal(calls[0].grant_id, grant(builtin.tools[0]).id)
   assert.deepEqual(calls[0].arguments, {})
   assert.equal(settingsWrites, 0)
+})
+
+test('browser guidance authorizes and loads together, then points to an explicit run', async () => {
+  stubNavigation([builtin])
+  const installations: Installation[] = []
+  const savedGrants: Grant[] = []
+  marketAPI.mine = (async (kind: string) => {
+    if (kind === 'installations') return installations
+    if (kind === 'grants') return savedGrants
+    return []
+  }) as typeof marketAPI.mine
+  marketAPI.grant = async (input) => {
+    const saved = { ...grant(builtin.tools[0]), ...input }
+    savedGrants.push(saved)
+    return saved
+  }
+  marketAPI.install = async (input, loaded) => {
+    assert.equal(loaded, true)
+    installations.push(input)
+    return null
+  }
+  marketAPI.invoke = async () => assert.fail('Setup must not execute a tool')
+  const { container } = await mount()
+  await waitFor(
+    () => container.textContent?.includes(builtin.version.name) === true
+  )
+  assert.ok(
+    container.querySelector('section[aria-label="Use a tool in 3 steps"]')
+  )
+  const card = [...container.querySelectorAll('button')].find(
+    (row) => row.querySelector('strong')?.textContent === builtin.version.name
+  )
+  assert.ok(card)
+  await click(card)
+  const hintID = `market-setup-${builtin.tools[0].tool_id}`
+  await waitFor(() => Boolean(document.getElementById(hintID)))
+  assert.ok(
+    document
+      .getElementById(hintID)
+      ?.textContent?.includes('loading is included')
+  )
+  assert.equal(button('Run free tool', container).disabled, true)
+  assert.equal(
+    button('Run free tool', container).getAttribute('aria-describedby'),
+    hintID
+  )
+  await click(button('Add and authorize tool', container))
+  await waitFor(() => Boolean(document.body.querySelector('[role="dialog"]')))
+  assert.equal(installations.length, 0)
+  assert.equal(savedGrants.length, 0)
+  const dialog = document.body.querySelector('[role="dialog"]')
+  assert.ok(dialog)
+  await click(button('Add and authorize tool', dialog))
+  await waitFor(() => !button('Run free tool', container).disabled)
+  assert.equal(
+    installations.length,
+    1,
+    'authorization includes loading without a separate Load click'
+  )
+  assert.equal(savedGrants.length, 1)
+  assert.ok(
+    document
+      .getElementById(hintID)
+      ?.textContent?.includes('Click Run free tool')
+  )
+})
+
+test('an access read failure does not invent a missing-authorization instruction', async () => {
+  stubNavigation([builtin])
+  marketAPI.mine = (async (kind: string) => {
+    if (kind === 'grants') throw new Error('Fixture access read failed')
+    return []
+  }) as typeof marketAPI.mine
+  const { container } = await mount()
+  await waitFor(
+    () => container.textContent?.includes(builtin.version.name) === true
+  )
+  const card = [...container.querySelectorAll('button')].find(
+    (row) => row.querySelector('strong')?.textContent === builtin.version.name
+  )
+  assert.ok(card)
+  await click(card)
+  await waitFor(
+    () =>
+      container.textContent?.includes('Could not load tool access.') === true
+  )
+  assert.equal(
+    document.getElementById(`market-setup-${builtin.tools[0].tool_id}`),
+    null
+  )
+  assert.equal(button('Add and authorize tool', container).disabled, true)
+  assert.equal(button('Run free tool', container).disabled, true)
+})
+
+test('an authorized unloaded tool points to Load without granting again or calling', async () => {
+  stubNavigation([builtin])
+  const mine = marketAPI.mine
+  const installations: Installation[] = []
+  marketAPI.mine = (async (kind: string) =>
+    kind === 'installations'
+      ? installations
+      : mine(kind)) as typeof marketAPI.mine
+  marketAPI.install = async (input, loaded) => {
+    assert.equal(loaded, true)
+    installations.push(input)
+    return null
+  }
+  marketAPI.invoke = async () => assert.fail('Loading must not execute a tool')
+  const { container } = await mount()
+  await waitFor(
+    () => container.textContent?.includes(builtin.version.name) === true
+  )
+  const card = [...container.querySelectorAll('button')].find(
+    (row) => row.querySelector('strong')?.textContent === builtin.version.name
+  )
+  assert.ok(card)
+  await click(card)
+  await waitFor(
+    () =>
+      container.textContent?.includes('This version is authorized.') === true
+  )
+  assert.equal(button('Run free tool', container).disabled, true)
+  await click(button('Load', container))
+  await waitFor(() => !button('Run free tool', container).disabled)
+  assert.equal(installations.length, 1)
+  assert.ok(container.textContent?.includes('Click Run free tool'))
 })
 
 test('the root pause CTA opens settings with a recipient default without enabling or saving', async () => {

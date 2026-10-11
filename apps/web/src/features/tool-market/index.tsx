@@ -65,6 +65,7 @@ import { useMarketTranslation as useTranslation } from './provider-i18n'
 import { MarketReports, ReportCallButton } from './reports'
 import { ServiceEditor } from './service-editor'
 import { parseMarketServiceID } from './service-link'
+import { MarketNextStep, MarketUsageGuide } from './setup-guide'
 import { CallDialog, CallResult, GrantDialog } from './tool-actions'
 import {
   usagePriceLabel,
@@ -767,6 +768,21 @@ function ToolMarketWorkspace({
                         </>
                       ) : (
                         <div className='space-y-3'>
+                          {selected.mode === 'draft' && (
+                            <MarketNextStep>
+                              {current.version.status === 'pending'
+                                ? t(
+                                    'Submitted for review. Wait for the review result before editing this version.'
+                                  )
+                                : !current.validated
+                                  ? t(
+                                      'Click Validate connection first. Submission becomes available after it succeeds.'
+                                    )
+                                  : t(
+                                      'Connection checked. Click Submit for review to request publication.'
+                                    )}
+                            </MarketNextStep>
+                          )}
                           <p className='text-sm'>
                             {current.validated
                               ? t(
@@ -794,7 +810,12 @@ function ToolMarketWorkspace({
                                 {t('Edit draft')}
                               </Button>
                               <Button
-                                variant='outline'
+                                variant={
+                                  !current.validated &&
+                                  current.version.status !== 'pending'
+                                    ? 'default'
+                                    : 'outline'
+                                }
                                 disabled={action.isPending}
                                 onClick={() =>
                                   action.mutate(() =>
@@ -965,6 +986,15 @@ function ToolMarketWorkspace({
                           (current.version.execution_type === 'builtin'
                             ? config.data.builtin_enabled !== false
                             : config.data.enabled)
+                        const setupHintID = `market-setup-${tool.tool_id}`
+                        const showSetupHint = accessReady && config.isSuccess
+                        const runLabel =
+                          tool.price_quota === 0 &&
+                          tool.billing_mode !== 'metered' &&
+                          tool.billing_mode !== 'input_tokens' &&
+                          !tool.provider_pricing
+                            ? t('Run free tool')
+                            : t('Run tool')
                         return (
                           <article
                             key={tool.tool_id}
@@ -1025,9 +1055,60 @@ function ToolMarketWorkspace({
                               </pre>
                             </details>
                             {selected.mode === 'published' && (
-                              <div className='flex flex-wrap gap-2'>
+                              <div className='flex flex-wrap gap-2 [&_button]:min-h-11'>
                                 <Button
-                                  variant='outline'
+                                  variant={
+                                    accessReady && !availableGrant
+                                      ? 'default'
+                                      : 'outline'
+                                  }
+                                  aria-describedby={
+                                    showSetupHint ? setupHintID : undefined
+                                  }
+                                  disabled={!accessReady || !client.trim()}
+                                  onClick={() => setGrantTool(tool)}
+                                >
+                                  {grant
+                                    ? t('New authorization')
+                                    : t('Add and authorize tool')}
+                                </Button>
+                                {client === 'web-market' && (
+                                  <Button
+                                    variant={
+                                      loaded && availableGrant && callsEnabled
+                                        ? 'default'
+                                        : 'outline'
+                                    }
+                                    aria-describedby={
+                                      showSetupHint ? setupHintID : undefined
+                                    }
+                                    disabled={
+                                      !accessReady ||
+                                      !loaded ||
+                                      !availableGrant ||
+                                      !callsEnabled
+                                    }
+                                    onClick={() =>
+                                      grant &&
+                                      setCallTool({
+                                        tool,
+                                        grant,
+                                        endpoint: current.version.endpoint,
+                                      })
+                                    }
+                                  >
+                                    {runLabel}
+                                  </Button>
+                                )}
+                                <Button
+                                  variant={
+                                    accessReady && availableGrant && !loaded
+                                      ? 'default'
+                                      : 'outline'
+                                  }
+                                  aria-describedby={
+                                    showSetupHint ? setupHintID : undefined
+                                  }
                                   disabled={
                                     !accessReady ||
                                     action.isPending ||
@@ -1048,49 +1129,6 @@ function ToolMarketWorkspace({
                                 >
                                   {loaded ? t('Unload') : t('Load')}
                                 </Button>
-                                <Button
-                                  variant='outline'
-                                  disabled={!accessReady || !client.trim()}
-                                  onClick={() => setGrantTool(tool)}
-                                >
-                                  {grant
-                                    ? t('New authorization')
-                                    : t('Add and authorize tool')}
-                                </Button>
-                                {client === 'web-market' && (
-                                  <Button
-                                    disabled={
-                                      !accessReady ||
-                                      !loaded ||
-                                      !availableGrant ||
-                                      !callsEnabled
-                                    }
-                                    onClick={() =>
-                                      grant &&
-                                      setCallTool({
-                                        tool,
-                                        grant,
-                                        endpoint: current.version.endpoint,
-                                      })
-                                    }
-                                  >
-                                    {tool.billing_mode === 'metered'
-                                      ? usagePriceLabel(tool, formatQuota, t)
-                                      : tool.billing_mode === 'input_tokens'
-                                        ? t(
-                                            '{{amount}} per million input tokens',
-                                            {
-                                              amount: formatQuota(
-                                                tool.input_token_price_quota ??
-                                                  0
-                                              ),
-                                            }
-                                          )
-                                        : tool.price_quota === 0
-                                          ? t('Run free tool')
-                                          : t('Run tool')}
-                                  </Button>
-                                )}
                                 {grant && (
                                   <Button
                                     variant='ghost'
@@ -1104,23 +1142,34 @@ function ToolMarketWorkspace({
                                     {t('Revoke authorization')}
                                   </Button>
                                 )}
-                                <p className='text-muted-foreground basis-full text-xs'>
-                                  {!loaded
-                                    ? t(
-                                        'Add this tool to the selected client to make it available.'
-                                      )
-                                    : !availableGrant
+                                {showSetupHint && (
+                                  <MarketNextStep id={setupHintID}>
+                                    {!callsEnabled
                                       ? t(
-                                          'Authorize this version with a remaining call and spending allowance.'
+                                          'Tool calls are paused. You can manage access, but cannot run this tool yet.'
                                         )
-                                      : !callsEnabled
-                                        ? t('Remote tool calls are paused.')
-                                        : client !== 'web-market'
+                                      : !availableGrant
+                                        ? grant
                                           ? t(
-                                              'Ready in this client. Refresh its tool list.'
+                                              'This authorization cannot cover another call. Create a new authorization with enough calls and spending allowance.'
                                             )
-                                          : t('Ready to run in this browser.')}
-                                </p>
+                                          : t(
+                                              'Click Add and authorize tool. Review the limits; loading is included.'
+                                            )
+                                        : !loaded
+                                          ? t(
+                                              'This version is authorized. Click Load, then run the tool.'
+                                            )
+                                          : client !== 'web-market'
+                                            ? t(
+                                                'Ready in this client. Refresh its tool list.'
+                                              )
+                                            : t(
+                                                'Click {{action}}, fill in the parameters, then confirm the call.',
+                                                { action: runLabel }
+                                              )}
+                                  </MarketNextStep>
+                                )}
                               </div>
                             )}
                           </article>
@@ -1132,6 +1181,7 @@ function ToolMarketWorkspace({
               ) : (
                 <>
                   <TabsContent value='market' className='space-y-5 pt-4'>
+                    <MarketUsageGuide />
                     <MarketMetaToolCard
                       config={config.data}
                       onConnect={() => chooseTab('connections')}
