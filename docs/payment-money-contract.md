@@ -6,7 +6,7 @@ selection, balances and ledger receipts. Go owns provider orders, evidence and
 module-local business state; it never chooses credit amounts or accesses the core
 database. The assembled Go host registers only `identity`; the core still keeps
 public billing/model readiness unavailable. See [architecture](core-migration.md)
-and the [payment module](../apps/lmm-extensions/internal/modules/payments/README.md).
+and the [payment module](../services/extensions/internal/modules/payments/README.md).
 
 ## Units and compatibility
 

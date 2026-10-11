@@ -1,6 +1,6 @@
 # Assistant extension (task 09)
 
-This is an independent backend module for the fresh-install microkernel. The canonical directory is `apps/lmm-extensions`, renamed from `apps/api-go` on the base branch. No old database data or runtime is imported.
+This is an independent backend module for the fresh-install microkernel. The canonical service directory is `services/extensions`. No old database data or runtime is imported.
 
 ## Status and assembly boundary
 
@@ -47,7 +47,7 @@ Bodies are limited to 16 KiB. Unknown/duplicate fields, duplicate query paramete
 
 ## Verification
 
-From `apps/lmm-extensions`:
+From `services/extensions`:
 
 ```sh
 go vet -mod=readonly ./...

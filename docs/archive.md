@@ -1,6 +1,6 @@
 # 历史资料索引
 
-本页集中保存已移除专题的固定 Git 原文，不再为每个旧文件保留占位页。当前安装、架构和测试从[文档目录](README.md)开始；仍有效的前端、资金和商店边界分别合入[前端规范](../apps/web/DESIGN.md)、[资金契约](payment-money-contract.md)及[商店模块](../apps/lmm-extensions/internal/modules/store/README.md)。
+本页集中保存已移除专题的固定 Git 原文，不再为每个旧文件保留占位页。当前安装、架构和测试从[文档目录](README.md)开始；仍有效的前端、资金和商店边界分别合入[前端规范](../apps/web/DESIGN.md)、[资金契约](payment-money-contract.md)及[商店模块](../services/extensions/internal/modules/store/README.md)。
 
 历史命令和接口只适用于对应提交，不是本分支的安装、迁移或生产恢复步骤。旧部署工具、数据库转换、writer gate 和财务恢复流程不得据此重新启用；历史付款、退款和提货义务仍须保存原始证据，未知结果不能当作失败重放。
 

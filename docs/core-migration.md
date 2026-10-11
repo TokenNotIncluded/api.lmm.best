@@ -12,6 +12,25 @@
 
 以上是三个独立可执行程序。`apps/web` 另行构建静态页面，由 Web 服务器提供；核心库的初始化和开发用户创建分别使用 `lmm-core init-db`、`lmm-core bootstrap-user`，不另设管理程序。
 
+源码按服务与用户应用划分，目录名不改变程序、接口或分发包名称：
+
+```text
+services/
+  core/          # Rust 核心，程序名 lmm-core
+  extensions/    # Go 扩展宿主，程序名 lmm-extensions
+apps/
+  cli/           # 独立 lmm 仓库的 Git 子模块，程序名 lmm
+  web/           # React 静态前端
+contracts/       # 跨服务协议
+config/          # 配置模板
+deployment/      # Docker 与部署定义
+packaging/       # 发布包定义
+scripts/         # 开发与验证脚本
+docs/            # 文档
+```
+
+核心保持一个 Cargo 项目；Go 业务模块仍在 `services/extensions/internal/modules/`，只有需要独立部署时才拆为服务。目录迁移本身不改变内存占用或核心的独立启动要求。
+
 核心可独立运行，不需要 Go 扩展进程、Go 镜像或 Go 数据库。低内存单核部署见 [核心独立部署](core-standalone.md)。实际使用身份与账户功能仍需 PostgreSQL；未启用正式收费链路时，模型接口维持 503，不能以降低资源开销为由放行免费请求。
 
 核心与扩展独立构建、打包和更新。模块内存与并发限制不能代替进程隔离；不可信代码仍须放进独立进程。单主机故障也不在容器隔离能够保证的范围内。

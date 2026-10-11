@@ -6,7 +6,7 @@ on:
     branches: [wip/rust-core-go-extensions]
     paths:
       - .github/workflows/core-protocol.yml
-      - apps/lmm-core/**
+      - services/core/**
       - deployment/docker/**
       - scripts/test-core-boundaries.py
       - .dockerignore
@@ -20,8 +20,8 @@ on:
       - scripts/local-release-tests.py
       - scripts/test-local-release-tests.py
       - .env.example
-      - apps/lmm-core/**
-      - apps/lmm-extensions/**
+      - services/core/**
+      - services/extensions/**
       - contracts/**
       - deployment/docker/**
       - scripts/generate-core-protocol.sh
@@ -72,12 +72,12 @@ jobs:
         with:
           persist-credentials: false
       - name: Initialize the pinned CLI only for archive contract checks
-        run: git submodule update --init --depth 1 -- apps/lmm
+        run: git submodule update --init --depth 1 -- apps/cli
       - name: Record exact integration source
         run: |
           git rev-parse HEAD > "$RUNNER_TEMP/core-source-sha.txt"
           git archive --format=tar.gz --output="$RUNNER_TEMP/core-source.tar.gz" HEAD \
-            apps/lmm-core apps/lmm-extensions contracts deployment/docker scripts \
+            services/core services/extensions contracts deployment/docker scripts \
             .github/workflows config/legal packaging docs/core-migration.md
           sha256sum "$RUNNER_TEMP/core-source.tar.gz" > "$RUNNER_TEMP/core-source.sha256"
       - name: Preserve source before checks
@@ -93,7 +93,7 @@ jobs:
       - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
         with:
           go-version: '1.27.2'
-          cache-dependency-path: apps/lmm-extensions/go.sum
+          cache-dependency-path: services/extensions/go.sum
       - name: Install pinned Rust and protobuf compiler
         run: |
           rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
@@ -114,7 +114,7 @@ jobs:
       - name: Check generated Go bindings
         run: bash scripts/generate-core-protocol.sh --check
       - name: Build actual Go host for Rust stream isolation
-        working-directory: apps/lmm-extensions
+        working-directory: services/extensions
         run: |
           CGO_ENABLED=0 go build -mod=readonly -trimpath -o "$RUNNER_TEMP/lmm-extensions" ./cmd/extensions
           echo "LMM_RELAY_EXTENSION_BIN=$RUNNER_TEMP/lmm-extensions" >> "$GITHUB_ENV"
@@ -130,17 +130,17 @@ jobs:
             config --format json > "$RUNNER_TEMP/core-standalone.json"
           python3 -B -c 'import json,sys; o=json.load(open(sys.argv[1])); assert set(o["services"]) == {"core"}; c=o["services"]["core"]; assert c["environment"]["LMM_CORE_WORKER_THREADS"] == "1"; assert c["environment"]["LMM_CORE_DB_CONNECTIONS"] == "2"; assert c["environment"]["LMM_CORE_MAX_INFLIGHT"] == "16"' "$RUNNER_TEMP/core-standalone.json"
       - name: Rust formatting
-        working-directory: apps/lmm-core
+        working-directory: services/core
         run: cargo fmt --all --check 2>&1 | tee "$RUNNER_TEMP/core-format.log"
       - name: Rust checks and real database tests
         if: ${{ !cancelled() }}
-        working-directory: apps/lmm-core
+        working-directory: services/core
         run: |
           cargo clippy --locked --all-targets -- -D warnings
           cargo test --locked --all-targets --no-fail-fast 2>&1 | tee "$RUNNER_TEMP/core-tests.log"
       - name: Go contract and race tests
         if: ${{ !cancelled() }}
-        working-directory: apps/lmm-extensions
+        working-directory: services/extensions
         run: |
           bash ../../scripts/check-go-format.sh .
           go mod verify
@@ -154,14 +154,14 @@ jobs:
         run: |
           psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c 'CREATE DATABASE lmm_store_test'
           trap 'psql "$DATABASE_URL" -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS lmm_store_test"' EXIT
-          cd apps/lmm-extensions/internal/modules/store/pgtest
+          cd services/extensions/internal/modules/store/pgtest
           go mod verify
           go vet -mod=readonly ./...
           go test -mod=readonly -race -count=1 -json ./... | tee "$RUNNER_TEMP/store-postgres.jsonl"
       - name: Durable cross-language event process recovery
         if: ${{ !cancelled() }}
         run: |
-          (cd apps/lmm-core && cargo build --locked --example protocol-events-fixture)
+          (cd services/core && cargo build --locked --example protocol-events-fixture)
           (cd contracts/proto/tests/go && go vet -mod=readonly ./... && go build -mod=readonly -o "$RUNNER_TEMP/mk06-go-fixture" .)
           MK06_GO_FIXTURE="$RUNNER_TEMP/mk06-go-fixture" python3 contracts/proto/tests/process_recovery.py 2>&1 | tee "$RUNNER_TEMP/events-process.log"
       - name: Native protobuf round trips and failure recovery

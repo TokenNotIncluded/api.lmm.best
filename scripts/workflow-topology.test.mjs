@@ -50,7 +50,7 @@ test('CLI consumers initialize only the pinned CLI submodule', () => {
     const commands = [...source.matchAll(/git submodule update[^\n]*/g)].map((match) => match[0]);
     assert.equal(commands.length, name === 'microservice-distribution' ? 2 : 1, name);
     for (const command of commands) {
-      assert.equal(command, 'git submodule update --init --depth 1 -- apps/lmm', name);
+      assert.equal(command, 'git submodule update --init --depth 1 -- apps/cli', name);
     }
     assert.doesNotMatch(source, /submodules:\s*(?:true|recursive)/);
   }
@@ -103,7 +103,7 @@ test('only the isolated microkernel checks may run automatically', () => {
       // Payment tests use disposable PostgreSQL, never a channel credential.
       assert.deepEqual(events, ['pull_request', 'push']);
       assert.match(block[1], /branches: \['wip\/mk-10-payments'\]/);
-      assert.match(block[1], /apps\/lmm-extensions\/internal\/modules\/payments\/\*\*/);
+      assert.match(block[1], /services\/extensions\/internal\/modules\/payments\/\*\*/);
       assert.match(source, /permissions:\n  contents: read/);
       assert.match(source, /services:\n      postgres:/);
       assert.doesNotMatch(source, /secrets\.|contents: write|pull_request_target|environment: production/);
@@ -112,7 +112,7 @@ test('only the isolated microkernel checks may run automatically', () => {
       assert.deepEqual(events, ['push', 'pull_request', 'workflow_dispatch']);
       assert.match(block[1], /branches: \[wip\/mk-09-assistant-promotions\]/);
       assert.match(block[1], /pull_request:\n    branches: \[wip\/rust-core-go-extensions\]/);
-      assert.match(block[1], /apps\/lmm-extensions\/internal\/modules\/assistant\/\*\*/);
+      assert.match(block[1], /services\/extensions\/internal\/modules\/assistant\/\*\*/);
       assert.match(source, /permissions:\n  contents: read/);
       assert.doesNotMatch(source, /secrets\.|contents: write|pull_request_target|environment: production/);
     } else if (file === 'mk-01-identity.yml') {
@@ -138,13 +138,13 @@ test('manual checks reuse the exact core and extension verification pipeline', (
   for (const command of ['cargo clippy --locked --all-targets -- -D warnings', 'cargo test --locked --all-targets',
     'go mod verify', 'go vet ./...', 'go test -race', 'scripts/test-core-rpc-docker.py', 'scripts/test-core-boundaries.py',
     'scripts/test-local-release-tests.py', 'scripts/generate-core-protocol.sh --check',
-    'apps/lmm-extensions/internal/modules/store/pgtest', 'go test -mod=readonly -race',
+    'services/extensions/internal/modules/store/pgtest', 'go test -mod=readonly -race',
     'contracts/proto/tests/process_recovery.py', 'LMM_RELAY_EXTENSION_BIN']) {
     assert.ok(source.includes(command), command);
   }
   assert.match(source, /services:\n      postgres:/);
   assert.match(source, /DATABASE_URL: postgres:\/\/postgres:postgres@127\.0\.0\.1:5432\/postgres/);
-  assert.match(source, /working-directory: apps\/lmm-extensions/);
+  assert.match(source, /working-directory: services\/extensions/);
   assert.doesNotMatch(source, /continue-on-error:|apps\/extensions-go/);
 });
 

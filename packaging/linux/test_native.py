@@ -69,8 +69,8 @@ class NativePackageTests(fixtures.PackageTests):
                 if fmt == "deb":
                     target = self.work / "cli-unpacked"
                     subprocess.run(["dpkg-deb", "--extract", str(package), str(target)], check=True)
-                    for name in ("apps/lmm/NOTICE", "apps/lmm/third_party/magpie/LICENSE",
-                                 "apps/lmm/third_party/magpie/NOTICE.md"):
+                    for name in ("apps/cli/NOTICE", "apps/cli/third_party/magpie/LICENSE",
+                                 "apps/cli/third_party/magpie/NOTICE.md"):
                         self.assertEqual((target / "usr/share/lmm" / name).read_bytes(),
                                          (self.root / name).read_bytes())
 

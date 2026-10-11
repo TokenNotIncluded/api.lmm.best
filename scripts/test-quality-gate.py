@@ -305,7 +305,7 @@ class GateTests(unittest.TestCase):
         script = self.write('scripts/generate-core-protocol.sh',
                             SOURCE.with_name('generate-core-protocol.sh').read_text())
         self.write('contracts/proto/lmm/core/v1/control.proto', 'syntax = "proto3";\n')
-        generated = 'apps/lmm-extensions/internal/corepb/'
+        generated = 'services/extensions/internal/corepb/'
         self.write(generated + 'control.pb.go', 'package corepb\n')
         tools = self.root / 'fixture-tools'
         tools.mkdir()

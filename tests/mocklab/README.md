@@ -12,12 +12,12 @@ worker. The Python process starts only when requested.
 
 | Area | Existing code reused or inspected | This increment |
 |---|---|---|
-| Payment | `apps/lmm-extensions/internal/modules/payments/{types,stripe,epay}.go`: `Adapter`, `NewStripe`, `NewEPay`, exact-body verification, merchant/event lookup | New `_test.go` files inject a local-only HTTP transport into the existing private client. Real adapters construct/parse requests; they are not replaced with a success stub. Full `Service.WebhookHandler` + database + Rust settlement remains blocked. |
-| Model | `apps/lmm-core/src/relay/`: real decoder/encoder, `RouteProvider`, `Billing::reserve/finalize`; upstream Chat/Responses/Anthropic/Gemini | Four separate wire fixtures. Their component tests run. No new Rust parser/relay integration test is supplied in this increment. Existing `relay_http` remains required. |
+| Payment | `services/extensions/internal/modules/payments/{types,stripe,epay}.go`: `Adapter`, `NewStripe`, `NewEPay`, exact-body verification, merchant/event lookup | New `_test.go` files inject a local-only HTTP transport into the existing private client. Real adapters construct/parse requests; they are not replaced with a success stub. Full `Service.WebhookHandler` + database + Rust settlement remains blocked. |
+| Model | `services/core/src/relay/`: real decoder/encoder, `RouteProvider`, `Billing::reserve/finalize`; upstream Chat/Responses/Anthropic/Gemini | Four separate wire fixtures. Their component tests run. No new Rust parser/relay integration test is supplied in this increment. Existing `relay_http` remains required. |
 | Channel | Core routing plus the relay's immutable complete upstream URL/model/credential | Independent upstream instances can fail, recover and record attempts. No fake router or fallback loop is inserted. Actual channel registration/selection, breaker recovery, priority/group/weight and billing assertions still need a real application driver. |
-| Tool market | `apps/lmm-extensions/internal/modules/toolmarket/{mcp,network}.go`: actual MCP client and schema discovery | New `_test.go` tests actual wire client against the lab. They do not pretend to register/publish a paid tool or verify a wallet. |
+| Tool market | `services/extensions/internal/modules/toolmarket/{mcp,network}.go`: actual MCP client and schema discovery | New `_test.go` tests actual wire client against the lab. They do not pretend to register/publish a paid tool or verify a wallet. |
 
-The reviewed `apps/lmm-core/src/http.rs` deliberately returns
+The reviewed `services/core/src/http.rs` deliberately returns
 `503 core_migration_incomplete` for readiness/model operations. The payment
 README documents its missing registered Rust money service. The tool-market
 README documents missing real `Authority` / `Funds` integration and disabled

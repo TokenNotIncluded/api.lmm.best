@@ -116,8 +116,8 @@ class LocalReleaseTests(unittest.TestCase):
 
 
     def add_microkernel_fixture(self):
-        for name in ('apps/lmm-extensions/host.go', 'apps/lmm-core/schema/identity.sql',
-                     'apps/lmm/Cargo.toml', 'packaging/distribution.json',
+        for name in ('services/extensions/host.go', 'services/core/schema/identity.sql',
+                     'apps/cli/Cargo.toml', 'packaging/distribution.json',
                      'packaging/linux/packages.json', 'scripts/build-distribution.py',
                      'contracts/proto/lmm/core/v1/control.proto',
                      'deployment/docker/compose.rpc-core.yml',
@@ -137,7 +137,7 @@ class LocalReleaseTests(unittest.TestCase):
     def test_extension_evidence_tracks_the_canonical_go_directory(self):
         self.add_microkernel_fixture()
         self.record_component('extensions')
-        (self.repo / 'apps/lmm-extensions/host.go').write_text('changed host\n')
+        (self.repo / 'services/extensions/host.go').write_text('changed host\n')
         self.commit()
         self.assertEqual(1, self.verify('extensions').returncode)
 
@@ -153,10 +153,10 @@ class LocalReleaseTests(unittest.TestCase):
     def test_extension_only_change_does_not_invalidate_core_evidence(self):
         self.add_microkernel_fixture()
         self.record_component('core')
-        (self.repo / 'apps/lmm-extensions/host.go').write_text('independent extension change\n')
+        (self.repo / 'services/extensions/host.go').write_text('independent extension change\n')
         self.commit()
         self.assertEqual(0, self.verify('core').returncode)
-        (self.repo / 'apps/lmm-core/schema/identity.sql').write_text('changed core schema\n')
+        (self.repo / 'services/core/schema/identity.sql').write_text('changed core schema\n')
         self.commit()
         self.assertEqual(1, self.verify('core').returncode)
 
@@ -196,11 +196,11 @@ class LocalReleaseTests(unittest.TestCase):
         subprocess.run(['git', '-C', str(origin), 'add', '.'], check=True, capture_output=True)
         subprocess.run(['git', '-C', str(origin), '-c', 'commit.gpgsign=false',
                         'commit', '-qm', 'Initial CLI fixture'], check=True, capture_output=True)
-        self.git('-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', str(origin), 'apps/lmm')
+        self.git('-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', str(origin), 'apps/cli')
         self.commit()
         self.record_component('cli')
         self.assertEqual(0, self.verify('cli').returncode)
-        child = self.repo / 'apps/lmm'
+        child = self.repo / 'apps/cli'
         (child / 'Cargo.toml').write_text('Different CLI source fixture\n')
         subprocess.run(['git', '-C', str(child), 'add', '.'], check=True, capture_output=True)
         subprocess.run(['git', '-C', str(child), '-c', 'user.name=CLI fixture',
@@ -212,7 +212,7 @@ class LocalReleaseTests(unittest.TestCase):
     def test_cli_submodule_url_change_invalidates_local_evidence(self):
         self.add_microkernel_fixture()
         path = self.repo / '.gitmodules'
-        path.write_text('[submodule "apps/lmm"]\n\tpath = apps/lmm\n'
+        path.write_text('[submodule "apps/cli"]\n\tpath = apps/cli\n'
                         '\turl = https://example.invalid/lmm.git\n')
         self.commit()
         self.record_component('cli')

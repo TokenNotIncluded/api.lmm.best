@@ -2,16 +2,16 @@ name: mk10-payment-safety
 on:
   pull_request:
     paths:
-      - 'apps/lmm-extensions/internal/modules/payments/**'
-      - 'apps/lmm-extensions/internal/coreclient/payments.go'
-      - 'apps/lmm-extensions/internal/corepb/**'
-      - 'apps/lmm-extensions/go.*'
+      - 'services/extensions/internal/modules/payments/**'
+      - 'services/extensions/internal/coreclient/payments.go'
+      - 'services/extensions/internal/corepb/**'
+      - 'services/extensions/go.*'
       - '.github/workflows/mk10-payments.yml'
   push:
     branches: ['wip/mk-10-payments']
     paths:
-      - 'apps/lmm-extensions/internal/modules/payments/**'
-      - 'apps/lmm-extensions/internal/coreclient/payments.go'
+      - 'services/extensions/internal/modules/payments/**'
+      - 'services/extensions/internal/coreclient/payments.go'
       - '.github/workflows/mk10-payments.yml'
 permissions:
   contents: read
@@ -34,15 +34,15 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version-file: apps/lmm-extensions/go.mod
+          go-version-file: services/extensions/go.mod
           cache: false
       - name: Payment module, controlled RPC and host tests
-        working-directory: apps/lmm-extensions
+        working-directory: services/extensions
         run: |
           go test -race -count=3 ./internal/modules/payments/... ./internal/coreclient ./internal/modules
           go vet ./internal/modules/payments/... ./internal/coreclient
       - name: Dedicated PostgreSQL persistence and concurrent writes
-        working-directory: apps/lmm-extensions/internal/modules/payments/pgtest
+        working-directory: services/extensions/internal/modules/payments/pgtest
         env:
           PAYMENT_TEST_DSN: postgres://payments_test:disposable_test_password@localhost:5432/lmm_payments_test?sslmode=disable
         run: go test -race -count=1 -v ./...

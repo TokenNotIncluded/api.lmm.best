@@ -8,15 +8,15 @@ setup:
     bun install --frozen-lockfile
 
 lmm *args:
-    cargo run --manifest-path apps/lmm/Cargo.toml --locked -- {{args}}
+    cargo run --manifest-path apps/cli/Cargo.toml --locked -- {{args}}
 
 build-lmm:
-    cargo build --manifest-path apps/lmm/Cargo.toml --locked --release
+    cargo build --manifest-path apps/cli/Cargo.toml --locked --release
 
 test-lmm:
-    cargo fmt --manifest-path apps/lmm/Cargo.toml --all --check
-    cargo clippy --manifest-path apps/lmm/Cargo.toml --locked --all-targets --all-features -- -D warnings
-    cargo test --manifest-path apps/lmm/Cargo.toml --locked --all-targets
+    cargo fmt --manifest-path apps/cli/Cargo.toml --all --check
+    cargo clippy --manifest-path apps/cli/Cargo.toml --locked --all-targets --all-features -- -D warnings
+    cargo test --manifest-path apps/cli/Cargo.toml --locked --all-targets
 
 dev-core:
     bun run dev:core
@@ -44,7 +44,7 @@ build-web:
     bun run --filter @lmm/web bundle:check
 
 run-go: build-go
-    exec apps/lmm-extensions/out/lmm-extensions
+    exec services/extensions/out/lmm-extensions
 
 test: test-core test-go test-web
 
@@ -101,7 +101,7 @@ test-docker:
 
 # Remove generated build output only, never database volumes.
 clean-generated:
-    rm -rf .turbo apps/web/.turbo apps/lmm-extensions/out apps/lmm-core/target apps/web/dist
+    rm -rf .turbo apps/web/.turbo services/extensions/out services/core/target apps/web/dist
 
 # Local evidence only. Pass an explicit reviewed --base and a new --output directory.
 quality *args:

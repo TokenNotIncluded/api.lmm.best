@@ -7,10 +7,10 @@
       "kind": "debt",
       "status": "open",
       "paths": [
-        "apps/lmm-core/src/lib.rs",
-        "apps/lmm-core/tests/routing.rs",
-        "apps/lmm-core/tests/charging.rs",
-        "apps/lmm-extensions/internal/modules/store/pgtest/postgres_test.go"
+        "services/core/src/lib.rs",
+        "services/core/tests/routing.rs",
+        "services/core/tests/charging.rs",
+        "services/extensions/internal/modules/store/pgtest/postgres_test.go"
       ],
       "owner": "LIghtJUNction",
       "reviewer": "pending",

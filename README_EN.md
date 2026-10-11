@@ -32,11 +32,11 @@ Initialize a new core database explicitly with `lmm-core init-db`; normal startu
 
 | Program | Source | Responsibility |
 | --- | --- | --- |
-| `lmm` | `apps/lmm` | User client that connects to services and calls their available features |
-| `lmm-core` | `apps/lmm-core` | Identity, permissions, billing, ledger and model routing; `init-db` and `bootstrap-user` are subcommands of this same program |
-| `lmm-extensions` | `apps/lmm-extensions` | Business extensions for the store, tools, assistant, operations and payment adapters |
+| `lmm` | `apps/cli` | User client that connects to services and calls their available features |
+| `lmm-core` | `services/core` | Identity, permissions, billing, ledger and model routing; `init-db` and `bootstrap-user` are subcommands of this same program |
+| `lmm-extensions` | `services/extensions` | Business extensions for the store, tools, assistant, operations and payment adapters |
 
-The Rust `lmm` client is maintained in [TokenNotIncluded/lmm](https://github.com/TokenNotIncluded/lmm) and pinned here as the `apps/lmm` Git submodule. Initialize it with `git submodule update --init --depth 1 -- apps/lmm`; see the [client README](https://github.com/TokenNotIncluded/lmm#readme) for implemented features and Magpie parity progress.
+The Rust `lmm` client is maintained in [TokenNotIncluded/lmm](https://github.com/TokenNotIncluded/lmm) and pinned here as the `apps/cli` Git submodule. Initialize it with `git submodule update --init --depth 1 -- apps/cli`; see the [client README](https://github.com/TokenNotIncluded/lmm#readme) for implemented features and Magpie parity progress.
 
 `apps/web` produces a separate static Web archive served by a Web server. It does not add an executable program. `contracts` holds cross-process contracts, `config/legal` holds editable policy drafts, and `packaging/distribution.json` defines archive contents.
 

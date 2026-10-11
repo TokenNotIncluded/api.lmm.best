@@ -3,7 +3,8 @@
 Parent integration PR: #675. Work branch: `wip/mk-10-payments`.
 Initial base: `e71f6028ac110420a55bda5d0bb0243a80d4e541`.
 Rebased onto `4179ea1acfa1172afbd0d16927acb1c3c3a93a10` after the upstream rename
-from `apps/api-go` to `apps/lmm-extensions`. All current paths use the new layout.
+from `apps/api-go` to `apps/lmm-extensions`. The current service directory is
+`services/extensions`; the earlier rename above describes that historical base.
 
 **Draft integration, not production-enabled.** The base declares `CorePayments`
 but does not register its Rust implementation. This module does not implement a
@@ -175,7 +176,7 @@ the protocol handoff. No Go `verified=true` flag grants ledger authority.
 ## Tests and evidence
 
 ```sh
-cd apps/lmm-extensions
+cd services/extensions
 go test -race -count=3 ./internal/modules/payments/... ./internal/coreclient ./internal/modules
 go vet ./internal/modules/payments/... ./internal/coreclient
 cd internal/modules/payments/pgtest

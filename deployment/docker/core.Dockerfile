@@ -1,13 +1,13 @@
 FROM rust:1.99.0-bookworm AS build
-WORKDIR /src/apps/lmm-core
-COPY apps/lmm-core/Cargo.toml apps/lmm-core/Cargo.lock apps/lmm-core/build.rs ./
+WORKDIR /src/services/core
+COPY services/core/Cargo.toml services/core/Cargo.lock services/core/build.rs ./
 COPY contracts/proto /src/contracts/proto
-COPY apps/lmm-core/src ./src
-COPY apps/lmm-core/schema ./schema
+COPY services/core/src ./src
+COPY services/core/schema ./schema
 RUN cargo build --locked --release --bin lmm-core
 
 FROM scratch AS binaries
-COPY --from=build /src/apps/lmm-core/target/release/lmm-core /lmm-core
+COPY --from=build /src/services/core/target/release/lmm-core /lmm-core
 
 FROM debian:bookworm-slim AS runtime
 RUN apt-get update && apt-get install --no-install-recommends -y ca-certificates curl \
@@ -15,7 +15,7 @@ RUN apt-get update && apt-get install --no-install-recommends -y ca-certificates
     && mkdir -p /run/lmm-core-rpc \
     && chown 65532:65532 /run/lmm-core-rpc \
     && chmod 0700 /run/lmm-core-rpc
-COPY --from=build /src/apps/lmm-core/target/release/lmm-core /usr/local/bin/lmm-core
+COPY --from=build /src/services/core/target/release/lmm-core /usr/local/bin/lmm-core
 COPY LICENSE NOTICE THIRD-PARTY-LICENSES.md /usr/share/licenses/lmm/
 USER 65532:65532
 EXPOSE 8080

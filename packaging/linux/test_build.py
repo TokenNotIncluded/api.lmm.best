@@ -33,7 +33,7 @@ class PackageTests(unittest.TestCase):
         for name in resources:
             dest = cls.root / name
             dest.parent.mkdir(parents=True, exist_ok=True)
-            if name.startswith("apps/lmm/"):
+            if name.startswith("apps/cli/"):
                 shutil.copyfile(PKG.ROOT / name, dest)
             else:
                 dest.write_text("Synthetic packaging test resource. Not a product license or policy.\n")
@@ -107,8 +107,8 @@ class PackageTests(unittest.TestCase):
             with self.subTest(fmt=fmt):
                 config, info = self.prepare(archive, component="cli", fmt=fmt)
                 contents = {entry["dst"]: entry for entry in config["contents"]}
-                for name in ("apps/lmm/NOTICE", "apps/lmm/third_party/magpie/LICENSE",
-                             "apps/lmm/third_party/magpie/NOTICE.md"):
+                for name in ("apps/cli/NOTICE", "apps/cli/third_party/magpie/LICENSE",
+                             "apps/cli/third_party/magpie/NOTICE.md"):
                     destination = "/usr/share/lmm/" + name
                     self.assertEqual(Path(contents[destination]["src"]).read_bytes(),
                                      (PKG.ROOT / name).read_bytes())

@@ -35,7 +35,7 @@ class MicroserviceDocsTests(unittest.TestCase):
                 self.assertNotIn(fixed, text)
 
     def test_templates_are_files_not_compiled_policy_constants(self):
-        code = (ROOT / "apps/lmm-extensions/internal/legal/legal.go").read_text()
+        code = (ROOT / "services/extensions/internal/legal/legal.go").read_text()
         self.assertNotIn("go:embed", code)
         self.assertNotIn("api.lmm.best", code)
         for name in (ROOT / "config/legal/templates").rglob("*.md"):

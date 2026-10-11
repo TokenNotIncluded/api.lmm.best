@@ -8,7 +8,7 @@ container. The standard-library payment package was tested without altering the
 repository go.mod:
 
 ```sh
-cd apps/lmm-extensions/internal/modules/payments
+cd services/extensions/internal/modules/payments
 GODEBUG=httpmuxgo121=0 GO111MODULE=off go test -race -count=10 .
 GODEBUG=httpmuxgo121=0 GO111MODULE=off go test -coverprofile=coverage.out -json .
 GODEBUG=httpmuxgo121=0 GO111MODULE=off go vet .

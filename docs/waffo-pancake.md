@@ -1,6 +1,6 @@
 # Waffo Pancake（测试环境）（旧单体参考）
 
-> 本文保留 main 的支付协议与回归说明。`apps/api-go`、旧数据库迁移与部署命令不适用于当前微服务分支。当前实现以 [架构与状态](core-migration.md)及 [Go 扩展](../apps/lmm-extensions/README.md)为准，不能据此认定付款或退款链路已迁移完成。
+> 本文保留 main 的支付协议与回归说明。`apps/api-go`、旧数据库迁移与部署命令不适用于当前微服务分支。当前实现以 [架构与状态](core-migration.md)及 [Go 扩展](../services/extensions/README.md)为准，不能据此认定付款或退款链路已迁移完成。
 
 当前 Go 后端使用官方 `github.com/waffo-com/waffo-pancake-sdk-go` 完成服务端集成。仓库根目录另外安装官方 `@waffo/pancake-ts`，仅供服务端 smoke runner 使用；不要把它放进 Web bundle：Waffo 的私钥只能留在服务端。
 

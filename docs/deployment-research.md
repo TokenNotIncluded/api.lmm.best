@@ -10,11 +10,11 @@
 
 | 研究 | 保留的结论 | 当前消费者与缺口 |
 | --- | --- | --- |
-| DP-22 核心切流 | 先持有工作标记，再确认接入；确认失败不能进入业务；排空包含可靠保存结算结果。 | [核心生命周期](../apps/lmm-core/src/lifecycle.rs)、[接入确认](../apps/lmm-core/src/lifecycle/ingress.rs)已在源码中；真实模型结算仍需接入工作标记。 |
-| DP-23 扩展更新 | 新实例先完成监听与就绪，旧实例停止接新工作后等待已接任务落库。 | [Go 生命周期](../apps/lmm-extensions/internal/modules/lifecycle.go)与[宿主](../apps/lmm-extensions/internal/app/run.go)已有实现；宿主仍只注册 identity，未完成业务切流验收。 |
-| DP-24 跨机 RPC | 校验专用 CA、服务名称与身份、证书摘要、有效期和策略版本；连接复用也须重新校验策略。 | [传输策略](../apps/lmm-extensions/internal/coreclient/transportpolicy/policy.go)是独立组件，尚未接入真实 Rust–Go 跨机通道；现有 Unix socket 不等于双向 TLS。 |
-| DP-25 数据库预算 | 按物理池计算，池的克隆只计一次；新旧实例重叠、RPC、管理、备份与恢复都占连接。长模型流不能一直持有事务。 | [核心连接配置](../apps/lmm-core/src/config.rs)已有上限；完整业务的全局连接准入、最小权限与恢复压力测试仍待完成。旧报告的连接数量不作为当前配置。 |
-| DP-26 运行资源 | 复用已经验证、解码的 MCP 响应，保留重复字段、请求 ID、协议版本和错误检查。 | [MCP 消费者](../apps/lmm-extensions/internal/modules/toolmarket/mcp.go)保留 `checkedRPCResult`；单组件结果不能推算整站内存或容量。 |
+| DP-22 核心切流 | 先持有工作标记，再确认接入；确认失败不能进入业务；排空包含可靠保存结算结果。 | [核心生命周期](../services/core/src/lifecycle.rs)、[接入确认](../services/core/src/lifecycle/ingress.rs)已在源码中；真实模型结算仍需接入工作标记。 |
+| DP-23 扩展更新 | 新实例先完成监听与就绪，旧实例停止接新工作后等待已接任务落库。 | [Go 生命周期](../services/extensions/internal/modules/lifecycle.go)与[宿主](../services/extensions/internal/app/run.go)已有实现；宿主仍只注册 identity，未完成业务切流验收。 |
+| DP-24 跨机 RPC | 校验专用 CA、服务名称与身份、证书摘要、有效期和策略版本；连接复用也须重新校验策略。 | [传输策略](../services/extensions/internal/coreclient/transportpolicy/policy.go)是独立组件，尚未接入真实 Rust–Go 跨机通道；现有 Unix socket 不等于双向 TLS。 |
+| DP-25 数据库预算 | 按物理池计算，池的克隆只计一次；新旧实例重叠、RPC、管理、备份与恢复都占连接。长模型流不能一直持有事务。 | [核心连接配置](../services/core/src/config.rs)已有上限；完整业务的全局连接准入、最小权限与恢复压力测试仍待完成。旧报告的连接数量不作为当前配置。 |
+| DP-26 运行资源 | 复用已经验证、解码的 MCP 响应，保留重复字段、请求 ID、协议版本和错误检查。 | [MCP 消费者](../services/extensions/internal/modules/toolmarket/mcp.go)保留 `checkedRPCResult`；单组件结果不能推算整站内存或容量。 |
 | DP-27 独立产物 | Go、Rust、Web 与 CLI 独立构建；按真实清单校验来源、架构和内容。镜像压缩不能证明运行内存减少。 | [正式构建器](../scripts/build-distribution.py)与[分发定义](../packaging/distribution.json)是当前入口；研究 Dockerfile、独立探针与差分传输原型不作为正式产物。 |
 | DP-28 磁盘生命周期 | 分挂载点预算字节与文件节点；保留在用、排空、拉取、恢复固定和上一已验证版本。清理与发布共用排他边界。 | 研究清理器未接入正式服务；数据库、WAL、备份、资金去重与审计证据不能按缓存规则回收。 |
 | DP-29 发布控制 | 使用不可变发布清单、执行代号和操作 ID；不确定结果先核对收据与实际状态，再决定下一步。 | Python/SQLite 控制器仍是原型，没有真实 Docker、入口和资金适配；不迁入用户 CLI 冒充正式部署器。 |

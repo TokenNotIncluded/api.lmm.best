@@ -15,11 +15,11 @@ installation or recovery commands.
 
 ## Three programs
 
-- `lmm` is the Rust client in `apps/lmm`.
+- `lmm` is the Rust client in `apps/cli`.
 - `lmm-core` is the Rust authority for identity, permissions, funds, billing and
-  model routing in `apps/lmm-core`. Explicit database initialization and initial
+  model routing in `services/core`. Explicit database initialization and initial
   user creation are subcommands of this same program.
-- `lmm-extensions` is the Go module host in `apps/lmm-extensions`. It does not
+- `lmm-extensions` is the Go module host in `services/extensions`. It does not
   own core balances, model traffic or the core database.
 
 The Web build is static content, not another executable or server process.

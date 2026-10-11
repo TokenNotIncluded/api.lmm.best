@@ -21,9 +21,9 @@ import time
 from urllib.parse import parse_qs, urlsplit
 
 ROOT = Path(__file__).resolve().parents[1]
-CORE = 'apps/lmm-core'
-EXT = 'apps/lmm-extensions'
-CLI = 'apps/lmm'
+CORE = 'services/core'
+EXT = 'services/extensions'
+CLI = 'apps/cli'
 PYTHON = sys.executable
 SOURCE_SUFFIXES = {'.py', '.go', '.rs', '.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'}
 RULES = {

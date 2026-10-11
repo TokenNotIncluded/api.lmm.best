@@ -33,7 +33,7 @@ jobs:
       - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
         with:
           go-version: '1.27.2'
-          cache-dependency-path: apps/lmm-extensions/go.sum
+          cache-dependency-path: services/extensions/go.sum
       - name: Install Rust tools
         run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
       - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830
@@ -41,8 +41,8 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            apps/lmm-core/target
-          key: mk05-rust-${{ runner.os }}-${{ hashFiles('apps/lmm-core/Cargo.lock') }}
+            services/core/target
+          key: mk05-rust-${{ runner.os }}-${{ hashFiles('services/core/Cargo.lock') }}
           restore-keys: mk05-rust-${{ runner.os }}-
           save-always: true
       - name: Record source and tool versions
@@ -55,35 +55,35 @@ jobs:
             go version
           } | tee "$RUNNER_TEMP/mk05-tools.log"
       - name: Build the actual Go extension for lifecycle tests
-        working-directory: apps/lmm-extensions
+        working-directory: services/extensions
         run: go build -mod=readonly -o "$RUNNER_TEMP/lmm-extensions" ./cmd/extensions
       - name: Rust format and strict checks
         shell: bash
         run: |
           set -euo pipefail
-          cargo +1.99.0 fmt --manifest-path apps/lmm-core/Cargo.toml --all --check
-          cargo +1.99.0 clippy --manifest-path apps/lmm-core/Cargo.toml --locked --all-targets -- -D warnings 2>&1 | tee "$RUNNER_TEMP/mk05-clippy.log"
+          cargo +1.99.0 fmt --manifest-path services/core/Cargo.toml --all --check
+          cargo +1.99.0 clippy --manifest-path services/core/Cargo.toml --locked --all-targets -- -D warnings 2>&1 | tee "$RUNNER_TEMP/mk05-clippy.log"
       - name: Rust unit, PostgreSQL and real HTTP lifecycle tests
         if: ${{ !cancelled() }}
         shell: bash
         run: |
           set -euo pipefail
           export LMM_RELAY_EXTENSION_BIN="$RUNNER_TEMP/lmm-extensions"
-          cargo +1.99.0 test --manifest-path apps/lmm-core/Cargo.toml --locked --all-targets -- --nocapture 2>&1 | tee "$RUNNER_TEMP/mk05-tests.log"
+          cargo +1.99.0 test --manifest-path services/core/Cargo.toml --locked --all-targets -- --nocapture 2>&1 | tee "$RUNNER_TEMP/mk05-tests.log"
       - name: Verify service boundaries and clean sources
         if: ${{ !cancelled() }}
         run: |
           set -euo pipefail
           python3 -B scripts/test-core-boundaries.py 2>&1 | tee "$RUNNER_TEMP/mk05-boundaries.log"
-          test ! -e apps/lmm-core/src/relay/.review.py
+          test ! -e services/core/src/relay/.review.py
           git diff --exit-code
       - name: Preserve tested task sources
         if: always()
         run: |
           tar -czf "$RUNNER_TEMP/mk05-source.tgz" \
-            apps/lmm-core/src/relay apps/lmm-core/tests/relay_http.rs \
-            apps/lmm-core/src/lib.rs apps/lmm-core/Cargo.toml \
-            apps/lmm-core/Cargo.lock .github/workflows/mk05-relay-checks.yml
+            services/core/src/relay services/core/tests/relay_http.rs \
+            services/core/src/lib.rs services/core/Cargo.toml \
+            services/core/Cargo.lock .github/workflows/mk05-relay-checks.yml
       - name: Preserve verification evidence
         if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a

@@ -17,12 +17,12 @@ jobs:
     runs-on: ${{ matrix.os }}
     defaults:
       run:
-        working-directory: apps/lmm
+        working-directory: apps/cli
     steps:
       - uses: actions/checkout@v4
       - name: Initialize the pinned CLI only
         working-directory: .
-        run: git submodule update --init --depth 1 -- apps/lmm
+        run: git submodule update --init --depth 1 -- apps/cli
       - name: Install Rust checks
         run: rustup component add rustfmt clippy
       - run: cargo fmt --all --check
@@ -34,5 +34,5 @@ jobs:
           name: lmm-preview-${{ matrix.os }}
           if-no-files-found: error
           path: |
-            apps/lmm/target/release/lmm
-            apps/lmm/target/release/lmm.exe
+            apps/cli/target/release/lmm
+            apps/cli/target/release/lmm.exe

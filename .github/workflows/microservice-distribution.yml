@@ -31,11 +31,11 @@ jobs:
           ref: ${{ inputs.source_ref || github.sha }}
           persist-credentials: false
       - name: Initialize the pinned CLI only
-        run: git submodule update --init --depth 1 -- apps/lmm
+        run: git submodule update --init --depth 1 -- apps/cli
       - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
         with:
           go-version: '1.27.2'
-          cache-dependency-path: apps/lmm-extensions/go.sum
+          cache-dependency-path: services/extensions/go.sum
       - name: Source, documents and archive contracts
         run: |
           python3 -B scripts/check-docs-brand.py
@@ -46,7 +46,7 @@ jobs:
           node --test scripts/workflow-topology.test.mjs
           go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color
       - name: Go policy and host checks
-        working-directory: apps/lmm-extensions
+        working-directory: services/extensions
         run: |
           bash ../../scripts/check-go-format.sh .
           go vet ./internal/legal ./internal/app
@@ -70,7 +70,7 @@ jobs:
           persist-credentials: false
       - name: Initialize the pinned CLI only
         if: matrix.component == 'cli'
-        run: git submodule update --init --depth 1 -- apps/lmm
+        run: git submodule update --init --depth 1 -- apps/cli
       - name: Record actual source identity
         run: |
           echo "SOURCE_REVISION=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
@@ -108,10 +108,10 @@ jobs:
       - name: Build and test CLI
         if: matrix.component == 'cli'
         run: |
-          cargo +1.99.0 test --manifest-path apps/lmm/Cargo.toml --locked --all-targets
-          cargo +1.99.0 build --manifest-path apps/lmm/Cargo.toml --locked --release
+          cargo +1.99.0 test --manifest-path apps/cli/Cargo.toml --locked --all-targets
+          cargo +1.99.0 build --manifest-path apps/cli/Cargo.toml --locked --release
           mkdir -p out/cli
-          cp apps/lmm/target/release/lmm out/cli/
+          cp apps/cli/target/release/lmm out/cli/
       - name: Install Bun
         if: matrix.component == 'web'
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6

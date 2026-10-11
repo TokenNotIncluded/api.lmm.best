@@ -1,6 +1,6 @@
 FROM golang:1.27.2-bookworm AS build
 WORKDIR /src
-COPY apps/lmm-extensions/ ./
+COPY services/extensions/ ./
 RUN CGO_ENABLED=0 go build -mod=readonly -trimpath -ldflags="-s -w" -o /lmm-extensions ./cmd/extensions
 
 FROM scratch AS binaries

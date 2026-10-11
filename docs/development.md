@@ -6,12 +6,12 @@
 
 ## 工具与目录
 
-本分支使用根目录 `mise.toml` 固定 Rust、Go、Bun、Node.js 和 just。Rust 版本与 `apps/lmm-core/rust-toolchain.toml` 保持一致，包含 rustfmt 与 clippy。CI 使用 Go 1.27.2、Bun 1.3.14。CLI 使用 `apps/lmm/Cargo.toml`，不与核心混为一个程序。
+本分支使用根目录 `mise.toml` 固定 Rust、Go、Bun、Node.js 和 just。Rust 版本与 `services/core/rust-toolchain.toml` 保持一致，包含 rustfmt 与 clippy。CI 使用 Go 1.27.2、Bun 1.3.14。CLI 使用 `apps/cli/Cargo.toml`，不与核心混为一个程序。
 
-客户端由独立仓库 [TokenNotIncluded/lmm](https://github.com/TokenNotIncluded/lmm) 维护，通过 `apps/lmm` 子模块固定版本。首次检出先初始化客户端，再安装工具：
+客户端由独立仓库 [TokenNotIncluded/lmm](https://github.com/TokenNotIncluded/lmm) 维护，通过 `apps/cli` 子模块固定版本。首次检出先初始化客户端，再安装工具：
 
 ```sh
-git submodule update --init --depth 1 -- apps/lmm
+git submodule update --init --depth 1 -- apps/cli
 mise install
 mise exec -- just setup
 mise exec -- just --list
@@ -23,7 +23,7 @@ mise exec -- just --list
 `mise exec -- bun --version` 核对实际版本。mise 不读取测试数据库私有文件；
 独立测试 DSN 仍由操作者注入对应子进程，不能放进 `mise.toml`。
 
-CLI 可以单独克隆并在自己的根目录运行 `mise exec -- cargo test --locked`。修改 CLI 时先在子仓库验证、提交并推送，再在本仓库更新 `apps/lmm` 的提交指针；不要只提交子模块中的未推送版本。本地质量检查会拒绝未初始化、版本不符或有未提交源码的 CLI 子模块。
+CLI 可以单独克隆并在自己的根目录运行 `mise exec -- cargo test --locked`。修改 CLI 时先在子仓库验证、提交并推送，再在本仓库更新 `apps/cli` 的提交指针；不要只提交子模块中的未推送版本。本地质量检查会拒绝未初始化、版本不符或有未提交源码的 CLI 子模块。
 
 ## 启动扩展与前端
 
@@ -46,7 +46,7 @@ python3 -B scripts/check-docs-brand.py
 python3 -B scripts/test-distribution.py
 python3 -B scripts/test-core-boundaries.py
 node --test scripts/workflow-topology.test.mjs
-(cd apps/lmm-extensions && go test -mod=readonly -race ./...)
+(cd services/extensions && go test -mod=readonly -race ./...)
 just test-core
 ```
 

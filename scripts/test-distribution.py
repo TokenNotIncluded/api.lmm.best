@@ -71,8 +71,8 @@ class DistributionTests(unittest.TestCase):
     def test_cli_archive_preserves_port_attribution_and_magpie_mit_license(self):
         archive = self.build("cli")
         manifest = DIST.verify(archive, SHA)
-        names = ("apps/lmm/NOTICE", "apps/lmm/third_party/magpie/LICENSE",
-                 "apps/lmm/third_party/magpie/NOTICE.md")
+        names = ("apps/cli/NOTICE", "apps/cli/third_party/magpie/LICENSE",
+                 "apps/cli/third_party/magpie/NOTICE.md")
         with tarfile.open(archive) as tar:
             for name in names:
                 with self.subTest(name=name):

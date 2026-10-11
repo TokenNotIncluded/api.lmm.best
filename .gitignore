@@ -46,8 +46,8 @@ skills-lock.json
 /rust/target/
 
 # Compiled Go server binaries are build artifacts, never sources.
-/apps/lmm-extensions/lmm-extensions
-/apps/lmm-extensions/lmm-extensions-*
+/services/extensions/lmm-extensions
+/services/extensions/lmm-extensions-*
 /.codegraph/
 /SWAP.md
 /PLAN.md
@@ -75,8 +75,8 @@ __pycache__/
 *.rej
 *.bak
 
-/apps/lmm-core/target/
-/apps/lmm-extensions/out/
+/services/core/target/
+/services/extensions/out/
 
 # Operator-reviewed legal configuration belongs outside the source tree.
 /config/legal/site.json

@@ -9,7 +9,7 @@ command -v protoc >/dev/null
 (cd "$tools" && go install google.golang.org/protobuf/cmd/protoc-gen-go@v1.36.11)
 (cd "$tools" && go install google.golang.org/grpc/cmd/protoc-gen-go-grpc@v1.5.1)
 export PATH="$tools:$PATH"
-output="$root/apps/lmm-extensions"
+output="$root/services/extensions"
 if [[ ${1:-} == --check ]]; then output="$tools/generated"; fi
 mkdir -p "$output/internal/corepb"
 protoc -I "$root/contracts/proto" \
@@ -22,13 +22,13 @@ sed -i -E 's@^//[[:space:]]+protoc[[:space:]]+v[0-9.]+$@// protoc: proto3 compil
 gofmt -w "$output/internal/corepb/"*.pb.go
 if [[ ${1:-} == --check ]]; then
   # Compare both directions. A removed proto must not leave stale Go bindings.
-  for file in "$root/apps/lmm-extensions/internal/corepb/"*.pb.go; do
+  for file in "$root/services/extensions/internal/corepb/"*.pb.go; do
     if [[ -f "$file" && ! -f "$output/internal/corepb/$(basename "$file")" ]]; then
       printf 'stale generated binding: %s\n' "$(basename "$file")" >&2
       exit 1
     fi
   done
   for file in "$output/internal/corepb/"*.pb.go; do
-    diff -u "$root/apps/lmm-extensions/internal/corepb/$(basename "$file")" "$file"
+    diff -u "$root/services/extensions/internal/corepb/$(basename "$file")" "$file"
   done
 fi

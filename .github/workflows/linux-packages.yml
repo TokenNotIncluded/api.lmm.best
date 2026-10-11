@@ -49,7 +49,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Initialize the pinned CLI only
-        run: git submodule update --init --depth 1 -- apps/lmm
+        run: git submodule update --init --depth 1 -- apps/cli
       - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
         with:
           go-version: '1.27.2'
@@ -80,12 +80,12 @@ jobs:
           target_env=$(printf '%s' "$RUST_TARGET" | tr '[:lower:]-' '[:upper:]_')
           export "CARGO_TARGET_${target_env}_LINKER=musl-gcc"
           export "CC_${RUST_TARGET//-/_}=musl-gcc"
-          cargo +1.99.0 build --manifest-path apps/lmm-core/Cargo.toml --locked --release --target "$RUST_TARGET" --bin lmm-core
-          cargo +1.99.0 build --manifest-path apps/lmm/Cargo.toml --locked --release --target "$RUST_TARGET" --bin lmm
+          cargo +1.99.0 build --manifest-path services/core/Cargo.toml --locked --release --target "$RUST_TARGET" --bin lmm-core
+          cargo +1.99.0 build --manifest-path apps/cli/Cargo.toml --locked --release --target "$RUST_TARGET" --bin lmm
           mkdir -p out/core out/extensions out/cli
-          cp "apps/lmm-core/target/$RUST_TARGET/release/lmm-core" out/core/
-          cp "apps/lmm/target/$RUST_TARGET/release/lmm" out/cli/
-          (cd apps/lmm-extensions && CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" \
+          cp "services/core/target/$RUST_TARGET/release/lmm-core" out/core/
+          cp "apps/cli/target/$RUST_TARGET/release/lmm" out/cli/
+          (cd services/extensions && CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" \
             go build -mod=readonly -trimpath -ldflags='-s -w' -o ../../out/extensions/lmm-extensions ./cmd/extensions)
       - name: Build verified source archives and native packages
         run: |

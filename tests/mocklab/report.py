@@ -32,8 +32,8 @@ def source_info(root: Path) -> dict:
         pass
     digest = hashlib.sha256()
     paths = list((root / "tests/mocklab").glob("*.py")) + list((root / "tests/mocklab").glob("*.json")) + [root / "scripts/mocklab.py"]
-    paths += list((root / "apps/lmm-extensions/internal/testkit/mocklab").glob("*.go"))
-    paths += list((root / "apps/lmm-extensions/internal/modules").glob("*/mocklab_test.go"))
+    paths += list((root / "services/extensions/internal/testkit/mocklab").glob("*.go"))
+    paths += list((root / "services/extensions/internal/modules").glob("*/mocklab_test.go"))
     for path in sorted(paths):
         if path.is_file():
             digest.update(str(path.relative_to(root)).encode() + b"\0" + path.read_bytes())
@@ -160,7 +160,7 @@ def go_adapters(root: Path, manifest: Path, output: Path, enabled=True) -> list[
                 reason += "; inspection failed: " + network["network_inspection_error"]
             all_rows.append(row(ident, "production-adapter", "BLOCKED", reason=reason))
             continue
-        module = root / "apps/lmm-extensions"
+        module = root / "services/extensions"
         if not (module / "go.mod").is_file() or not (module / "internal/modules" / domain / "mocklab_test.go").is_file():
             all_rows.append(row(ident, "production-adapter", "BLOCKED", reason="complete WIP checkout and applied test patch are required"))
             continue
@@ -216,7 +216,7 @@ def go_transport(root: Path, output: Path) -> dict:
     env.update(GO111MODULE="off",GOTOOLCHAIN="local",GOPROXY="off",GOSUMDB="off",GOENV="off",GOWORK="off")
     command=[go,"test","-race","-count=1","-timeout=20s","-json","."]
     log=output/"test-transport.go-test.jsonl"
-    code,error=run_process(command,cwd=root/"apps/lmm-extensions/internal/testkit/mocklab",env=env,timeout=60,output=log)
+    code,error=run_process(command,cwd=root/"services/extensions/internal/testkit/mocklab",env=env,timeout=60,output=log)
     tests={}
     for line in log.read_text(errors="replace").splitlines():
         try:

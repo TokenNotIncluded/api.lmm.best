@@ -24,7 +24,7 @@ python3 scripts/build-distribution.py build --component core   --version 0.1.0-p
 
 上面的核心与扩展归档输入来自 Docker 的 Debian bookworm 构建环境；原生 Linux 工作流另行构建 musl 目标。本地 CLI 的运行库要求由其构建系统决定，不要假设所有 Rust 产物都采用相同的链接方式。
 
-CLI 使用 `cargo build --manifest-path apps/lmm/Cargo.toml --locked --release`，输入目录为 `apps/lmm/target/release`。Windows 程序名为 `lmm.exe`。前端使用 `bun run --filter @lmm/web build`，输入目录为 `apps/web/dist`，平台为 `any`。构建器检查二进制格式与架构，不会把脚本或错误架构包装成成功产物。
+CLI 使用 `cargo build --manifest-path apps/cli/Cargo.toml --locked --release`，输入目录为 `apps/cli/target/release`。Windows 程序名为 `lmm.exe`。前端使用 `bun run --filter @lmm/web build`，输入目录为 `apps/web/dist`，平台为 `any`。构建器检查二进制格式与架构，不会把脚本或错误架构包装成成功产物。
 
 ## 校验与复现
 

@@ -51,9 +51,9 @@
         "windows-arm64"
       ],
       "resources": [
-        "apps/lmm/NOTICE",
-        "apps/lmm/third_party/magpie/LICENSE",
-        "apps/lmm/third_party/magpie/NOTICE.md"
+        "apps/cli/NOTICE",
+        "apps/cli/third_party/magpie/LICENSE",
+        "apps/cli/third_party/magpie/NOTICE.md"
       ]
     },
     "web": {

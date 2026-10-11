@@ -32,11 +32,11 @@
 
 | 程序 | 源码 | 职责 |
 | --- | --- | --- |
-| `lmm` | `apps/lmm` | 用户客户端，连接服务并调用已提供的功能 |
-| `lmm-core` | `apps/lmm-core` | 身份、权限、计费、账本与模型路由；`init-db` 和 `bootstrap-user` 也是这个程序的子命令 |
-| `lmm-extensions` | `apps/lmm-extensions` | 商店、工具、助手、运营与支付适配等业务扩展 |
+| `lmm` | `apps/cli` | 用户客户端，连接服务并调用已提供的功能 |
+| `lmm-core` | `services/core` | 身份、权限、计费、账本与模型路由；`init-db` 和 `bootstrap-user` 也是这个程序的子命令 |
+| `lmm-extensions` | `services/extensions` | 商店、工具、助手、运营与支付适配等业务扩展 |
 
-`lmm` 客户端独立维护于 [TokenNotIncluded/lmm](https://github.com/TokenNotIncluded/lmm)，通过 `apps/lmm` Git 子模块固定版本；首次检出运行 `git submodule update --init --depth 1 -- apps/lmm`。客户端使用 Rust，当前能力及 Magpie 对齐进度见[客户端说明](https://github.com/TokenNotIncluded/lmm#readme)。
+`lmm` 客户端独立维护于 [TokenNotIncluded/lmm](https://github.com/TokenNotIncluded/lmm)，通过 `apps/cli` Git 子模块固定版本；首次检出运行 `git submodule update --init --depth 1 -- apps/cli`。客户端使用 Rust，当前能力及 Magpie 对齐进度见[客户端说明](https://github.com/TokenNotIncluded/lmm#readme)。
 
 `apps/web` 输出独立的静态 Web 包，由 Web 服务器提供，不新增可执行程序。`contracts` 保存跨进程契约，`config/legal` 保存可编辑协议草稿，`packaging/distribution.json` 定义各分发包的内容。
 

@@ -13,6 +13,6 @@
 [submodule "packages/opencode-lmm-auth"]
 	path = packages/opencode-lmm-auth
 	url = https://github.com/TokenNotIncluded/opencode-lmm-auth.git
-[submodule "apps/lmm"]
-	path = apps/lmm
+[submodule "apps/cli"]
+	path = apps/cli
 	url = https://github.com/TokenNotIncluded/lmm.git

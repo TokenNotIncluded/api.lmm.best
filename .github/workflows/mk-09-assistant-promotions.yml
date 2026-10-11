@@ -5,8 +5,8 @@ on:
   pull_request:
     branches: [wip/rust-core-go-extensions]
     paths:
-      - apps/lmm-extensions/internal/modules/assistant/**
-      - apps/lmm-extensions/internal/modules/promotions/**
+      - services/extensions/internal/modules/assistant/**
+      - services/extensions/internal/modules/promotions/**
       - scripts/test-core-boundaries.py
       - .github/workflows/mk-09-assistant-promotions.yml
   workflow_dispatch:
@@ -41,8 +41,8 @@ jobs:
         with:
           go-version: '1.27.2'
           cache-dependency-path: |
-            apps/lmm-extensions/go.sum
-            apps/lmm-extensions/internal/modules/assistant/pgtest/go.sum
+            services/extensions/go.sum
+            services/extensions/internal/modules/assistant/pgtest/go.sum
       - name: Record exact tested source
         run: |
           git rev-parse HEAD > "$RUNNER_TEMP/tested-sha.txt"
@@ -51,7 +51,7 @@ jobs:
         run: python3 -B scripts/test-core-boundaries.py
       - name: Go checks
         if: ${{ !cancelled() }}
-        working-directory: apps/lmm-extensions
+        working-directory: services/extensions
         run: |
           bash ../../scripts/check-go-format.sh .
           go mod verify
@@ -60,7 +60,7 @@ jobs:
           CGO_ENABLED=0 go build -mod=readonly -trimpath ./cmd/extensions
       - name: Real PostgreSQL isolation and recovery
         if: ${{ !cancelled() }}
-        working-directory: apps/lmm-extensions/internal/modules/assistant/pgtest
+        working-directory: services/extensions/internal/modules/assistant/pgtest
         env:
           LMM_MK09_TEST_DSN: postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable
         run: |
