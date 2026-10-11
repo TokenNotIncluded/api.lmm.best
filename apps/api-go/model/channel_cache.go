@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	nonSecureRand "math/rand/v2"
+	"os"
 	"sort"
 	"strings"
 	"sync"
@@ -439,6 +440,11 @@ func cloneChannelMap(source map[int]*Channel) map[int]*Channel {
 }
 
 func cloneRoutingMapWithout(source map[string]map[string][]int, removed map[int]struct{}) map[string]map[string][]int {
+	if len(source) > 0 && len(removed) == 1 && os.Getenv("CHANNEL_ROUTING_SNAPSHOT_REUSE") == "true" {
+		for id := range removed {
+			return cloneRoutingMapWithoutID(source, id)
+		}
+	}
 	cloned := make(map[string]map[string][]int, len(source))
 	for group, models := range source {
 		clonedModels := make(map[string][]int, len(models))
