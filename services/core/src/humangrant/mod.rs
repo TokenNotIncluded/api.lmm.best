@@ -7,19 +7,19 @@ mod human;
 use crate::identity::{BrowserAuth, IdentityStore};
 use axum::{
     Json, Router,
-    body::{Body, to_bytes},
+    body::to_bytes,
     extract::Request,
     http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware::{self, Next},
     response::{IntoResponse, Response},
-    routing::{get, post, put},
+    routing::{get, post},
 };
 use base64::{Engine as _, engine::general_purpose::URL_SAFE_NO_PAD};
 use rand::{RngCore, rngs::OsRng};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
-use sqlx::{PgPool, Row};
+use sqlx::PgPool;
 
 #[derive(Clone)]
 struct HgState {
@@ -40,6 +40,7 @@ pub fn router(pool: PgPool, store: IdentityStore, browser: BrowserAuth, origin: 
         .route("/v1/requests/{id}/email", post(agent::email_unavailable))
         .route("/v1/session", get(agent::session))
         .route("/v1/humangrant/profile", get(agent::profile))
+        .route("/human", get(human::landing_page))
         .route("/human/{link}", get(human::review_page))
         .route("/human/{link}/details", get(human::details))
         .route("/human/{link}/begin", post(human::begin))
