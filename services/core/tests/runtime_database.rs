@@ -1,8 +1,17 @@
+use axum::{
+    Router,
+    body::{Body, to_bytes},
+    http::{Request, StatusCode},
+};
 use lmm_core::{
     core_schema,
+    identity::IdentityStore,
+    legacy_auth::{self, LegacyAuthConfig},
     runtime_database::{self, RequiredCapabilities, RuntimeDatabaseError as Error},
 };
+use serde_json::{Value, json};
 use sqlx::PgPool;
+use tower::ServiceExt;
 
 #[path = "common/runtime.rs"]
 mod runtime;
@@ -93,6 +102,255 @@ async fn restricted_role_checks_without_disabled_module_grants(pool: PgPool) {
     )
     .await
     .unwrap();
+    role.cleanup().await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn web_catalogue_fallback_requires_only_three_readonly_projections(pool: PgPool) {
+    const ORIGIN: &str = "http://api.lmm.local";
+    async fn request(
+        app: &Router,
+        method: &str,
+        path: &str,
+        secret: &str,
+        body: Option<Value>,
+    ) -> (StatusCode, Value) {
+        let mut request = Request::builder()
+            .method(method)
+            .uri(path)
+            .header("authorization", format!("Bearer {secret}"))
+            .header("origin", ORIGIN);
+        let body = match body {
+            Some(body) => {
+                request = request.header("content-type", "application/json");
+                Body::from(body.to_string())
+            }
+            None => Body::empty(),
+        };
+        let response = app
+            .clone()
+            .oneshot(request.body(body).unwrap())
+            .await
+            .unwrap();
+        let status = response.status();
+        let bytes = to_bytes(response.into_body(), 65536).await.unwrap();
+        (status, serde_json::from_slice(&bytes).unwrap())
+    }
+
+    core_schema::init(&pool).await.unwrap();
+    // SQLx owns this isolated database. Remove the default inherited permission
+    // so the schema-USAGE negative case exercises actual effective authority.
+    sqlx::query("REVOKE USAGE ON SCHEMA public FROM PUBLIC")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let role = runtime::RuntimeRole::create(&pool).await;
+    role.optional("web_identity").await;
+    let requirements = RequiredCapabilities {
+        web_identity: true,
+        ..RequiredCapabilities::default()
+    };
+    let session = IdentityStore::from_pool(pool.clone())
+        .bootstrap_user(1, 0)
+        .await
+        .unwrap();
+    sqlx::raw_sql(r#"
+        INSERT INTO routing_price_versions(version,document) VALUES(1,'{"version":1}');
+        INSERT INTO routing_config_versions(version,price_version,document) VALUES(1,1,'{"version":1}');
+        INSERT INTO routing_groups(version,name,enabled) VALUES(1,'default',TRUE),(1,'private',TRUE),(1,'disabled',FALSE);
+        INSERT INTO routing_routes(version,id,group_name,model,enabled,speeds,max_attempts,retry_on,allow_replay_after_send)
+          VALUES(1,1,'default','local-model',TRUE,ARRAY['standard'],1,'{}',FALSE),
+                (1,2,'private','private-model',TRUE,ARRAY['standard'],1,'{}',FALSE),
+                (1,3,'disabled','disabled-model',TRUE,ARRAY['standard'],1,'{}',FALSE);
+        UPDATE routing_price_versions SET sealed=TRUE WHERE version=1;
+        UPDATE routing_config_versions SET sealed=TRUE WHERE version=1;
+        UPDATE routing_active_release SET config_version=1;
+        INSERT INTO core_identity.user_routing_groups(user_id,group_name,source_reference)
+          VALUES(1,'default','synthetic-operator'),(1,'disabled','synthetic-operator');
+    "#).execute(&pool).await.unwrap();
+    // No with_dashboard_routing: this is the real models-disabled SQL fallback,
+    // and every HTTP request uses the restricted role rather than the owner.
+    let app = legacy_auth::router(
+        IdentityStore::from_pool(role.pool.clone()),
+        LegacyAuthConfig::new(ORIGIN, &[71; 32])
+            .unwrap()
+            .with_insecure_local_http()
+            .unwrap(),
+    );
+    let key_input = json!({"name":"Synthetic fallback key","remain_quota":100,"expired_time":-1,"unlimited_quota":false,"group":"default","one_time_reveal":true});
+    let paths = [
+        "/api/user/self/groups",
+        "/api/token/auto-groups",
+        "/api/user/models",
+    ];
+    runtime_database::check(&role.pool, requirements)
+        .await
+        .unwrap();
+    for table in ["routing_active_release", "routing_groups", "routing_routes"] {
+        sqlx::raw_sql(&format!(
+            "REVOKE SELECT ON public.{table} FROM {}",
+            role.name
+        ))
+        .execute(&pool)
+        .await
+        .unwrap();
+        // Identity-only startup does not require the optional Web catalogue.
+        runtime_database::check(&role.pool, RequiredCapabilities::default())
+            .await
+            .unwrap();
+        assert_eq!(
+            runtime_database::check(&role.pool, requirements).await,
+            Err(Error::MissingPrivileges),
+            "missing projection accepted: {table}"
+        );
+        for path in paths {
+            let expected = if table == "routing_routes" && path != "/api/user/models" {
+                StatusCode::OK
+            } else {
+                StatusCode::SERVICE_UNAVAILABLE
+            };
+            assert_eq!(
+                request(&app, "GET", path, &session.secret, None).await.0,
+                expected
+            );
+        }
+        if table != "routing_routes" {
+            assert_eq!(
+                request(
+                    &app,
+                    "POST",
+                    "/api/token",
+                    &session.secret,
+                    Some(key_input.clone())
+                )
+                .await
+                .0,
+                StatusCode::SERVICE_UNAVAILABLE
+            );
+            let keys: i64 =
+                sqlx::query_scalar("SELECT count(*) FROM core_identity.api_key_settings")
+                    .fetch_one(&pool)
+                    .await
+                    .unwrap();
+            assert_eq!(keys, 0, "failed validation must not create a key");
+        }
+        sqlx::raw_sql(&format!("GRANT SELECT ON public.{table} TO {}", role.name))
+            .execute(&pool)
+            .await
+            .unwrap();
+        runtime_database::check(&role.pool, requirements)
+            .await
+            .unwrap();
+    }
+    sqlx::raw_sql(&format!("REVOKE USAGE ON SCHEMA public FROM {}", role.name))
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        runtime_database::check(&role.pool, requirements).await,
+        Err(Error::MissingPrivileges)
+    );
+    sqlx::raw_sql(&format!("GRANT USAGE ON SCHEMA public TO {}", role.name))
+        .execute(&pool)
+        .await
+        .unwrap();
+    runtime_database::check(&role.pool, requirements)
+        .await
+        .unwrap();
+
+    for command in [
+        "INSERT INTO public.routing_active_release(singleton) VALUES(FALSE)",
+        "UPDATE public.routing_groups SET enabled=enabled WHERE FALSE",
+        "DELETE FROM public.routing_routes WHERE FALSE",
+    ] {
+        let error = sqlx::query(command).execute(&role.pool).await.unwrap_err();
+        assert_eq!(
+            error.as_database_error().and_then(|e| e.code()).as_deref(),
+            Some("42501")
+        );
+    }
+    for privilege in [
+        "UPDATE ON public.routing_active_release",
+        "UPDATE(config_version) ON public.routing_active_release",
+        "UPDATE ON public.routing_groups",
+        "UPDATE(enabled) ON public.routing_groups",
+        "UPDATE ON public.routing_routes",
+        "UPDATE(enabled) ON public.routing_routes",
+    ] {
+        sqlx::raw_sql(&format!("GRANT {privilege} TO {}", role.name))
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            runtime_database::check(&role.pool, requirements).await,
+            Err(Error::UnsafePrivileges)
+        );
+        sqlx::raw_sql(&format!("REVOKE {privilege} FROM {}", role.name))
+            .execute(&pool)
+            .await
+            .unwrap();
+        runtime_database::check(&role.pool, requirements)
+            .await
+            .unwrap();
+    }
+    let other_reads: bool = sqlx::query_scalar(r#"
+        SELECT EXISTS(SELECT FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+          WHERE n.nspname='public' AND c.relname IN ('routing_credential_refs','routing_price_versions',
+            'routing_config_versions','routing_price_rules','routing_upstreams','routing_targets','routing_aliases')
+          AND (has_table_privilege(c.oid,'SELECT') OR has_any_column_privilege(c.oid,'SELECT')))
+    "#).fetch_one(&role.pool).await.unwrap();
+    assert!(
+        !other_reads,
+        "fallback does not require configuration documents or upstreams"
+    );
+    let groups = request(&app, "GET", paths[0], &session.secret, None).await;
+    assert_eq!(groups.0, StatusCode::OK);
+    assert_eq!(
+        groups.1["data"],
+        json!({"default":{"desc":"default","ratio":"model-specific"}})
+    );
+    let auto = request(&app, "GET", paths[1], &session.secret, None).await;
+    assert_eq!(auto.0, StatusCode::OK);
+    assert_eq!(auto.1["data"]["groups"], json!(["default"]));
+    let models = request(&app, "GET", paths[2], &session.secret, None).await;
+    assert_eq!(models.0, StatusCode::OK);
+    assert_eq!(models.1["data"], json!(["local-model"]));
+    let created = request(
+        &app,
+        "POST",
+        "/api/token",
+        &session.secret,
+        Some(key_input.clone()),
+    )
+    .await;
+    assert_eq!(created.0, StatusCode::OK);
+    let mut updated = key_input;
+    updated["id"] = created.1["data"]["id"].clone();
+    updated.as_object_mut().unwrap().remove("one_time_reveal");
+    assert_eq!(
+        request(
+            &app,
+            "PUT",
+            "/api/token",
+            &session.secret,
+            Some(updated.clone())
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    updated["group"] = json!("private");
+    assert_eq!(
+        request(&app, "PUT", "/api/token", &session.secret, Some(updated))
+            .await
+            .0,
+        StatusCode::FORBIDDEN
+    );
+    core_schema::check(&role.pool).await.unwrap();
+    sqlx::query("GRANT USAGE ON SCHEMA public TO PUBLIC")
+        .execute(&pool)
+        .await
+        .unwrap();
     role.cleanup().await;
 }
 

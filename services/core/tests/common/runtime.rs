@@ -79,6 +79,8 @@ impl RuntimeRole {
         let sql = match schema {
             "web_identity" => format!(
                 r#"
+              GRANT USAGE ON SCHEMA public TO {0};
+              GRANT SELECT ON public.routing_active_release,public.routing_groups,public.routing_routes TO {0};
               GRANT USAGE ON SCHEMA core_charging TO {0};
               GRANT SELECT ON core_charging.budgets,core_charging.requests,core_charging.external_consumption,core_charging.budget_opening_consumption TO {0};
               GRANT INSERT,UPDATE ON core_charging.budgets TO {0};

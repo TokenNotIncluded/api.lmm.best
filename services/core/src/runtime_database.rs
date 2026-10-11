@@ -93,6 +93,7 @@ pub async fn check(
             ((n.nspname IN ('core_meta','core_migration','core_model')
               OR (n.nspname='core_console' AND c.relname IN ('options','initialization'))
               OR (n.nspname='core_identity' AND c.relname IN ('developer_access','user_routing_groups'))
+              OR (n.nspname='public' AND c.relname IN ('routing_active_release','routing_groups','routing_routes'))
               OR (n.nspname='core_charging' AND c.relname IN ('budget_opening_consumption','subscription_opening_consumption'))
               OR (n.nspname='core_billing' AND c.relname IN ('ledger_accounts','balance_state','ledger_operations','ledger_journals','ledger_entries','opening_import_runs','opening_imports','account_opening_counters')))
              AND (has_table_privilege(c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN')
@@ -176,6 +177,18 @@ pub async fn check(
             AND has_sequence_privilege('core_charging.budgets_id_seq','USAGE')
             AND has_sequence_privilege('core_charging.policy_events_id_seq','USAGE')
             AND has_function_privilege('core_charging.committed_credits(text,bigint,bigint,bigint)','EXECUTE')
+        "#).fetch_one(&mut *transaction).await?;
+        if !complete {
+            return Err(RuntimeDatabaseError::MissingPrivileges);
+        }
+    }
+    // An enabled gateway supplies its own validated catalogue. Web identity
+    // without that gateway reads only the published group/model projections.
+    if required.web_identity && !required.models {
+        let complete: bool = sqlx::query_scalar(r#"
+          SELECT has_schema_privilege('public','USAGE')
+            AND NOT EXISTS(SELECT FROM (VALUES ('routing_active_release'),('routing_groups'),('routing_routes')) t(name)
+              WHERE NOT has_table_privilege('public.'||t.name,'SELECT'))
         "#).fetch_one(&mut *transaction).await?;
         if !complete {
             return Err(RuntimeDatabaseError::MissingPrivileges);

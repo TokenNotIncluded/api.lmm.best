@@ -129,6 +129,10 @@ GRANT EXECUTE ON FUNCTION core_charging.period_window(text,bigint,bigint,bigint)
 
 \if :enable_web_identity
 -- Legacy Web identity manages budgets, not model requests or reservation holds.
+-- Without an enabled model gateway, its catalogue uses only these projections.
+GRANT USAGE ON SCHEMA public TO :"runtime_role";
+GRANT SELECT ON public.routing_active_release, public.routing_groups,
+    public.routing_routes TO :"runtime_role";
 GRANT USAGE ON SCHEMA core_charging TO :"runtime_role";
 GRANT SELECT, INSERT, UPDATE ON core_charging.budgets TO :"runtime_role";
 GRANT SELECT, INSERT ON core_charging.policy_events TO :"runtime_role";
