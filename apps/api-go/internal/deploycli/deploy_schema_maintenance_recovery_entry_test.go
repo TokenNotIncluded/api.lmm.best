@@ -116,6 +116,49 @@ func TestSchemaMaintenanceProspectiveRecoveryRejectsOldOrUnsealedHook(t *testing
 	}
 }
 
+func TestSchemaMaintenanceProspectiveRecoverySeparateEngineCommands(t *testing.T) {
+	f, old, oldSHA, loaded, drop := schemaRecoveryStartupFixture(t, "arch")
+	oldPath := filepath.Join(old.Root, "capsule.json")
+	operator := deployEngineInstalledPath
+	// Exercise the real modern command layout in the ordinary native capture.
+	// This test does not install/execute an engine, verify an official package,
+	// or claim the separate installed-engine hash check was exercised.
+	pre := "{ path=" + operator + " ; argv[]=" + operator + " operator production writer-start --capsule " + oldPath + " --capsule-sha256 " + oldSHA + " ; ignore_errors=no ; }"
+	loaded["ExecStartPre"], loaded["ExecStartPreEx"] = pre, testPortableStartEx(pre)
+	if err := os.WriteFile(drop, merchantStorePortableHookBytes(operator, oldPath, oldSHA), 0644); err != nil {
+		t.Fatal(err)
+	}
+	commands, err := f.runtime.merchantStorePortableStartupCommands(loaded, old.Binary, oldPath, oldSHA)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newPath := filepath.Join(merchantStoreCapsuleRoot(f.runtime.paths, "recovery-modern"), "capsule.json")
+	startup, unit, _, _, err := f.runtime.schemaRecoveryStartupSnapshot(context.Background(), loaded, commands, operator, newPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	newSHA := strings.Repeat("e", 64)
+	newPre := strings.ReplaceAll(strings.ReplaceAll(pre, oldPath, newPath), oldSHA, newSHA)
+	f.unitOutput = strings.ReplaceAll(f.unitOutput, "ExecStartPre="+loaded["ExecStartPre"]+"\n", "")
+	// Preserve the fixture's Environment and signed fragment; use the actual
+	// sole modern command, not a second lifecycle hook.
+	rows := strings.Split(f.unitOutput, "\n")
+	kept := rows[:0]
+	for _, row := range rows {
+		if !strings.HasPrefix(row, "ExecStartPre=") && !strings.HasPrefix(row, "ExecStartPreEx=") {
+			kept = append(kept, row)
+		}
+	}
+	f.unitOutput = strings.Join(kept, "\n") + "ExecStartPre=" + newPre + "\nExecStartPreEx=" + testPortableStartEx(newPre) + "\n"
+	if err := os.WriteFile(drop, merchantStorePortableHookBytes(operator, newPath, newSHA), 0644); err != nil {
+		t.Fatal(err)
+	}
+	actual, err := f.runtime.captureMerchantStorePortableStartup(context.Background(), newPath, newSHA)
+	if err != nil || actual["startup_sha256"] != startup || actual["signed_unit_sha256"] != unit {
+		t.Fatalf("separate-engine native capture mismatch: %+v %v", actual, err)
+	}
+}
+
 func TestSchemaMaintenanceRecoveryProfileIsExactBinding(t *testing.T) {
 	h, plan, _, binding, c := newSchemaMaintenanceRecoveryFixture(t)
 	origin := binding.Origins[0]
@@ -215,5 +258,62 @@ func TestSchemaMaintenanceRecoveryEntryRequiresLivePhysicalAuthority(t *testing.
 	}
 	if _, err := h.startRecovery(context.Background(), plan, preSHA, binding, nil); err == nil {
 		t.Fatal("start accepted no fixed two-origin native observations")
+	}
+}
+
+func TestSchemaMaintenanceRecoveryEntryNeverReplaysExistingIntent(t *testing.T) {
+	for _, action := range []string{"hook", "start"} {
+		for _, kind := range []string{"sealed intent", "truncated intent", "symlink", "directory"} {
+			t.Run(action+"/"+kind, func(t *testing.T) {
+				h, plan, preSHA, binding, _ := newSchemaMaintenanceRecoveryFixture(t)
+				calls := 0
+				h.runtime.runner = existingSchemaTestRunner{run: func(productionCommand) ([]byte, error) {
+					calls++
+					return nil, errors.New("no command is permitted after existing intent")
+				}}
+				name := "recovery-hook-intent.json"
+				if action == "start" {
+					name = "recovery-start-intent.json"
+				}
+				path := filepath.Join(h.binding.Workspace, "state", name)
+				switch kind {
+				case "sealed intent":
+					if err := h.writeRecoveryIntent(name, map[string]string{"transition_id": plan.TransitionID}); err != nil {
+						t.Fatal(err)
+					}
+				case "truncated intent":
+					if err := os.WriteFile(path, []byte("{"), 0600); err != nil {
+						t.Fatal(err)
+					}
+				case "symlink":
+					if err := os.Symlink(filepath.Join(t.TempDir(), "missing"), path); err != nil {
+						t.Fatal(err)
+					}
+				case "directory":
+					if err := os.Mkdir(path, 0700); err != nil {
+						t.Fatal(err)
+					}
+				}
+				callbackCalls := 0
+				callback := func(context.Context) error { callbackCalls++; return nil }
+				var err error
+				if action == "hook" {
+					_, err = h.installRecoveryHook(context.Background(), plan, preSHA, binding, callback)
+				} else {
+					_, err = h.startRecovery(context.Background(), plan, preSHA, binding, callback)
+				}
+				if err == nil || !strings.Contains(err.Error(), "intent already exists") || calls != 0 || callbackCalls != 0 {
+					t.Fatalf("existing intent was replayed: calls=%d callbacks=%d err=%v", calls, callbackCalls, err)
+				}
+				if _, err := os.Lstat(path); err != nil {
+					t.Fatal("existing intent was removed")
+				}
+				for _, receipt := range []string{"recovery-hook-bound.json", "recovery-started.json"} {
+					if _, err := os.Lstat(filepath.Join(h.binding.Workspace, "state", receipt)); !errors.Is(err, os.ErrNotExist) {
+						t.Fatal("refused replay fabricated a success receipt")
+					}
+				}
+			})
+		}
 	}
 }

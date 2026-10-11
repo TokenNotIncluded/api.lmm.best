@@ -69,6 +69,14 @@ func (runtime *productionRuntime) prospectiveSchemaRecoveryStartup(ctx context.C
 		return "", "", "", "", err
 	}
 	operator := deploymentInstalledCommand(old.Binary, old.Candidate)
+	return runtime.schemaRecoveryStartupSnapshot(ctx, loaded, commands, operator, newPath)
+}
+
+// The caller has already qualified the actual old capsule, installed engine,
+// loaded command and persistent hook. Keeping snapshot construction separate
+// lets both historical and separate signed-engine command layouts be compared
+// with the ordinary native capture without installing a test engine on a host.
+func (runtime *productionRuntime) schemaRecoveryStartupSnapshot(ctx context.Context, loaded, commands map[string]string, operator, newPath string) (string, string, string, string, error) {
 	commands["ExecStartPre"] = operator + "\x00" + operator + " operator production writer-start --capsule " + newPath + " --capsule-sha256 " + merchantStoreCapsuleHashPlaceholder + "\x00no\x00privileged"
 	commands["PersistentPortableHookSHA256"] = startupContentSHA256(merchantStorePortableHookBytes(operator, newPath, merchantStoreCapsuleHashPlaceholder))
 	values, err := parseExistingSchemaLoadedEnvironment(loaded["Environment"])
@@ -231,8 +239,23 @@ func (h *productionSchemaMaintenanceHost) writeRecoveryIntent(name string, value
 	return h.writeNew(name, append(raw, '\n'))
 }
 
+func (h *productionSchemaMaintenanceHost) requireNewRecoveryIntent(name string) error {
+	if h == nil || h.runtime == nil || (name != "recovery-hook-intent.json" && name != "recovery-start-intent.json") {
+		return errors.New("schema recovery lacks its fixed native intent path")
+	}
+	if _, err := os.Lstat(filepath.Join(h.binding.Workspace, "state", name)); err == nil {
+		return errors.New("schema recovery intent already exists; inspect the actual hook or invocation without replay")
+	} else if !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
+}
+
 func (h *productionSchemaMaintenanceHost) installRecoveryHook(ctx context.Context, plan productionSchemaMaintenancePlan, preSHA string, binding productionSchemaMaintenanceRecoveryBinding, checkActiveOwner func(context.Context) error) (productionSchemaMaintenanceHostCapture, error) {
 	var capture productionSchemaMaintenanceHostCapture
+	if err := h.requireNewRecoveryIntent("recovery-hook-intent.json"); err != nil {
+		return capture, err
+	}
 	c, origin, err := h.recoveryCapsule(ctx, plan, preSHA, binding, false)
 	if err != nil {
 		return capture, err
@@ -326,6 +349,9 @@ type productionSchemaMaintenanceRecoveryStartIntent struct {
 // existing captureReady operation is the read-only reconciliation path.
 func (h *productionSchemaMaintenanceHost) startRecovery(ctx context.Context, plan productionSchemaMaintenancePlan, preSHA string, binding productionSchemaMaintenanceRecoveryBinding, startableOrigins func(context.Context) error) (productionSchemaMaintenanceHostCapture, error) {
 	var capture productionSchemaMaintenanceHostCapture
+	if err := h.requireNewRecoveryIntent("recovery-start-intent.json"); err != nil {
+		return capture, err
+	}
 	if startableOrigins == nil {
 		return capture, errors.New("schema recovery start requires actual fixed two-origin recovery observations")
 	}
