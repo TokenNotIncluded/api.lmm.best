@@ -143,6 +143,9 @@ func (runtime *productionRuntime) recoverSchemaMaintenanceDeadPreWorkerOwner(ctx
 	if err != nil {
 		return result, err
 	}
+	if ownerReceiptPresent && (a.OwnerMode != schemaMaintenanceDeadPreWorkerExactOwner || !bytes.Equal(ownerReceipt, a.OriginalOwnerRaw)) {
+		return result, errors.New("dead-preworker original owner receipt changed during qualification")
+	}
 	result = newSchemaMaintenanceDeadCASResult(a, runtime.now())
 	raw, _ := json.MarshalIndent(result, "", "  ")
 	raw = append(raw, '\n')
@@ -261,6 +264,10 @@ func (runtime *productionRuntime) reconcileSchemaMaintenanceDeadPreWorkerOwner(c
 		return result, errors.New("dead-preworker reconciliation changed the actual original recoverer intent")
 	}
 	result.IntentSHA256 = startupContentSHA256(raw)
+	ownerReceipt, ownerReceiptPresent, err := runtime.schemaMaintenanceDeadOwnerReceipt(workspace)
+	if err != nil || ownerReceiptPresent && (a.OwnerMode != schemaMaintenanceDeadPreWorkerExactOwner || !bytes.Equal(ownerReceipt, a.OriginalOwnerRaw)) {
+		return result, errors.New("dead-preworker reconciliation original owner receipt differs")
+	}
 	lease, err := runtime.openSchemaMaintenanceOldFence(ctx, a.Plan, a.PrePlanSHA256, a.OldCapsule, a.OldCapsuleSHA256)
 	if err != nil {
 		return result, err
@@ -295,6 +302,10 @@ func (runtime *productionRuntime) reconcileSchemaMaintenanceDeadPreWorkerOwner(c
 	}
 	if err := runtime.checkSchemaMaintenanceDeadNoWorker(workspace); err != nil {
 		return result, err
+	}
+	actualReceipt, receiptPresent, receiptErr := runtime.schemaMaintenanceDeadOwnerReceipt(workspace)
+	if receiptErr != nil || receiptPresent != ownerReceiptPresent || !bytes.Equal(actualReceipt, ownerReceipt) {
+		return result, errors.New("dead-preworker reconciliation original owner receipt changed during observation")
 	}
 	actualIntent, intentErr := runtime.readExistingSchemaSealedFile(filepath.Join(workspace, "state", "dead-preworker-cas-intent.json"), true)
 	if intentErr != nil || !bytes.Equal(actualIntent, raw) {
