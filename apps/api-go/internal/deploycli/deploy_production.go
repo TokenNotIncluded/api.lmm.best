@@ -40,6 +40,8 @@ func runProductionDeploy(args []string, stdout, stderr io.Writer) int {
 		return ExitUsage
 	}
 	switch args[0] {
+	case "schema-maintenance":
+		return runProductionSchemaMaintenance(args[1:], stdout, stderr)
 	case "writer-capsule":
 		return runProductionMerchantStoreCapsule(args[1:], stdout, stderr)
 	case "writer-start":

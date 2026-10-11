@@ -147,6 +147,16 @@ func merchantStorePrivilegedStartCommand(semantic, extended string) error {
 // Read a stable, singly linked, root-owned file without following any symlink
 // component. Private EnvFiles must be exactly 0600; the signed unit is 0644.
 func (runtime *productionRuntime) readExistingSchemaSealedFile(path string, private bool) ([]byte, error) {
+	return runtime.readExistingSchemaSealedFileBounded(path, private, 1<<20)
+}
+
+// Schema maintenance records include bounded catalog projections for all old
+// tables. Their explicit call sites may request a larger bound; ordinary
+// startup units, environment files and capsules retain the 1 MiB limit above.
+func (runtime *productionRuntime) readExistingSchemaSealedFileBounded(path string, private bool, maxBytes int64) ([]byte, error) {
+	if maxBytes <= 0 || maxBytes > 16<<20 {
+		return nil, errors.New("startup seal file size policy is invalid")
+	}
 	clean, err := cleanAbsoluteNonRoot(path)
 	if err != nil || clean != path {
 		return nil, errors.New("startup seal path is not canonical")
@@ -170,7 +180,7 @@ func (runtime *productionRuntime) readExistingSchemaSealedFile(path string, priv
 		}
 	}
 	before, err := os.Lstat(path)
-	if err != nil || !before.Mode().IsRegular() || before.Size() <= 0 || before.Size() > 1<<20 {
+	if err != nil || !before.Mode().IsRegular() || before.Size() <= 0 || before.Size() > maxBytes {
 		return nil, errors.New("startup seal file is not a bounded regular file")
 	}
 	owner, links, ok := deploymentFileOwnership(before)
@@ -190,7 +200,7 @@ func (runtime *productionRuntime) readExistingSchemaSealedFile(path string, priv
 	if err != nil || !os.SameFile(before, opened) {
 		return nil, errors.New("startup seal file changed while opening")
 	}
-	content, err := io.ReadAll(io.LimitReader(file, (1<<20)+1))
+	content, err := io.ReadAll(io.LimitReader(file, maxBytes+1))
 	after, statErr := os.Lstat(path)
 	if statErr == nil {
 		afterOwner, afterLinks, afterOK := deploymentFileOwnership(after)
@@ -199,7 +209,7 @@ func (runtime *productionRuntime) readExistingSchemaSealedFile(path string, priv
 		}
 	}
 	current, resolveErr := filepath.EvalSymlinks(path)
-	if err != nil || statErr != nil || resolveErr != nil || current != path || !os.SameFile(before, after) || !after.Mode().IsRegular() || after.Size() != int64(len(content)) || after.ModTime() != before.ModTime() || after.Mode() != before.Mode() || len(content) > 1<<20 {
+	if err != nil || statErr != nil || resolveErr != nil || current != path || !os.SameFile(before, after) || !after.Mode().IsRegular() || after.Size() != int64(len(content)) || after.ModTime() != before.ModTime() || after.Mode() != before.Mode() || int64(len(content)) > maxBytes {
 		return nil, errors.New("startup seal file changed during inspection")
 	}
 	return content, nil

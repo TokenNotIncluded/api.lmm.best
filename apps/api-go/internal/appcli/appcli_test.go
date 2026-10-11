@@ -70,6 +70,23 @@ func TestDispatchRequiresExplicitMigrationMode(t *testing.T) {
 	}
 }
 
+func TestDispatchSchemaOnlyNeverEntersOrdinaryApplicationMigration(t *testing.T) {
+	args := []string{"migrate", "--schema-only", "--maintenance-owner", "/run/owner.json", "--maintenance-owner-sha256", strings.Repeat("a", 64)}
+	result := Dispatch(args, "test", io.Discard, io.Discard)
+	if result.Mode != ModeMigrateSchemaOnly || strings.Join(result.MigrationArgs, " ") != strings.Join(args[2:], " ") {
+		t.Fatalf("schema-only command was not isolated: %#v", result)
+	}
+	args[2] = "changed"
+	if result.MigrationArgs[0] != "--maintenance-owner" {
+		t.Fatal("dispatch retained mutable argument backing storage")
+	}
+	for _, args := range [][]string{{"migrate", "--apply", "--schema-only"}, {"migrate", "--verify", "--schema-only"}} {
+		if got := Dispatch(args, "test", io.Discard, io.Discard); got.Mode != ModeExit || got.ExitCode != ExitUsage {
+			t.Fatalf("mixed ordinary migration accepted: %#v", got)
+		}
+	}
+}
+
 func TestRequestShouldSendNativeHTTPAndPersistOutputs(t *testing.T) {
 	t.Parallel()
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

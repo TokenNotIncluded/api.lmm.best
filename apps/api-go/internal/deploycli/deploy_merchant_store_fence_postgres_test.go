@@ -270,6 +270,138 @@ GRANT EXECUTE ON FUNCTION pg_catalog.pg_control_system() TO lmm_fence_business;`
 			t.Fatalf("simultaneous claims accepted %d owners", success)
 		}
 	})
+	t.Run("dedicated maintenance environment is actual RW same physical role and schema", func(t *testing.T) {
+		r := productionRuntime{}
+		readOnly, err := r.existingSchemaMigrationValues(values, contract.Schema)
+		if err != nil {
+			t.Fatal(err)
+		}
+		child, err := schemaMaintenanceWorkerValues(readOnly, contract.Schema)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sealed := map[string]string{}
+		for _, entry := range child {
+			key, value, _ := strings.Cut(entry, "=")
+			sealed[key] = value
+		}
+		configuration, err := pgx.ParseConfig(sealed["SQL_DSN"])
+		if err != nil {
+			t.Fatal("maintenance DSN parse failed")
+		}
+		connection, err := pgx.ConnectConfig(ctx, configuration)
+		if err != nil {
+			t.Fatal("maintenance physical connection failed")
+		}
+		defer connection.Close(context.Background())
+		var schema, role, readOnlySetting, system string
+		if err := connection.QueryRow(ctx, "SELECT current_schema(),current_user,current_setting('default_transaction_read_only'),system_identifier::text FROM pg_control_system()").Scan(&schema, &role, &readOnlySetting, &system); err != nil || schema != contract.Schema || role != contract.Role || readOnlySetting != "off" || system != contract.SystemIdentifier {
+			t.Fatal("maintenance did not preserve physical authority while granting dedicated child RW")
+		}
+	})
+	t.Run("maintenance recovery reads actual same-session business state without rewriting rows", func(t *testing.T) {
+		if _, err := admin.Exec(ctx, `CREATE TABLE merchant_fence.referral_rewards(top_up_id bigint);
+CREATE TABLE merchant_fence.tool_market_calls(settlement_status text,provider_run_id text);
+CREATE TABLE merchant_fence.tool_market_results(builtin_billing_pending boolean);
+GRANT SELECT ON merchant_fence.referral_rewards,merchant_fence.tool_market_calls,merchant_fence.tool_market_results TO lmm_fence_business;`); err != nil {
+			t.Fatal(err)
+		}
+		held, err := acquireMerchantStoreDeploymentFence(ctx, values, contract)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer held.Close()
+		if err := held.checkSchemaMaintenanceRecoveryBusiness(ctx); err != nil {
+			t.Fatal(err)
+		}
+		for _, statement := range []string{
+			"INSERT INTO merchant_fence.options VALUES('ReferralRegistrationRewardQuota','1')",
+			"INSERT INTO merchant_fence.referral_rewards VALUES(NULL)",
+			"INSERT INTO merchant_fence.tool_market_calls VALUES('held','provider-run')",
+			"INSERT INTO merchant_fence.tool_market_results VALUES(true)",
+		} {
+			if _, err := admin.Exec(ctx, statement); err != nil {
+				t.Fatal(err)
+			}
+			if held.checkSchemaMaintenanceRecoveryBusiness(ctx) == nil {
+				t.Fatal("native PG recovery gate ignored incompatible business rows")
+			}
+			if _, err := admin.Exec(ctx, "TRUNCATE merchant_fence.referral_rewards,merchant_fence.tool_market_calls,merchant_fence.tool_market_results; DELETE FROM merchant_fence.options WHERE key='ReferralRegistrationRewardQuota'"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := held.checkSchemaMaintenanceRecoveryBusiness(ctx); err != nil {
+			t.Fatal(err)
+		}
+	})
+	t.Run("dedicated schema owner excludes start and preserves exact CAS", func(t *testing.T) {
+		held, err := acquireMerchantStoreDeploymentFence(ctx, values, contract)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer held.Close()
+		o := owner
+		o.DeploymentID = "schema-fence-test"
+		o.Purpose = "schema-maintenance"
+		o.Service = "lmm-api.service"
+		o.HolderUnit = schemaMaintenanceHolderUnit(o.DeploymentID)
+		o.BackendPID = held.backendPID
+		raw, err := canonicalMerchantStoreFenceOwner(o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := deploymentfence.ParseSchemaMaintenanceOwner(raw); err != nil {
+			t.Fatal(err)
+		}
+		if err := held.ClaimOwner(ctx, o); err != nil {
+			t.Fatal(err)
+		}
+		competing, err := acquireMerchantStoreDeploymentFence(ctx, values, contract)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer competing.Close()
+		if competing.requireNoDurableOwner(ctx) == nil {
+			t.Fatal("schema ACTIVE owner did not block a normal start")
+		}
+		other := owner
+		other.DeploymentID = "competing-start"
+		other.Purpose = "start"
+		other.Service = "lmm-api.service"
+		other.StartInvocationID = strings.Repeat("3", 32)
+		other.HolderUnit = merchantStoreStartUnit(other.DeploymentID, other.StartInvocationID)
+		other.BackendPID = competing.backendPID
+		if competing.ClaimOwner(ctx, other) == nil {
+			t.Fatal("a serialized start ignored the schema owner")
+		}
+		var count int
+		if admin.QueryRow(ctx, "SELECT count(*) FROM merchant_fence.options WHERE "+deploymentfence.PostgreSQLPresencePredicate).Scan(&count) != nil || count != 1 {
+			t.Fatal("schema/start contention changed the sole durable owner")
+		}
+		if held.ownerValue != string(raw) {
+			t.Fatal("stored schema wire differs from exact worker bytes")
+		}
+		if err := held.ReleaseOwner(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if competing.requireNoDurableOwner(ctx) != nil {
+			t.Fatal("exact schema CAS did not allow normal start")
+		}
+		if err := held.ClaimOwner(ctx, o); err != nil {
+			t.Fatal(err)
+		}
+		key, value := held.ownerKey, held.ownerValue
+		if err := held.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if competing.requireNoDurableOwner(ctx) == nil {
+			t.Fatal("schema holder death cleared its ACTIVE blocker")
+		}
+		// Exact test-only cleanup in this newly initialized disposable cluster.
+		if _, err := admin.Exec(ctx, "DELETE FROM merchant_fence.options WHERE key=$1 AND value=$2", key, value); err != nil {
+			t.Fatal(err)
+		}
+	})
 	t.Run("portable start retry and crash tombstone", func(t *testing.T) {
 		start, err := acquireMerchantStoreDeploymentFence(ctx, values, contract)
 		if err != nil {
