@@ -12,6 +12,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/LIghtJUNction/api.lmm.best/internal/deploymentfence"
 )
 
 func schemaBackupTestStops(plan productionSchemaMaintenancePlan, sha string, now time.Time) []productionSchemaMaintenanceHostCapture {
@@ -264,12 +266,68 @@ func TestSchemaMaintenanceBackupActualRestoreWithRealTools(t *testing.T) {
 		t.Fatal("dump COPY PROGRAM overwrote the qualification query")
 	}
 	attackLog, e := os.ReadFile(filepath.Join(attackScratch, "restore.log"))
+	serverAttackLog, se := os.ReadFile(filepath.Join(attackScratch, "postgres.log"))
 	protected, pe := os.ReadFile(filepath.Join(attackScratch, "snapshot.sql"))
-	if e != nil || pe != nil || !bytes.Equal(protected, []byte("SELECT 1;\n")) || !bytes.Contains(attackLog, []byte("Read-only file system")) {
-		t.Fatal("fixed restore query protection was not exercised")
+	if e != nil || se != nil || pe != nil || !bytes.Equal(protected, []byte("SELECT 1;\n")) || !bytes.Contains(attackLog, []byte("program")) || !bytes.Contains(serverAttackLog, []byte("Read-only file system")) {
+		t.Fatalf("fixed restore query protection was not exercised: %v %v %v fixed=%q restore=%s server=%s", e, se, pe, protected, attackLog, serverAttackLog)
 	}
 	sql("CREATE TYPE app.unsupported_enum AS ENUM('fixture');")
 	if _, e := decodeSchemaMaintenanceBackupSource(bytes.TrimSpace(sql(query))); e == nil {
 		t.Fatal("unsupported custom type silently qualified")
 	}
+	sql("DROP TYPE app.unsupported_enum; CREATE TABLE app.options(key text PRIMARY KEY,value text); INSERT INTO app.options VALUES('BusinessOption','unchanged');")
+	projectionBefore, e := decodeSchemaMaintenanceBackupSource(bytes.TrimSpace(sql(query)))
+	if e != nil {
+		t.Fatal(e)
+	}
+	originalBytes, _ := json.Marshal(projectionBefore)
+	_ = schemaMaintenanceBackupLogicalSHA(projectionBefore)
+	if !schemaMaintenanceBackupLogicalEqual(projectionBefore, projectionBefore) {
+		t.Fatal("logical comparison not reflexive")
+	}
+	afterHashBytes, _ := json.Marshal(projectionBefore)
+	if !bytes.Equal(originalBytes, afterHashBytes) {
+		t.Fatal("logical normalization mutated physical source inventory")
+	}
+	owner := deploymentfence.OwnerBinding{Format: 1, State: "ACTIVE", DeploymentID: "schema-projection-fixture", Host: "arch-dmit", PlanSHA256: sha, ContractSHA256: sha, ProviderSHA256: sha, Nonce: strings.Repeat("1", 32), HolderPID: 101, HolderUnit: "lmm-schema-maintenance-schema-projection-fixture.service", HolderInvocationID: strings.Repeat("2", 32), BackendPID: 202, SystemIdentifier: projectionBefore.SystemIdentifier, Database: projectionBefore.Database, DatabaseOID: projectionBefore.DatabaseOID, Schema: projectionBefore.Schema, SchemaOID: projectionBefore.SchemaOID, Role: role, Purpose: "schema-maintenance", Service: "lmm-api.service"}
+	ownerBytes, _ := json.Marshal(owner)
+	ownerKey := deploymentfence.OptionPrefix + owner.DeploymentID + ":" + owner.Host
+	projectedQuery, e := schemaMaintenanceBackupProjectedSourceQuery("app", projectionBefore, ownerBytes)
+	if e != nil {
+		t.Fatal(e)
+	}
+	sql("ALTER TABLE app.credits ADD COLUMN additive text DEFAULT 'new'; CREATE TABLE app.new_feature(id bigint); INSERT INTO app.options VALUES(" + schemaMaintenanceBackupLiteral(ownerKey) + "," + schemaMaintenanceBackupLiteral(string(ownerBytes)) + ");")
+	project := func() productionSchemaMaintenanceBackupSource {
+		t.Helper()
+		p, e := decodeSchemaMaintenanceBackupProjectedSource(bytes.TrimSpace(sql(projectedQuery)))
+		if e != nil {
+			t.Fatal(e)
+		}
+		return p
+	}
+	if e := validateSchemaMaintenanceBackupProjectedEqual(projectionBefore, project()); e != nil {
+		t.Fatal("additive DDL and sole control-plane owner changed business projection:", e)
+	}
+	sql("INSERT INTO app.options VALUES('MerchantStoreDeploymentFence:unknown:host','ACTIVE');")
+	if validateSchemaMaintenanceBackupProjectedEqual(projectionBefore, project()) == nil {
+		t.Fatal("unknown owner hidden by projection")
+	}
+	sql("DELETE FROM app.options WHERE key='MerchantStoreDeploymentFence:unknown:host'; UPDATE app.options SET value='changed' WHERE key=" + schemaMaintenanceBackupLiteral(ownerKey) + ";")
+	if validateSchemaMaintenanceBackupProjectedEqual(projectionBefore, project()) == nil {
+		t.Fatal("changed self owner hidden by projection")
+	}
+	sql("UPDATE app.options SET value=" + schemaMaintenanceBackupLiteral(string(ownerBytes)) + " WHERE key=" + schemaMaintenanceBackupLiteral(ownerKey) + ";")
+	sql("UPDATE app.options SET value='changed' WHERE key='BusinessOption';")
+	if validateSchemaMaintenanceBackupProjectedEqual(projectionBefore, project()) == nil {
+		t.Fatal("business option change hidden by control-plane exclusion")
+	}
+	sql("UPDATE app.options SET value='unchanged' WHERE key='BusinessOption'; ALTER TABLE app.credits ALTER COLUMN amount DROP NOT NULL;")
+	if validateSchemaMaintenanceBackupProjectedEqual(projectionBefore, project()) == nil {
+		t.Fatal("unapproved old column semantics changed")
+	}
+	sql("ALTER TABLE app.credits ALTER COLUMN amount SET NOT NULL; DROP INDEX app.credits_payload; CREATE INDEX credits_payload ON app.credits(payload);")
+	if validateSchemaMaintenanceBackupProjectedEqual(projectionBefore, project()) == nil {
+		t.Fatal("old index drop and recreation accepted")
+	}
+	t.Logf("actual source snapshot bytes=%d; tables=%d", len(originalBytes), len(projectionBefore.Tables))
 }

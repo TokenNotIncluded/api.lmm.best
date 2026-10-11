@@ -63,10 +63,7 @@ type productionSchemaMaintenanceBackupProof struct {
 }
 
 func schemaMaintenanceBackupLogicalSHA(s productionSchemaMaintenanceBackupSource) string {
-	s.SystemIdentifier = ""
-	s.Database = ""
-	s.DatabaseOID = 0
-	s.SchemaOID = 0
+	s = schemaMaintenanceBackupWithoutPhysicalIdentity(s)
 	raw, _ := json.Marshal(s)
 	return controllerBackupDigest(raw)
 }
@@ -157,7 +154,7 @@ func (runtime *productionReleaseRuntime) prepareSchemaMaintenanceBackup(ctx cont
 	if _, e = os.Lstat(plan.BackupPolicy.RestoreProofPath); !errors.Is(e, os.ErrNotExist) {
 		return fail()
 	}
-	raw, e := controllerBackupReadPrivate(filepath.Join(root, "schema-backup-set.json"), uid, 1<<20)
+	raw, e := controllerBackupReadPrivate(filepath.Join(root, "schema-backup-set.json"), uid, schemaMaintenanceBackupSetMaxBytes)
 	if e != nil {
 		return fail()
 	}
@@ -265,7 +262,7 @@ func (runtime *productionReleaseRuntime) prepareSchemaMaintenanceBackup(ctx cont
 	if e = runSchemaMaintenanceBackupSandbox(ctx, scratch, plan.Role); e != nil {
 		return fail()
 	}
-	restoredRaw, e := controllerBackupReadPrivate(filepath.Join(scratch, "restored-source.json"), uid, 1<<20)
+	restoredRaw, e := controllerBackupReadPrivate(filepath.Join(scratch, "restored-source.json"), uid, schemaMaintenanceBackupSourceMaxBytes)
 	if e != nil {
 		return fail()
 	}
@@ -280,7 +277,7 @@ func (runtime *productionReleaseRuntime) prepareSchemaMaintenanceBackup(ctx cont
 	if controllerBackupVerifyFile(filepath.Join(scratch, "database.pgc"), uid, set.Archive.PlaintextBytes, set.Archive.PlaintextSHA256) != nil || controllerBackupVerifyFile(filepath.Join(root, "database.age"), uid, set.Archive.CiphertextBytes, set.Archive.CiphertextSHA256) != nil {
 		return fail()
 	}
-	again, e := controllerBackupReadPrivate(filepath.Join(root, "schema-backup-set.json"), uid, 1<<20)
+	again, e := controllerBackupReadPrivate(filepath.Join(root, "schema-backup-set.json"), uid, schemaMaintenanceBackupSetMaxBytes)
 	if e != nil || !bytes.Equal(again, raw) {
 		return fail()
 	}
