@@ -1099,6 +1099,7 @@ dependencies = [
  "protoc-bin-vendored",
  "rand 0.8.5",
  "reqwest",
+ "ring",
  "serde",
  "serde_json",
  "sha2",
