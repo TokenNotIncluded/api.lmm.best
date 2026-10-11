@@ -1,0 +1,23 @@
+:root { color-scheme: light dark; font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; }
+* { box-sizing: border-box; }
+body { min-height: 100vh; margin: 0; display: grid; place-items: center; background: light-dark(#f5f6f8,#101115); color: light-dark(#202124,#f1f2f5); }
+main { width: min(100% - 2rem, 42rem); margin: 2rem auto; padding: clamp(1.4rem,5vw,3rem); background: light-dark(white,#191b21); border: 1px solid light-dark(#e2e3e6,#3b3c42); border-radius: 1.3rem; box-shadow: 0 12px 40px #00000010; }
+h1 { font-size: 2rem; letter-spacing: -.04em; margin: 0 0 .5rem; }
+header p, footer { color: light-dark(#5d606a,#aaadb7); }
+#status { border-radius: .7rem; padding: .9rem 1rem; margin: 1.2rem 0; background: light-dark(#f2f3f6,#262833); line-height: 1.5; }
+dl { display: grid; grid-template-columns: minmax(7rem, 30%) 1fr; gap: .65rem 1rem; overflow-wrap: anywhere; }
+dt { color: light-dark(#5d606a,#aaaeb6); }
+dd { margin: 0; font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: .82rem; overflow-wrap: anywhere; }
+fieldset { border: 1px solid light-dark(#dddfe3,#444650); border-radius: .7rem; padding: 1rem; margin: 1.3rem 0; }
+legend { font-weight: 600; padding: 0 .4rem; }
+label { display: block; margin: .7rem 0; cursor: pointer; }
+input[type=checkbox] { width: 1.1rem; height: 1.1rem; vertical-align: middle; }
+.actions { display: flex; flex-wrap: wrap; gap: .7rem; }
+button { padding: .75rem 1rem; border-radius: .7rem; border: 1px solid light-dark(#c2c5cb,#53565e); background: light-dark(#f2f3f7,#282b35); color: inherit; font: inherit; font-weight: 600; cursor: pointer; }
+button:hover:not(:disabled) { background: light-dark(#e3e6ed,#373b48); }
+button:disabled { opacity: .45; cursor: not-allowed; }
+button#approve { background: light-dark(#1c52b8,#709aff); color: white; border-color: transparent; }
+button#approve:hover:not(:disabled) { background: light-dark(#17428e,#547bd8); }
+article { border-bottom: 1px solid light-dark(#e2e4e7,#41434e); padding: 1.2rem 0; overflow-wrap: anywhere; }
+article p { color: light-dark(#5d606a,#aeb2bd); }
+footer { font-size: .85rem; margin-top: 2rem; }
