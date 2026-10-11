@@ -16,7 +16,6 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { legacyPlatformAmountToQuota } from '@/lib/currency'
 import type { WaffoPancakeCheckoutOptions } from '@/lib/waffo-pancake-checkout'
 
 import {
@@ -444,17 +443,27 @@ export function getTopupRecordPlatformAmount(
     : record.amount
 }
 
-/** Immutable credited quota wins over a historical legacy batch projection. */
+/** Only an explicit raw-credit unit can replace a missing immutable snapshot. */
 export function getTopupRecordQuota(
   record: Pick<
     TopupRecord,
-    'credited_quota' | 'amount' | 'platform_amount_micros'
+    'credited_quota' | 'amount' | 'amount_unit' | 'platform_amount_micros'
   >
 ): number {
-  return Number.isSafeInteger(record.credited_quota) &&
+  if (
+    Number.isSafeInteger(record.credited_quota) &&
     Number(record.credited_quota) > 0
-    ? Number(record.credited_quota)
-    : legacyPlatformAmountToQuota(getTopupRecordPlatformAmount(record))
+  ) {
+    return Number(record.credited_quota)
+  }
+  // Go's historical self DTO labels Creem's raw ledger amount CREDIT.
+  // A legacy batch or an absent unit cannot establish its frozen credit scale.
+  return (record.amount_unit === 'CREDIT' ||
+    record.amount_unit === 'LEDGER_QUOTA') &&
+    Number.isSafeInteger(record.amount) &&
+    record.amount > 0
+    ? record.amount
+    : Number.NaN
 }
 
 /**

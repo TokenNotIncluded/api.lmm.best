@@ -28,7 +28,7 @@ export function formatLogPrice(
   expression = false
 ): string {
   if (expression) {
-    const metadata = logExpressionCurrency(other, currency.config.creditsPerUsd)
+    const metadata = logExpressionCurrency(other)
     return metadata.expressionUsdMultiplier == null
       ? '-'
       : currency.formatUSD(
@@ -42,10 +42,13 @@ export function formatLogPrice(
   ) {
     return currency.formatUSD(amount, PRICE_OPTIONS)
   }
-  if (positiveNumber(other.pricing_unit_credits_per_unit)) {
+  if (
+    positiveNumber(other.pricing_unit_credits_per_unit) &&
+    positiveNumber(other.pricing_credits_per_usd)
+  ) {
     return currency.formatUSD(
       (amount * other.pricing_unit_credits_per_unit) /
-        Number(currency.config.creditsPerUsd),
+        other.pricing_credits_per_usd,
       PRICE_OPTIONS
     )
   }
@@ -59,25 +62,26 @@ export function formatLogAddonPrice(
   currency: LogCurrencyFormatter,
   kind: 'tool' | 'audio' = 'tool'
 ): string {
+  const creditsPerUnit =
+    kind === 'audio'
+      ? (other.audio_input_pricing_unit_credits_per_unit ??
+        other.tool_pricing_unit_credits_per_unit)
+      : other.tool_pricing_unit_credits_per_unit
   return formatLogPrice(
     amount,
     {
       ...other,
-      pricing_unit_credits_per_unit:
-        kind === 'audio'
-          ? (other.audio_input_pricing_unit_credits_per_unit ??
-            other.tool_pricing_unit_credits_per_unit)
-          : other.tool_pricing_unit_credits_per_unit,
+      pricing_currency_basis: positiveNumber(creditsPerUnit)
+        ? 'legacy_pricing_unit'
+        : other.pricing_currency_basis,
+      pricing_unit_credits_per_unit: creditsPerUnit,
     },
     currency
   )
 }
 
 /** Historical expressions without a frozen scale cannot safely expose prices. */
-export function logExpressionCurrency(
-  other: LogOtherData,
-  creditsPerUSD: number | undefined
-): {
+export function logExpressionCurrency(other: LogOtherData): {
   expressionCurrencyBasis?: 'USD' | 'legacy_pricing_unit'
   expressionUsdMultiplier?: number
 } {
@@ -95,28 +99,31 @@ export function logExpressionCurrency(
   }
   if (
     positiveNumber(other.pricing_unit_credits_per_unit) &&
-    positiveNumber(creditsPerUSD)
+    positiveNumber(other.pricing_credits_per_usd)
   ) {
     return {
       expressionCurrencyBasis: 'legacy_pricing_unit',
       expressionUsdMultiplier:
-        other.pricing_unit_credits_per_unit / creditsPerUSD,
+        other.pricing_unit_credits_per_unit / other.pricing_credits_per_usd,
     }
   }
   return {}
 }
 
-/** Ratios are calibrated Credits per token; they do not depend on legacy QPU. */
+/** Ratios need the request's captured Credit-to-USD scale, never today's anchor. */
 export function formatLogTokenPrice(
   modelRatio: number,
   multiplier: number,
+  other: LogOtherData,
   currency: LogCurrencyFormatter
 ): string {
-  return currency.formatUSD(
-    (modelRatio * 1_000_000 * multiplier) /
-      Number(currency.config.creditsPerUsd),
-    PRICE_OPTIONS
-  )
+  const scale = positiveNumber(other.model_ratio_usd_per_million_multiplier)
+    ? other.model_ratio_usd_per_million_multiplier
+    : positiveNumber(other.pricing_credits_per_usd)
+      ? 1_000_000 / other.pricing_credits_per_usd
+      : null
+  if (scale == null) return '-'
+  return currency.formatUSD(modelRatio * scale * multiplier, PRICE_OPTIONS)
 }
 
 /** Copy the currently displayed bill and preserve the original text as evidence. */
@@ -155,11 +162,11 @@ export function buildLogCopyText(
     )
   } else if (other?.model_ratio != null) {
     rows.push(
-      `${t('Input')}: ${formatLogTokenPrice(other.model_ratio, 1, currency)}/M`
+      `${t('Input')}: ${formatLogTokenPrice(other.model_ratio, 1, other, currency)}/M`
     )
     if (other.completion_ratio != null) {
       rows.push(
-        `${t('Output')}: ${formatLogTokenPrice(other.model_ratio, other.completion_ratio, currency)}/M`
+        `${t('Output')}: ${formatLogTokenPrice(other.model_ratio, other.completion_ratio, other, currency)}/M`
       )
     }
   }
@@ -171,6 +178,7 @@ export function buildLogCopyText(
           pricing_schema_version: other?.pricing_schema_version,
           pricing_currency_basis: item.price_currency_basis,
           pricing_unit_credits_per_unit: item.pricing_unit_credits_per_unit,
+          pricing_credits_per_usd: other?.pricing_credits_per_usd,
         },
         currency
       )}/1K)`

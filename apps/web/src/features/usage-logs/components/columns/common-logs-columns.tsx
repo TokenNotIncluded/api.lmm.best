@@ -249,7 +249,7 @@ function buildTypeDetailSegments(
       })
     } else if (other.model_ratio != null) {
       const tokenPrice = (multiplier: number) =>
-        formatLogTokenPrice(other.model_ratio ?? 0, multiplier, currency)
+        formatLogTokenPrice(other.model_ratio ?? 0, multiplier, other, currency)
       const baseEntries = [tokenPrice(1)]
       if (other.completion_ratio != null) {
         baseEntries.push(tokenPrice(other.completion_ratio))
