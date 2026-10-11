@@ -87,6 +87,14 @@ check-boundaries:
 check-protocol:
     bash scripts/generate-core-protocol.sh --check
 
+# External development tool; never part of an LMM runtime package.
+pgroll-version:
+    pgroll --version
+
+# Creates and removes its own empty PostgreSQL container; accepts no database URL.
+test-pgroll:
+    python3 -B tests/pgroll/test_pgroll.py
+
 # These commands build images, not deploy or replace existing databases.
 docker: docker-core docker-extensions
 

@@ -1,0 +1,14 @@
+{
+  "version_schema": "lmm_pgroll_demo_v1",
+  "operations": [
+    {
+      "create_table": {
+        "name": "items",
+        "columns": [
+          {"name": "id", "type": "integer", "pk": true},
+          {"name": "label", "type": "text"}
+        ]
+      }
+    }
+  ]
+}
