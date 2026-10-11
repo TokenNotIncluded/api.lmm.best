@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "baseline_revision": "bbde7468dcbd08091bc6a666c27946c2a385f2bf",
+  "records": [
+    {
+      "id": "QD-001",
+      "kind": "debt",
+      "status": "open",
+      "paths": [
+        "apps/lmm-core/src/lib.rs",
+        "apps/lmm-core/tests/routing.rs",
+        "apps/lmm-core/tests/charging.rs",
+        "apps/lmm-extensions/internal/modules/store/pgtest/postgres_test.go"
+      ],
+      "owner": "LIghtJUNction",
+      "reviewer": "pending",
+      "issue": "https://github.com/TokenNotIncluded/api.lmm.best/pull/675",
+      "opened": "2026-10-10",
+      "expires": "2026-10-24",
+      "reason": "WIP acceptance gap, not a demonstrated funds loss: routing and charging are compiled by separate path harnesses; store PostgreSQL tests use a funds adapter. These checks do not exercise the complete production host and Rust funds chain.",
+      "risk": "critical",
+      "alternative_validation": "Keep the existing Rust routing, charging and ledger tests, the Go module race tests, and the isolated PostgreSQL tests. They are component evidence only, not a waiver for funds acceptance.",
+      "exit_condition": "Wire the real host and funds path. Independently verify permissions, wallet and ledger results, duplicate requests, concurrent settlement, failure and stream cancellation through real application code. Link the exact source and logs before resolving this record.",
+      "evidence": ""
+    }
+  ]
+}

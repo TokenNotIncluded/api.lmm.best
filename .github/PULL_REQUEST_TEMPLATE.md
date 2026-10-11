@@ -1,54 +1,41 @@
-# LMM API Pull Request
+# 变更说明
 
-> LMM Forge 的 Go 服务保留上游兼容层。请说明本次变更对悬赏协作、交付跟踪或兼容行为的影响，并确保 PR 只包含当前任务所需的改动。
+问题与关联 Issue/PR：
 
-## 变更说明 / Summary
+为什么采用此方案：
 
-<!-- 做了什么、为什么要改，以及关键实现方式。请使用自己确认过的准确描述。 -->
+复用了什么，替代或删除了什么：
 
-## 与上游的关系 / Upstream relationship
+可能破坏的行为、外部契约或数据路径：
 
-<!-- 请选择一项，并补充相关上游 Issue、PR 或 commit 链接。 -->
+上游来源与许可证影响（不适用时说明）：
 
-- [ ] LMM API 独有变更 / LMM API-specific change
-- [ ] 上游尚未合并的修复或功能 / Change not yet merged upstream
-- [ ] 同步或移植上游变更 / Upstream sync or backport
-- [ ] 不适用（文档、CI、仓库维护等）/ Not applicable
+# 验证证据
 
-上游参考 / Upstream reference:
+审查基点 SHA：
+实际测试的 HEAD 与工作区摘要：
 
-## 关联 Issue / Related issue
+修复前失败、修复后通过的命令与日志：
 
-Closes #
+重构的行为保持证据，或明确的业务语义差异：
 
-## 变更类型 / Type of change
+quick / related / full 的报告、失败、受阻及未执行项目：
 
-- [ ] Bug 修复 / Bug fix
-- [ ] 新功能 / Feature
-- [ ] 重构或性能优化 / Refactor or performance
-- [ ] 前端或交互 / Frontend or UX
-- [ ] 部署、CI 或构建 / Deployment, CI, or build
-- [ ] 文档或仓库维护 / Documentation or maintenance
+用户可见变化的浏览器证据；核心变化的同环境资源对比（适用时）：
 
-## 验证 / Verification
+# 必须独立审查的内容
 
-<!-- 列出实际执行的命令、结果，以及必要的手动验证步骤。未执行的项目请写明原因。 -->
+门禁、测试断言、类型配置、阈值、锁文件、基线或例外的变更与理由：
 
-```text
-command:
-result:
-```
+高风险业务、临时方案的责任人、到期时间与退出条件：
 
-## 截图或日志 / Screenshots or logs
+独立审查者与证据（尚未执行请写 pending，作者不能自行批准）：
 
-<!-- 涉及界面、响应格式、部署流程或性能变化时，请提供脱敏后的证据；否则填写 N/A。 -->
+# 提交前核对
 
-## 提交检查 / Checklist
+- [ ] 一个明确目标，无夹带格式化、重命名或架构重写；已核对重复工作及被删除内容的消费者。
+- [ ] 没有通过跳过测试、删除有效断言、测试专用成功分支或降低门槛换取通过。
+- [ ] 模块测试、真实业务验收、未执行与受阻项目已区分；构建成功未冒充完整验收。
+- [ ] 已更新受影响的文档和配置；代码及提交证据不含凭据、DSN 或用户私密数据。
 
-- [ ] 我已搜索本仓库的 [Issues](https://github.com/TokenNotIncluded/api.lmm.best/issues) 和 [PRs](https://github.com/TokenNotIncluded/api.lmm.best/pulls)，确认没有重复工作。
-- [ ] 此 PR 只包含与当前目标相关的改动，未混入格式化或其他无关变更。
-- [ ] 我已说明该变更对当前产品流程或兼容行为的影响，并保留必要的来源、版权和许可证信息。
-- [ ] 我已检查兼容性；如有破坏性变化，已在说明中明确列出迁移方式。
-- [ ] 我已补充或更新相关测试，并在上方记录实际验证结果；如未测试，已说明原因。
-- [ ] 我已更新受影响的文档、示例配置和多语言文案（如适用）。
-- [ ] 代码、日志、截图和提交记录中不包含 API Key、Cookie、Token、密码、DSN 或其他敏感信息。
+本地补丁也填写以上内容。规则及命令见 [本地质量门禁](../docs/quality.md)。提交不代表允许合并、发布或部署。

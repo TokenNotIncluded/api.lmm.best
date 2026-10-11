@@ -10,6 +10,8 @@ Use isolated databases and synthetic credentials. Never register production acco
 
 ## Verify the changed behavior
 
+Use the [local quality gate](docs/quality.md) for layered checks, dated debt records and independent acceptance. Run `just quality-self-tests` when changing the gate. These local commands do not enable CI or authorize a release.
+
 Run the relevant unit and integration tests, then report the exact tested commit and results. [The development guide](docs/development.md) lists commands; [the distribution guide](docs/release-architecture.md) explains preview artifacts. Real database tests and simulated funds adapters are different evidence.
 
 For documentation changes, run `python3 scripts/check-docs-brand.py`. For policy or packaging changes, also run `python3 scripts/test-distribution.py` and the Go legal-package tests. Inspect user-visible changes in a real browser when applicable.
