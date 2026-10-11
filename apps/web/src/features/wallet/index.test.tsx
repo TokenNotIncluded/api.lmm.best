@@ -571,6 +571,7 @@ test('confirmed top-up grows the balance cloud only after the server reports suc
         id: 11,
         user_id: 7,
         amount: 10,
+        credited_quota: 5_000_000,
         money: 10,
         trade_no: 'confirmed-order',
         payment_method: 'waffo_pancake',
@@ -645,6 +646,7 @@ test('reduced motion preserves the confirmed receipt after the cloud animation i
           id: 12,
           user_id: 7,
           amount: 10,
+          credited_quota: 5_000_000,
           money: 10,
           trade_no: 'reduced-motion-order',
           payment_method: 'waffo_pancake',
@@ -669,6 +671,58 @@ test('reduced motion preserves the confirmed receipt after the cloud animation i
   } finally {
     window.matchMedia = originalMatchMedia
   }
+})
+
+test('a successful historical order without a frozen credit amount cannot invent a success receipt', async () => {
+  const launchedAt = Date.now() - 1000
+  window.localStorage.setItem(
+    'wallet-topup-cloud:7',
+    JSON.stringify([
+      {
+        userId: 7,
+        launchedAt,
+        expiresAt: launchedAt + 900_000,
+        attemptId: 'unknown-credit-attempt',
+        tradeNo: 'unknown-credit-order',
+        beforeQuota: 5_000_000,
+        expectedCredit: 10,
+      },
+    ])
+  )
+  const { container, queryClient } = await renderWallet(true, {
+    paymentReturn: 'return',
+    quota: 5_000_000,
+    selfQuota: 10_000_000,
+    topupRecords: [
+      {
+        id: 13,
+        user_id: 7,
+        amount: 10,
+        amount_unit: 'LEGACY',
+        money: 10,
+        trade_no: 'unknown-credit-order',
+        payment_method: 'waffo_pancake',
+        create_time: Math.floor(launchedAt / 1000),
+        complete_time: Math.floor(launchedAt / 1000) + 1,
+        status: 'success',
+      },
+    ],
+  })
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  })
+  assert.equal(
+    container.querySelector('[data-testid="payment-success-receipt"]'),
+    null
+  )
+  assert.notEqual(
+    container
+      .querySelector('[data-testid="wallet-token-cloud-balance"]')
+      ?.getAttribute('data-success'),
+    'true'
+  )
+  assert.ok(window.localStorage.getItem('wallet-topup-cloud:7'))
+  queryClient.clear()
 })
 
 for (const paymentReturn of ['return', 'cancel'] as const) {

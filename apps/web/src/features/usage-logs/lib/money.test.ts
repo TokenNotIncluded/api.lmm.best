@@ -29,24 +29,27 @@ const config = {
   quotaPerUnit: 2_000_000,
 }
 
-function formatter(): LogCurrencyFormatter {
+function formatter(
+  overrides: Partial<typeof config> = {}
+): LogCurrencyFormatter {
   const currency = 'USD' as const
+  const currentConfig = { ...config, ...overrides }
   return {
     currency,
-    config,
+    config: currentConfig,
     formatQuota: (quota, options) =>
       formatQuotaInCurrency(
         quota,
         currency,
         { ...options, locale: 'en' },
-        config
+        currentConfig
       ),
     formatUSD: (amount, options) =>
       formatUSDInCurrency(
         amount,
         currency,
         { ...options, locale: 'en' },
-        config
+        currentConfig
       ),
   }
 }
@@ -79,8 +82,29 @@ describe('log monetary snapshots', () => {
     )
   })
   test('converts a frozen legacy absolute price once into USD', () => {
-    const other = { pricing_unit_credits_per_unit: 500_000 }
-    assert.equal(formatLogPrice(7, other, formatter()), '7 USD')
+    const other = {
+      pricing_unit_credits_per_unit: 500_000,
+      pricing_credits_per_usd: 3_500_000,
+    }
+    const original = JSON.stringify(other)
+    assert.equal(formatLogPrice(7, other, formatter()), '1 USD')
+    assert.equal(
+      formatLogPrice(
+        7,
+        other,
+        formatter({ creditsPerUsd: 1_000_000, cnyPerUsd: 8 })
+      ),
+      '1 USD'
+    )
+    assert.equal(JSON.stringify(other), original)
+    assert.equal(
+      formatLogPrice(
+        7,
+        { pricing_unit_credits_per_unit: 500_000 },
+        formatter()
+      ),
+      '-'
+    )
   })
 
   test('requires a versioned basis before treating a price as real USD', () => {
@@ -91,7 +115,12 @@ describe('log monetary snapshots', () => {
     assert.equal(
       formatLogPrice(
         7,
-        { pricing_schema_version: 2, pricing_currency_basis: 'USD' },
+        {
+          pricing_schema_version: 2,
+          pricing_currency_basis: 'USD',
+          pricing_unit_credits_per_unit: 500_000,
+          pricing_credits_per_usd: 3_500_000,
+        },
         formatter()
       ),
       '7 USD'
@@ -100,25 +129,83 @@ describe('log monetary snapshots', () => {
   })
 
   test('token ratios use Credits per token, independent of the old QPU', () => {
-    assert.equal(formatLogTokenPrice(3.5, 1, formatter()), '7 USD')
-    assert.equal(formatLogTokenPrice(3.5, 2, formatter()), '14 USD')
+    const other = { pricing_credits_per_usd: 500_000 }
+    assert.equal(formatLogTokenPrice(3.5, 1, other, formatter()), '7 USD')
+    assert.equal(formatLogTokenPrice(3.5, 2, other, formatter()), '14 USD')
     assert.match(
-      formatLogTokenPrice(0.000_000_01, 1, formatter()),
+      formatLogTokenPrice(0.000_000_01, 1, other, formatter()),
       /^0\.00000002 USD$/
     )
   })
 
+  test('token prices retain their captured scale after the ledger anchor changes', () => {
+    const frozen = {
+      model_ratio_usd_per_million_multiplier: 1_000_000 / 3_500_000,
+      pricing_credits_per_usd: 500_000,
+      pricing_unit_credits_per_unit: 2_000_000,
+    }
+    assert.equal(formatLogTokenPrice(3.5, 1, frozen, formatter()), '1 USD')
+    assert.equal(formatLogTokenPrice(3.5, 2, frozen, formatter()), '2 USD')
+    assert.equal(
+      formatLogTokenPrice(
+        3.5,
+        1,
+        { pricing_credits_per_usd: 3_500_000 },
+        formatter()
+      ),
+      '1 USD'
+    )
+    assert.equal(formatLogTokenPrice(3.5, 1, {}, formatter()), '-')
+    for (const value of [0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
+      assert.equal(
+        formatLogTokenPrice(
+          3.5,
+          1,
+          { pricing_credits_per_usd: value },
+          formatter()
+        ),
+        '-'
+      )
+    }
+  })
+
   test('uses the frozen expression scale and leaves unknown historical prices unavailable', () => {
-    assert.deepEqual(logExpressionCurrency({}, 3_500_000), {})
+    assert.deepEqual(logExpressionCurrency({}), {})
     assert.equal(formatLogPrice(7, {}, formatter(), true), '-')
-    const frozen = { billing_expr_usd_multiplier: 1 / 7 }
+    const frozen = {
+      billing_expr_usd_multiplier: 1 / 7,
+      pricing_unit_credits_per_unit: 1_000_000,
+      pricing_credits_per_usd: 500_000,
+    }
     assert.equal(formatLogPrice(7, frozen, formatter(), true), '1 USD')
     assert.equal(
-      logExpressionCurrency(
-        { pricing_unit_credits_per_unit: 500_000 },
-        3_500_000
-      ).expressionUsdMultiplier,
+      logExpressionCurrency({
+        pricing_unit_credits_per_unit: 500_000,
+        pricing_credits_per_usd: 3_500_000,
+      }).expressionUsdMultiplier,
       1 / 7
+    )
+    assert.equal(
+      formatLogPrice(
+        7,
+        { pricing_unit_credits_per_unit: 500_000 },
+        formatter(),
+        true
+      ),
+      '-'
+    )
+    assert.equal(
+      formatLogPrice(
+        7,
+        {
+          ...frozen,
+          pricing_schema_version: 2,
+          billing_expr_currency_basis: 'USD',
+        },
+        formatter(),
+        true
+      ),
+      '7 USD'
     )
   })
 
@@ -152,6 +239,7 @@ describe('log monetary snapshots', () => {
       matched_tier: 'matched',
       pricing_schema_version: 2,
       pricing_unit_credits_per_unit: 500_000,
+      pricing_credits_per_usd: 3_500_000,
       billing_expr_usd_multiplier: 1 / 7,
       model_ratio: 0.7,
       completion_ratio: 2,
@@ -174,7 +262,25 @@ describe('log monetary snapshots', () => {
     assert.match(copy, /Input: 1 USD\/M/)
     assert.match(copy, /Output: 2 USD\/M/)
     assert.doesNotMatch(copy, /0\.2 USD|0\.4 USD/)
-    assert.match(copy, /web_search: 2x \(14 USD\/1K\)/)
+    assert.match(copy, /web_search: 2x \(2 USD\/1K\)/)
+  })
+
+  test('copied standard token prices use the same frozen scale as the bill details', () => {
+    const other = {
+      model_ratio: 3.5,
+      completion_ratio: 2,
+      pricing_credits_per_usd: 3_500_000,
+    }
+    const copy = buildLogCopyText(
+      'Raw recorded evidence',
+      { type: 2, quota: 500_000 } as UsageLog,
+      other,
+      formatter(),
+      (key) => key
+    )
+    assert.match(copy, /Input: 1 USD\/M/)
+    assert.match(copy, /Output: 2 USD\/M/)
+    assert.ok(copy.endsWith('Raw recorded evidence'))
   })
 })
 
@@ -182,10 +288,18 @@ test('audio addon prices use their own frozen unit rather than a separately capt
   const other = {
     tool_pricing_unit_credits_per_unit: 500000,
     audio_input_pricing_unit_credits_per_unit: 1000000,
+    pricing_credits_per_usd: 3_500_000,
   }
-  assert.equal(formatLogAddonPrice(7, other, formatter()), '7 USD')
-  assert.equal(formatLogAddonPrice(7, other, formatter(), 'audio'), '14 USD')
-  assert.equal(formatLogAddonPrice(7, other, formatter(), 'audio'), '14 USD')
-  assert.match(formatLogAddonPrice(7, other, formatter(), 'audio'), /^14 USD$/)
+  assert.equal(formatLogAddonPrice(7, other, formatter()), '1 USD')
+  assert.equal(formatLogAddonPrice(7, other, formatter(), 'audio'), '2 USD')
+  assert.equal(
+    formatLogAddonPrice(
+      7,
+      { ...other, pricing_schema_version: 2, pricing_currency_basis: 'USD' },
+      formatter(),
+      'audio'
+    ),
+    '2 USD'
+  )
   assert.equal(formatLogAddonPrice(7, {}, formatter(), 'audio'), '-')
 })
