@@ -35,9 +35,9 @@ import type {
   QuotaDataItem,
   DashboardFilters,
 } from '@/features/dashboard/types'
-import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { toIntlLocale } from '@/i18n/languages'
 import { formatCompactNumber, formatNumber } from '@/lib/format'
+import { formatHistoricalRawQuota } from '@/lib/historical-quota-money'
 import { ROLE } from '@/lib/roles'
 import { computeTimeRange } from '@/lib/time'
 import { useAuthStore } from '@/stores/auth-store'
@@ -67,7 +67,6 @@ function formatStatNumber(value: number, locale: Intl.LocalesArgument) {
 export function LogStatCards({ filters, onDataUpdate }: LogStatCardsProps) {
   const { t, i18n } = useTranslation()
   registerDashboardUsageTranslations(i18n)
-  const { formatQuota } = useWalletCurrency()
   const statCardsConfig = useModelStatCardsConfig()
   const userRole = useAuthStore((state) => state.auth.user?.role)
   const isAdmin = Boolean(userRole && userRole >= ROLE.ADMIN)
@@ -202,8 +201,16 @@ export function LogStatCards({ filters, onDataUpdate }: LogStatCardsProps) {
           const formatted =
             config.key === 'quota'
               ? {
-                  displayValue: formatQuota(rawValue),
-                  fullValue: formatQuota(rawValue),
+                  displayValue: formatHistoricalRawQuota(
+                    rawValue,
+                    t('Raw credits'),
+                    locale
+                  ),
+                  fullValue: formatHistoricalRawQuota(
+                    rawValue,
+                    t('Raw credits'),
+                    locale
+                  ),
                 }
               : formatStatNumber(rawValue, locale)
           return (

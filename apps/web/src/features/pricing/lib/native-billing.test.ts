@@ -135,9 +135,53 @@ describe('native cache and duration billing', () => {
     assert.equal(evalExprLocally(expression, 1000, 0, emptyExtras).error, null)
   })
 
+  test('uses the same effective cache count for generic prices and tier context', () => {
+    const expression =
+      'len < 1200 ? tier("short", p * 2 + cr * 0.1) : tier("long", p * 4 + cr * 0.2)'
+    for (const [details, cost, matchedTier] of [
+      [{ cacheTextReadTokens: 100 }, 2010, 'short'],
+      [{ cacheImageReadTokens: 200 }, 4040, 'long'],
+      [{ cacheAudioReadTokens: 200 }, 4040, 'long'],
+      [
+        {
+          cacheTextReadTokens: 50,
+          cacheImageReadTokens: 100,
+          cacheAudioReadTokens: 50,
+        },
+        4040,
+        'long',
+      ],
+      [{ cacheReadTokens: 400, cacheTextReadTokens: 100 }, 4080, 'long'],
+      [{ cacheReadTokens: 0, cacheTextReadTokens: 0 }, 2000, 'short'],
+    ] as const) {
+      assert.deepEqual(
+        evalExprLocally(expression, 1000, 0, { ...emptyExtras, ...details }),
+        { cost, matchedTier, error: null }
+      )
+    }
+  })
+
   test('keeps text-only estimates accurate and refuses missing duration', () => {
     assert.equal(
       evaluateTextRequestExpression('p * 1 + cr_text * 0.1', 1000, 0, 100),
+      910
+    )
+    assert.equal(
+      evaluateTextRequestExpression(
+        'p * 1 + cr_img * 10 + cr_audio * 100',
+        1000,
+        0,
+        100
+      ),
+      1000
+    )
+    assert.equal(
+      evaluateTextRequestExpression(
+        'p * 1 + cr_text * 0.1 + cr_img * 10 + cr_audio * 100',
+        1000,
+        0,
+        100
+      ),
       910
     )
     assert.throws(

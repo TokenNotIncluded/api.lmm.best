@@ -12,8 +12,8 @@ import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { toIntlLocale } from '@/i18n/languages'
+import { formatHistoricalRawQuota } from '@/lib/historical-quota-money'
 
 import {
   modelUsageCsv,
@@ -42,7 +42,7 @@ interface ModelUsageTableViewProps {
   text: DashboardUsageText
   number: Intl.NumberFormat
   percent: Intl.NumberFormat
-  formatQuota: (quota: number) => string
+  formatQuota: (quota: string | null) => string
   onQuery: (query: string) => void
   onSort: (metric: ModelUsageMetric) => void
   onPage: (page: number) => void
@@ -186,7 +186,7 @@ function ModelUsageTableView(props: ModelUsageTableViewProps) {
                   data-label={text('quota')}
                   className='dashboard-usage__cost'
                 >
-                  {formatQuota(row.quota)}
+                  {formatQuota(row.quota_raw)}
                 </td>
                 <td role='cell' data-label={text('share')}>
                   <span className='dashboard-usage__share'>
@@ -248,9 +248,16 @@ export function ModelUsageTable({
 }) {
   const { t, i18n } = useTranslation()
   registerDashboardUsageTranslations(i18n)
-  const text: DashboardUsageText = (key, values) =>
-    t(key, { ...values, ns: 'dashboardUsage' })
-  const { currency, formatQuota, quotaToAmount } = useWalletCurrency()
+  const text: DashboardUsageText = (key, values) => {
+    if (key === 'quota') return t('Raw quota')
+    if (key === 'share') return t('Quota share')
+    if (key === 'shareNote') {
+      return t(
+        'Share of raw quota in the selected range; historical money basis is unavailable.'
+      )
+    }
+    return t(key, { ...values, ns: 'dashboardUsage' })
+  }
   const [query, setQuery] = useState('')
   const [page, setPage] = useState(0)
   const [sort, setSort] = useState<ModelUsageSort>({
@@ -258,6 +265,9 @@ export function ModelUsageTable({
     direction: 'descending',
   })
   const locale = toIntlLocale(i18n.resolvedLanguage || i18n.language)
+  const creditLabel = t('Raw credits')
+  const formatQuota = (quota: string | null) =>
+    formatHistoricalRawQuota(quota, creditLabel, locale)
   const number = useMemo(() => new Intl.NumberFormat(locale), [locale])
   const percent = useMemo(
     () =>
@@ -279,10 +289,13 @@ export function ModelUsageTable({
       text('model'),
       text('count'),
       text('tokens'),
-      `${text('quota')} (${currency})`,
+      text('quota'),
+      t('Quota unit'),
+      t('Historical money available'),
+      t('Historical money basis'),
       `${text('share')} (%)`,
     ]
-    const csv = modelUsageCsv(selected, headers, quotaToAmount, unknown)
+    const csv = modelUsageCsv(selected, headers, unknown)
     const url = URL.createObjectURL(
       new Blob([csv], { type: 'text/csv;charset=utf-8' })
     )

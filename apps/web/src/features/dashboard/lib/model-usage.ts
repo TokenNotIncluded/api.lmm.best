@@ -19,6 +19,7 @@ export interface ModelUsageRow {
   count: number
   tokens: number
   quota: number
+  quota_raw: string | null
   share: number | null
 }
 
@@ -28,23 +29,49 @@ const finite = (value: number | undefined) =>
 /** Keep model identity intact; translate an empty name only when displaying it. */
 export function summarizeModelUsage(data: readonly QuotaDataItem[]) {
   const models = new Map<string, ModelUsageRow>()
-  let totalQuota = 0
+  let totalQuota = 0n
+  let completeRawQuota = true
   for (const item of data) {
     const model = item.model_name ?? ''
     let row = models.get(model)
     if (!row) {
-      row = { model, count: 0, tokens: 0, quota: 0, share: null }
+      row = {
+        model,
+        count: 0,
+        tokens: 0,
+        quota: 0,
+        quota_raw: '0',
+        share: null,
+      }
       models.set(model, row)
     }
     row.count += finite(item.count)
     row.tokens += finite(item.token_used)
     row.quota += finite(item.quota)
-    totalQuota += finite(item.quota)
+    const raw =
+      item.quota_money_basis !== 'invalid_stored_quota' &&
+      typeof item.quota === 'number' &&
+      Number.isSafeInteger(item.quota)
+        ? BigInt(item.quota)
+        : null
+    row.quota_raw =
+      row.quota_raw !== null && raw !== null
+        ? (BigInt(row.quota_raw) + raw).toString()
+        : null
+    if (raw === null) {
+      completeRawQuota = false
+    } else {
+      totalQuota += raw
+    }
   }
   return Array.from(models.values(), (row) => ({
     ...row,
-    // Shares always use the whole selected period, not the searched subset.
-    share: totalQuota > 0 ? row.quota / totalQuota : null,
+    // Unknown input makes the entire period's denominator unknown. A known
+    // row must not acquire 100% by silently treating another row as zero.
+    share:
+      completeRawQuota && totalQuota > 0n && row.quota_raw !== null
+        ? Number(BigInt(row.quota_raw)) / Number(totalQuota)
+        : null,
   }))
 }
 
@@ -67,7 +94,7 @@ export function selectModelUsage(
     })
 }
 
-function csvCell(value: string | number) {
+function csvCell(value: string | number | bigint) {
   let text = String(value)
   // Quoting alone does not stop a spreadsheet from executing a model name.
   if (typeof value === 'string' && /^[\s\uFEFF]*[=+@-]/u.test(text)) {
@@ -79,16 +106,22 @@ function csvCell(value: string | number) {
 export function modelUsageCsv(
   rows: readonly ModelUsageRow[],
   headers: readonly string[],
-  quotaToAmount: (quota: number) => number,
   unknownLabel: string
 ) {
-  const records: (string | number)[][] = [
+  const records: (string | number | bigint)[][] = [
     [...headers],
     ...rows.map((row) => [
       row.model || unknownLabel,
       row.count,
       row.tokens,
-      quotaToAmount(row.quota),
+      row.quota_raw === null ? '' : BigInt(row.quota_raw),
+      // Hour buckets do not capture a historical money basis. Aggregating raw
+      // quota cannot establish one, even if today's wallet FX is available.
+      'raw_quota',
+      'false',
+      row.quota_raw === null
+        ? 'raw_quota_not_exact'
+        : 'bucket_without_credit_basis',
       row.share === null ? '' : row.share * 100,
     ]),
   ]

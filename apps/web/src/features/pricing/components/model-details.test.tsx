@@ -316,6 +316,40 @@ describe('ModelDetails group pricing', () => {
     await unmount(rendered)
   })
 
+  test('recalculates the request estimate when cached input tokens change', async () => {
+    const rendered = await renderModelDetails('cached-model', {
+      cache_read_price: 0.2,
+    })
+    const section = [...rendered.container.querySelectorAll('h3')]
+      .find((element) => element.textContent === 'Request cost estimate')
+      ?.closest('section')
+    assert.ok(section)
+    const cached = section.querySelector<HTMLInputElement>(
+      'input[id$="-cached"]'
+    )
+    assert.ok(cached)
+    const setValue = Object.getOwnPropertyDescriptor(
+      HTMLInputElement.prototype,
+      'value'
+    )?.set
+    assert.ok(setValue)
+    assert.equal(section.querySelector('[aria-live]')?.textContent, '0.024 USD')
+    for (const [value, expected] of [
+      ['4000', '0.0168 USD'],
+      ['10000', '0.006 USD'],
+      ['10001', 'Estimate unavailable'],
+      ['', 'Estimate unavailable'],
+      ['0', '0.024 USD'],
+    ]) {
+      await act(async () => {
+        setValue.call(cached, value)
+        cached.dispatchEvent(new Event('input', { bubbles: true }))
+      })
+      assert.equal(section.querySelector('[aria-live]')?.textContent, expected)
+    }
+    await unmount(rendered)
+  })
+
   test('does not offer chat token presets for native sessions or their aliases', async () => {
     for (const [modelName, endpoint] of [
       ['gpt-live-1', 'live'],

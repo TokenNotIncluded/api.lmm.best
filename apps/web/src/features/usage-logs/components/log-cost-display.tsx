@@ -28,7 +28,11 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
-import { useBillingUSD } from '@/hooks/use-billing-usd'
+import { useHistoricalQuotaMoney } from '@/hooks/use-historical-quota-money'
+import {
+  historicalLogQuotaUSD,
+  type HistoricalQuotaProjection,
+} from '@/lib/historical-quota-money'
 
 import { hasToolSurcharge } from '../lib/format'
 import type { LogOtherData } from '../types'
@@ -36,6 +40,8 @@ import type { LogOtherData } from '../types'
 interface LogCostDisplayProps {
   quota: number
   other: LogOtherData | null
+  type?: number
+  projection?: HistoricalQuotaProjection
 }
 
 function splitQuotaDisplay(value: string): { prefix: string; amount: string } {
@@ -79,18 +85,19 @@ function ToolSurchargeMarker() {
   )
 }
 
-function QuotaBadge(props: { quota: number }) {
-  const { formatQuota } = useBillingUSD()
-  const quotaDisplay = splitQuotaDisplay(
-    formatQuota(props.quota, {
-      digitsLarge: 4,
-      digitsSmall: 8,
-      abbreviate: false,
-    })
-  )
+function QuotaBadge(props: { display: string; unavailable: boolean }) {
+  const { t } = useTranslation()
+  const quotaDisplay = splitQuotaDisplay(props.display)
 
   return (
-    <span className='border-border/80 bg-muted/60 inline-flex h-6 w-fit items-center rounded-md border px-2 [font-family:var(--font-body)] text-sm leading-none font-semibold tabular-nums'>
+    <span
+      className='border-border/80 bg-muted/60 inline-flex h-6 w-fit items-center rounded-md border px-2 [font-family:var(--font-body)] text-sm leading-none font-semibold tabular-nums'
+      title={
+        props.unavailable
+          ? t('Historical monetary value unavailable')
+          : undefined
+      }
+    >
       {quotaDisplay.prefix ? (
         <span className='mr-1'>{quotaDisplay.prefix}</span>
       ) : null}
@@ -99,14 +106,9 @@ function QuotaBadge(props: { quota: number }) {
   )
 }
 
-function SubscriptionBadge(props: { consumedQuota: number }) {
+function SubscriptionBadge(props: { display: string; unavailable: boolean }) {
   const { t } = useTranslation()
-  const { formatQuota } = useBillingUSD()
-  const consumedQuotaDisplay = formatQuota(props.consumedQuota, {
-    digitsLarge: 4,
-    digitsSmall: 8,
-    abbreviate: false,
-  })
+  const consumedQuotaDisplay = props.display
 
   return (
     <Tooltip>
@@ -124,6 +126,9 @@ function SubscriptionBadge(props: { consumedQuota: number }) {
       <TooltipContent>
         <span>
           {t('Deducted by subscription')}: {consumedQuotaDisplay}
+          {props.unavailable
+            ? ` · ${t('Historical monetary value unavailable')}`
+            : ''}
         </span>
       </TooltipContent>
     </Tooltip>
@@ -131,15 +136,25 @@ function SubscriptionBadge(props: { consumedQuota: number }) {
 }
 
 export function LogCostDisplay(props: LogCostDisplayProps) {
+  const { formatHistoricalLogQuota } = useHistoricalQuotaMoney()
   const isSubscription = props.other?.billing_source === 'subscription'
   const subscriptionConsumedQuota =
     props.other?.subscription_consumed ?? props.quota
   const showToolSurcharge = hasToolSurcharge(props.other)
+  const input = {
+    quota: props.quota,
+    other: props.other,
+    type: props.type,
+    projection: props.projection,
+    consumedQuota: isSubscription ? subscriptionConsumedQuota : props.quota,
+  }
+  const display = formatHistoricalLogQuota(input)
+  const unavailable = historicalLogQuotaUSD(input) === null
 
   if (!isSubscription && !showToolSurcharge) {
     return (
       <div className='flex flex-col gap-0.5'>
-        <QuotaBadge quota={props.quota} />
+        <QuotaBadge display={display} unavailable={unavailable} />
       </div>
     )
   }
@@ -148,9 +163,9 @@ export function LogCostDisplay(props: LogCostDisplayProps) {
     <TooltipProvider>
       <div className='inline-flex items-center gap-1'>
         {isSubscription ? (
-          <SubscriptionBadge consumedQuota={subscriptionConsumedQuota} />
+          <SubscriptionBadge display={display} unavailable={unavailable} />
         ) : (
-          <QuotaBadge quota={props.quota} />
+          <QuotaBadge display={display} unavailable={unavailable} />
         )}
         {showToolSurcharge ? <ToolSurchargeMarker /> : null}
       </div>

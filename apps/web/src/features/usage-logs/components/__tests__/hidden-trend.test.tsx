@@ -89,7 +89,23 @@ for (const admin of [false, true]) {
         headers: {},
         status: 200,
         statusText: 'OK',
-        data: { success: true, data: { quota: 100, rpm: 3, tpm: 9 } },
+        data: {
+          success: true,
+          data: {
+            quota: 100,
+            rpm: 3,
+            tpm: 9,
+            ...(admin
+              ? {
+                  quota_usd: '0.0002',
+                  quota_money_available: true,
+                  quota_money_basis: 'captured_credits_per_usd',
+                  unpriced_quota_records: 1,
+                  quota_projection_truncated: true,
+                }
+              : {}),
+          },
+        },
       }
     }
     const rootRoute = createRootRoute()
@@ -140,6 +156,12 @@ for (const admin of [false, true]) {
       )
       const endpoint = admin ? '/api/log/stat' : '/api/log/self/stat'
       assert.equal(requests.length, 13)
+      assert.match(container.textContent ?? '', /100 Raw credits/)
+      assert.match(
+        container.textContent ?? '',
+        /Historical monetary value unavailable/
+      )
+      assert.doesNotMatch(container.textContent ?? '', /USD|CNY/)
       assert.ok(requests.every((request) => request.startsWith(endpoint)))
       const before = requests.length
       const hide = [...container.querySelectorAll('button')].find(
@@ -187,6 +209,7 @@ for (const admin of [false, true]) {
       const bars = trend.querySelectorAll('button')
       assert.equal(bars.length, 12)
       assert.ok([...bars].every((bar) => !bar.title.includes('RPM')))
+      assert.ok([...bars].every((bar) => bar.title.includes('100 Raw credits')))
       const first = bars[0]
       assert.ok(first)
       await act(async () => first.click())

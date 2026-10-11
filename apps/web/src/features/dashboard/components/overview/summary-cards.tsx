@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { ArrowRight } from 'lucide-react'
@@ -28,8 +29,10 @@ import { getUserQuotaDates } from '@/features/dashboard/api'
 import { useSummaryCardsConfig } from '@/features/dashboard/hooks/use-dashboard-config'
 import { useStatus } from '@/hooks/use-status'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
+import { toIntlLocale } from '@/i18n/languages'
 import { normalizedUserUsage } from '@/lib/cumulative-user-usage'
 import { formatNumber } from '@/lib/format'
+import { formatHistoricalRawQuota } from '@/lib/historical-quota-money'
 import { computeTimeRange } from '@/lib/time'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
@@ -74,7 +77,7 @@ const HEALTH_CONFIG: Record<
 }
 
 export function SummaryCards() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const {
     formatQuota,
     formatUserUsage,
@@ -84,8 +87,11 @@ export function SummaryCards() {
   const { loading } = useStatus()
 
   const summaryTimeRange = useMemo(() => computeTimeRange(1), [])
-  const remainQuota = Number(user?.quota ?? 0)
-  const requestCount = Number(user?.request_count ?? 0)
+  const financialAvailable = user?.financial_projection_available !== false
+  const remainQuota = financialAvailable ? Number(user?.quota ?? 0) : null
+  const requestCount = financialAvailable
+    ? Number(user?.request_count ?? 0)
+    : null
 
   const usageTrendQuery = useQuery({
     queryKey: [
@@ -108,8 +114,9 @@ export function SummaryCards() {
 
   // Formatting follows the current language and currency configuration on every render.
   const summaryValues = {
-    usedDisplay: formatUserUsage(user),
-    requestCountDisplay: formatNumber(requestCount),
+    usedDisplay: financialAvailable ? formatUserUsage(user) : t('Unavailable'),
+    requestCountDisplay:
+      requestCount === null ? t('Unavailable') : formatNumber(requestCount),
   }
 
   const recentUsage = useMemo(
@@ -125,13 +132,33 @@ export function SummaryCards() {
     usageTrendQuery.isSuccess && usageTrendQuery.data.success === true
   const usageFailed =
     usageTrendQuery.isError || usageTrendQuery.data?.success === false
-  const healthLevel = getHealthLevel(remainQuota, recentUsage)
-  const healthCfg = HEALTH_CONFIG[healthLevel]
-  const runwayDays = getRunwayDays(remainQuota, recentUsage)
+  // Without captured bucket units, raw history cannot predict the current wallet's runway.
+  const usageComparable = usageReady && recentUsage === 0
+  const healthLevel =
+    remainQuota === null
+      ? null
+      : getHealthLevel(remainQuota, usageComparable ? recentUsage : 0)
+  const healthCfg = healthLevel === null ? null : HEALTH_CONFIG[healthLevel]
+  const runwayDays =
+    remainQuota !== null && usageComparable
+      ? getRunwayDays(remainQuota, recentUsage)
+      : null
 
-  const todayUsageDisplay = usageReady ? formatQuota(recentUsage) : '—'
+  const todayUsageDisplay = usageReady
+    ? formatHistoricalRawQuota(
+        recentUsage,
+        t('Raw credits'),
+        toIntlLocale(i18n.resolvedLanguage || i18n.language)
+      )
+    : '—'
   let runwayDisplay: string
-  if (!usageReady) {
+  if (remainQuota === null) {
+    runwayDisplay = t('Unavailable')
+  } else if (!usageReady) {
+    runwayDisplay = t('Unknown')
+  } else if (remainQuota <= 0) {
+    runwayDisplay = t('Balance depleted')
+  } else if (!usageComparable) {
     runwayDisplay = t('Unknown')
   } else if (runwayDays !== null) {
     if (runwayDays < 1) {
@@ -141,8 +168,6 @@ export function SummaryCards() {
     } else {
       runwayDisplay = `~${formatNumber(Math.floor(runwayDays))} ${t('days')}`
     }
-  } else if (remainQuota <= 0) {
-    runwayDisplay = t('Balance depleted')
   } else {
     runwayDisplay = t('No recent usage')
   }
@@ -151,6 +176,7 @@ export function SummaryCards() {
     ...summaryValues,
     todayUsageDisplay,
     currencyLabel,
+    todayCurrencyLabel: t('Raw credits'),
     usedCurrencyLabel:
       normalizedUserUsage(user) === null ? t('Credits') : currencyLabel,
     currencyEnabled: true,
@@ -163,7 +189,9 @@ export function SummaryCards() {
           <h3 className='text-muted-foreground text-sm font-medium'>
             {t('Credit remaining')}
           </h3>
-          {usageReady || remainQuota <= 0 ? (
+          {healthCfg &&
+          remainQuota !== null &&
+          (usageComparable || remainQuota <= 0) ? (
             <span className='overview-health'>
               <span
                 className={cn('size-1.5 rounded-full', healthCfg.dotClass)}
@@ -179,7 +207,9 @@ export function SummaryCards() {
           aria-live='polite'
           aria-atomic='true'
         >
-          {loading ? (
+          {remainQuota === null ? (
+            t('Unavailable')
+          ) : loading ? (
             <Skeleton className='h-12 w-48 max-w-full' />
           ) : (
             <>

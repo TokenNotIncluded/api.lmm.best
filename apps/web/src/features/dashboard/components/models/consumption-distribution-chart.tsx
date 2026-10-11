@@ -35,7 +35,6 @@ import type {
   ConsumptionDistributionChartType,
   QuotaDataItem,
 } from '@/features/dashboard/types'
-import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { getCurrencyFormattingLocale } from '@/lib/currency'
 import { useThemeRadiusPx } from '@/lib/theme-radius'
 import type { TimeGranularity } from '@/lib/time'
@@ -56,22 +55,8 @@ export function ConsumptionDistributionChart(
   props: ConsumptionDistributionChartProps
 ) {
   const { t, i18n } = useTranslation()
-  const {
-    currency: unit,
-    formatQuota,
-    quotaToAmount,
-    formatAmount,
-  } = useWalletCurrency()
   const locale = getCurrencyFormattingLocale(
     i18n.resolvedLanguage || i18n.language
-  )
-  const currency = useMemo(
-    () => ({
-      formatQuota,
-      quotaToAmount,
-      formatAmount,
-    }),
-    [formatQuota, quotaToAmount, formatAmount]
   )
   const { resolvedTheme } = useTheme()
   const { customization } = useThemeCustomization()
@@ -118,9 +103,9 @@ export function ConsumptionDistributionChart(
         timeGranularity,
         t,
         chartRadius,
-        currency
+        locale
       ),
-    [props.data, props.loading, timeGranularity, t, chartRadius, currency]
+    [props.data, props.loading, timeGranularity, t, chartRadius, locale]
   )
   const spec = chartType === 'bar' ? chartData.spec_line : chartData.spec_area
   const specType = typeof spec?.type === 'string' ? spec.type : chartType
@@ -130,9 +115,7 @@ export function ConsumptionDistributionChart(
     props.loading ? 'loading' : 'ready',
     props.data.length,
     resolvedTheme,
-    unit,
     locale,
-    quotaToAmount(1),
     customization.preset,
   ].join('-')
 
@@ -167,6 +150,9 @@ export function ConsumptionDistributionChart(
         </Tabs>
       </CardHeader>
 
+      <p className='text-muted-foreground px-4 text-xs sm:px-5'>
+        {t('Historical monetary value unavailable')}
+      </p>
       <CardContent className='h-[300px] p-2 sm:h-96 sm:p-3'>
         {themeReady && spec && (
           <VChart

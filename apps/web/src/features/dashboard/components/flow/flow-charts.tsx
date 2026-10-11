@@ -84,7 +84,7 @@ import type {
   FlowOverflowMode,
   FlowRole,
 } from '@/features/dashboard/types'
-import { useWalletCurrency } from '@/hooks/use-wallet-currency'
+import { formatHistoricalRawQuota } from '@/lib/historical-quota-money'
 import { ROLE } from '@/lib/roles'
 import { computeTimeRange } from '@/lib/time'
 import { useChartTheme } from '@/lib/use-chart-theme'
@@ -101,13 +101,13 @@ interface FlowChartsProps {
 }
 
 const FLOW_METRIC_OPTIONS = [
-  { value: 'quota', labelKey: 'By quota', icon: WalletCards },
+  { value: 'quota', labelKey: 'Raw credits', icon: WalletCards },
   { value: 'tokens', labelKey: 'By tokens', icon: Hash },
   { value: 'requests', labelKey: 'By requests', icon: Activity },
 ] as const
 
 const FLOW_METRIC_LABEL_KEYS: Record<FlowMetric, string> = {
-  quota: 'Quota',
+  quota: 'Raw credits',
   tokens: 'Tokens',
   requests: 'Requests',
 }
@@ -253,8 +253,7 @@ function formatFlowMetricNumber(value: number): string {
 }
 
 export function FlowCharts(props: FlowChartsProps) {
-  const { t } = useTranslation()
-  const { formatQuota } = useWalletCurrency()
+  const { t, i18n } = useTranslation()
   const { resolvedTheme, themeReady } = useChartTheme()
   const chartInstanceRef = useRef<IVChart | null>(null)
   const user = useAuthStore((state) => state.auth.user)
@@ -378,10 +377,18 @@ export function FlowCharts(props: FlowChartsProps) {
   const userFilterOptions = useMemo(
     () =>
       flowData.filterOptions.users.map((user) => ({
-        label: `${user.label} · ${user.valueLabel}`,
+        label: `${user.label} · ${
+          metric === 'quota'
+            ? formatHistoricalRawQuota(
+                user.valueRaw,
+                t('Raw credits'),
+                i18n.language
+              )
+            : user.valueLabel
+        }`,
         value: user.value,
       })),
-    [flowData.filterOptions.users]
+    [flowData.filterOptions.users, metric, t, i18n.language]
   )
   const nodeFilterStages = useMemo(
     () => visibleStages.filter((stage) => stage !== 'user'),
@@ -395,8 +402,10 @@ export function FlowCharts(props: FlowChartsProps) {
   const metricLabel = t(FLOW_METRIC_LABEL_KEYS[metric])
   const formatNodeMetricValue = useCallback(
     (value: number) =>
-      metric === 'quota' ? formatQuota(value) : formatFlowMetricNumber(value),
-    [metric, formatQuota]
+      metric === 'quota'
+        ? formatHistoricalRawQuota(value, t('Raw credits'), i18n.language)
+        : formatFlowMetricNumber(value),
+    [metric, t, i18n.language]
   )
   // Explicit filters (the chips/dropdown control) narrow the rows that feed the
   // chart. They are intentionally independent from the click-to-highlight state
@@ -452,16 +461,23 @@ export function FlowCharts(props: FlowChartsProps) {
     chartInstanceRef.current?.clearState('selected')
     chartInstanceRef.current?.clearState('blur')
   }, [])
-  const chartTitle = t('Flow')
+  const chartTitle =
+    metric === 'quota' ? `${t('Flow')} · ${t('Raw credits')}` : t('Flow')
   const flowSpec = useMemo(
     () =>
-      buildFlowSankeySpec(flowData.flow, chartTitle, formatQuota, {
-        quota: t('Quota'),
-        tokens: t('Tokens'),
-        requests: t('Requests'),
-        share: t('Share'),
-      }),
-    [chartTitle, flowData.flow, t, formatQuota]
+      buildFlowSankeySpec(
+        flowData.flow,
+        chartTitle,
+        t('Raw credits'),
+        {
+          quota: t('Raw credits'),
+          tokens: t('Tokens'),
+          requests: t('Requests'),
+          share: t('Share'),
+        },
+        i18n.language
+      ),
+    [chartTitle, flowData.flow, t, i18n.language]
   )
   const chartTheme = resolvedTheme === 'dark' ? 'dark' : 'light'
   const chartKey = [
@@ -671,7 +687,12 @@ export function FlowCharts(props: FlowChartsProps) {
             <IconBadge tone='info' size='sm'>
               <GitBranch />
             </IconBadge>
-            <div className='text-sm font-semibold'>{chartTitle}</div>
+            <div className='min-w-0'>
+              <div className='text-sm font-semibold'>{chartTitle}</div>
+              <div className='text-muted-foreground text-xs'>
+                {t('Historical monetary value unavailable')}
+              </div>
+            </div>
           </div>
           <TooltipProvider>
             <div className='flex min-w-0 items-center gap-1 overflow-x-auto pb-1 lg:justify-end lg:pb-0'>

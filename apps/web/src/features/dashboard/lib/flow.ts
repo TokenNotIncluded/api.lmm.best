@@ -32,6 +32,7 @@ import type {
   FlowSummary,
   ProcessedFlowData,
 } from '@/features/dashboard/types'
+import { formatHistoricalRawQuota } from '@/lib/historical-quota-money'
 
 import { getDashboardChartColors } from './charts'
 
@@ -91,7 +92,7 @@ const DEFAULT_FLOW_ROLE: FlowRole = 'user'
 const DEFAULT_FLOW_OVERFLOW_MODE: FlowOverflowMode = 'aggregate'
 
 const DEFAULT_FLOW_SANKEY_LABELS: FlowSankeyLabels = {
-  quota: 'Quota',
+  quota: 'Raw credits',
   tokens: 'Tokens',
   requests: 'Requests',
   share: 'Share',
@@ -1236,9 +1237,15 @@ function flowSankeyTooltipTitle(datum: Record<string, unknown>) {
 export function buildFlowSankeySpec(
   flow: DashboardFlowGraph,
   title: string,
-  valueFormatter: (value: number) => string = formatNumber,
-  labels: FlowSankeyLabels = DEFAULT_FLOW_SANKEY_LABELS
+  rawCreditLabel: string = DEFAULT_FLOW_SANKEY_LABELS.quota,
+  labels: FlowSankeyLabels = DEFAULT_FLOW_SANKEY_LABELS,
+  locale?: string
 ) {
+  // Hourly flow buckets have no trustworthy historical monetary basis.
+  // Keep their stored quota in its original unit, regardless of wallet FX.
+  const valueFormatter = (value: number) =>
+    formatHistoricalRawQuota(value, rawCreditLabel, locale)
+
   return {
     type: 'sankey',
     data: [

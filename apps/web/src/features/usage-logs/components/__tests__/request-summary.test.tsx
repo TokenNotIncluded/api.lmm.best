@@ -27,7 +27,7 @@ import { createInstance } from 'i18next'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { I18nextProvider } from 'react-i18next'
 
-import { usageLogSchema } from '../../data/schema'
+import { usageLogSchema, type UsageLog } from '../../data/schema'
 import type { LogOtherData } from '../../types'
 import { LogRequestSummary } from '../log-request-summary'
 
@@ -37,7 +37,11 @@ await i18n.init({
   fallbackLng: 'en',
   resources: { en: { translation: {} } },
 })
-const render = (type: number, other: LogOtherData | null = {}) =>
+const render = (
+  type: number,
+  other: LogOtherData | null = {},
+  overrides: Partial<UsageLog> = {}
+) =>
   renderToStaticMarkup(
     <I18nextProvider i18n={i18n}>
       <LogRequestSummary
@@ -48,6 +52,7 @@ const render = (type: number, other: LogOtherData | null = {}) =>
           type,
           content: 'error',
           quota: 12,
+          ...overrides,
         })}
         other={other}
         onClose={() => {}}
@@ -82,6 +87,41 @@ test('subscription and refund receipts have distinct accounting labels', () => {
     /Plan quota used in this entry/
   )
   assert.match(render(6), /Refund recorded in this entry/)
+})
+
+test('request summary shows original units without a captured monetary basis', () => {
+  const raw = summaryRows(render(2))
+  assert.match(Object.values(raw).join(' '), /12 Raw credits/)
+  assert.doesNotMatch(Object.values(raw).join(' '), /USD|CNY/)
+  const priced = summaryRows(render(2, { pricing_credits_per_usd: 500000 }))
+  assert.match(Object.values(priced).join(' '), /0.000024 USD/)
+  const refund = summaryRows(render(6, { pricing_credits_per_usd: 500000 }))
+  assert.equal(refund['Refund recorded in this entry'], '12 Raw credits')
+})
+
+test('request receipt distinguishes absent stored charges from real zero raw quota', () => {
+  for (const type of [2, 6]) {
+    const label =
+      type === 6
+        ? 'Refund recorded in this entry'
+        : 'Charge recorded in this entry'
+    const absent = summaryRows(
+      render(type, null, {
+        quota: 0,
+        quota_money_available: false,
+        quota_money_basis: 'invalid_stored_quota',
+      })
+    )
+    assert.equal(absent[label], '—')
+    const zero = summaryRows(
+      render(type, null, {
+        quota: 0,
+        quota_money_available: false,
+        quota_money_basis: 'missing_credit_basis',
+      })
+    )
+    assert.equal(zero[label], '0 Raw credits')
+  }
 })
 
 test('reported cache splits retain measured zero and use only their own counts', () => {

@@ -1,4 +1,5 @@
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
+
 import assert from 'node:assert/strict'
 import { after, afterEach, test } from 'node:test'
 
@@ -358,6 +359,74 @@ function configureCurrencyOverview() {
   }) as typeof api.get
 }
 
+for (const shape of ['nonzero', 'zero', 'absent'] as const) {
+  test(`financial projection false keeps ${shape} summary data unavailable, never zero or depleted`, async () => {
+    configureCurrencyOverview()
+    const current = useAuthStore.getState().auth.user
+    assert.ok(current)
+    useAuthStore.getState().auth.setUser({
+      ...current,
+      financial_projection_available: false,
+      quota: shape === 'nonzero' ? 5_000_000 : shape === 'zero' ? 0 : undefined,
+      request_count:
+        shape === 'nonzero' ? 20 : shape === 'zero' ? 0 : undefined,
+    })
+    const container = await mount(SummaryCards)
+    await until(
+      () =>
+        container
+          .querySelector('.overview-balance-value')
+          ?.textContent?.trim() === 'Unavailable'
+    )
+    assert.equal(container.querySelector('.overview-health'), null)
+    assert.equal(
+      container.querySelector('.overview-balance-footer dd')?.textContent,
+      'Unavailable'
+    )
+    const metricValue = (title: string) =>
+      [...container.querySelectorAll('.overview-metric')]
+        .find((row) => row.querySelector('dt')?.textContent === title)
+        ?.querySelector('.overview-metric-value')?.textContent
+    assert.equal(metricValue('Historical Usage'), 'Unavailable')
+    assert.equal(metricValue('Request Count'), 'Unavailable')
+    assert.doesNotMatch(
+      container.querySelector('.overview-balance')?.textContent ?? '',
+      /Balance depleted|Healthy|10 USD/
+    )
+  })
+}
+
+for (const projection of [undefined, true]) {
+  test(`financial projection ${projection === undefined ? 'legacy undefined' : 'true'} preserves real nonzero balance and requests when usage is unavailable`, async () => {
+    configureCurrencyOverview()
+    const current = useAuthStore.getState().auth.user
+    assert.ok(current)
+    useAuthStore.getState().auth.setUser({
+      ...current,
+      financial_projection_available: projection,
+      usage_projection_available: false,
+      normalized_used_quota: null,
+    })
+    const container = await mount(SummaryCards)
+    await until(
+      () =>
+        container
+          .querySelector('.overview-balance-value')
+          ?.textContent?.includes('10 USD') === true
+    )
+    const metricValue = (title: string) =>
+      [...container.querySelectorAll('.overview-metric')]
+        .find((row) => row.querySelector('dt')?.textContent === title)
+        ?.querySelector('.overview-metric-value')?.textContent
+    assert.equal(metricValue('Request Count'), '20')
+    assert.match(metricValue('Historical Usage') ?? '', /1,000,000 Credits/)
+    assert.doesNotMatch(
+      container.querySelector('.overview-balance')?.textContent ?? '',
+      /Unavailable|Balance depleted/
+    )
+  })
+}
+
 function currencyButton(container: HTMLElement, currency: string) {
   const element = container.querySelector<HTMLButtonElement>(
     `[data-currency="${currency}"]`
@@ -375,7 +444,7 @@ function CurrencyOverview() {
   )
 }
 
-test('quick switch saves only the preference and updates all quota displays after acknowledgement', async () => {
+test('quick switch updates current balances and normalized usage while unpriced history stays raw', async () => {
   configureCurrencyOverview()
   const writes: unknown[] = []
   let acknowledge: ((value: { data: { success: boolean } }) => void) | undefined
@@ -400,6 +469,15 @@ test('quick switch saves only the preference and updates all quota displays afte
     () => container.querySelectorAll('.overview-payment-row').length === 1
   )
   const payments = container.querySelector('.overview-payments')?.textContent
+  assert.match(
+    container.querySelector('.overview-metrics')?.textContent ?? '',
+    /250,000 Raw credits/
+  )
+  assert.match(
+    container.querySelector('.overview-balance-footer')?.textContent ?? '',
+    /Unknown/
+  )
+  assert.equal(container.querySelector('.overview-health'), null)
   await act(async () => currencyButton(container, 'CNY').click())
   assert.equal(
     container
@@ -428,7 +506,7 @@ test('quick switch saves only the preference and updates all quota displays afte
   )
   assert.match(
     container.querySelector('.overview-metrics')?.textContent ?? '',
-    /3.5 CNY/
+    /250,000 Raw credits/
   )
   assert.match(
     container.querySelector('.overview-metrics')?.textContent ?? '',
@@ -485,6 +563,36 @@ test('quick switch saves only the preference and updates all quota displays afte
     'true'
   )
   assert.equal(writes.length, 2)
+})
+
+test('a depleted current balance stays known when historical quota cannot be valued', async () => {
+  configureCurrencyOverview()
+  const user = useAuthStore.getState().auth.user
+  assert.ok(user)
+  for (const quota of [0, -1]) {
+    useAuthStore.getState().auth.setUser({ ...user, quota })
+    const container = await mount(SummaryCards)
+    await until(
+      () =>
+        container
+          .querySelector('.overview-metrics')
+          ?.textContent?.includes('250,000 Raw credits') === true
+    )
+    assert.match(
+      container.querySelector('.overview-health')?.textContent ?? '',
+      /Balance depleted/
+    )
+    assert.match(
+      container.querySelector('.overview-balance-footer')?.textContent ?? '',
+      /Balance depleted/
+    )
+    assert.doesNotMatch(
+      container.querySelector('.overview-balance-footer')?.textContent ?? '',
+      /Unknown/
+    )
+    await dispose?.()
+    dispose = undefined
+  }
 })
 
 test('quick-switch save failures retain the current unit and can be retried', async () => {

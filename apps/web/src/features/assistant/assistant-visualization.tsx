@@ -41,10 +41,12 @@ export function AssistantVisualizationCard({
   visual,
   onChoose,
   provenance,
+  formatChartValue,
 }: {
   visual: AssistantVisualization
   onChoose?: (text: string) => void
   provenance?: string
+  formatChartValue?: (value: number) => string
 }) {
   const { t } = useTranslation()
   const [selected, setSelected] = useState<string | null>(null)
@@ -59,7 +61,9 @@ export function AssistantVisualizationCard({
         <span className='assistant-visual-eyebrow'>{t('Visualization')}</span>
         <h3 id={`${id}-title`}>{visual.title}</h3>
       </header>
-      {visual.kind === 'chart' && <VisualChart visual={visual} />}
+      {visual.kind === 'chart' && (
+        <VisualChart visual={visual} formatValue={formatChartValue} />
+      )}
       {visual.kind === 'statistics' && (
         <dl className='assistant-visual-stats'>
           {visual.items?.map((item, index) => {
@@ -123,7 +127,13 @@ export function AssistantVisualizationCard({
   )
 }
 
-function VisualChart({ visual }: { visual: AssistantVisualization }) {
+function VisualChart({
+  visual,
+  formatValue: customFormatValue,
+}: {
+  visual: AssistantVisualization
+  formatValue?: (value: number) => string
+}) {
   const { t, i18n } = useTranslation()
   const uid = useId().replaceAll(':', '')
   const labels = visual.labels ?? [],
@@ -131,6 +141,7 @@ function VisualChart({ visual }: { visual: AssistantVisualization }) {
   const number = new Intl.NumberFormat(toIntlLocale(i18n.language), {
     maximumSignificantDigits: 6,
   })
+  const formatValue = customFormatValue ?? number.format
   const [min, max] = chartDomain(series)
   const y = (value: number) => 230 - ((value - min) / (max - min)) * 192
   const x = (index: number) =>
@@ -157,7 +168,7 @@ function VisualChart({ visual }: { visual: AssistantVisualization }) {
                 <th scope='row'>{label}</th>
                 {series.map((row, j) => (
                   <td key={j}>
-                    {number.format(row.values[index])}
+                    {formatValue(row.values[index])}
                     {visual.unit ? ` ${visual.unit}` : ''}
                   </td>
                 ))}
@@ -203,7 +214,7 @@ function VisualChart({ visual }: { visual: AssistantVisualization }) {
                     strokeDashoffset={-start}
                     transform='rotate(-90 120 120)'
                   >
-                    <title>{`${labels[index]}: ${number.format(value)}`}</title>
+                    <title>{`${labels[index]}: ${formatValue(value)}`}</title>
                   </circle>
                 )
               })
@@ -214,7 +225,7 @@ function VisualChart({ visual }: { visual: AssistantVisualization }) {
               textAnchor='middle'
               className='assistant-visual-total'
             >
-              {number.format(series[0]?.values.reduce((a, b) => a + b, 0) ?? 0)}
+              {formatValue(series[0]?.values.reduce((a, b) => a + b, 0) ?? 0)}
             </text>
             <text
               x='120'
@@ -230,7 +241,7 @@ function VisualChart({ visual }: { visual: AssistantVisualization }) {
               <li key={index}>
                 <i style={{ background: tones[index % tones.length] }} />
                 <span>{label}</span>
-                <strong>{number.format(series[0]?.values[index] ?? 0)}</strong>
+                <strong>{formatValue(series[0]?.values[index] ?? 0)}</strong>
               </li>
             ))}
           </ul>
@@ -322,7 +333,7 @@ function VisualChart({ visual }: { visual: AssistantVisualization }) {
                         stroke='var(--card)'
                         strokeWidth='1.5'
                       >
-                        <title>{`${labels[i]} · ${row.name}: ${number.format(value)}`}</title>
+                        <title>{`${labels[i]} · ${row.name}: ${formatValue(value)}`}</title>
                       </circle>
                     ))}
                   </g>
@@ -342,7 +353,7 @@ function VisualChart({ visual }: { visual: AssistantVisualization }) {
                       rx={Math.min(4, width / 3)}
                       fill={tones[j]}
                     >
-                      <title>{`${labels[i]} · ${row.name}: ${number.format(value)}`}</title>
+                      <title>{`${labels[i]} · ${row.name}: ${formatValue(value)}`}</title>
                     </rect>
                   ))}
                 </g>
