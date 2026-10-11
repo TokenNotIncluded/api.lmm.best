@@ -1,6 +1,6 @@
 <div align="center">
-  <img src=".github/assets/lmm-logo.svg" alt="LMM Forge" width="96" height="96" />
-  <h1>LMM Forge</h1>
+  <img src=".github/assets/lmm-logo.svg" alt="LMM API · Language Model Mesh" width="520" />
+  <h1>LMM API</h1>
   <p>LMM API · 连接模型与工具，让智能自由流动</p>
   <p>
     <a href="https://github.com/TokenNotIncluded/api.lmm.best/actions/workflows/core-protocol.yml"><img src="https://github.com/TokenNotIncluded/api.lmm.best/actions/workflows/core-protocol.yml/badge.svg?branch=wip%2Frust-core-go-extensions" alt="Microkernel checks" /></a>

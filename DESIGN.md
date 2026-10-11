@@ -1,41 +1,28 @@
-# LMM Forge repository identity
+# LMM API repository identity
 
-This record covers the README, reusable logo assets, and the shared default symbol. Application layouts follow their own design records.
+The product is **LMM API — Language Model Mesh**, 中文「语言模型网络」。
+The user's [original master](.github/assets/lmm-api-source.png) is authoritative:
+a folded ribbon symbol in charcoal/gray with a geometric LMM API wordmark.
+[Shared geometry](.github/assets/logo-geometry.json) records the editable SVG
+adaptation and provenance. Keep the ribbon forms, proportions and neutral shading.
 
-## Identity
+Both README languages use the horizontal logo, accessible project name, slogan,
+WIP badges and native text links. Essential instructions remain selectable text.
+The badges represent WIP checks and the AGPL license; they do not claim a release
+or production deployment. Development and installation details remain in the
+[development guide](docs/development.md).
 
-Keep the established black-and-white cut lettering. The updated compact mark has an L foundation below two separate M forms. A 16-unit gap separates the main parts and the foundation; a 45-degree cut ends the base. These gaps replace the previous joined, tightly spaced silhouette.
+The website's built-in symbol and lettering share those paths and inherit the
+surface's text color. Neutral opacity and gradients preserve the ribbon folds
+on light and dark backgrounds. Custom tenant names and logos retain their own
+behavior. Old built-in logo paths alias the new symbol for cached clients.
 
-The source is [logo-geometry.json](.github/assets/logo-geometry.json). The full wordmark is unchanged. Do not substitute a font, stretch the glyphs, close the gaps, or add gradients, shadows, or motion to the logo.
+Small icons keep a square viewBox around the complete wide symbol. Browser
+favicons and Apple touch icons use a light square. Native 16, 24 and 32px sizes,
+light/dark surfaces and narrow/wide headers require visual inspection; automated
+source checks alone cannot establish rendering quality.
 
-## README
-
-Use a compact, centered logo, the project name, one descriptive line, useful badges, and native text links. Chinese is the default README; English is available in `README_EN.md`. Both versions must describe the same features and limits.
-
-The WIP badges link to its microkernel checks and this project's AGPL license.
-They do not advertise a production release or completed deployment. Any future
-release badge must identify the independently versioned component.
-
-Below the header, show the purpose, WIP status, runtime boundaries, canonical
-development and deployment guides, and contribution and license details.
-Keep detailed environment and recipe notes in [the development guide](docs/development.md). Use GitHub-native text and tables; do not put essential instructions inside an image.
-
-TokenRouter is the information-layout reference. No reference-project artwork, screenshots, feature claims, or license text are copied.
-
-## Logo placements
-
-| Placement | Asset or behavior |
-| --- | --- |
-| README | [Fixed black tile with a white mark](.github/assets/lmm-logo.svg), displayed at 96px. |
-| Reusable symbol | [Transparent SVG](.github/assets/lmm-symbol.svg), black or white according to the color scheme. |
-| Website | `LmmBrandMark` inherits `currentColor`; the public SVG uses the same geometry. Custom tenant logos keep their existing behavior. |
-| Small icons | Keep the full 128-unit viewBox; inspect at 16, 24, and 32px without extra inner padding. |
-| Full wordmark | Preserve the existing paths and spacing; minimum cap height is 20px. |
-
-The old responsive wordmark covers remain available at their original paths. They are no longer the main README image. Do not remove them without checking external use.
-
-## Verification
-
-`python3 scripts/check-docs-brand.py` checks local entry-document links, matching badge sets, safe SVG structure, and shared symbol paths. Use a browser to inspect narrow and wide README layouts, light and dark themes, and the logo at native icon sizes. A source check does not establish full application compatibility or production deployment.
-
-Artwork is authored vector geometry. App-icon rasters must identify that source in their sidecars. Do not claim a visual approval, build result, screenshot, or deployment that was not obtained.
+Run `python3 -B scripts/check-docs-brand.py` through mise to check maintained
+entry links, badge sets, safe SVG structure, matching paths and recorded hashes.
+Application layouts follow [their own design record](apps/web/DESIGN.md). This
+identity change does not authorize a release, deployment or page redesign.

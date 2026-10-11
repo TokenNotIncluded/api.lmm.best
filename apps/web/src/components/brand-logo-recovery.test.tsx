@@ -89,6 +89,7 @@ for (const src of [
   undefined,
   '',
   '   ',
+  '/lmm-api-mark.svg',
   '/lmm-cut-mark.svg',
   'https://console.example.test/lmm-cut-mark.svg?v=1#logo',
   'https://api.lmm.best/lmm-best-mark.svg?v=old#logo',

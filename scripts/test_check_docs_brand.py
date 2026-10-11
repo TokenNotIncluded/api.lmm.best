@@ -43,6 +43,39 @@ class DocumentLinksTests(unittest.TestCase):
         self.assertEqual(CHECK.document_links('`[x](bad.md)` and [`file`](good.md)'), ['good.md'])
 
 
+class SvgBrandTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.path = Path(self.temp.name) / 'symbol.svg'
+
+    def check(self, body, extra=''):
+        self.path.write_text(
+            '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10" '
+            'aria-labelledby="title desc" ' + extra + '><title id="title">LMM API</title>'
+            '<desc id="desc">Ribbon mark</desc>' + body + '</svg>'
+        )
+        return CHECK.check_svg(self.path, ['M0 0H1'], '0 0 10 10')
+
+    def test_local_ribbon_gradient_is_allowed(self):
+        body = '<defs><linearGradient id="fold"><stop stop-color="currentColor"/></linearGradient></defs>'
+        self.assertEqual(self.check(body + '<path d="M0 0H1" fill="url(#fold)"/>'), [])
+
+    def test_external_gradient_is_rejected(self):
+        self.assertTrue(self.check('<path d="M0 0H1" fill="url(https://example.com/paint.svg)"/>'))
+
+    def test_missing_gradient_is_rejected(self):
+        self.assertTrue(self.check('<path d="M0 0H1" fill="url(#missing)"/>'))
+
+    def test_active_content_is_rejected(self):
+        for body in ('<script>alert(1)</script><path d="M0 0H1"/>', '<path d="M0 0H1" onclick="alert(1)"/>'):
+            with self.subTest(body=body):
+                self.assertTrue(self.check(body))
+
+    def test_changed_symbol_is_rejected(self):
+        self.assertTrue(self.check('<path d="M0 0H2"/>'))
+
+
 class RepositoryChecksTests(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()

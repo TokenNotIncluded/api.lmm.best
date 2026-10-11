@@ -21,8 +21,8 @@ For commercial licensing, please contact support@quantumnous.com
  */
 
 // System Configuration Defaults
-export const DEFAULT_SYSTEM_NAME = 'LMM Forge'
-export const DEFAULT_LOGO = '/lmm-cut-mark.svg'
+export const DEFAULT_SYSTEM_NAME = 'LMM API'
+export const DEFAULT_LOGO = '/lmm-api-mark.svg'
 
 /** Normalize only our shipped defaults; preserve tenant-provided artwork. */
 export function isDefaultLogo(src?: string): boolean {
@@ -36,6 +36,7 @@ export function isDefaultLogo(src?: string): boolean {
       ownOrigin &&
       [
         DEFAULT_LOGO,
+        '/lmm-cut-mark.svg',
         '/lmm-best-mark.svg',
         '/logo.png',
         '/favicon.ico',

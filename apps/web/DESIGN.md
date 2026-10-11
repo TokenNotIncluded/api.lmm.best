@@ -120,13 +120,11 @@ This section consolidates the useful browser constraints from sixteen former gui
 - [inferred confidence=medium] Runtime contrast, touch targets, text expansion, focus restoration, reduced motion, and both declared target viewports require rendered verification for each new surface.
 - [inferred confidence=medium] A feature may depart from console density only when its own confirmed product declaration or first-party reference explicitly introduces a different visual world.
 
-### Cut logo rollout
+### Language Model Mesh logo
 
-- [observed] The default LMM Forge identity uses the original filled symbol and wordmark from `.github/assets/logo-geometry.json`. React components inherit neutral `currentColor`; typography and semantic colors for operational content remain unchanged.
-- [observed] Public navigation and expanded desktop sidebar use the horizontal wordmark when space allows. Narrow mobile navigation and collapsed sidebars use the compact symbol. The default home footer reuses the full wordmark; tenant-defined logos and names retain their own artwork.
-- [observed] Built-in cached names and logo URLs normalize to the default identity before rendering or preloading. The favicon and touch icon derive from the same symbol. They have explicit black backgrounds and white ink; transparent SVG placements select ink for the current surface.
-
-The platform-owned legacy name `lmm.best` also resolves to LMM Forge. Other tenant names stay as configured.
+- [observed] The default brand is LMM API (Language Model Mesh, 语言模型网络). Its folded ribbon symbol and geometric lettering are editable SVG adaptations of the user-supplied master in `.github/assets/lmm-api-source.png`; shared paths live in `.github/assets/logo-geometry.json`.
+- [observed] React components inherit `currentColor`, with neutral opacity/gradients for the folds. No external image or font request is needed for built-in branding. Public headers, sidebars and footers retain their existing compact-symbol or wordmark layout.
+- [observed] Built-in cached names and logo URLs normalize to LMM API. Tenant-defined names and logos remain configured. Favicon and touch icon derive from the same symbol on a light square.
 
 ### Cut system in the application
 

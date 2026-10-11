@@ -1,0 +1,5 @@
+{
+  "source": ".github/assets/logo-geometry.json#symbol",
+  "method": "Rasterized the new project-owned folded ribbon SVG adaptation on a light square. rsvg-convert at 512px (logo), 180px (touch); ImageMagick ICO resize 48,32,16. Original user master retained in .github/assets/lmm-api-source.png. No remote resources.",
+  "sha256": "17cb254c4de313116151a8a9d928a157855733052eae9ed6389f1512d2f6d9b6"
+}

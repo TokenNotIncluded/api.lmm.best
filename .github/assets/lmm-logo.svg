@@ -1,6 +1,14 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128" role="img" aria-labelledby="lmm-logo-title lmm-logo-desc">
-  <title id="lmm-logo-title">LMM Forge</title>
-  <desc id="lmm-logo-desc">A white LMM monogram on a black tile with diagonal corners.</desc>
-  <path d="M16 0H112L128 16V112L112 128H16L0 112V16Z" fill="#000"/>
-  <path d="M8 16H24V96H120V104L112 112H8Z M40 80V16H50L56 30L62 16H72V80H62V42L56 56L50 42V80Z M88 80V16H98L104 30L110 16H120V80H110V42L104 56L98 42V80Z" transform="translate(16 16) scale(.75)" fill="#fff" fill-rule="evenodd"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 270" role="img" aria-labelledby="lmm-title lmm-desc"><title id="lmm-title">LMM API</title><desc id="lmm-desc">Folded ribbon monogram for Language Model Mesh.</desc><style>:root{color:#1b2024} @media(prefers-color-scheme:dark){:root{color:#f5f5f5}}</style>
+<defs><linearGradient id="ribbon" x1="0" y1="0" x2="1" y2="1"><stop stop-color="currentColor"/><stop offset="1" stop-color="currentColor" stop-opacity=".65"/></linearGradient></defs>
+<path d="M8 67C8 53 12 45 24 38L76 7C79 5 80 7 80 12V125C80 135 85 138 92 134L25 174C15 180 8 174 8 164Z" fill="currentColor"/>
+<path d="M8 163C8 173 16 178 26 172L119 118C132 110 144 110 156 118L169 127C178 133 183 142 183 153V174C183 187 178 194 167 201L119 229C108 236 96 236 85 229L24 193C13 186 8 178 8 163Z" fill="currentColor" opacity=".65"/>
+<path d="M145 98L193 70C207 62 218 62 231 71L294 113C307 122 314 133 314 148V194C314 210 308 220 295 228L244 257C241 259 239 257 239 253V184C239 171 234 161 223 153Z" fill="url(#ribbon)"/>
+<path d="M282 98L330 70C344 62 355 62 368 71L418 105C430 114 437 125 437 140V194C437 210 431 220 418 228L367 257C364 259 362 257 362 253V184C362 171 357 161 346 153Z" fill="url(#ribbon)"/>
+<g transform="translate(500 73) scale(.86)" fill="currentColor" fill-rule="evenodd"><path d="M0 0H18V82H76V100H0Z"/>
+<path d="M90 100V0H110L148 44L186 0H206V100H186V30L148 74L110 30V100Z"/>
+<path d="M224 100V0H244L282 44L320 0H340V100H320V30L282 74L244 30V100Z"/>
+<path d="M390 100L432 0H455L497 100H475L467 80H420L412 100Z M428 61H459L443 22Z"/>
+<path d="M510 100V0H564C590 0 605 13 605 36C605 59 590 72 564 72H530V100Z M530 18V54H562C576 54 585 49 585 36C585 24 576 18 562 18Z"/>
+<path d="M623 0H643V100H623Z"/></g>
+<text x="502" y="223" font-family="Arial, sans-serif" font-size="36" letter-spacing="9" fill="currentColor" opacity=".76">Language Model Mesh</text>
 </svg>

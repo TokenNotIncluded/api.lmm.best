@@ -21,11 +21,6 @@ DOCUMENTS = (
     "docs/core-migration.md", "docs/release-architecture.md", "docs/legal/README.md",
     "docs/archive.md", "deployment/docker/README.md",
 )
-SYMBOLS = (
-    ".github/assets/lmm-symbol.svg", ".github/assets/lmm-logo.svg",
-    "apps/web/public/lmm-cut-mark.svg",
-)
-
 
 class Links(HTMLParser):
     def __init__(self) -> None:
@@ -175,40 +170,57 @@ def check_badges(root: Path) -> list[str]:
             if badge_urls((root / name).read_text(encoding="utf-8")) != expected]
 
 
-def check_svg(path: Path, symbol: str) -> list[str]:
+def check_svg(path: Path, expected_paths: list[str], view_box: str) -> list[str]:
     text = path.read_text()
-    if re.search(r"<!DOCTYPE|<!ENTITY|@import|url\s*\(", text, re.I):
+    if re.search(r"<!DOCTYPE|<!ENTITY|@import", text, re.I):
         return [f"{path.name}: external or active SVG content"]
     svg = ET.fromstring(text)
     errors = []
     paths = []
-    allowed = {"svg", "title", "desc", "style", "path"}
+    allowed = {"svg", "title", "desc", "style", "path", "defs", "linearGradient", "stop", "g", "text", "rect"}
+    ids = {element.get("id") for element in svg.iter() if element.get("id")}
     for element in svg.iter():
         tag = element.tag.rsplit("}", 1)[-1]
         if tag not in allowed:
             errors.append(f"{path.name}: unexpected SVG element {tag}")
-        if any(key.rsplit("}", 1)[-1].lower().startswith("on")
-               or key.rsplit("}", 1)[-1] == "href" for key in element.attrib):
-            errors.append(f"{path.name}: active SVG attribute")
+        for key, value in element.attrib.items():
+            local_key = key.rsplit("}", 1)[-1]
+            if local_key.lower().startswith("on") or local_key == "href":
+                errors.append(f"{path.name}: active SVG attribute")
+            for reference in re.findall(r"url\s*\(([^)]+)\)", value, re.I):
+                if not reference.startswith("#") or reference[1:] not in ids:
+                    errors.append(f"{path.name}: external or missing SVG paint reference")
+        if tag == "style" and re.search(r"url\s*\(|@import", element.text or "", re.I):
+            errors.append(f"{path.name}: external or active SVG style")
         if tag == "path":
             paths.append(element.get("d"))
-    if paths.count(symbol) != 1 or svg.get("viewBox") != "0 0 128 128":
-        errors.append(f"{path.name}: symbol path or viewBox differs from master")
-    ids = {element.get("id") for element in svg.iter() if element.text}
+    if paths != expected_paths or svg.get("viewBox") != view_box:
+        errors.append(f"{path.name}: paths or viewBox differ from master")
     labels = svg.get("aria-labelledby", "").split()
-    if len(labels) != 2 or not set(labels).issubset(ids):
+    labelled_ids = {element.get("id") for element in svg.iter() if element.text}
+    if len(labels) != 2 or not set(labels).issubset(labelled_ids):
         errors.append(f"{path.name}: missing accessible title or description")
     return errors
 
 
 def check_assets(root: Path) -> list[str]:
     geometry = json.loads((root / ".github/assets/logo-geometry.json").read_text())
-    symbol = geometry["symbol"]["path"]
-    errors = [error for name in SYMBOLS for error in check_svg(root / name, symbol)]
-    component = (root / "apps/web/src/components/lmm-brand-mark.tsx").read_text()
-    if re.findall(r"\bd='([^']+)'", component) != [symbol]:
-        errors.append("LmmBrandMark: symbol differs from master")
-    for name in geometry["provenance"]["productionRasterAssets"]:
+    symbol = [part["d"] for part in geometry["symbol"]["paths"]]
+    lettering = geometry["lettering"]["paths"]
+    errors = []
+    for name, asset in geometry["assets"].items():
+        expected = lettering if asset["kind"] == "wordmark" else symbol
+        if asset["kind"] == "primary":
+            expected = symbol + lettering
+        errors.extend(check_svg(root / name, expected, asset["viewBox"]))
+    for name, expected in (("lmm-brand-mark.tsx", symbol), ("lmm-brand-wordmark.tsx", lettering)):
+        component = (root / "apps/web/src/components" / name).read_text()
+        if re.findall(r"\bd='([^']+)'", component) != expected:
+            errors.append(f"{name}: paths differ from master")
+    provenance = geometry["provenance"]
+    if hashlib.sha256((root / provenance["source"]).read_bytes()).hexdigest() != provenance["sourceSha256"]:
+        errors.append("brand source: original master differs from recorded hash")
+    for name in provenance["productionRasterAssets"]:
         path = root / name
         sidecar = json.loads(path.with_name(path.name + ".json").read_text())
         if hashlib.sha256(path.read_bytes()).hexdigest() != sidecar["sha256"]:

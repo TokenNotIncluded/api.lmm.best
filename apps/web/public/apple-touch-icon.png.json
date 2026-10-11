@@ -1,5 +1,5 @@
 {
   "source": ".github/assets/logo-geometry.json#symbol",
-  "method": "Rasterized from the original LMM Forge SVG path; white on black. No generated artwork or remote resources.",
-  "sha256": "e4225f761c54f4a4a42a767b824ad5a32ac03847b36036b4102412e938b0ac47"
+  "method": "Rasterized the new project-owned folded ribbon SVG adaptation on a light square. rsvg-convert at 512px (logo), 180px (touch); ImageMagick ICO resize 48,32,16. Original user master retained in .github/assets/lmm-api-source.png. No remote resources.",
+  "sha256": "b4f2228c597ecef9a55964f3a331e2db77b82c9027a7d8522b7eb12ba85ef19f"
 }

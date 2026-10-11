@@ -64,8 +64,9 @@ describe('BrandLogo', () => {
     await act(async () => root.unmount())
   })
 
-  test('normalizes current and cached legacy defaults to the LMM Forge mark', async () => {
+  test('normalizes current and cached legacy defaults to the LMM API mark', async () => {
     for (const src of [
+      '/lmm-api-mark.svg',
       '/lmm-cut-mark.svg',
       '/lmm-best-mark.svg',
       'https://api.lmm.best/logo.png?v=old',
@@ -74,13 +75,11 @@ describe('BrandLogo', () => {
     ]) {
       const container = document.createElement('div')
       const root = createRoot(container)
-      await act(async () =>
-        root.render(<BrandLogo src={src} alt='LMM Forge' />)
-      )
+      await act(async () => root.render(<BrandLogo src={src} alt='LMM API' />))
       assert.equal(container.querySelector('img'), null)
       assert.equal(
         container.querySelector('svg')?.getAttribute('aria-label'),
-        'LMM Forge'
+        'LMM API'
       )
       await act(async () => root.unmount())
     }
@@ -100,6 +99,35 @@ describe('BrandLogo', () => {
       assert.equal(resolveSystemName(name), DEFAULT_SYSTEM_NAME)
     }
     assert.equal(resolveSystemName('  Example tenant  '), 'Example tenant')
+  })
+
+  test('multiple built-in marks keep independent local gradient references', async () => {
+    const container = document.createElement('div')
+    const root = createRoot(container)
+    await act(async () =>
+      root.render(
+        <>
+          <BrandLogo />
+          <BrandLogo />
+        </>
+      )
+    )
+    const marks = [...container.querySelectorAll('svg')]
+    assert.equal(marks.length, 2)
+    const ids = marks.map((mark) => mark.querySelector('linearGradient')?.id)
+    assert.ok(ids.every(Boolean))
+    assert.notEqual(ids[0], ids[1])
+    for (const [index, mark] of marks.entries()) {
+      assert.equal(mark.getAttribute('viewBox'), '0 -89 448 448')
+      const fills = [...mark.querySelectorAll('path')].map((part) =>
+        part.getAttribute('fill')
+      )
+      assert.equal(
+        fills.filter((fill) => fill === `url(#${ids[index]})`).length,
+        2
+      )
+    }
+    await act(async () => root.unmount())
   })
 
   test('keeps a tenant logo as an accessible image', async () => {
