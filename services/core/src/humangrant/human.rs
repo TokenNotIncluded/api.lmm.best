@@ -2,7 +2,7 @@ use super::{HgState, Error, Permission, Result, digest, exact_header, permission
 use axum::{
     Json,
     extract::{Path, State},
-    http::{HeaderMap, StatusCode, header},
+    http::{HeaderMap, header},
     response::{IntoResponse, Response},
 };
 use serde::Deserialize;
@@ -47,6 +47,7 @@ pub(super) async fn review_page(
     state.request_by_link(&link).await?;
     Ok(html("review"))
 }
+pub(super) async fn landing_page() -> Response { html("intro") }
 pub(super) async fn grants_page() -> Response { html("grants") }
 
 pub(super) async fn script() -> impl IntoResponse {
@@ -69,6 +70,7 @@ pub(super) async fn details(
         "target_service":row.try_get::<String,_>("target_service")?,
         "purpose":row.try_get::<String,_>("purpose")?,
         "permissions":row.try_get::<Value,_>("requested")?,
+        "requested_ttl_seconds":row.try_get::<i32,_>("requested_ttl_seconds")?,
         "phase":row.try_get::<String,_>("phase")?,
         "expires_at":sqlx::query_scalar::<_,i64>("SELECT EXTRACT(EPOCH FROM expires_at)::bigint FROM core_identity.hg_requests WHERE id=$1")
             .bind(row.try_get::<String,_>("id")?).fetch_one(&state.pool).await?,
