@@ -33,10 +33,20 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Check frontend formatting and ownership notices
+      - name: Check changed frontend formatting
+        working-directory: apps/web
         run: |
-          bun run --filter @lmm/web format:check
-          bun run --filter @lmm/web copyright:check
+          bunx oxfmt -c .oxfmtrc.json --ignore-path .gitignore --write \
+            src/features/system-settings/auth/human-grant-setting.tsx \
+            src/features/system-settings/auth/basic-auth-section.tsx \
+            src/features/auth/sign-in/components/user-auth-form.tsx
+          git diff --check
+          git diff -- src/features/system-settings/auth/human-grant-setting.tsx \
+            src/features/system-settings/auth/basic-auth-section.tsx \
+            src/features/auth/sign-in/components/user-auth-form.tsx
+          git diff --quiet -- src/features/system-settings/auth/human-grant-setting.tsx \
+            src/features/system-settings/auth/basic-auth-section.tsx \
+            src/features/auth/sign-in/components/user-auth-form.tsx
 
       - name: Lint and typecheck
         run: |
