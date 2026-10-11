@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
@@ -225,7 +226,11 @@ func (f *productionSchemaMaintenanceFence) Release(ctx context.Context) error {
 		OwnerSHA256  string    `json:"owner_sha256"`
 		FinishedUTC  time.Time `json:"finished_utc"`
 	}{"lmm-schema-maintenance-owner-released-v1", f.authority.TransitionID, f.authority.PlanSHA256, startupContentSHA256(f.ownerRaw), f.runtime.now().UTC()}
-	if err := f.runtime.startupBaselineNewFile(filepath.Join(f.authority.Workspace, "state", "owner-released.json"), completion); err != nil {
+	raw, err := json.MarshalIndent(completion, "", "  ")
+	if err != nil {
+		return errors.New("schema owner CAS completed but local receipt encoding failed")
+	}
+	if err := f.runtime.writeSchemaMaintenanceRawNewFile(filepath.Join(f.authority.Workspace, "state", "owner-released.json"), append(raw, '\n')); err != nil {
 		return errors.New("schema owner CAS completed but local receipt failed; reconcile exact physical state")
 	}
 	return f.lease.Close()

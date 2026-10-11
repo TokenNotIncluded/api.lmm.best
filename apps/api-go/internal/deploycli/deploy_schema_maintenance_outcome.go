@@ -93,6 +93,56 @@ func validateSchemaMaintenancePostAdditions(before, post productionSchemaMainten
 	return nil
 }
 
+func validateSchemaMaintenancePostConsistency(full, projected productionSchemaMaintenanceBackupSource) error {
+	if full.StructureSHA256 != projected.StructureSHA256 || !reflect.DeepEqual(full.Roles, projected.Roles) {
+		return errors.New("schema outcome full and projected captures have different catalogs")
+	}
+	tables := map[string]productionSchemaMaintenanceBackupTable{}
+	for _, table := range full.Tables {
+		tables[table.Name] = table
+	}
+	for _, old := range projected.Tables {
+		table, exists := tables[old.Name]
+		expectedRows := old.Rows
+		if old.Name == "options" {
+			// The only excluded row is this live native schema owner's exact
+			// canonical key/value, independently checked around every capture.
+			expectedRows++
+		}
+		if !exists || table.TableOID != old.TableOID || table.Rows != expectedRows {
+			return errors.New("schema outcome old table differs between actual post captures")
+		}
+		columns := map[int]productionSchemaMaintenanceBackupColumn{}
+		for _, column := range table.Columns {
+			columns[column.Position] = column
+		}
+		for _, column := range old.Columns {
+			if columns[column.Position] != column {
+				return errors.New("schema outcome old column differs between actual post captures")
+			}
+		}
+	}
+	indexes := map[string]productionSchemaMaintenanceBackupIndex{}
+	for _, index := range full.Indexes {
+		indexes[index.Name] = index
+	}
+	for _, index := range projected.Indexes {
+		if indexes[index.Name] != index {
+			return errors.New("schema outcome old index differs between actual post captures")
+		}
+	}
+	sequences := map[string]productionSchemaMaintenanceBackupSequence{}
+	for _, sequence := range full.Sequences {
+		sequences[sequence.Name] = sequence
+	}
+	for _, sequence := range projected.Sequences {
+		if sequences[sequence.Name] != sequence {
+			return errors.New("schema outcome old sequence differs between actual post captures")
+		}
+	}
+	return nil
+}
+
 func validateSchemaMaintenanceOutcome(out productionSchemaMaintenanceOutcome, plan productionSchemaMaintenancePlan, preSHA, ownerSHA string, before productionSchemaMaintenanceBackupSource, paths productionPaths) error {
 	raw, err := canonicalProductionSchemaMaintenancePlan(plan, paths)
 	workspace := schemaMaintenanceHostWorkspace(paths, plan.TransitionID)
@@ -113,6 +163,9 @@ func validateSchemaMaintenanceOutcome(out productionSchemaMaintenanceOutcome, pl
 		return errors.New("schema outcome changed physical PostgreSQL identity")
 	}
 	if err := validateSchemaMaintenanceBackupProjectedEqual(before, out.ProjectedSource); err != nil {
+		return err
+	}
+	if err := validateSchemaMaintenancePostConsistency(out.PostSource, out.ProjectedSource); err != nil {
 		return err
 	}
 	return validateSchemaMaintenancePostAdditions(before, out.PostSource)
