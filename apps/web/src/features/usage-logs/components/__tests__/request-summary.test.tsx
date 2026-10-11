@@ -84,6 +84,16 @@ test('subscription and refund receipts have distinct accounting labels', () => {
   assert.match(render(6), /Refund recorded in this entry/)
 })
 
+test('request summary shows original units without a captured monetary basis', () => {
+  const raw = summaryRows(render(2))
+  assert.match(Object.values(raw).join(' '), /12 Raw credits/)
+  assert.doesNotMatch(Object.values(raw).join(' '), /USD|CNY/)
+  const priced = summaryRows(render(2, { pricing_credits_per_usd: 500000 }))
+  assert.match(Object.values(priced).join(' '), /0.000024 USD/)
+  const refund = summaryRows(render(6, { pricing_credits_per_usd: 500000 }))
+  assert.equal(refund['Refund recorded in this entry'], '12 Raw credits')
+})
+
 test('reported cache splits retain measured zero and use only their own counts', () => {
   const rows = summaryRows(
     render(2, {

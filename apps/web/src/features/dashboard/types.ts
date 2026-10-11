@@ -31,6 +31,10 @@ export interface QuotaDataItem {
   token_used?: number
   count?: number
   quota?: number
+  /** Missing projection metadata from older servers is unavailable, never implicit USD. */
+  quota_usd?: string
+  quota_money_available?: boolean
+  quota_money_basis?: string
 }
 
 export interface FlowQuotaDataItem {
@@ -46,6 +50,10 @@ export interface FlowQuotaDataItem {
   token_used?: number
   count?: number
   quota?: number
+  /** Missing projection metadata from older servers is unavailable, never implicit USD. */
+  quota_usd?: string
+  quota_money_available?: boolean
+  quota_money_basis?: string
 }
 
 export type FlowMetric = 'quota' | 'tokens' | 'requests'

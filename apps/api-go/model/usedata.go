@@ -13,6 +13,8 @@ import (
 
 // QuotaData 柱状图数据
 type QuotaData struct {
+	QuotaMoneyProjection `gorm:"embedded"`
+
 	Id        int    `json:"id"`
 	UserID    int    `json:"user_id" gorm:"index"`
 	Username  string `json:"username" gorm:"index:idx_qdt_model_user_name,priority:2;size:64;default:''"`
@@ -99,6 +101,11 @@ func quotaDataQueryLimit(query *gorm.DB) *gorm.DB {
 }
 
 func checkQuotaDataQueryRows(rows []*QuotaData) error {
+	// Hourly buckets do not retain their constituent logs' credit anchors.
+	// They can mix units across a migration; timestamps cannot recover them.
+	for _, row := range rows {
+		row.QuotaMoneyProjection = unknownQuotaMoney("bucket_without_credit_basis")
+	}
 	if len(rows) > quotaDataMaxQueryRows {
 		return ErrQuotaDataResultTooLarge
 	}

@@ -36,6 +36,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { useBillingUSD } from '@/hooks/use-billing-usd'
+import { useHistoricalQuotaMoney } from '@/hooks/use-historical-quota-money'
 import { getUserAvatarFallback, getUserAvatarStyle } from '@/lib/avatar'
 import { formatTimestampToDate } from '@/lib/format'
 import { cn } from '@/lib/utils'
@@ -112,9 +113,10 @@ function buildDetailSegments(
   other: LogOtherData | null,
   t: (key: string, opts?: Record<string, unknown>) => string,
   isAdmin: boolean,
-  currency: LogCurrencyFormatter
+  currency: LogCurrencyFormatter,
+  formatQuota: (quota: number) => string
 ): DetailSegment[] {
-  const segments = buildTypeDetailSegments(log, other, t, currency)
+  const segments = buildTypeDetailSegments(log, other, t, currency, formatQuota)
   // Quota saturation is a rare, admin-only anomaly marker; surface it first
   // and in danger styling so it stands out on the related billing log. The
   // backend already strips admin_info for non-admins; gate on isAdmin too as
@@ -129,18 +131,13 @@ function buildTypeDetailSegments(
   log: UsageLog,
   other: LogOtherData | null,
   t: (key: string, opts?: Record<string, unknown>) => string,
-  currency: LogCurrencyFormatter
+  currency: LogCurrencyFormatter,
+  formatQuota: (quota: number) => string
 ): DetailSegment[] {
   // Audit (type=3) and login (type=7) logs: render localized content from the
   // structured op descriptor instead of the raw (English-fallback) content.
   if (log.type === 3 || log.type === 7) {
-    const text = renderAuditContent(other, t, (quota) =>
-      currency.formatQuota(quota, {
-        digitsLarge: 4,
-        digitsSmall: 8,
-        abbreviate: false,
-      })
-    )
+    const text = renderAuditContent(other, t, formatQuota)
     return text ? [{ text }] : []
   }
 
@@ -161,7 +158,7 @@ function buildTypeDetailSegments(
       })
     }
     segments.push({
-      text: `${t('Fee')}: ${currency.formatQuota(other?.fee_quota ?? log.quota, { digitsLarge: 4, digitsSmall: 8, abbreviate: false })}`,
+      text: `${t('Fee')}: ${formatQuota(other?.fee_quota ?? log.quota)}`,
       muted: true,
     })
     return segments
@@ -741,7 +738,14 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
 
         const quota = row.getValue('quota') as number
         const other = parseLogOther(log.other)
-        return <LogCostDisplay quota={quota} other={other} />
+        return (
+          <LogCostDisplay
+            quota={quota}
+            other={other}
+            type={log.type}
+            projection={log}
+          />
+        )
       },
     },
 
@@ -774,7 +778,22 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         const log = row.original
         const other = parseLogOther(log.other)
 
-        const segments = buildDetailSegments(log, other, t, isAdmin, currency)
+        const { formatHistoricalLogQuota } = useHistoricalQuotaMoney()
+        const segments = buildDetailSegments(
+          log,
+          other,
+          t,
+          isAdmin,
+          currency,
+          (quota) =>
+            formatHistoricalLogQuota({
+              quota: log.quota,
+              other,
+              type: log.type,
+              projection: log,
+              consumedQuota: quota,
+            })
+        )
         const primary = segments[0]
         const hasMore = segments.length > 1
         let primaryTextClass = 'text-foreground'

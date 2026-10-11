@@ -28,8 +28,10 @@ import { getUserQuotaDates } from '@/features/dashboard/api'
 import { useSummaryCardsConfig } from '@/features/dashboard/hooks/use-dashboard-config'
 import { useStatus } from '@/hooks/use-status'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
+import { toIntlLocale } from '@/i18n/languages'
 import { normalizedUserUsage } from '@/lib/cumulative-user-usage'
 import { formatNumber } from '@/lib/format'
+import { formatHistoricalRawQuota } from '@/lib/historical-quota-money'
 import { computeTimeRange } from '@/lib/time'
 import { cn } from '@/lib/utils'
 import { useAuthStore } from '@/stores/auth-store'
@@ -74,7 +76,7 @@ const HEALTH_CONFIG: Record<
 }
 
 export function SummaryCards() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const {
     formatQuota,
     formatUserUsage,
@@ -125,13 +127,30 @@ export function SummaryCards() {
     usageTrendQuery.isSuccess && usageTrendQuery.data.success === true
   const usageFailed =
     usageTrendQuery.isError || usageTrendQuery.data?.success === false
-  const healthLevel = getHealthLevel(remainQuota, recentUsage)
+  // Without captured bucket units, raw history cannot predict the current wallet's runway.
+  const usageComparable = usageReady && recentUsage === 0
+  const healthLevel = getHealthLevel(
+    remainQuota,
+    usageComparable ? recentUsage : 0
+  )
   const healthCfg = HEALTH_CONFIG[healthLevel]
-  const runwayDays = getRunwayDays(remainQuota, recentUsage)
+  const runwayDays = usageComparable
+    ? getRunwayDays(remainQuota, recentUsage)
+    : null
 
-  const todayUsageDisplay = usageReady ? formatQuota(recentUsage) : '—'
+  const todayUsageDisplay = usageReady
+    ? formatHistoricalRawQuota(
+        recentUsage,
+        t('Raw credits'),
+        toIntlLocale(i18n.resolvedLanguage || i18n.language)
+      )
+    : '—'
   let runwayDisplay: string
   if (!usageReady) {
+    runwayDisplay = t('Unknown')
+  } else if (remainQuota <= 0) {
+    runwayDisplay = t('Balance depleted')
+  } else if (!usageComparable) {
     runwayDisplay = t('Unknown')
   } else if (runwayDays !== null) {
     if (runwayDays < 1) {
@@ -141,8 +160,6 @@ export function SummaryCards() {
     } else {
       runwayDisplay = `~${formatNumber(Math.floor(runwayDays))} ${t('days')}`
     }
-  } else if (remainQuota <= 0) {
-    runwayDisplay = t('Balance depleted')
   } else {
     runwayDisplay = t('No recent usage')
   }
@@ -151,6 +168,7 @@ export function SummaryCards() {
     ...summaryValues,
     todayUsageDisplay,
     currencyLabel,
+    todayCurrencyLabel: t('Raw credits'),
     usedCurrencyLabel:
       normalizedUserUsage(user) === null ? t('Credits') : currencyLabel,
     currencyEnabled: true,
@@ -163,7 +181,7 @@ export function SummaryCards() {
           <h3 className='text-muted-foreground text-sm font-medium'>
             {t('Credit remaining')}
           </h3>
-          {usageReady || remainQuota <= 0 ? (
+          {usageComparable || remainQuota <= 0 ? (
             <span className='overview-health'>
               <span
                 className={cn('size-1.5 rounded-full', healthCfg.dotClass)}

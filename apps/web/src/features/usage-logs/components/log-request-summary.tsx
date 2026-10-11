@@ -20,8 +20,8 @@ import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { requestAssistantOpen } from '@/features/assistant/assistant-events'
-import { useBillingUSD } from '@/hooks/use-billing-usd'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
+import { useHistoricalQuotaMoney } from '@/hooks/use-historical-quota-money'
 import { formatTokens } from '@/lib/format'
 
 import type { UsageLog } from '../data/schema'
@@ -38,9 +38,7 @@ export function LogRequestSummary({
   onClose: () => void
 }) {
   const { t } = useTranslation()
-  const { formatQuota } = useBillingUSD()
-  const formatLogQuota = (raw: number) =>
-    formatQuota(raw, { digitsLarge: 4, digitsSmall: 8, abbreviate: false })
+  const { formatHistoricalLogQuota } = useHistoricalQuotaMoney()
   const { copyToClipboard } = useCopyToClipboard()
   if (![2, 5, 6].includes(log.type)) return null
   const cacheReadDetails = [
@@ -164,11 +162,16 @@ export function LogRequestSummary({
             )}
           </dt>
           <dd>
-            {formatLogQuota(
-              other?.billing_source === 'subscription'
-                ? (other.subscription_consumed ?? log.quota)
-                : log.quota
-            )}
+            {formatHistoricalLogQuota({
+              quota: log.quota,
+              other,
+              type: log.type,
+              projection: log,
+              consumedQuota:
+                other?.billing_source === 'subscription'
+                  ? (other.subscription_consumed ?? log.quota)
+                  : log.quota,
+            })}
           </dd>
         </div>
       </dl>

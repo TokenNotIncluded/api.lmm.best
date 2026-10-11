@@ -63,6 +63,7 @@ import { Label } from '@/components/ui/label'
 import { DynamicPricingBreakdown } from '@/features/pricing/components/dynamic-pricing-breakdown'
 import { useBillingUSD } from '@/hooks/use-billing-usd'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
+import { useHistoricalQuotaMoney } from '@/hooks/use-historical-quota-money'
 import { formatTokens, formatUseTime } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
@@ -253,11 +254,14 @@ function BillingBreakdown(props: {
   const { t } = useTranslation()
   const { log, other, isAdmin } = props
   const currency = useBillingUSD()
+  const { formatHistoricalLogQuota } = useHistoricalQuotaMoney()
   const formatLogQuota = (raw: number) =>
-    currency.formatQuota(raw, {
-      digitsLarge: 4,
-      digitsSmall: 8,
-      abbreviate: false,
+    formatHistoricalLogQuota({
+      quota: log.quota,
+      other,
+      type: log.type,
+      projection: log,
+      consumedQuota: raw,
     })
   const isPerCall = isPerCallBilling(other.model_price)
   const isClaude = other.claude === true
@@ -548,11 +552,14 @@ interface DetailsDialogProps {
 export function DetailsDialog(props: DetailsDialogProps) {
   const { t } = useTranslation()
   const currency = useBillingUSD()
+  const { formatHistoricalLogQuota, formatRawQuota } = useHistoricalQuotaMoney()
   const formatLogQuota = (raw: number) =>
-    currency.formatQuota(raw, {
-      digitsLarge: 4,
-      digitsSmall: 8,
-      abbreviate: false,
+    formatHistoricalLogQuota({
+      quota: props.log.quota,
+      other,
+      type: props.log.type,
+      projection: props.log,
+      consumedQuota: raw,
     })
   const { copiedText, copyToClipboard } = useCopyToClipboard({ notify: false })
   const details =
@@ -1288,7 +1295,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
             {other.subscription_remain != null && (
               <DetailRow
                 label={t('Remaining')}
-                value={`${formatLogQuota(other.subscription_remain)}${other.subscription_total != null ? ` / ${formatLogQuota(other.subscription_total)}` : ''}`}
+                value={`${formatRawQuota(other.subscription_remain)}${other.subscription_total != null ? ` / ${formatRawQuota(other.subscription_total)}` : ''}`}
                 mono
               />
             )}

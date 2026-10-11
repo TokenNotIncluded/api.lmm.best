@@ -55,8 +55,8 @@ export function useModelStatCardsConfig(): StatCardConfig[] {
     },
     {
       key: 'quota',
-      title: t('Total Quota'),
-      description: t('Statistical quota'),
+      title: t('Raw credits'),
+      description: t('Historical monetary value unavailable'),
       icon: Coins,
       iconTone: 'success',
       getValue: (stat) => stat?.quota ?? 0,
@@ -95,6 +95,7 @@ export function useSummaryCardsConfig(totals: {
   usedDisplay: string
   requestCountDisplay: string
   currencyLabel: string
+  todayCurrencyLabel: string
   usedCurrencyLabel: string
   currencyEnabled: boolean
 }) {
@@ -106,7 +107,7 @@ export function useSummaryCardsConfig(totals: {
       title: t('Last 24h usage'),
       value: totals.todayUsageDisplay,
       description: totals.currencyEnabled
-        ? `${t('Consumed in the last 24 hours')} (${totals.currencyLabel})`
+        ? `${t('Consumed in the last 24 hours')} (${totals.todayCurrencyLabel})`
         : t('Consumed in the last 24 hours'),
       icon: Flame,
     },

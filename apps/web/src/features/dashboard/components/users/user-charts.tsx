@@ -40,7 +40,6 @@ import type {
   ProcessedUserChartData,
   UserChartsFilters,
 } from '@/features/dashboard/types'
-import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { getCurrencyFormattingLocale } from '@/lib/currency'
 import { getRollingDateRange, type TimeGranularity } from '@/lib/time'
 import { VCHART_OPTION } from '@/lib/vchart'
@@ -75,22 +74,8 @@ interface UserChartsProps {
 
 export function UserCharts(props: UserChartsProps) {
   const { t, i18n } = useTranslation()
-  const {
-    currency: unit,
-    formatQuota,
-    quotaToAmount,
-    formatAmount,
-  } = useWalletCurrency()
   const locale = getCurrencyFormattingLocale(
     i18n.resolvedLanguage || i18n.language
-  )
-  const currency = useMemo(
-    () => ({
-      formatQuota,
-      quotaToAmount,
-      formatAmount,
-    }),
-    [formatQuota, quotaToAmount, formatAmount]
   )
   const { resolvedTheme } = useTheme()
   const [themeReady, setThemeReady] = useState(false)
@@ -169,13 +154,16 @@ export function UserCharts(props: UserChartsProps) {
         timeGranularity,
         t,
         topUserLimit,
-        currency
+        locale
       ),
-    [userData, isLoading, timeGranularity, t, topUserLimit, currency]
+    [userData, isLoading, timeGranularity, t, topUserLimit, locale]
   )
 
   return (
     <div className='space-y-3'>
+      <p className='text-muted-foreground text-xs'>
+        {t('Raw credits')} · {t('Historical monetary value unavailable')}
+      </p>
       <div className='flex items-center gap-1.5 overflow-x-auto pb-1 sm:gap-2'>
         <Tabs
           value={String(selectedRange)}
@@ -264,7 +252,7 @@ export function UserCharts(props: UserChartsProps) {
                   themeReady &&
                   spec && (
                     <VChart
-                      key={`user-${chart.value}-${topUserLimit}-${resolvedTheme}-${unit}-${locale}-${quotaToAmount(1)}`}
+                      key={`user-${chart.value}-${topUserLimit}-${resolvedTheme}-${locale}`}
                       spec={{
                         ...spec,
                         theme: resolvedTheme === 'dark' ? 'dark' : 'light',

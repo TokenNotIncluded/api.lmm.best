@@ -132,6 +132,7 @@ describe('log cost display', () => {
     const rendered = await renderCost({
       quota: 12500,
       other: {
+        pricing_credits_per_usd: 500000,
         tool_surcharges: [{ name: 'lookup_customer', count: 1, price: 5 }],
       },
     })
@@ -159,6 +160,7 @@ describe('log cost display', () => {
     const rendered = await renderCost({
       quota: 5000,
       other: {
+        pricing_credits_per_usd: 500000,
         billing_source: 'subscription',
         subscription_consumed: 2500,
         web_search: true,
@@ -182,7 +184,7 @@ describe('log cost display', () => {
     await unmountCost(rendered)
   })
 
-  test('falls back to the logged quota for legacy subscription records', async () => {
+  test('preserves raw subscription consumption when a historical anchor is missing', async () => {
     const rendered = await renderCost({
       quota: 5000,
       other: { billing_source: 'subscription' },
@@ -194,24 +196,27 @@ describe('log cost display', () => {
     assert.ok(subscriptionBadge)
     assert.equal(
       normalizedText(subscriptionBadge.textContent),
-      normalizedText('Subscription (0.01 USD)')
+      normalizedText('Subscription (5,000 Raw credits)')
     )
 
     await unmountCost(rendered)
   })
-  test('keeps mounted costs in USD across language, wallet preference and FX changes', async () => {
+  test('uses the captured anchor across language, wallet preference and FX changes', async () => {
     await i18n.changeLanguage('zhTW')
-    const rendered = await renderCost({ quota: 3_500_000, other: null })
+    const rendered = await renderCost({
+      quota: 3_500_000,
+      other: { pricing_credits_per_usd: 3_500_000 },
+    })
     try {
-      assert.match(rendered.container.textContent ?? '', /7 USD/)
+      assert.match(rendered.container.textContent ?? '', /1 USD/)
       await act(async () => i18n.changeLanguage('en'))
-      assert.match(rendered.container.textContent ?? '', /7 USD/)
+      assert.match(rendered.container.textContent ?? '', /1 USD/)
       await act(async () =>
         useWalletCurrencyPreferenceStore.getState().setPreference('CREDIT')
       )
-      assert.match(rendered.container.textContent ?? '', /7 USD/)
+      assert.match(rendered.container.textContent ?? '', /1 USD/)
       await act(async () => i18n.changeLanguage('zhCN'))
-      assert.match(rendered.container.textContent ?? '', /7 USD/)
+      assert.match(rendered.container.textContent ?? '', /1 USD/)
       await act(async () =>
         useWalletCurrencyPreferenceStore.getState().setPreference('CNY')
       )
@@ -224,11 +229,61 @@ describe('log cost display', () => {
           },
         })
       )
-      assert.match(rendered.container.textContent ?? '', /7 USD/)
+      assert.match(rendered.container.textContent ?? '', /1 USD/)
       assert.doesNotMatch(
         rendered.container.textContent ?? '',
         /Platform|Credits|CNY|\$/
       )
+    } finally {
+      await unmountCost(rendered)
+    }
+  })
+  test('unknown and explicitly unavailable history never acquires a current USD value', async () => {
+    for (const props of [
+      { quota: 3_500_000, other: null },
+      {
+        quota: 3_500_000,
+        other: { pricing_credits_per_usd: 500000 },
+        projection: {
+          quota_money_available: false,
+          quota_money_basis: 'missing_credit_basis',
+        },
+      },
+      {
+        quota: 3_500_000,
+        other: { pricing_credits_per_usd: 500000 },
+        type: 6,
+      },
+    ]) {
+      const rendered = await renderCost(props)
+      try {
+        assert.match(
+          rendered.container.textContent ?? '',
+          /3,500,000 Raw credits/
+        )
+        assert.doesNotMatch(rendered.container.textContent ?? '', /USD|CNY|\$/)
+        assert.ok(
+          rendered.container.querySelector(
+            '[title="Historical monetary value unavailable"]'
+          )
+        )
+      } finally {
+        await unmountCost(rendered)
+      }
+    }
+  })
+  test('uses a typed complete projection even when the browser has no metadata anchor', async () => {
+    const rendered = await renderCost({
+      quota: 3_500_000,
+      other: null,
+      projection: {
+        quota_money_available: true,
+        quota_money_basis: 'captured_credits_per_usd',
+        quota_usd: '1',
+      },
+    })
+    try {
+      assert.match(rendered.container.textContent ?? '', /1 USD/)
     } finally {
       await unmountCost(rendered)
     }

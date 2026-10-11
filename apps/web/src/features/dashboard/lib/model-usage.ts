@@ -19,6 +19,7 @@ export interface ModelUsageRow {
   count: number
   tokens: number
   quota: number
+  quota_raw: string | null
   share: number | null
 }
 
@@ -33,12 +34,24 @@ export function summarizeModelUsage(data: readonly QuotaDataItem[]) {
     const model = item.model_name ?? ''
     let row = models.get(model)
     if (!row) {
-      row = { model, count: 0, tokens: 0, quota: 0, share: null }
+      row = {
+        model,
+        count: 0,
+        tokens: 0,
+        quota: 0,
+        quota_raw: '0',
+        share: null,
+      }
       models.set(model, row)
     }
     row.count += finite(item.count)
     row.tokens += finite(item.token_used)
     row.quota += finite(item.quota)
+    const raw = item.quota === undefined ? 0 : item.quota
+    row.quota_raw =
+      row.quota_raw !== null && Number.isSafeInteger(raw)
+        ? (BigInt(row.quota_raw) + BigInt(raw)).toString()
+        : null
     totalQuota += finite(item.quota)
   }
   return Array.from(models.values(), (row) => ({
@@ -67,7 +80,7 @@ export function selectModelUsage(
     })
 }
 
-function csvCell(value: string | number) {
+function csvCell(value: string | number | bigint) {
   let text = String(value)
   // Quoting alone does not stop a spreadsheet from executing a model name.
   if (typeof value === 'string' && /^[\s\uFEFF]*[=+@-]/u.test(text)) {
@@ -79,16 +92,22 @@ function csvCell(value: string | number) {
 export function modelUsageCsv(
   rows: readonly ModelUsageRow[],
   headers: readonly string[],
-  quotaToAmount: (quota: number) => number,
   unknownLabel: string
 ) {
-  const records: (string | number)[][] = [
+  const records: (string | number | bigint)[][] = [
     [...headers],
     ...rows.map((row) => [
       row.model || unknownLabel,
       row.count,
       row.tokens,
-      quotaToAmount(row.quota),
+      row.quota_raw === null ? '' : BigInt(row.quota_raw),
+      // Hour buckets do not capture a historical money basis. Aggregating raw
+      // quota cannot establish one, even if today's wallet FX is available.
+      'raw_quota',
+      'false',
+      row.quota_raw === null
+        ? 'raw_quota_not_exact'
+        : 'bucket_without_credit_basis',
       row.share === null ? '' : row.share * 100,
     ]),
   ]

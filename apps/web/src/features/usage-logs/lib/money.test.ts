@@ -122,7 +122,7 @@ describe('log monetary snapshots', () => {
     )
   })
 
-  test('copies the displayed bill with its unit while preserving original content verbatim', () => {
+  test('copies raw historical amounts when no captured unit exists and preserves evidence', () => {
     const log = { type: 2, quota: 3_500_000 } as UsageLog
     const other = {
       billing_source: 'subscription',
@@ -137,10 +137,44 @@ describe('log monetary snapshots', () => {
       formatter(),
       (key) => key
     )
-    assert.match(usd, /Billing Details \(USD\)\nTotal Cost: 7 USD/)
-    assert.match(usd, /Final Consumed: 0\.000002 USD/)
+    assert.match(
+      usd,
+      /Billing Details \(Raw credits\)\nTotal Cost: 3,500,000 Raw credits/
+    )
+    assert.match(usd, /Final Consumed: 1 Raw credits/)
+    assert.match(usd, /Remaining: 3,499,999 Raw credits/)
     assert.ok(usd.endsWith(original))
-    assert.doesNotMatch(usd, /Credits:|CNY|Billing Details \(CREDIT\)/)
+    assert.doesNotMatch(usd, /Total Cost: .*USD|CNY|Billing Details \(USD\)/)
+  })
+
+  test('copies captured charges without revaluing a mixed historical subscription pool', () => {
+    const log = { type: 2, quota: 3_500_000 } as UsageLog
+    const other = {
+      pricing_credits_per_usd: 3_500_000,
+      billing_source: 'subscription',
+      subscription_consumed: 1_750_000,
+      subscription_remain: 3_499_999,
+    }
+    const copy = buildLogCopyText('', log, other, formatter(), (key) => key)
+    assert.match(copy, /Total Cost: 1 USD/)
+    assert.match(copy, /Final Consumed: 0\.5 USD/)
+    assert.match(copy, /Remaining: 3,499,999 Raw credits/)
+    const unavailable = buildLogCopyText(
+      '',
+      { ...log, quota_money_available: false },
+      other,
+      formatter(),
+      (key) => key
+    )
+    assert.match(unavailable, /Total Cost: 3,500,000 Raw credits/)
+    const refund = buildLogCopyText(
+      '',
+      { ...log, type: 6 },
+      other,
+      formatter(),
+      (key) => key
+    )
+    assert.match(refund, /Total Cost: 3,500,000 Raw credits/)
   })
 
   test('copies matched expression prices and each tool surcharge with its own frozen unit', () => {

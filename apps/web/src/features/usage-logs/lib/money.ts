@@ -2,6 +2,10 @@
 Copyright (C) 2026 LIghtJUNction
 */
 import type { CurrencyFormatOptions } from '@/lib/currency'
+import {
+  formatHistoricalRawQuota,
+  historicalLogQuotaUSD,
+} from '@/lib/historical-quota-money'
 
 import type { UsageLog } from '../data/schema'
 import type { LogOtherData } from '../types'
@@ -127,18 +131,36 @@ export function buildLogCopyText(
   currency: LogCurrencyFormatter,
   t: (key: string) => string
 ): string {
+  const formatRaw = (quota: number) =>
+    formatHistoricalRawQuota(quota, t('Raw credits'))
+  const format = (quota: number) => {
+    const usd = historicalLogQuotaUSD({
+      quota: log.quota,
+      other,
+      type: log.type,
+      projection: log,
+      consumedQuota: quota,
+    })
+    return usd === null
+      ? formatRaw(quota)
+      : currency.formatUSD(usd, PRICE_OPTIONS)
+  }
   if (log.type === 3) {
-    const audit = renderAuditContent(other, t, (quota) =>
-      currency.formatQuota(quota, PRICE_OPTIONS)
-    )
+    const audit = renderAuditContent(other, t, format)
     return audit
       ? `${audit}\n\n${t('Original log content')}:\n${original}`
       : original
   }
   if (![1, 2, 6].includes(log.type)) return original
-  const format = (quota: number) => currency.formatQuota(quota, PRICE_OPTIONS)
+  const moneyAvailable =
+    historicalLogQuotaUSD({
+      quota: log.quota,
+      other,
+      type: log.type,
+      projection: log,
+    }) !== null
   const rows = [
-    `${t('Billing Details')} (${currency.currency})`,
+    `${t('Billing Details')} (${moneyAvailable ? currency.currency : t('Raw credits')})`,
     `${t('Total Cost')}: ${format(log.quota)}`,
     `${t('Billing Source')}: ${t(other?.billing_source === 'subscription' ? 'Subscription' : 'Wallet')}`,
   ]
@@ -181,7 +203,7 @@ export function buildLogCopyText(
       `${t('Final Consumed')}: ${format(other.subscription_consumed ?? log.quota)}`
     )
     if (other.subscription_remain != null) {
-      rows.push(`${t('Remaining')}: ${format(other.subscription_remain)}`)
+      rows.push(`${t('Remaining')}: ${formatRaw(other.subscription_remain)}`)
     }
   }
   if (other?.fee_quota != null) {

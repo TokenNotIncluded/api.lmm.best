@@ -375,7 +375,7 @@ function CurrencyOverview() {
   )
 }
 
-test('quick switch saves only the preference and updates all quota displays after acknowledgement', async () => {
+test('quick switch updates current balances and normalized usage while unpriced history stays raw', async () => {
   configureCurrencyOverview()
   const writes: unknown[] = []
   let acknowledge: ((value: { data: { success: boolean } }) => void) | undefined
@@ -400,6 +400,15 @@ test('quick switch saves only the preference and updates all quota displays afte
     () => container.querySelectorAll('.overview-payment-row').length === 1
   )
   const payments = container.querySelector('.overview-payments')?.textContent
+  assert.match(
+    container.querySelector('.overview-metrics')?.textContent ?? '',
+    /250,000 Raw credits/
+  )
+  assert.match(
+    container.querySelector('.overview-balance-footer')?.textContent ?? '',
+    /Unknown/
+  )
+  assert.equal(container.querySelector('.overview-health'), null)
   await act(async () => currencyButton(container, 'CNY').click())
   assert.equal(
     container
@@ -428,7 +437,7 @@ test('quick switch saves only the preference and updates all quota displays afte
   )
   assert.match(
     container.querySelector('.overview-metrics')?.textContent ?? '',
-    /3.5 CNY/
+    /250,000 Raw credits/
   )
   assert.match(
     container.querySelector('.overview-metrics')?.textContent ?? '',
@@ -485,6 +494,36 @@ test('quick switch saves only the preference and updates all quota displays afte
     'true'
   )
   assert.equal(writes.length, 2)
+})
+
+test('a depleted current balance stays known when historical quota cannot be valued', async () => {
+  configureCurrencyOverview()
+  const user = useAuthStore.getState().auth.user
+  assert.ok(user)
+  for (const quota of [0, -1]) {
+    useAuthStore.getState().auth.setUser({ ...user, quota })
+    const container = await mount(SummaryCards)
+    await until(
+      () =>
+        container
+          .querySelector('.overview-metrics')
+          ?.textContent?.includes('250,000 Raw credits') === true
+    )
+    assert.match(
+      container.querySelector('.overview-health')?.textContent ?? '',
+      /Balance depleted/
+    )
+    assert.match(
+      container.querySelector('.overview-balance-footer')?.textContent ?? '',
+      /Balance depleted/
+    )
+    assert.doesNotMatch(
+      container.querySelector('.overview-balance-footer')?.textContent ?? '',
+      /Unknown/
+    )
+    await dispose?.()
+    dispose = undefined
+  }
 })
 
 test('quick-switch save failures retain the current unit and can be retried', async () => {

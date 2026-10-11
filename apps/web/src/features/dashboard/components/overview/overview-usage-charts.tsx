@@ -7,7 +7,8 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { getUserQuotaDates } from '@/features/dashboard/api'
-import { useWalletCurrency } from '@/hooks/use-wallet-currency'
+import { toIntlLocale } from '@/i18n/languages'
+import { formatHistoricalRawQuota } from '@/lib/historical-quota-money'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
@@ -25,7 +26,6 @@ const ChartCard = lazy(() =>
 export function OverviewUsageCharts() {
   const { t, i18n } = useTranslation()
   const user = useAuthStore((state) => state.auth.user)
-  const wallet = useWalletCurrency()
   const [days, setDays] = useState(7)
   const [metric, setMetric] = useState<OverviewMetric>('requests')
   const query = useQuery({
@@ -59,14 +59,21 @@ export function OverviewUsageCharts() {
       return undefined
     }
   }, [query.data, metric, i18n.language, t])
-  const convert = (number: number) =>
-    metric === 'quota' ? wallet.quotaToAmount(number) : number
   const name =
     metric === 'quota'
-      ? t('Usage cost')
+      ? t('Raw credits')
       : metric === 'tokens'
         ? t('Tokens')
         : t('Requests')
+  const formatChartValue =
+    metric === 'quota'
+      ? (value: number) =>
+          formatHistoricalRawQuota(
+            value,
+            '',
+            toIntlLocale(i18n.language)
+          ).trimEnd()
+      : undefined
   const loading = query.isPending
   const failed = query.isError || (query.isSuccess && !usage)
   const empty = query.isSuccess && !failed && query.data.rows.length === 0
@@ -99,7 +106,7 @@ export function OverviewUsageCharts() {
               >
                 {t(
                   value === 'quota'
-                    ? 'Usage cost'
+                    ? 'Raw credits'
                     : value === 'tokens'
                       ? 'Tokens'
                       : 'Requests'
@@ -159,32 +166,37 @@ export function OverviewUsageCharts() {
           <div className='overview-chart-grid'>
             <ChartCard
               provenance={t('Recorded account usage')}
+              formatChartValue={formatChartValue}
               visual={{
                 kind: 'chart',
                 title: t('Daily usage trend'),
                 chart_type: 'line',
                 labels: usage.labels,
-                series: [{ name, values: usage.values.map(convert) }],
-                unit: metric === 'quota' ? wallet.label : '',
+                series: [{ name, values: usage.values }],
+                unit: metric === 'quota' ? t('Raw credits') : '',
                 source: t('Local dates · {{days}} days', { days }),
               }}
             />
             <ChartCard
               provenance={t('Recorded account usage')}
+              formatChartValue={formatChartValue}
               visual={{
                 kind: 'chart',
                 title: t('Model distribution'),
                 chart_type: 'donut',
                 labels: usage.models.map((row) => row[0]),
-                series: [
-                  { name, values: usage.models.map((row) => convert(row[1])) },
-                ],
-                unit: metric === 'quota' ? wallet.label : name,
+                series: [{ name, values: usage.models.map((row) => row[1]) }],
+                unit: metric === 'quota' ? t('Raw credits') : name,
                 source: t('Top five models; the remainder is combined.'),
               }}
             />
           </div>
         </Suspense>
+      )}
+      {metric === 'quota' && (
+        <p className='text-muted-foreground mt-3 text-xs'>
+          {t('Historical monetary value unavailable')}
+        </p>
       )}
       <p className='text-muted-foreground mt-3 text-xs'>
         {t(

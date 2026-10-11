@@ -35,7 +35,6 @@ import type {
   ModelAnalyticsChartTab,
   QuotaDataItem,
 } from '@/features/dashboard/types'
-import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { getCurrencyFormattingLocale } from '@/lib/currency'
 import { useThemeRadiusPx } from '@/lib/theme-radius'
 import type { TimeGranularity } from '@/lib/time'
@@ -64,22 +63,8 @@ interface ModelChartsProps {
 
 export function ModelCharts(props: ModelChartsProps) {
   const { t, i18n } = useTranslation()
-  const {
-    currency: unit,
-    formatQuota,
-    quotaToAmount,
-    formatAmount,
-  } = useWalletCurrency()
   const locale = getCurrencyFormattingLocale(
     i18n.resolvedLanguage || i18n.language
-  )
-  const currency = useMemo(
-    () => ({
-      formatQuota,
-      quotaToAmount,
-      formatAmount,
-    }),
-    [formatQuota, quotaToAmount, formatAmount]
   )
   const { resolvedTheme } = useTheme()
   const { customization } = useThemeCustomization()
@@ -126,9 +111,9 @@ export function ModelCharts(props: ModelChartsProps) {
         timeGranularity,
         t,
         chartRadius,
-        currency
+        locale
       ),
-    [props.data, props.loading, timeGranularity, t, chartRadius, currency]
+    [props.data, props.loading, timeGranularity, t, chartRadius, locale]
   )
 
   const spec = chartData[CHART_SPEC_KEYS[activeTab]]
@@ -139,9 +124,7 @@ export function ModelCharts(props: ModelChartsProps) {
     props.loading ? 'loading' : 'ready',
     props.data.length,
     resolvedTheme,
-    unit,
     locale,
-    quotaToAmount(1),
     customization.preset,
   ].join('-')
 

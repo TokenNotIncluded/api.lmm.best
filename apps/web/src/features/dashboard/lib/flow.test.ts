@@ -783,12 +783,62 @@ describe('dashboard flow data', () => {
             : row.value,
         ]),
       [
-        ['Quota', '100'],
+        ['Raw credits', '100 Raw credits'],
         ['Tokens', '40'],
         ['Requests', '2'],
         ['Share', '100.0%'],
       ]
     )
+  })
+
+  test('keeps historical flow quota raw for every width metric', () => {
+    const historicalRows: FlowQuotaDataItem[] = [
+      {
+        ...rows[0],
+        quota: 625_001,
+        quota_usd: '0.25',
+        quota_money_available: false,
+        quota_money_basis: 'unavailable',
+      },
+    ]
+
+    for (const metric of ['quota', 'tokens', 'requests'] as const) {
+      const result = buildDashboardFlowData(historicalRows, metric, {
+        role: 'root',
+      })
+      const flowSpec = buildFlowSankeySpec(
+        result.flow,
+        'Flow',
+        'Raw credits',
+        {
+          quota: 'Raw credits',
+          tokens: 'Tokens',
+          requests: 'Requests',
+          share: 'Share',
+        },
+        'en-US'
+      )
+      const link = flowSpec.data[0].values[0].links[0]
+
+      assert.equal(result.summary.quota, 625_001)
+      assert.equal(result.summary.tokens, 40)
+      assert.equal(result.summary.requests, 2)
+      assert.equal(link.quota, 625_001)
+      assert.equal(
+        link.value,
+        { quota: 625_001, tokens: 40, requests: 2 }[metric]
+      )
+      assert.deepEqual(
+        flowSpec.tooltip.mark.content
+          .slice(0, 3)
+          .map((row) => [row.key, row.value({ datum: link })]),
+        [
+          ['Raw credits', '625,001 Raw credits'],
+          ['Tokens', '40'],
+          ['Requests', '2'],
+        ]
+      )
+    }
   })
 
   test('maps active flow highlight states into the Sankey spec', () => {

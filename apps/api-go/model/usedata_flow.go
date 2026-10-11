@@ -8,6 +8,8 @@ import (
 )
 
 type FlowQuotaData struct {
+	QuotaMoneyProjection `gorm:"embedded"`
+
 	UserID      int    `json:"user_id,omitempty" gorm:"column:user_id"`
 	Username    string `json:"username,omitempty" gorm:"column:username"`
 	NodeName    string `json:"node_name,omitempty" gorm:"column:node_name"`
@@ -22,15 +24,19 @@ type FlowQuotaData struct {
 	Quota       int    `json:"quota" gorm:"column:quota"`
 }
 
-func GetFlowQuotaData(startTime int64, endTime int64, username string, userID int, role int) ([]*FlowQuotaData, error) {
+func GetFlowQuotaData(startTime int64, endTime int64, username string, userID int, role int) (rows []*FlowQuotaData, err error) {
 	switch {
 	case role >= common.RoleRootUser:
-		return getRootFlowQuotaData(startTime, endTime, username)
+		rows, err = getRootFlowQuotaData(startTime, endTime, username)
 	case role >= common.RoleAdminUser:
-		return getAdminFlowQuotaData(startTime, endTime, username)
+		rows, err = getAdminFlowQuotaData(startTime, endTime, username)
 	default:
-		return getSelfFlowQuotaData(startTime, endTime, userID)
+		rows, err = getSelfFlowQuotaData(startTime, endTime, userID)
 	}
+	for _, row := range rows {
+		row.QuotaMoneyProjection = unknownQuotaMoney("bucket_without_credit_basis")
+	}
+	return rows, err
 }
 
 func flowQuotaBaseQuery(startTime int64, endTime int64) *gorm.DB {
