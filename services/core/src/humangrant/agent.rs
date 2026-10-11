@@ -176,15 +176,15 @@ pub(super) async fn email_unavailable(State(state):State<HgState>,Path(id):Path<
         .bind(&id).execute(&state.pool).await?;
     Err(Error{status:StatusCode::SERVICE_UNAVAILABLE,code:"mail_unavailable"})
 }
-async fn live_session(state:&HgState,proof:&crypto::Signed) -> Result<(sqlx::Transaction<'_,sqlx::Postgres>,PgRow)> {
+async fn live_session<'a>(state:&'a HgState,proof:&crypto::Signed) -> Result<(sqlx::Transaction<'a,sqlx::Postgres>,PgRow)> {
     state.require_enabled().await?;
     if proof.authorization=="anonymous" { return Err(Error::unauthorized()); }
     let mut tx=state.pool.begin().await?;
     // Lock grant before profile access; revocation takes the same lock.
-    let row=sqlx::query("SELECT g.id,g.user_id,g.actor_id,g.permissions,g.expires_at,g.revoked_at, r.client_id, r.target_service FROM core_identity.hg_sessions s JOIN core_identity.hg_grants g ON g.id=s.grant_id JOIN core_identity.hg_requests r ON r.id=g.request_id JOIN core_identity.users u ON u.id=g.user_id JOIN core_identity.accounts a ON a.id=u.personal_account_id WHERE s.token_digest=$1 AND g.actor_id=$2 AND u.active AND a.active FOR UPDATE OF g")
+    let row=sqlx::query("SELECT g.id,g.user_id,g.actor_id,g.permissions,g.expires_at,g.revoked_at IS NOT NULL AS revoked, r.client_id, r.target_service FROM core_identity.hg_sessions s JOIN core_identity.hg_grants g ON g.id=s.grant_id JOIN core_identity.hg_requests r ON r.id=g.request_id JOIN core_identity.users u ON u.id=g.user_id JOIN core_identity.accounts a ON a.id=u.personal_account_id WHERE s.token_digest=$1 AND g.actor_id=$2 AND u.active AND a.active FOR UPDATE OF g FOR SHARE OF u,a")
         .bind(digest(proof.authorization.as_bytes())).bind(&proof.actor_id)
         .fetch_optional(&mut *tx).await?.ok_or_else(Error::forbidden)?;
-    if row.try_get::<Option<chrono::DateTime<chrono::Utc>>,_>("revoked_at")?.is_some() {
+    if row.try_get::<bool,_>("revoked")? {
         return Err(Error::forbidden());
     }
     let expired:bool=sqlx::query_scalar("SELECT clock_timestamp() >= expires_at FROM core_identity.hg_grants WHERE id=$1")
