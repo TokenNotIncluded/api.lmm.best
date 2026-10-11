@@ -172,6 +172,11 @@ func verifySchemaOnlyMaintenanceOwner(tx *gorm.DB, owner deploymentfence.OwnerBi
 		len(owners) != 1 || owners[0].Key != deploymentfence.OptionPrefix+owner.DeploymentID+":"+owner.Host || !bytes.Equal([]byte(owners[0].Value), ownerBytes) {
 		return errors.New("schema-only exact sole durable maintenance owner is unavailable")
 	}
+	// PostgreSQL caches activity information from its first request within a
+	// transaction. The final check must see clients that arrived during DDL.
+	if err := tx.Exec("SELECT pg_catalog.pg_stat_clear_snapshot()").Error; err != nil {
+		return errors.New("schema-only PostgreSQL activity snapshot refresh unavailable")
+	}
 	var holderAlive bool
 	if err := tx.Raw(`SELECT EXISTS (
 		SELECT 1 FROM pg_catalog.pg_stat_activity AS activity JOIN pg_catalog.pg_locks AS locks ON locks.pid = activity.pid
