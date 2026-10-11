@@ -1,5 +1,11 @@
 {
   "translation": {
+    "Continue with human beings": "Continuer avec un être humain",
+    "Unable to load HumanGrant setting": "Impossible de charger le paramètre HumanGrant",
+    "HumanGrant setting saved": "Paramètre HumanGrant enregistré",
+    "Unable to save HumanGrant setting": "Impossible d’enregistrer le paramètre HumanGrant",
+    "HumanGrant remote authorization": "Autorisation à distance HumanGrant",
+    "Allow AI clients to request limited access with explicit human approval. Existing login methods stay available.": "Autoriser les clients IA à demander un accès limité avec l’accord explicite d’un humain. Les autres modes de connexion restent disponibles.",
     "360": "360",
     "1000": "1000",
     "10000": "10000",
