@@ -170,68 +170,175 @@ async fn signed_human_consent_claim_replay_expiry_disable_and_revoke(pool: PgPoo
         "requested_permissions":[{"action":"lmm.profile.read","resource":"self"}],
         "expected_human_id":uid.to_string(),
         "session_ttl_seconds":300
-    }).to_string();
-    let signed_headers=signer.headers("POST","/v1/requests",request.as_bytes(),"anonymous");
-    let (status,created)=call(&app,"POST","/v1/requests",request.as_bytes(),&signed_headers).await;
-    assert_eq!(status,StatusCode::CREATED,"{created:?}");
-    let id=created["request_id"].as_str().unwrap();
-    assert_eq!(created["status"],"waiting");
-    assert_eq!(created["requested_permissions"][0]["action"],"lmm.profile.read");
-    let (status,duplicate)=call(&app,"POST","/v1/requests",request.as_bytes(),&signed_headers).await;
-    assert_eq!(status,StatusCode::UNAUTHORIZED,"{duplicate:?}");
-    assert_eq!(duplicate["error"],"signature_replay");
+    })
+    .to_string();
+    let signed_headers = signer.headers("POST", "/v1/requests", request.as_bytes(), "anonymous");
+    let (status, created) = call(
+        &app,
+        "POST",
+        "/v1/requests",
+        request.as_bytes(),
+        &signed_headers,
+    )
+    .await;
+    assert_eq!(status, StatusCode::CREATED, "{created:?}");
+    let id = created["request_id"].as_str().unwrap();
+    assert_eq!(created["status"], "waiting");
+    assert_eq!(
+        created["requested_permissions"][0]["action"],
+        "lmm.profile.read"
+    );
+    let (status, duplicate) = call(
+        &app,
+        "POST",
+        "/v1/requests",
+        request.as_bytes(),
+        &signed_headers,
+    )
+    .await;
+    assert_eq!(status, StatusCode::UNAUTHORIZED, "{duplicate:?}");
+    assert_eq!(duplicate["error"], "signature_replay");
 
-    let (status,_) = signed(&app,&signer,"GET",&format!("/v1/requests/{id}"),b"","anonymous").await;
-    assert_eq!(status,StatusCode::OK);
+    let (status, _) = signed(
+        &app,
+        &signer,
+        "GET",
+        &format!("/v1/requests/{id}"),
+        b"",
+        "anonymous",
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
 
-    let link=created["human_authorization_url"].as_str().unwrap().rsplit('/').next().unwrap();
-    let base=format!("/human/{link}");
-    let (status,details)=call(&app,"GET",&format!("{base}/details"),b"",&[]).await;
-    assert_eq!(status,StatusCode::OK);
-    assert_eq!(details["client_id"],"test_agent");
-    let (status,_) = browser(&app,"POST",&format!("{base}/begin"),json!({}),Some(bearer),None,false).await;
-    assert_eq!(status,StatusCode::FORBIDDEN,"a browser mutation without Origin must be denied");
-    let (status,begun) = browser(&app,"POST",&format!("{base}/begin"),json!({}),Some(bearer),None,true).await;
-    assert_eq!(status,StatusCode::OK,"{begun:?}");
-    let csrf=begun["csrf_token"].as_str().unwrap();
-    let permission=json!([{"action":"lmm.profile.read","resource":"self"}]);
-    let approval=json!({"permissions":permission,"expires_at":clock()+240});
-    let (status,_) = browser(
-        &app,"POST",&format!("{base}/approve"),
-        approval.clone(),Some(bearer),Some("bad"),true
-    ).await;
-    assert_eq!(status,StatusCode::FORBIDDEN);
-    let (status,approved) = browser(&app,"POST",&format!("{base}/approve"),approval.clone(),Some(bearer),Some(csrf),true).await;
-    assert_eq!(status,StatusCode::OK,"{approved:?}");
-    let grant=approved["grant_id"].as_str().unwrap();
+    let link = created["human_authorization_url"]
+        .as_str()
+        .unwrap()
+        .rsplit('/')
+        .next()
+        .unwrap();
+    let base = format!("/human/{link}");
+    let (status, details) = call(&app, "GET", &format!("{base}/details"), b"", &[]).await;
+    assert_eq!(status, StatusCode::OK);
+    assert_eq!(details["client_id"], "test_agent");
+    let (status, _) = browser(
+        &app,
+        "POST",
+        &format!("{base}/begin"),
+        json!({}),
+        Some(bearer),
+        None,
+        false,
+    )
+    .await;
+    assert_eq!(
+        status,
+        StatusCode::FORBIDDEN,
+        "a browser mutation without Origin must be denied"
+    );
+    let (status, begun) = browser(
+        &app,
+        "POST",
+        &format!("{base}/begin"),
+        json!({}),
+        Some(bearer),
+        None,
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{begun:?}");
+    let csrf = begun["csrf_token"].as_str().unwrap();
+    let permission = json!([{"action":"lmm.profile.read","resource":"self"}]);
+    let approval = json!({"permissions":permission,"expires_at":clock()+240});
+    let (status, _) = browser(
+        &app,
+        "POST",
+        &format!("{base}/approve"),
+        approval.clone(),
+        Some(bearer),
+        Some("bad"),
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, approved) = browser(
+        &app,
+        "POST",
+        &format!("{base}/approve"),
+        approval.clone(),
+        Some(bearer),
+        Some(csrf),
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{approved:?}");
+    let grant = approved["grant_id"].as_str().unwrap();
 
-    let (status,reuse) = browser(&app,"POST",&format!("{base}/approve"),approval,Some(bearer),Some(csrf),true).await;
-    assert_eq!(status,StatusCode::FORBIDDEN,"{reuse:?}");
-    let claim_path=format!("/v1/requests/{id}/claim");
-    let (status,claimed)=signed(&app,&signer,"POST",&claim_path,b"{}","anonymous").await;
-    assert_eq!(status,StatusCode::OK,"{claimed:?}");
-    let token=claimed["access_token"].as_str().unwrap();
-    assert_eq!(claimed["grant_id"],grant);
-    let (status,_) = signed(&app,&signer,"POST",&claim_path,b"{}","anonymous").await;
-    assert_eq!(status,StatusCode::CONFLICT);
-    let (status,session)=signed(&app,&signer,"GET","/v1/session",b"",token).await;
-    assert_eq!(status,StatusCode::OK,"{session:?}");
-    assert_eq!(session["actor"],signer.actor());
-    let (status,profile)=signed(&app,&signer,"GET","/v1/humangrant/profile",b"",token).await;
-    assert_eq!(status,StatusCode::OK,"{profile:?}");
-    assert_eq!(profile["username"],"alice");
+    let (status, reuse) = browser(
+        &app,
+        "POST",
+        &format!("{base}/approve"),
+        approval,
+        Some(bearer),
+        Some(csrf),
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN, "{reuse:?}");
+    let claim_path = format!("/v1/requests/{id}/claim");
+    let (status, claimed) = signed(&app, &signer, "POST", &claim_path, b"{}", "anonymous").await;
+    assert_eq!(status, StatusCode::OK, "{claimed:?}");
+    let token = claimed["access_token"].as_str().unwrap();
+    assert_eq!(claimed["grant_id"], grant);
+    let (status, _) = signed(&app, &signer, "POST", &claim_path, b"{}", "anonymous").await;
+    assert_eq!(status, StatusCode::CONFLICT);
+    let (status, session) = signed(&app, &signer, "GET", "/v1/session", b"", token).await;
+    assert_eq!(status, StatusCode::OK, "{session:?}");
+    assert_eq!(session["actor"], signer.actor());
+    let (status, profile) =
+        signed(&app, &signer, "GET", "/v1/humangrant/profile", b"", token).await;
+    assert_eq!(status, StatusCode::OK, "{profile:?}");
+    assert_eq!(profile["username"], "alice");
 
-    let (status,grants)=browser(&app,"GET","/api/humangrant/grants",json!({}),Some(bearer),None,false).await;
-    assert_eq!(status,StatusCode::OK,"{grants:?}");
-    let csrf=grants["grants"][0]["csrf_token"].as_str().unwrap();
-    let (status,revoked)=browser(&app,"POST",&format!("/api/humangrant/grants/{grant}/revoke"),json!({}),Some(bearer),Some(csrf),true).await;
-    assert_eq!(status,StatusCode::OK,"{revoked:?}");
-    let (status,_) = signed(&app,&signer,"GET","/v1/humangrant/profile",b"",token).await;
-    assert_eq!(status,StatusCode::FORBIDDEN);
+    let (status, grants) = browser(
+        &app,
+        "GET",
+        "/api/humangrant/grants",
+        json!({}),
+        Some(bearer),
+        None,
+        false,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{grants:?}");
+    let csrf = grants["grants"][0]["csrf_token"].as_str().unwrap();
+    let (status, revoked) = browser(
+        &app,
+        "POST",
+        &format!("/api/humangrant/grants/{grant}/revoke"),
+        json!({}),
+        Some(bearer),
+        Some(csrf),
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{revoked:?}");
+    let (status, _) = signed(&app, &signer, "GET", "/v1/humangrant/profile", b"", token).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
 
-    sqlx::query("UPDATE core_identity.hg_config SET enabled=FALSE").execute(&pool).await.unwrap();
-    let (status,_) = signed(&app,&signer,"GET","/v1/session",b"",token).await;
-    assert_eq!(status,StatusCode::FORBIDDEN);
-    let (status,_) = signed(&app,&signer,"POST","/v1/requests",request.as_bytes(),"anonymous").await;
-    assert_eq!(status,StatusCode::FORBIDDEN);
+    sqlx::query("UPDATE core_identity.hg_config SET enabled=FALSE")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let (status, _) = signed(&app, &signer, "GET", "/v1/session", b"", token).await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
+    let (status, _) = signed(
+        &app,
+        &signer,
+        "POST",
+        "/v1/requests",
+        request.as_bytes(),
+        "anonymous",
+    )
+    .await;
+    assert_eq!(status, StatusCode::FORBIDDEN);
 }
