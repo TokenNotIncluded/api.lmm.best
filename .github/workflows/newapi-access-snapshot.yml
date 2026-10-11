@@ -1,0 +1,35 @@
+name: Security access source snapshot
+
+on:
+  push:
+    branches: [work/newapi-access-snapshot-20261011]
+    paths: [.github/workflows/newapi-access-snapshot.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 1fef8f64d9f20c751f4182dc8c7835a67def29a9
+          persist-credentials: false
+      - name: Export tracked source only
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/access-sources"
+          git archive --format=tar.gz HEAD > "$RUNNER_TEMP/access-sources/lmm-source.tar.gz"
+          git init "$RUNNER_TEMP/newapi-source"
+          git -C "$RUNNER_TEMP/newapi-source" remote add origin https://github.com/QuantumNous/new-api.git
+          git -C "$RUNNER_TEMP/newapi-source" fetch --depth=1 origin 4924361aef733ed724cfdb77ccf35690d9629971
+          git -C "$RUNNER_TEMP/newapi-source" archive --format=tar.gz FETCH_HEAD > "$RUNNER_TEMP/access-sources/upstream-source.tar.gz"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: newapi-access-sources
+          path: ${{ runner.temp }}/access-sources/*.tar.gz
+          retention-days: 1
+          if-no-files-found: error
