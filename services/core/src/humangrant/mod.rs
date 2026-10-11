@@ -146,6 +146,18 @@ impl HgState {
         let body = to_bytes(body,16*1024).await.map_err(|_| Error::invalid())?;
         let proof = crypto::verify(&parts.headers,&parts.method,&parts.uri,&body,&self.origin,crypto::now())
             .map_err(|_| Error::unauthorized())?;
+        // Bound signed traffic by its actual socket peer and by actor. Never
+        // trust client-supplied forwarded IP headers or unauthenticated IDs.
+        let peer = parts.extensions.get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+            .map(|peer| peer.0.ip().to_string())
+            .unwrap_or_else(|| "unknown-peer".to_owned());
+        let peer_ok = self.store.auth_rate_limit("hg_peer",&peer,240).await.map_err(|_| Error::internal())?;
+        let actor_ok = self.store.auth_rate_limit("hg_actor",&proof.actor_id,180).await.map_err(|_| Error::internal())?;
+        if !peer_ok || !actor_ok {
+            return Err(Error{status:StatusCode::TOO_MANY_REQUESTS,code:"rate_limited"});
+        }
+        sqlx::query("DELETE FROM core_identity.hg_nonces WHERE (actor_id,nonce) IN (SELECT actor_id,nonce FROM core_identity.hg_nonces WHERE expires_at<clock_timestamp() LIMIT 100)")
+            .execute(&self.pool).await?;
         let inserted: Option<String> = sqlx::query_scalar(
             "INSERT INTO core_identity.hg_nonces(actor_id,nonce,expires_at) VALUES ($1,$2,to_timestamp($3)) ON CONFLICT DO NOTHING RETURNING nonce")
             .bind(&proof.actor_id).bind(&proof.nonce).bind(proof.expires)
