@@ -14,38 +14,29 @@ defaults:
 jobs:
   prepare:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-    permissions:
-      contents: write
+    timeout-minutes: 10
     outputs:
-      sha: ${{ steps.rebase.outputs.sha }}
+      sha: ${{ steps.verify.outputs.sha }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
+          ref: 5ab567e21e3d530678e9168c4bb8b7f15cd0bdb6
           fetch-depth: 0
-      - name: Reproduce locally reviewed trees and preserve merge history
-        id: rebase
+          persist-credentials: false
+      - name: Verify reviewed rebase identity and current remote refs
+        id: verify
         run: |
           set -euo pipefail
-          git fetch origin main wip/rust-core-go-extensions
-          cp scripts/pr675-rebase-maintenance.py "$RUNNER_TEMP/rebase.py"
-          python3 -B "$RUNNER_TEMP/rebase.py" | tee "$RUNNER_TEMP/rebase-result.txt"
           test "$(git rev-parse HEAD^{tree})" = 30ac78002d96bf5e7339ecaacb7de97e0e3af424
-          # Preserve main's raw CSV bytes. CRLF terminators are not trailing spaces.
+          git merge-base --is-ancestor de2c439f26446792d4a605b2b91fa2b84777e284 HEAD
+          git diff --exit-code 1a2db5f244468932fbda8c013891e72ad91ef566 HEAD -- apps/lmm-core apps/lmm-extensions
+          test "$(git rev-list --count de2c439f26446792d4a605b2b91fa2b84777e284..HEAD)" = 65
+          test "$(git rev-list --count --merges de2c439f26446792d4a605b2b91fa2b84777e284..HEAD)" = 11
           git diff --exit-code de2c439f26446792d4a605b2b91fa2b84777e284 HEAD -- scripts/resource-audit/rt20-process-curve.csv
           git -c core.whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol diff --check 1a2db5f244468932fbda8c013891e72ad91ef566 HEAD
           test "$(git ls-remote origin refs/heads/wip/rust-core-go-extensions | cut -f1)" = 1a2db5f244468932fbda8c013891e72ad91ef566
           test "$(git ls-remote origin refs/heads/main | cut -f1)" = de2c439f26446792d4a605b2b91fa2b84777e284
-          candidate=refs/heads/maintenance/rebased-pr675-20261011-124234
-          git push --force-with-lease="$candidate:" origin "HEAD:$candidate"
-      - name: Preserve exact rebase identity
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
-        with:
-          name: pr675-rebase-result-${{ github.run_id }}
-          path: ${{ runner.temp }}/rebase-result.txt
-          if-no-files-found: error
-          retention-days: 7
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
   contracts:
     needs: prepare
     runs-on: ubuntu-latest
@@ -56,13 +47,6 @@ jobs:
           ref: ${{ needs.prepare.outputs.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: Verify exact source and unchanged microservice implementations
-        run: |
-          test "$(git rev-parse HEAD^{tree})" = 30ac78002d96bf5e7339ecaacb7de97e0e3af424
-          git merge-base --is-ancestor de2c439f26446792d4a605b2b91fa2b84777e284 HEAD
-          git diff --exit-code 1a2db5f244468932fbda8c013891e72ad91ef566 HEAD -- apps/lmm-core apps/lmm-extensions
-          test "$(git rev-list --count de2c439f26446792d4a605b2b91fa2b84777e284..HEAD)" = 65
-          test "$(git rev-list --count --merges de2c439f26446792d4a605b2b91fa2b84777e284..HEAD)" = 11
       - name: Documentation, boundaries, distribution and quality self-tests
         run: |
           set -euo pipefail
