@@ -47,6 +47,10 @@ func validateMerchantStoreFenceOwner(owner productionMerchantStoreFenceOwner) er
 		if owner.HolderUnit != merchantStorePortableUnit(owner.DeploymentID) || owner.Service != "lmm-api.service" || owner.StartInvocationID != "" {
 			return errors.New("portable deployment owner unit binding differs")
 		}
+	case "schema-maintenance":
+		if owner.HolderUnit != schemaMaintenanceHolderUnit(owner.DeploymentID) || owner.Service != "lmm-api.service" || owner.StartInvocationID != "" {
+			return errors.New("schema maintenance owner unit binding differs")
+		}
 	case "start":
 		if !existingSchemaInvocationPattern.MatchString(owner.StartInvocationID) || owner.HolderUnit != merchantStoreStartUnit(owner.DeploymentID, owner.StartInvocationID) || owner.Service != "lmm-api.service" {
 			return errors.New("merchant per-start owner generation binding differs")
@@ -269,7 +273,7 @@ func (lease *productionMerchantStoreFence) claimOwner(ctx context.Context, owner
 	if _, err := transaction.Exec(ctx, "SELECT pg_catalog.pg_advisory_xact_lock($1)", merchantStoreDeploymentOwnerClaimKey); err != nil {
 		return errors.New("merchant deployment owner claim serialization failed")
 	}
-	if owner.Purpose == "start" || owner.Purpose == "portable-deploy" {
+	if owner.Purpose == "start" || owner.Purpose == "portable-deploy" || owner.Purpose == "schema-maintenance" {
 		var exists bool
 		if transaction.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM "`+lease.identity.Schema+`".options WHERE `+deploymentfence.PostgreSQLPresencePredicate+`)`).Scan(&exists) != nil || exists {
 			return errors.New("portable owner claim found an ACTIVE/unknown owner under its serialized fence")

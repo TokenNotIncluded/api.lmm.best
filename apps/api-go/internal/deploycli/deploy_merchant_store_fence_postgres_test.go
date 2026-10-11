@@ -270,6 +270,74 @@ GRANT EXECUTE ON FUNCTION pg_catalog.pg_control_system() TO lmm_fence_business;`
 			t.Fatalf("simultaneous claims accepted %d owners", success)
 		}
 	})
+	t.Run("dedicated schema owner excludes start and preserves exact CAS", func(t *testing.T) {
+		held, err := acquireMerchantStoreDeploymentFence(ctx, values, contract)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer held.Close()
+		o := owner
+		o.DeploymentID = "schema-fence-test"
+		o.Purpose = "schema-maintenance"
+		o.Service = "lmm-api.service"
+		o.HolderUnit = schemaMaintenanceHolderUnit(o.DeploymentID)
+		o.BackendPID = held.backendPID
+		raw, err := canonicalMerchantStoreFenceOwner(o)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := deploymentfence.ParseSchemaMaintenanceOwner(raw); err != nil {
+			t.Fatal(err)
+		}
+		if err := held.ClaimOwner(ctx, o); err != nil {
+			t.Fatal(err)
+		}
+		competing, err := acquireMerchantStoreDeploymentFence(ctx, values, contract)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer competing.Close()
+		if competing.requireNoDurableOwner(ctx) == nil {
+			t.Fatal("schema ACTIVE owner did not block a normal start")
+		}
+		other := owner
+		other.DeploymentID = "competing-start"
+		other.Purpose = "start"
+		other.Service = "lmm-api.service"
+		other.StartInvocationID = strings.Repeat("3", 32)
+		other.HolderUnit = merchantStoreStartUnit(other.DeploymentID, other.StartInvocationID)
+		other.BackendPID = competing.backendPID
+		if competing.ClaimOwner(ctx, other) == nil {
+			t.Fatal("a serialized start ignored the schema owner")
+		}
+		var count int
+		if admin.QueryRow(ctx, "SELECT count(*) FROM merchant_fence.options WHERE "+deploymentfence.PostgreSQLPresencePredicate).Scan(&count) != nil || count != 1 {
+			t.Fatal("schema/start contention changed the sole durable owner")
+		}
+		if held.ownerValue != string(raw) {
+			t.Fatal("stored schema wire differs from exact worker bytes")
+		}
+		if err := held.ReleaseOwner(ctx); err != nil {
+			t.Fatal(err)
+		}
+		if competing.requireNoDurableOwner(ctx) != nil {
+			t.Fatal("exact schema CAS did not allow normal start")
+		}
+		if err := held.ClaimOwner(ctx, o); err != nil {
+			t.Fatal(err)
+		}
+		key, value := held.ownerKey, held.ownerValue
+		if err := held.Close(); err != nil {
+			t.Fatal(err)
+		}
+		if competing.requireNoDurableOwner(ctx) == nil {
+			t.Fatal("schema holder death cleared its ACTIVE blocker")
+		}
+		// Exact test-only cleanup in this newly initialized disposable cluster.
+		if _, err := admin.Exec(ctx, "DELETE FROM merchant_fence.options WHERE key=$1 AND value=$2", key, value); err != nil {
+			t.Fatal(err)
+		}
+	})
 	t.Run("portable start retry and crash tombstone", func(t *testing.T) {
 		start, err := acquireMerchantStoreDeploymentFence(ctx, values, contract)
 		if err != nil {
