@@ -19,7 +19,7 @@ func (runtime *productionRuntime) checkSchemaMaintenanceDeadNoWorker(workspace s
 	if err := runtime.merchantStorePrivateDirectory(filepath.Join(workspace, "state"), false); err != nil {
 		return err
 	}
-	for _, name := range []string{"schema-worker-intent.json", "schema-worker-result.json", "schema-worker-output.log", "schema-outcome.json", "owner-released.json", "recovery-binding.json", "recovery-startup-profile.json", "recovery-hook-intent.json", "recovery-hook-bound.json", "recovery-start-intent.json", "recovery-started.json", "host-finished.json", "abort-binding.json", "abort-start-intent.json", "abort-started.json", "abort-host-finished.json"} {
+	for _, name := range []string{"schema-worker-intent.json", "schema-worker-result.json", "schema-worker-output.log", "schema-outcome.json", "owner-released.json", "recovery-binding.json", "recovery-startup-profile.json", "recovery-hook-intent.json", "recovery-hook-bound.json", "recovery-start-intent.json", "recovery-started.json", "host-finished.json", "abort-binding.json", "abort-start-intent.json", "abort-started.json", "abort-host-finished.json", "abort-finish-intent.json"} {
 		if _, err := os.Lstat(filepath.Join(workspace, "state", name)); !errors.Is(err, os.ErrNotExist) {
 			return errors.New("dead-preworker recovery found possible worker or recovery evidence")
 		}
@@ -44,7 +44,7 @@ func (runtime *productionRuntime) schemaMaintenanceDeadArtifacts(ctx context.Con
 			continue
 		}
 		c, err := runtime.loadMerchantStoreCapsule(origin.ArtifactCapsule.Path, origin.ArtifactCapsule.SHA256)
-		if err != nil || c.Format != 1 || c.StartupPolicy != "held" || c.DeploymentID != plan.TransitionID || c.Host != plan.PrimaryHost || c.Writer == nil || c.ExistingSchemaContract == nil || c.Candidate != plan.Worker.Provider || c.Rollback != origin.Recovery.Candidate || c.Writer.Role != plan.Role || c.Writer.RequiredCapability != plan.RequiredCapability || c.Writer.RequiredCapability > 7 {
+		if err != nil || c.Format != 1 || c.StartupPolicy != "held" || c.DeploymentID != plan.TransitionID || c.Host != plan.PrimaryHost || c.Writer == nil || c.ExistingSchemaContract == nil || c.Candidate != plan.Worker.Provider || c.Rollback != merchantStoreCapsuleProjection(origin.Recovery.Candidate, "rollback") || c.Writer.Role != plan.Role || c.Writer.RequiredCapability != plan.RequiredCapability || c.Writer.RequiredCapability > 7 {
 			return empty, errors.New("dead-preworker signed artifact capsule changed")
 		}
 		physical := *c.ExistingSchemaContract
@@ -81,7 +81,7 @@ func (runtime *productionRuntime) validateSchemaMaintenanceDeadAuthority(ctx con
 	if err != nil {
 		return empty, err
 	}
-	if a.OldCapsule.Host != a.Plan.PrimaryHost || a.OldCapsule.Candidate != c.Rollback {
+	if a.OldCapsule.Host != a.Plan.PrimaryHost || merchantStoreCapsuleProjection(a.OldCapsule.Candidate, "rollback") != c.Rollback {
 		return empty, errors.New("dead-preworker recovery changed the retained primary provider")
 	}
 	if a.OwnerMode == schemaMaintenanceDeadPreWorkerExactOwner {
@@ -139,6 +139,10 @@ func (runtime *productionRuntime) recoverSchemaMaintenanceDeadPreWorkerOwner(ctx
 		return result, err
 	}
 	defer lease.Close()
+	ownerReceipt, ownerReceiptPresent, err := runtime.schemaMaintenanceDeadOwnerReceipt(workspace)
+	if err != nil {
+		return result, err
+	}
 	result = newSchemaMaintenanceDeadCASResult(a, runtime.now())
 	raw, _ := json.MarshalIndent(result, "", "  ")
 	raw = append(raw, '\n')
@@ -147,6 +151,17 @@ func (runtime *productionRuntime) recoverSchemaMaintenanceDeadPreWorkerOwner(ctx
 	}
 	result.IntentSHA256 = startupContentSHA256(raw)
 	guard := func(ctx context.Context) error {
+		intent, err := runtime.readExistingSchemaSealedFile(filepath.Join(workspace, "state", "dead-preworker-cas-intent.json"), true)
+		if err != nil || !bytes.Equal(intent, raw) {
+			return errors.New("dead-preworker sealed CAS intent changed during its transaction")
+		}
+		receipt, present, err := runtime.schemaMaintenanceDeadOwnerReceipt(workspace)
+		if err != nil || present != ownerReceiptPresent || !bytes.Equal(receipt, ownerReceipt) {
+			return errors.New("dead-preworker original owner receipt changed during its transaction")
+		}
+		if sha256MustEqual("/proc/self/exe", a.Plan.Worker.Provider.DeployEngineSHA256) != nil {
+			return errors.New("dead-preworker recoverer executable changed")
+		}
 		if err := runtime.checkSchemaMaintenanceDeadNoWorker(workspace); err != nil {
 			return err
 		}
@@ -281,6 +296,10 @@ func (runtime *productionRuntime) reconcileSchemaMaintenanceDeadPreWorkerOwner(c
 	if err := runtime.checkSchemaMaintenanceDeadNoWorker(workspace); err != nil {
 		return result, err
 	}
+	actualIntent, intentErr := runtime.readExistingSchemaSealedFile(filepath.Join(workspace, "state", "dead-preworker-cas-intent.json"), true)
+	if intentErr != nil || !bytes.Equal(actualIntent, raw) {
+		return result, errors.New("dead-preworker reconciliation intent changed during observation")
+	}
 	if err := a.CheckLocalDeadAuthority(ctx); err != nil {
 		return result, err
 	}
@@ -296,4 +315,15 @@ func (runtime *productionRuntime) reconcileSchemaMaintenanceDeadPreWorkerOwner(c
 		return result, errors.New("dead-preworker reconciliation receipt already exists or is uncertain")
 	}
 	return result, nil
+}
+
+func (runtime *productionRuntime) schemaMaintenanceDeadOwnerReceipt(workspace string) ([]byte, bool, error) {
+	path := filepath.Join(workspace, "state", "schema-owner.json")
+	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
+		return nil, false, nil
+	} else if err != nil {
+		return nil, false, err
+	}
+	raw, err := runtime.readExistingSchemaSealedFile(path, true)
+	return raw, true, err
 }
