@@ -125,7 +125,7 @@ func validateSchemaMaintenanceProvider(p productionReleasePackagePlan, role stri
 func validateProductionSchemaMaintenancePlan(plan productionSchemaMaintenancePlan, paths productionPaths) error {
 	if plan.Format != schemaMaintenancePlanFormat || !productionIDPattern.MatchString(plan.TransitionID) || len(plan.Origins) != len(merchantStartupOrigins) ||
 		plan.PrimaryAlias != merchantStartupOrigins[0].Alias || plan.PrimaryHost != merchantStartupOrigins[0].Host ||
-		plan.Role == "" || len(plan.Role) > 63 || strings.ContainsAny(plan.Role, "\x00\r\n") || !validMerchantStoreCapability(plan.RequiredCapability) {
+		plan.Role == "" || len(plan.Role) > 63 || strings.ContainsAny(plan.Role, "\x00\r\n") || !validMerchantStoreCapability(plan.RequiredCapability) || plan.RequiredCapability > 7 {
 		return errors.New("schema maintenance plan identity, primary or fixed origin closure is incomplete")
 	}
 	if err := validateProductionExistingSchemaContract(&plan.PreSchema); err != nil {

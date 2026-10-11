@@ -39,8 +39,9 @@ func newSchemaMaintenancePlanFixture(t *testing.T) (*productionRuntime, producti
 		Candidate:   schemaMaintenancePlanProvider("0.2.111", "candidate"), Rollback: schemaMaintenancePlanProvider("0.2.110", "rollback"),
 	}
 	recovery.PlanPath = filepath.Join(recovery.ControllerWorkspace, productionReleasePlanFilename)
+	recovery.Candidate.MerchantStoreWriterCapability, recovery.Rollback.MerchantStoreWriterCapability = 7, 7
 	plan := productionSchemaMaintenancePlan{
-		Format: schemaMaintenancePlanFormat, TransitionID: id, PrimaryAlias: "ArchDmit", PrimaryHost: "arch-dmit", PreSchema: *testExistingSchemaContract(t), Role: "lmm", RequiredCapability: 8,
+		Format: schemaMaintenancePlanFormat, TransitionID: id, PrimaryAlias: "ArchDmit", PrimaryHost: "arch-dmit", PreSchema: *testExistingSchemaContract(t), Role: "lmm", RequiredCapability: 7,
 		Worker:       productionSchemaMaintenanceWorkerPlan{Kind: schemaMaintenanceWorkerKind, Provider: schemaMaintenancePlanProvider("0.2.112", "candidate"), RWEnvironment: productionReleaseFilePlan{Path: filepath.Join(workspace, "state", "schema-worker.env"), SHA256: strings.Repeat("a", 64)}},
 		BackupPolicy: productionSchemaMaintenanceBackupPolicy{Kind: "controller-only-encrypted-quiesced-v1", ControllerDirectory: "/home/lightjunction/Backups/schema-maintenance/test", ControllerPublicKey: hex.EncodeToString(ed25519.NewKeyFromSeed(bytes.Repeat([]byte{1}, 32)).Public().(ed25519.PublicKey)), RecipientSHA256: strings.Repeat("b", 64), RestoreProofPath: "/home/lightjunction/Backups/schema-maintenance/test/restore-proof.json"},
 	}
@@ -113,9 +114,10 @@ func TestSchemaMaintenancePlanFixedOriginAndAcyclicRecipes(t *testing.T) {
 		"rollback worker": func(p *productionSchemaMaintenancePlan) {
 			p.Worker.Provider.PayloadSHA256 = p.Origins[0].Recovery.Rollback.PayloadSHA256
 		},
-		"other worker route":  func(p *productionSchemaMaintenancePlan) { p.Worker.Provider.ContractRevision = "other-route" },
-		"future capability":   func(p *productionSchemaMaintenancePlan) { p.RequiredCapability = 9 },
-		"invalid physical ID": func(p *productionSchemaMaintenancePlan) { p.PreSchema.SystemIdentifier = "0" },
+		"other worker route":     func(p *productionSchemaMaintenancePlan) { p.Worker.Provider.ContractRevision = "other-route" },
+		"N-1 incompatible floor": func(p *productionSchemaMaintenancePlan) { p.RequiredCapability = 8 },
+		"future capability":      func(p *productionSchemaMaintenancePlan) { p.RequiredCapability = 9 },
+		"invalid physical ID":    func(p *productionSchemaMaintenancePlan) { p.PreSchema.SystemIdentifier = "0" },
 		"host startup in shared catalog": func(p *productionSchemaMaintenancePlan) {
 			p.PreSchema.StartupSHA256, p.PreSchema.SignedUnitSHA256 = strings.Repeat("a", 64), strings.Repeat("b", 64)
 		},
