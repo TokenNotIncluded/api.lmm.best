@@ -11,6 +11,7 @@ import { test } from 'node:test'
 
 import {
   BADGE_STYLE_PRESETS,
+  BADGE_PALETTES,
   INITIAL_OPTIONS,
   badgeLanguage,
   buildBadgeURL,
@@ -18,6 +19,38 @@ import {
   changeBadgeLayout,
   canShareBadge,
 } from './share-badge'
+
+test('brand presets use the monochrome ribbon identity and readable contrast', () => {
+  const luminance = (color: string) => {
+    const channels = [1, 3, 5].map((start) => {
+      const value = parseInt(color.slice(start, start + 2), 16) / 255
+      return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4
+    })
+    return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722
+  }
+  assert.deepEqual(BADGE_STYLE_PRESETS.map((preset) => preset.name), [
+    'Graphite',
+    'Paper',
+    'Clear',
+  ])
+  assert.equal(BADGE_PALETTES.paper.bg, '#ffffff')
+  assert.equal(BADGE_PALETTES.dark.fg, '#ffffff')
+  for (const preset of BADGE_STYLE_PRESETS) {
+    assert.equal(preset.font, 'sans')
+    assert.equal(preset.radius, 16)
+    assert.ok(
+      !['#d97757', '#3fb950', '#6fb7ff', '#a78bfa'].includes(preset.colors.accent)
+    )
+    for (const key of ['fg', 'muted'] as const) {
+      const foreground = luminance(preset.colors[key])
+      const background = luminance(preset.colors.bg)
+      const contrast =
+        (Math.max(foreground, background) + 0.05) /
+        (Math.min(foreground, background) + 0.05)
+      assert.ok(contrast >= 4.5, `${preset.name} ${key} contrast: ${contrast}`)
+    }
+  }
+})
 
 test('model sharing is separate from an existing profile URL', () => {
   assert.equal(canShareBadge({ enabled: true }, 'models'), false)
@@ -169,7 +202,7 @@ test('copy embeds only the chosen live image, never a stale statistics snapshot'
   const code = buildBadgeEmbedCode(url, INITIAL_OPTIONS)
   assert.equal(
     code.markdown,
-    `[![LMM Best model usage](${url})](https://api.lmm.best)`
+    `[![LMM API model usage](${url})](https://api.lmm.best)`
   )
   assert.ok(code.html.includes('&amp;'))
   assert.ok(code.html.includes('width="1200" height="900"'))

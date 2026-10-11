@@ -59,25 +59,25 @@ export interface BadgeOptions {
 
 export const BADGE_PALETTES: Record<BadgeTheme, BadgeColors> = {
   paper: {
-    bg: '#faf9f5',
-    fg: '#17231f',
-    accent: '#d97757',
-    muted: '#6c746d',
-    border: '#d9ded5',
+    bg: '#ffffff',
+    fg: '#1d2023',
+    accent: '#555c64',
+    muted: '#666d75',
+    border: '#dfe2e6',
   },
   dark: {
-    bg: '#202020',
-    fg: '#f3f3f3',
-    accent: '#dedede',
-    muted: '#aaa9a8',
-    border: '#363636',
+    bg: '#1d2023',
+    fg: '#ffffff',
+    accent: '#d9dde2',
+    muted: '#aeb4bc',
+    border: '#3b4046',
   },
   transparent: {
-    bg: '#faf9f5',
-    fg: '#17231f',
-    accent: '#d97757',
-    muted: '#6c746d',
-    border: '#d9ded5',
+    bg: '#ffffff',
+    fg: '#1d2023',
+    accent: '#555c64',
+    muted: '#666d75',
+    border: '#dfe2e6',
   },
 }
 
@@ -96,93 +96,23 @@ export const BADGE_STYLE_PRESETS: BadgeStylePreset[] = [
     theme: 'dark',
     animation: 'wave',
     font: 'sans',
-    radius: 20,
+    radius: 16,
     colors: BADGE_PALETTES.dark,
   },
   {
     name: 'Paper',
     theme: 'paper',
-    animation: 'none',
-    font: 'serif',
+    animation: 'wave',
+    font: 'sans',
     radius: 16,
     colors: BADGE_PALETTES.paper,
-  },
-  {
-    name: 'Terminal',
-    theme: 'dark',
-    animation: 'pulse',
-    font: 'mono',
-    radius: 14,
-    colors: {
-      bg: '#0d1117',
-      fg: '#e6edf3',
-      accent: '#3fb950',
-      muted: '#8b949e',
-      border: '#30363d',
-    },
-  },
-  {
-    name: 'Ocean',
-    theme: 'dark',
-    animation: 'wave',
-    font: 'sans',
-    radius: 28,
-    colors: {
-      bg: '#0b1320',
-      fg: '#eaf3ff',
-      accent: '#6fb7ff',
-      muted: '#8ea3b8',
-      border: '#26384c',
-    },
-  },
-  {
-    name: 'Mint',
-    theme: 'paper',
-    animation: 'pulse',
-    font: 'sans',
-    radius: 28,
-    colors: {
-      bg: '#f1f8f4',
-      fg: '#163228',
-      accent: '#2f8f6b',
-      muted: '#6a7f75',
-      border: '#c9ddd2',
-    },
-  },
-  {
-    name: 'Ember',
-    theme: 'dark',
-    animation: 'pulse',
-    font: 'serif',
-    radius: 24,
-    colors: {
-      bg: '#211713',
-      fg: '#fff2e9',
-      accent: '#ff8a5b',
-      muted: '#c0a399',
-      border: '#4b342c',
-    },
-  },
-  {
-    name: 'Violet',
-    theme: 'dark',
-    animation: 'wave',
-    font: 'sans',
-    radius: 30,
-    colors: {
-      bg: '#181524',
-      fg: '#f3efff',
-      accent: '#a78bfa',
-      muted: '#aaa0c2',
-      border: '#3b3451',
-    },
   },
   {
     name: 'Clear',
     theme: 'transparent',
     animation: 'none',
     font: 'sans',
-    radius: 24,
+    radius: 16,
     colors: BADGE_PALETTES.transparent,
   },
 ]
@@ -211,7 +141,7 @@ export const INITIAL_OPTIONS: BadgeOptions = {
   format: 'compact',
   width: 1200,
   height: 900,
-  radius: 20,
+  radius: 16,
   requests: true,
   top: 6,
   title: '',
@@ -334,8 +264,8 @@ export function buildBadgeEmbedCode(url: string, options: BadgeOptions) {
     options.layout === 'aggregate'
       ? 'AI usage across linked profiles'
       : options.layout === 'models'
-        ? 'LMM Best model usage'
-        : 'LMM Best token usage'
+        ? 'LMM API model usage'
+        : 'LMM API token usage'
   return {
     markdown: `[![${alt}](${url})](${PROFILE_SHARE_URL})`,
     html: `<a href="${PROFILE_SHARE_URL}" target="_blank" rel="noopener noreferrer"><img src="${escape(url)}" alt="${alt}" width="${options.width}" height="${options.height}"></a>`,
