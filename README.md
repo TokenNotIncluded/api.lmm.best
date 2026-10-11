@@ -1,12 +1,15 @@
 <div align="center">
   <img src=".github/assets/lmm-logo.svg" alt="LMM Forge" width="96" height="96" />
   <h1>LMM Forge</h1>
+  <p>LMM API · 连接模型与工具，让智能自由流动</p>
   <p>
     <a href="https://github.com/TokenNotIncluded/api.lmm.best/actions/workflows/core-protocol.yml"><img src="https://github.com/TokenNotIncluded/api.lmm.best/actions/workflows/core-protocol.yml/badge.svg?branch=wip%2Frust-core-go-extensions" alt="Microkernel checks" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License: AGPL-3.0" /></a>
   </p>
   <p><a href="README.md">简体中文</a> · <a href="README_EN.md">English</a></p>
 </div>
+
+**LMM = Language Model Mesh，中文「语言模型网络」。** Mesh 寓意互联与协作，体现多模型路由、渠道共享和微服务协作的设计方向。
 
 本分支只有三个可执行程序：`lmm` 客户端、`lmm-core` Rust 核心、`lmm-extensions` Go 扩展。React 控制台单独构建为静态 Web 文件。
 

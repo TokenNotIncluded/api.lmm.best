@@ -1,12 +1,15 @@
 <div align="center">
   <img src=".github/assets/lmm-logo.svg" alt="LMM Forge" width="96" height="96" />
   <h1>LMM Forge</h1>
+  <p>LMM API · Connecting models and tools, letting intelligence flow freely</p>
   <p>
     <a href="https://github.com/TokenNotIncluded/api.lmm.best/actions/workflows/core-protocol.yml"><img src="https://github.com/TokenNotIncluded/api.lmm.best/actions/workflows/core-protocol.yml/badge.svg?branch=wip%2Frust-core-go-extensions" alt="Microkernel checks" /></a>
     <a href="LICENSE"><img src="https://img.shields.io/badge/license-AGPL--3.0-blue" alt="License: AGPL-3.0" /></a>
   </p>
   <p><a href="README.md">简体中文</a> · <a href="README_EN.md">English</a></p>
 </div>
+
+**LMM stands for Language Model Mesh (语言模型网络).** “Mesh” conveys connection and collaboration, reflecting the project's direction in multi-model routing, channel sharing and microservice collaboration.
 
 This branch has exactly three executable programs: the `lmm` client, the `lmm-core` Rust core and the `lmm-extensions` Go host. The React console has a separate static Web build.
 
