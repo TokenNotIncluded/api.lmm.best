@@ -27,6 +27,9 @@ func SetRouter(router *gin.Engine) error {
 	if err := SetOAuthServerRouter(router); err != nil {
 		return err
 	}
+	if err := SetHumanGrantRouter(router); err != nil {
+		return err
+	}
 	setWaffoPancakePortalRouter(router)
 	SetApiRouter(router)
 	if err := SetWalletTransferRouter(router); err != nil {
@@ -180,6 +183,9 @@ func isBackendPath(requestURI string) bool {
 	}
 
 	for _, prefix := range []string{
+		"/human/",
+		"/humangrant/",
+		"/invite/",
 		"/api/",
 		"/assets/",
 		"/mcp/",
@@ -198,7 +204,7 @@ func isBackendPath(requestURI string) bool {
 	}
 
 	switch path {
-	case "/api", "/assets", "/mcp", "/v1", "/v1beta", "/typesafe", "/pg", "/mj", "/suno", "/kling/v1", "/jimeng", "/dashboard/billing/subscription", "/dashboard/billing/usage":
+	case "/human", "/humangrant", "/invite", "/api", "/assets", "/mcp", "/v1", "/v1beta", "/typesafe", "/pg", "/mj", "/suno", "/kling/v1", "/jimeng", "/dashboard/billing/subscription", "/dashboard/billing/usage":
 		return true
 	}
 

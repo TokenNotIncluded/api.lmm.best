@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"time"
 
+	"gorm.io/gorm"
+
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 )
@@ -22,6 +24,12 @@ type OAuthBrowserIdentity struct {
 }
 
 func (s *OAuthIntegration) BrowserIdentity(ctx context.Context, request *http.Request) (OAuthBrowserIdentity, *model.User, error) {
+	return browserIdentity(ctx, s.DB, request, true)
+}
+
+// browserIdentity reuses login verification inside a caller transaction.
+// HumanGrant rejects old sessions without a nested global-DB revocation write.
+func browserIdentity(ctx context.Context, db *gorm.DB, request *http.Request, revokeOld bool) (OAuthBrowserIdentity, *model.User, error) {
 	var empty OAuthBrowserIdentity
 	var raw string
 	count := 0
@@ -39,7 +47,7 @@ func (s *OAuthIntegration) BrowserIdentity(ctx context.Context, request *http.Re
 		return empty, nil, ErrOAuthDenied
 	}
 	var session model.UserSession
-	if err := s.DB.WithContext(ctx).First(&session, "sid = ?", sid).Error; err != nil {
+	if err := db.WithContext(ctx).First(&session, "sid = ?", sid).Error; err != nil {
 		return empty, nil, ErrOAuthDenied
 	}
 	now := time.Now().Unix()
@@ -53,10 +61,14 @@ func (s *OAuthIntegration) BrowserIdentity(ctx context.Context, request *http.Re
 		return empty, nil, ErrOAuthDenied
 	}
 	var user model.User
-	if err := s.DB.WithContext(ctx).First(&user, "id = ?", session.UserID).Error; err != nil || user.Status != common.UserStatusEnabled || user.AuthVersion != session.UserAuthVersion {
+	if err := db.WithContext(ctx).First(&user, "id = ?", session.UserID).Error; err != nil || user.Status != common.UserStatusEnabled || user.AuthVersion != session.UserAuthVersion {
 		return empty, nil, ErrOAuthDenied
 	}
-	if err := enforceSessionAutoLogout(&session, user.GetSetting().IsSessionAutoLogoutEnabled(), now); err != nil {
+	if revokeOld {
+		if err := enforceSessionAutoLogout(&session, user.GetSetting().IsSessionAutoLogoutEnabled(), now); err != nil {
+			return empty, nil, ErrOAuthDenied
+		}
+	} else if user.GetSetting().IsSessionAutoLogoutEnabled() && session.CreatedAt < now-int64(model.UserSessionAutoLogoutAge/time.Second) {
 		return empty, nil, ErrOAuthDenied
 	}
 	return OAuthBrowserIdentity{UserID: int64(user.Id), SessionID: session.SID, SessionVersion: session.Version, AuthVersion: user.AuthVersion}, &user, nil

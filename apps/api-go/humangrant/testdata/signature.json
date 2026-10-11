@@ -1,0 +1,16 @@
+{
+  "Method": "POST",
+  "Origin": "https://auth.example.test",
+  "Path": "/v1/requests",
+  "Created": 1700000000,
+  "Body": "{\"client_id\":\"example-cli\",\"target_service\":\"notes\",\"purpose\":\"Read a note\",\"requested_permissions\":[{\"action\":\"notes.read\",\"resource\":\"alice-note\"}],\"expected_human_id\":\"alice\"}",
+  "Headers": {
+    "Content-Type": "application/json",
+    "Content-Digest": "sha-256=:jN6odj5Tli9ZfoLdtLxtE/sUNtMKAKM2V7xq8/qri5Y=:",
+    "X-HG-Key": "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo",
+    "Authorization": "HumanGrant anonymous",
+    "Signature-Input": "hg=(\"@method\" \"@target-uri\" \"content-digest\" \"content-type\" \"x-hg-key\" \"authorization\");created=1700000000;expires=1700000060;nonce=\"AAECAwQFBgcICQoLDA0ODxAREhMUFRYX\";keyid=\"ed25519:If4x36FUomFia_hUBG_SJxt77UtqvkWqWId-9H-XIbk\";alg=\"ed25519\";tag=\"humangrant-0.1\"",
+    "Signature": "hg=:jmjuzgV58zQY0A8N+T9sss24Jwa8Kah5bvs2VSdWA43TScypSfoPkzlERC6XLBOvx8+D+ZqQ0WOVKwS2/Gd3AA==:"
+  },
+  "description": "PUBLIC TEST VECTOR ONLY. Copied fields from LIghtJUNction/humangrant tests/fixtures/signature.json (MIT); not a production identity."
+}

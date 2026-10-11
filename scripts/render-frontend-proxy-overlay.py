@@ -11,7 +11,7 @@ from pathlib import Path
 import re
 import stat
 
-BACKEND_ROOTS = {'api', 'assets', 'mcp', 'v1', 'v1beta', 'typesafe', 'pg', 'mj', 'suno', 'kling', 'jimeng'}
+BACKEND_ROOTS = {'human', 'humangrant', 'invite', 'api', 'assets', 'mcp', 'v1', 'v1beta', 'typesafe', 'pg', 'mj', 'suno', 'kling', 'jimeng'}
 
 
 def is_backend_path(path):

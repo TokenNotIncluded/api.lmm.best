@@ -41,7 +41,17 @@ const PasskeySection = lazyNamedSection(
   'PasskeySection'
 )
 
+const HumanGrantSection = lazyNamedSection(
+  () => import('./humangrant-section'),
+  'HumanGrantSection'
+)
+
 const AUTH_SECTIONS = [
+  {
+    id: 'humangrant',
+    titleKey: 'HumanGrant',
+    build: () => <HumanGrantSection />,
+  },
   {
     id: 'basic-auth',
     titleKey: 'Basic Authentication',
