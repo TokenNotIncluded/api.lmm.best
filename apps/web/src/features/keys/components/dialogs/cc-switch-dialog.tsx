@@ -27,6 +27,7 @@ import { ComboboxInput } from '@/components/ui/combobox-input'
 import { Label } from '@/components/ui/label'
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group'
 import { Switch } from '@/components/ui/switch'
+import { formatApiKey } from '@/lib/api-key-format'
 import { buildCCSwitchProviderURL } from '@/lib/cc-switch-deep-link'
 import { openExternalUrl } from '@/lib/external-navigation'
 import { validatedExternalUrl } from '@/lib/validated-external-url'
@@ -182,9 +183,7 @@ function CCSwitchForm(props: Props) {
       toast.warning(t('Please select a primary model'))
       return
     }
-    const key = props.tokenKey.startsWith('sk-')
-      ? props.tokenKey
-      : `sk-${props.tokenKey}`
+    const key = formatApiKey(props.tokenKey)
     const serverAddress = getServerAddress()
     const endpoint = app === 'codex' ? `${serverAddress}/v1` : serverAddress
     const url = validatedExternalUrl(

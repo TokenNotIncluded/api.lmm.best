@@ -97,84 +97,109 @@ afterEach(() => {
 after(() => domWindow.close())
 
 describe('one-time creation result', () => {
-  test('masks the key, checks only after a click, and confirms revocation', async () => {
-    let checks = 0,
-      deletes = 0,
-      closed = 0
-    globalThis.fetch = (async (_url: unknown, options: RequestInit) => {
-      checks++
-      assert.equal(_url, '/v1/models')
-      assert.equal(options.credentials, 'omit')
+  for (const [format, issued, expected] of [
+    ['bare legacy', 'test-secret', 'sk-test-secret'],
+    ['prefixed legacy', 'sk-test-secret', 'sk-test-secret'],
+    ['native', `lmmk_${'a1'.repeat(32)}`, `lmmk_${'a1'.repeat(32)}`],
+  ]) {
+    test(`${format}: masks, copies, checks only after a click, and confirms revocation`, async () => {
+      const copies: string[] = []
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {
+          writeText: async (value: string) => {
+            copies.push(value)
+          },
+        },
+      })
+      let checks = 0,
+        deletes = 0,
+        closed = 0
+      globalThis.fetch = (async (_url: unknown, options: RequestInit) => {
+        checks++
+        assert.equal(_url, '/v1/models')
+        assert.equal(options.credentials, 'omit')
+        assert.equal(
+          (options.headers as Record<string, string>).Authorization,
+          `Bearer ${expected}`
+        )
+        return new Response(JSON.stringify({ data: [] }), { status: 200 })
+      }) as typeof fetch
+      api.delete = (async (url: string) => {
+        assert.equal(url, '/api/token/9/')
+        deletes++
+        return { data: { success: true } }
+      }) as typeof api.delete
+      const container = document.createElement('div')
+      document.body.append(container)
+      const root = createRoot(container)
+      const client = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      })
+      const flush = () => new Promise((resolve) => setTimeout(resolve, 25))
+      await act(async () => {
+        root.render(
+          <QueryClientProvider client={client}>
+            <I18nextProvider i18n={i18n}>
+              <CreatedApiKey
+                secret={{ id: 9, name: 'First device', key: issued }}
+                onClose={() => {
+                  closed++
+                }}
+                onRevoked={() => {}}
+              />
+            </I18nextProvider>
+          </QueryClientProvider>
+        )
+        await flush()
+      })
+      const button = (label: string) => {
+        const node = [...document.querySelectorAll('button')].find(
+          (element) => element.textContent === label
+        )
+        assert.ok(node)
+        return node
+      }
       assert.equal(
-        (options.headers as Record<string, string>).Authorization,
-        'Bearer sk-test-secret'
+        document.querySelector<HTMLInputElement>('input[aria-label="API Key"]')
+          ?.type,
+        'password'
       )
-      return new Response(JSON.stringify({ data: [] }), { status: 200 })
-    }) as typeof fetch
-    api.delete = (async (url: string) => {
-      assert.equal(url, '/api/token/9/')
-      deletes++
-      return { data: { success: true } }
-    }) as typeof api.delete
-    const container = document.createElement('div')
-    document.body.append(container)
-    const root = createRoot(container)
-    const client = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    })
-    const flush = () => new Promise((resolve) => setTimeout(resolve, 25))
-    await act(async () => {
-      root.render(
-        <QueryClientProvider client={client}>
-          <I18nextProvider i18n={i18n}>
-            <CreatedApiKey
-              secret={{ id: 9, name: 'First device', key: 'test-secret' }}
-              onClose={() => {
-                closed++
-              }}
-              onRevoked={() => {}}
-            />
-          </I18nextProvider>
-        </QueryClientProvider>
+      assert.equal(
+        document.querySelector<HTMLInputElement>('input[aria-label="API Key"]')
+          ?.value,
+        expected
       )
-      await flush()
-    })
-    const button = (label: string) => {
-      const node = [...document.querySelectorAll('button')].find(
-        (element) => element.textContent === label
+      await act(async () => {
+        button('Copy Key').click()
+        await flush()
+      })
+      assert.deepEqual(copies, [expected])
+      assert.equal(checks, 0)
+      assert.equal(client.getQueryCache().getAll().length, 0)
+      await act(async () => {
+        button('Check key connection').click()
+        await flush()
+      })
+      assert.equal(checks, 1)
+      assert.match(
+        document.body.textContent ?? '',
+        /No model request was sent or billed/
       )
-      assert.ok(node)
-      return node
-    }
-    assert.equal(
-      document.querySelector<HTMLInputElement>('input[aria-label="API Key"]')
-        ?.type,
-      'password'
-    )
-    assert.equal(checks, 0)
-    assert.equal(client.getQueryCache().getAll().length, 0)
-    await act(async () => {
-      button('Check key connection').click()
-      await flush()
+      await act(async () => {
+        button('Revoke this key').click()
+        await flush()
+      })
+      assert.equal(deletes, 0)
+      await act(async () => {
+        button('Confirm revocation').click()
+        await flush()
+      })
+      assert.equal(deletes, 1)
+      assert.equal(closed, 1)
+      await act(async () => root.unmount())
+      client.clear()
+      container.remove()
     })
-    assert.equal(checks, 1)
-    assert.match(
-      document.body.textContent ?? '',
-      /No model request was sent or billed/
-    )
-    await act(async () => {
-      button('Revoke this key').click()
-      await flush()
-    })
-    assert.equal(deletes, 0)
-    await act(async () => {
-      button('Confirm revocation').click()
-      await flush()
-    })
-    assert.equal(deletes, 1)
-    assert.equal(closed, 1)
-    await act(async () => root.unmount())
-    client.clear()
-    container.remove()
-  })
+  }
 })

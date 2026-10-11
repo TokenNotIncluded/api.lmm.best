@@ -16,6 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { NATIVE_CREDENTIAL_PATTERN } from '@/lib/api-key-format'
+
 export type AssistantMessageSafetyResult = {
   content: string
   redacted: boolean
@@ -40,6 +42,10 @@ type AssistantSensitivePattern = {
 // cannot silently drift apart. Request redaction uses the stable kind-specific
 // placeholders below; display redaction may still provide a friendlier copy.
 const assistantSensitivePatterns: AssistantSensitivePattern[] = [
+  {
+    pattern: NATIVE_CREDENTIAL_PATTERN,
+    kind: 'credential',
+  },
   {
     pattern: /\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi,
     kind: 'email',

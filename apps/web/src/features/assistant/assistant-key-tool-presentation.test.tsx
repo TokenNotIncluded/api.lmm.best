@@ -59,123 +59,159 @@ describe('AssistantKeyTool presentation and prepared flow', () => {
     await unmount(rendered)
   })
 
-  test('prepares first and confirms with only the opaque token plus 2FA', async () => {
-    const posted: Array<{ url: string; data: unknown }> = []
-    let continued = 0
-    api.get = (async (url: string) => {
-      if (url === '/api/user/self/groups') {
-        return groupsPayload({
-          auto: { ratio: 1 },
-          default: { ratio: 1 },
-        })
-      }
-      assert.equal(url, '/api/assistant/cards/card-9/reveal')
-      return {
-        data: {
-          success: true,
-          data: { payload: { api_key: 'sk-created-by-test' } },
-        },
-      }
-    }) as typeof api.get
-    api.post = (async (url: string, data: unknown) => {
-      posted.push({ url, data })
-      if (url === '/api/assistant/tools/prepare-key') {
+  for (const issued of ['sk-created-by-test', `lmmk_${'a1'.repeat(32)}`]) {
+    test(`prepares and confirms with only token plus 2FA, then imports ${issued.startsWith('lmmk_') ? 'native' : 'legacy'} key`, async () => {
+      const posted: Array<{ url: string; data: unknown }> = []
+      let continued = 0
+      api.get = (async (url: string) => {
+        if (url === '/api/user/self/groups') {
+          return groupsPayload({
+            auto: { ratio: 1 },
+            default: { ratio: 1 },
+          })
+        }
+        assert.equal(url, '/api/assistant/cards/card-9/reveal')
+        return {
+          data: {
+            success: true,
+            data: { payload: { api_key: issued } },
+          },
+        }
+      }) as typeof api.get
+      api.post = (async (url: string, data: unknown) => {
+        posted.push({ url, data })
+        if (url === '/api/assistant/tools/prepare-key') {
+          return {
+            data: {
+              success: true,
+              data: {
+                type: 'create_key',
+                confirmation_token: 'opaque-prepared-token',
+                requires_confirmation: true,
+                expires_in_seconds: 600,
+                name: 'AI assistant key',
+                group: 'default',
+              },
+            },
+          }
+        }
+        assert.equal(url, '/api/assistant/tools/create-key')
         return {
           data: {
             success: true,
             data: {
-              type: 'create_key',
-              confirmation_token: 'opaque-prepared-token',
-              requires_confirmation: true,
-              expires_in_seconds: 600,
+              id: 9,
               name: 'AI assistant key',
               group: 'default',
+              expired_time: -1,
+              card: { id: 'card-9', label: 'Private API key' },
             },
           },
         }
-      }
-      assert.equal(url, '/api/assistant/tools/create-key')
-      return {
+      }) as typeof api.post
+      const rendered = await renderTool(true, () => {
+        continued += 1
+      })
+
+      await waitFor(
+        () =>
+          rendered.container.querySelector<HTMLSelectElement>(
+            '#assistant-key-group'
+          )?.options.length === 1,
+        'selectable groups should load before manual preparation'
+      )
+      const groupSelect = rendered.container.querySelector<HTMLSelectElement>(
+        '#assistant-key-group'
+      )
+      assert.ok(groupSelect)
+      assert.deepEqual(
+        [...groupSelect.options].map((option) => option.value),
+        ['default']
+      )
+
+      await act(async () => {
+        findButton('Review key creation').click()
+        await flushEffects()
+      })
+      assert.match(document.body.textContent ?? '', /Create this API key\?/)
+      assert.deepEqual(posted[0], {
+        url: '/api/assistant/tools/prepare-key',
         data: {
-          success: true,
-          data: {
-            id: 9,
-            name: 'AI assistant key',
-            group: 'default',
-            expired_time: -1,
-            card: { id: 'card-9', label: 'Private API key' },
-          },
+          name: 'AI assistant key',
+          group: 'default',
+          group_warning_confirmations: 0,
         },
+      })
+
+      await act(async () => {
+        findButton('Confirm and create').click()
+        await flushEffects()
+      })
+      assert.deepEqual(posted[1], {
+        url: '/api/assistant/tools/create-key',
+        data: {
+          confirmation_token: 'opaque-prepared-token',
+          two_factor_code: '',
+        },
+      })
+      assert.equal(
+        Object.hasOwn(posted[1]?.data as object, 'name') ||
+          Object.hasOwn(posted[1]?.data as object, 'group'),
+        false
+      )
+      assert.match(rendered.container.textContent ?? '', /API key created/)
+      assert.match(rendered.container.textContent ?? '', /Private API key/)
+      assert.equal(rendered.container.textContent?.includes(issued), false)
+
+      await act(async () => {
+        findButton('Show securely').click()
+        await flushEffects()
+      })
+      assert.ok(rendered.container.textContent?.includes(issued))
+
+      const locationDescriptor = Object.getOwnPropertyDescriptor(
+        window,
+        'location'
+      )
+      const originalOpen = window.open
+      const popup = {
+        closed: false,
+        location: { href: '' },
+        opener: window,
+        focus() {},
+        close() {},
       }
-    }) as typeof api.post
-    const rendered = await renderTool(true, () => {
-      continued += 1
-    })
+      try {
+        Object.defineProperty(window, 'location', {
+          configurable: true,
+          value: new URL('https://api.example.test/'),
+        })
+        window.open = (() => popup) as unknown as typeof window.open
+        await act(async () => {
+          findButton('Import to CC Switch').click()
+          await flushEffects()
+        })
+        const imported = new URL(popup.location.href)
+        assert.equal(imported.searchParams.get('apiKey'), issued)
+        assert.equal(imported.searchParams.get('model'), 'claude-sonnet-4-5')
+        assert.equal(
+          imported.searchParams.get('endpoint'),
+          'https://api.example.test'
+        )
+        assert.equal(rendered.container.textContent?.includes(issued), false)
+      } finally {
+        window.open = originalOpen
+        if (locationDescriptor) {
+          Object.defineProperty(window, 'location', locationDescriptor)
+        }
+      }
 
-    await waitFor(
-      () =>
-        rendered.container.querySelector<HTMLSelectElement>(
-          '#assistant-key-group'
-        )?.options.length === 1,
-      'selectable groups should load before manual preparation'
-    )
-    const groupSelect = rendered.container.querySelector<HTMLSelectElement>(
-      '#assistant-key-group'
-    )
-    assert.ok(groupSelect)
-    assert.deepEqual(
-      [...groupSelect.options].map((option) => option.value),
-      ['default']
-    )
-
-    await act(async () => {
-      findButton('Review key creation').click()
-      await flushEffects()
+      await act(async () => {
+        findButton('I copied it — continue setup').click()
+        await flushEffects()
+      })
+      assert.equal(continued, 1)
+      await unmount(rendered)
     })
-    assert.match(document.body.textContent ?? '', /Create this API key\?/)
-    assert.deepEqual(posted[0], {
-      url: '/api/assistant/tools/prepare-key',
-      data: {
-        name: 'AI assistant key',
-        group: 'default',
-        group_warning_confirmations: 0,
-      },
-    })
-
-    await act(async () => {
-      findButton('Confirm and create').click()
-      await flushEffects()
-    })
-    assert.deepEqual(posted[1], {
-      url: '/api/assistant/tools/create-key',
-      data: {
-        confirmation_token: 'opaque-prepared-token',
-        two_factor_code: '',
-      },
-    })
-    assert.equal(
-      Object.hasOwn(posted[1]?.data as object, 'name') ||
-        Object.hasOwn(posted[1]?.data as object, 'group'),
-      false
-    )
-    assert.match(rendered.container.textContent ?? '', /API key created/)
-    assert.match(rendered.container.textContent ?? '', /Private API key/)
-    assert.doesNotMatch(
-      rendered.container.textContent ?? '',
-      /sk-created-by-test/
-    )
-
-    await act(async () => {
-      findButton('Show securely').click()
-      await flushEffects()
-    })
-    assert.match(rendered.container.textContent ?? '', /sk-created-by-test/)
-
-    await act(async () => {
-      findButton('I copied it — continue setup').click()
-      await flushEffects()
-    })
-    assert.equal(continued, 1)
-    await unmount(rendered)
-  })
+  }
 })

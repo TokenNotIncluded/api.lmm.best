@@ -1,4 +1,6 @@
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
+import { NATIVE_CREDENTIAL_PATTERN } from '@/lib/api-key-format'
+
 import { clip } from './tool-kit'
 
 const PRIVATE_CONTENT =
@@ -7,6 +9,7 @@ const PRIVATE_CONTENT =
 function safeText(value: string) {
   return clip(
     value
+      .replaceAll(NATIVE_CREDENTIAL_PATTERN, '[redacted]')
       .replaceAll(/\bsk-[\w-]+/g, '[redacted]')
       .replaceAll(/\b[A-Za-z0-9_-]{24,}(?:\.[A-Za-z0-9_-]+)*\b/g, '[redacted]')
       .replaceAll(/\s+/g, ' ')

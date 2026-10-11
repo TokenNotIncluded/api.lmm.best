@@ -57,3 +57,29 @@ describe('assistant message safety', () => {
     )
   })
 })
+
+test('native key/session/invite values are removed before request, retry and display, without masking ordinary labels', () => {
+  for (const prefix of ['lmmk_', 'lmms_', 'lmmi_']) {
+    const secret = `${prefix}${'a1'.repeat(32)}`
+    const text = `Explain (${secret}) failure and ${prefix}guide documentation.`
+    const request = redactAssistantMessageForRequest(text)
+    assert.equal(request.redacted, true)
+    assert.equal(request.content.includes(secret), false)
+    assert.ok(request.content.includes(`${prefix}guide`))
+    assert.match(request.content, /\[REDACTED_CREDENTIAL\]/)
+    assert.deepEqual(redactAssistantMessageForRequest(request.content), request)
+    assert.equal(
+      hasAssistantMessageSubstantialMeaning(
+        redactAssistantMessageForRequest(secret).content
+      ),
+      false
+    )
+    const display = redactAssistantMessageForDisplay(text, '[PRIVATE]')
+    assert.equal(display.content.includes(secret), false)
+    assert.ok(display.content.includes(`${prefix}guide`))
+    assert.equal(
+      redactAssistantMessageForRequest(`${prefix}guide`).redacted,
+      false
+    )
+  }
+})

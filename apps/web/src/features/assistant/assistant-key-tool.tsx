@@ -20,6 +20,7 @@ import { KeyRound } from 'lucide-react'
 import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { formatApiKey } from '@/lib/api-key-format'
 import { buildCCSwitchProviderURL } from '@/lib/cc-switch-deep-link'
 
 import type { AssistantCreateKeyAction } from './api'
@@ -135,7 +136,7 @@ export function AssistantKeyTool(props: {
     const serviceRoot = trustedServiceRoot(props.baseUrl)
     if (!serviceRoot) return null
 
-    const normalizedKey = apiKey.startsWith('sk-') ? apiKey : `sk-${apiKey}`
+    const normalizedKey = formatApiKey(apiKey)
     const url = validateCCSwitchImportUrl(
       buildCCSwitchProviderURL({
         app: 'claude',

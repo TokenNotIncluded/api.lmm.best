@@ -89,6 +89,7 @@ afterEach(async () => {
 after(() => dom.close())
 async function mount(
   options: {
+    key?: string
     anonymous?: boolean
     checking?: boolean
     inactive?: boolean
@@ -158,7 +159,10 @@ async function mount(
   api.post = (async (_url, body) => {
     posts.push(body)
     return {
-      data: { success: true, data: { id: 123, key: 'test-fixture-secret' } },
+      data: {
+        success: true,
+        data: { id: 123, key: options.key ?? 'test-fixture-secret' },
+      },
     }
   }) as typeof api.post
   Object.defineProperty(navigator, 'clipboard', {
@@ -327,6 +331,37 @@ describe('test key popup', () => {
     assert.equal(page.container.querySelector('#test-key-secret'), null)
     await page.unmount()
   })
+  test('copies native creation credentials unchanged without retaining them in caches or storage', async () => {
+    const native = `lmmk_${'a1'.repeat(32)}`
+    const page = await mount({ key: native })
+    await page.chooseGroup()
+    await page.submit()
+    assert.equal(page.posts.length, 1)
+    assert.deepEqual(copies, [native])
+    assert.equal(
+      (page.container.querySelector('#test-key-secret') as HTMLInputElement)
+        .value,
+      native
+    )
+    assert.equal(
+      JSON.stringify(
+        page.client
+          .getQueryCache()
+          .getAll()
+          .map((q) => q.state.data)
+      ).includes(native),
+      false
+    )
+    for (const storage of [localStorage, sessionStorage]) {
+      for (let i = 0; i < storage.length; i++) {
+        assert.equal(
+          storage.getItem(storage.key(i) ?? '')?.includes(native),
+          false
+        )
+      }
+    }
+    await page.unmount()
+  })
   test('requires the existing group warning acknowledgments', async () => {
     const page = await mount({ warning: 2 })
     await page.chooseGroup()
@@ -414,7 +449,10 @@ describe('test key popup', () => {
         }
       }
       return {
-        data: { success: true, data: { id: 123, key: 'test-fixture-secret' } },
+        data: {
+          success: true,
+          data: { id: 123, key: 'test-fixture-secret' },
+        },
       }
     }) as typeof api.post
     await page.submit()

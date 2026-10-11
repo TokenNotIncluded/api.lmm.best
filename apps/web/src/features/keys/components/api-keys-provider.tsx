@@ -19,7 +19,6 @@ For commercial licensing, please contact support@quantumnous.com
 /*
 Copyright (C) 2026 LIghtJUNction
 */
-import { useQueryClient } from '@tanstack/react-query'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -38,6 +37,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+
+import { useQueryClient } from '@tanstack/react-query'
 import {
   createContext,
   useCallback,
@@ -54,6 +55,7 @@ import { toast } from 'sonner'
 
 import { refreshCurrentAccount } from '@/features/onboarding/use-auth-user-refresh'
 import useDialogState from '@/hooks/use-dialog'
+import { formatApiKey } from '@/lib/api-key-format'
 
 import { fetchTokenKey, fetchTokenKeysBatch } from '../api'
 import { ERROR_MESSAGES } from '../constants'
@@ -143,7 +145,7 @@ export function ApiKeysProvider({ children }: { children: ReactNode }) {
           const res = await fetchTokenKey(id)
           if (generation !== secretGeneration.current) return null
           if (res.success && res.data?.key) {
-            const fullKey = `sk-${res.data.key}`
+            const fullKey = formatApiKey(res.data.key)
             setResolvedKeys((prev) => ({ ...prev, [id]: fullKey }))
             return fullKey
           }
@@ -190,7 +192,7 @@ export function ApiKeysProvider({ children }: { children: ReactNode }) {
         if (res.success && res.data?.keys) {
           const newKeys: Record<number, string> = {}
           for (const [idStr, key] of Object.entries(res.data.keys)) {
-            newKeys[Number(idStr)] = `sk-${key}`
+            newKeys[Number(idStr)] = formatApiKey(key)
           }
           setResolvedKeys((prev) => ({ ...prev, ...newKeys }))
 

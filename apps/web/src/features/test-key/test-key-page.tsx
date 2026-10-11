@@ -1,4 +1,5 @@
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
+
 import { useQuery } from '@tanstack/react-query'
 import { Link } from '@tanstack/react-router'
 import { isAxiosError } from 'axios'
@@ -16,6 +17,7 @@ import { ApiBaseUrl } from '@/features/keys/components/api-base-url'
 import { useStatus } from '@/hooks/use-status'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { getUserGroups } from '@/lib/api'
+import { formatApiKey } from '@/lib/api-key-format'
 import { isConsoleActivated } from '@/lib/console-activation'
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
 import { useAuthStore } from '@/stores/auth-store'
@@ -151,7 +153,7 @@ function TestKeyForm({
         setResult({ state: 'uncertain' })
         return
       }
-      const secret = raw.startsWith('sk-') ? raw : `sk-${raw}`
+      const secret = formatApiKey(raw)
       // Keep the reveal out of storage, URLs, query caches and the opener.
       setResult({ state: 'created', secret, copied: false })
       const copied = await copyToClipboard(secret)

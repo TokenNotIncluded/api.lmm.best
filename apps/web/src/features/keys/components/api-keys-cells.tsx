@@ -36,6 +36,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
+import { formatApiKey } from '@/lib/api-key-format'
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
 
 import { isAssistantRuntimeKey } from '../lib'
@@ -68,7 +69,7 @@ export function ApiKeyCell({ apiKey }: { apiKey: ApiKey }) {
   const isLoading = !!loadingKeys[apiKey.id]
   const resolvedFullKey = resolvedKeys[apiKey.id]
   const isCopied = copiedKeyId === apiKey.id
-  const maskedKey = `sk-${apiKey.key}`
+  const maskedKey = formatApiKey(apiKey.key)
   const showRevealLoading =
     popoverOpen && !resolvedFullKey && revealStatus === 'pending'
   const showRevealError =
@@ -174,7 +175,7 @@ export function ApiKeyCell({ apiKey }: { apiKey: ApiKey }) {
   if (isAssistantRuntimeKey(apiKey)) {
     return (
       <div className='space-y-1'>
-        <code className='text-xs'>{`sk-${apiKey.key}`}</code>
+        <code className='text-xs'>{formatApiKey(apiKey.key)}</code>
         <p className='text-muted-foreground text-xs'>
           {t(
             'Internal assistant key; it cannot be copied or used for API calls.'

@@ -84,3 +84,26 @@ test('unsupported privacy APIs and invalid URLs cannot break site rendering', ()
     else Reflect.deleteProperty(globalThis, 'crypto')
   }
 })
+
+test('source capture rejects actual native key/session/invite values but retains ordinary native labels', () => {
+  for (const prefix of ['lmmk_', 'lmms_', 'lmmi_']) {
+    const secret = `${prefix}${'a1'.repeat(32)}`
+    for (const field of ['source', 'medium', 'campaign', 'content']) {
+      const entry = sourceEntry(
+        `https://api.lmm.best/?utm_${field}=${secret}`,
+        ''
+      )
+      assert.ok(entry)
+      assert.equal(
+        entry[field as 'source' | 'medium' | 'campaign' | 'content'],
+        ''
+      )
+      assert.equal(JSON.stringify(entry).includes(secret), false)
+    }
+    assert.equal(
+      sourceEntry(`https://api.lmm.best/?utm_source=${prefix}guide`, '')
+        ?.source,
+      `${prefix}guide`
+    )
+  }
+})

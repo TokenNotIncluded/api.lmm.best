@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { API_KEY_STATUS } from '@/features/keys/constants'
+import { formatApiKey } from '@/lib/api-key-format'
 
 export type ChatLinkType = 'web' | 'custom-protocol' | 'fluent'
 
@@ -146,7 +147,7 @@ function replaceToken(source: string, token: string, value: string) {
 function normalizeApiKey(apiKey: string): string {
   const trimmed = apiKey.trim()
   if (!trimmed) return ''
-  return trimmed.startsWith('sk-') ? trimmed : `sk-${trimmed}`
+  return formatApiKey(trimmed)
 }
 
 export function resolveChatUrl({

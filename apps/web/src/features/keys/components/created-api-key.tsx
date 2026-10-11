@@ -1,4 +1,5 @@
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
+
 import { Check, Copy, Eye, EyeOff, Loader2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
@@ -12,6 +13,7 @@ import {
   SheetTitle,
   SheetDescription,
 } from '@/components/ui/sheet'
+import { formatApiKey } from '@/lib/api-key-format'
 import { copyToClipboard } from '@/lib/copy-to-clipboard'
 import { cn } from '@/lib/utils'
 
@@ -46,7 +48,7 @@ export function CreatedApiKey({
   const [saved, setSaved] = useState(false)
   const copyTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
   const savedTimerRef = useRef<ReturnType<typeof setTimeout>>(undefined)
-  const key = `sk-${secret.key}`
+  const key = formatApiKey(secret.key)
 
   useEffect(
     () => () => {

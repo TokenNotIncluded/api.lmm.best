@@ -24,6 +24,10 @@ test('page outlines omit secrets, form values, hidden content and URL parameters
   dom.document.body.innerHTML = `
     <main>
       <h1>API keys</h1>
+      <button>lmmk_${'a1'.repeat(32)}</button>
+      <button aria-label="lmms_${'a1'.repeat(32)}">Session</button>
+      <button>Invite lmmi_${'a1'.repeat(32)}</button>
+      <button>lmmk_guide</button>
       <input value="private-password" />
       <h2 hidden>private-hidden</h2>
       <div style="display:none"><button>private-hidden-button</button></div>
@@ -38,7 +42,8 @@ test('page outlines omit secrets, form values, hidden content and URL parameters
   try {
     const result = readPageOutline({ '/keys': 'Keys', '/wallet': 'Wallet' })
     const serialized = JSON.stringify(result)
-    assert.doesNotMatch(serialized, /private-|sk-abcdefgh/)
+    assert.doesNotMatch(serialized, /private-|sk-abcdefgh|lmm[ksi]_a1a1/)
+    assert.ok(result.actions.some((action) => action.text === 'lmmk_guide'))
     assert.deepEqual(result.headings, [{ level: 1, text: 'API keys' }])
     assert.equal(
       result.actions.find((action) => action.text === 'Top up')?.href,

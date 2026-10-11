@@ -16,6 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { formatApiKey } from '@/lib/api-key-format'
+
 export function sendToFluent(apiKey: string, serverAddress?: string): boolean {
   if (typeof window === 'undefined') {
     return false
@@ -29,7 +31,7 @@ export function sendToFluent(apiKey: string, serverAddress?: string): boolean {
   const payload = {
     id: 'new-api',
     baseUrl: serverAddress || window.location.origin,
-    apiKey: `sk-${apiKey}`,
+    apiKey: formatApiKey(apiKey),
   }
 
   container.dispatchEvent(

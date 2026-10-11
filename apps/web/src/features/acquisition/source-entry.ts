@@ -16,10 +16,13 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { NATIVE_CREDENTIAL_PATTERN } from '@/lib/api-key-format'
+
 const label = (value: string | null) =>
   value &&
   /^[\p{L}\p{N} _.-]{1,80}$/u.test(value) &&
   !/sk-|bearer/i.test(value) &&
+  value.search(NATIVE_CREDENTIAL_PATTERN) === -1 &&
   !/^[A-Za-z0-9]{41,}$/.test(value) &&
   !/^[\w-]+\.[\w-]+\.[\w-]+$/.test(value)
     ? value

@@ -2,6 +2,8 @@
 Copyright (C) 2026 LIghtJUNction
 */
 
+import { formatApiKey } from '@/lib/api-key-format'
+
 const MAX_CATALOGUE_BYTES = 1_048_576
 const MAX_MODELS = 10_000
 const MAX_MODEL_ID_LENGTH = 512
@@ -15,7 +17,7 @@ export async function getKeyModels(
     if (!tokenKey || tokenKey.trim() !== tokenKey) {
       throw new Error('Invalid key')
     }
-    const key = tokenKey.startsWith('sk-') ? tokenKey : `sk-${tokenKey}`
+    const key = formatApiKey(tokenKey)
     const response = await fetch('/v1/models', {
       method: 'GET',
       headers: { Authorization: `Bearer ${key}` },

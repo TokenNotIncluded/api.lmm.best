@@ -20,6 +20,7 @@ import { useQuery } from '@tanstack/react-query'
 
 import { fetchTokenKey, getApiKeys } from '@/features/keys/api'
 import { API_KEY_STATUS } from '@/features/keys/constants'
+import { formatApiKey } from '@/lib/api-key-format'
 import { useAuthStore } from '@/stores/auth-store'
 
 export async function fetchActiveChatKey() {
@@ -39,7 +40,7 @@ export async function fetchActiveChatKey() {
     throw new Error(keyResult.message || 'Failed to load API key')
   }
 
-  return `sk-${keyResult.data.key}`
+  return formatApiKey(keyResult.data.key)
 }
 
 /**

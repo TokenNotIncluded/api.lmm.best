@@ -128,3 +128,30 @@ test('missing credentials never issue a request and abort reasons never become c
   )
   assert.equal(calls, 1)
 })
+
+test('native keys reach the relay unchanged and echoed native credentials fail closed', async () => {
+  const native = `lmmk_${'a1'.repeat(32)}`
+  globalThis.fetch = (async (url, init) => {
+    assert.equal(url, '/v1/models')
+    assert.equal(
+      new Headers(init?.headers).get('Authorization'),
+      `Bearer ${native}`
+    )
+    assert.equal(init?.credentials, 'omit')
+    return Response.json({ data: [{ id: 'synthetic-model' }] })
+  }) as typeof fetch
+  assert.deepEqual(await getKeyModels(native, signal()), ['synthetic-model'])
+  for (const body of [
+    { data: [{ id: native }] },
+    { error: { message: native } },
+  ]) {
+    mockResponse(Response.json(body))
+    await assert.rejects(getKeyModels(native, signal()), (error: unknown) => {
+      assert.ok(error instanceof Error)
+      assert.equal(error.message, 'Failed to fetch models')
+      assert.equal(error.cause, undefined)
+      assert.equal(error.stack?.includes(native), false)
+      return true
+    })
+  }
+})

@@ -173,81 +173,89 @@ afterEach(async () => {
 })
 after(() => dom.close())
 
-test('CCSwitch offers only the target Key relay catalogue and keeps credentials out of caches', async () => {
-  const accountRequests = mockAccountDirectory()
-  useAuthStore.setState({
-    auth: { ...originalAuth, accessToken: 'console-session-secret' },
+for (const [format, issued, expected] of [
+  ['prefixed legacy', 'sk-target-key-secret', 'sk-target-key-secret'],
+  ['bare legacy', 'target-key-secret', 'sk-target-key-secret'],
+  ['native', `lmmk_${'a1'.repeat(32)}`, `lmmk_${'a1'.repeat(32)}`],
+]) {
+  test(`CCSwitch ${format}: target catalogue, private caches, unchanged import`, async () => {
+    const accountRequests = mockAccountDirectory()
+    useAuthStore.setState({
+      auth: { ...originalAuth, accessToken: 'console-session-secret' },
+    })
+    localStorage.setItem(
+      'status',
+      JSON.stringify({ server_address: 'https://third-party.example/' })
+    )
+    const requests: Array<{ url: string; init: RequestInit | undefined }> = []
+    globalThis.fetch = (async (url, init) => {
+      requests.push({ url: String(url), init })
+      return catalogue(['allowed-model'])
+    }) as typeof fetch
+    const client = await render({
+      open: true,
+      tokenId: 42,
+      tokenKey: issued,
+    })
+    assert.deepEqual(await options(), ['allowed-model'])
+    assert.deepEqual(accountRequests, ['/api/token/42'])
+    assert.equal(requests.length, 1)
+    assert.equal(requests[0].url, '/v1/models')
+    const init = requests[0].init
+    assert.equal(
+      new Headers(init?.headers).get('Authorization'),
+      `Bearer ${expected}`
+    )
+    assert.equal(init?.credentials, 'omit')
+    assert.equal(init?.cache, 'no-store')
+    assert.equal(init?.redirect, 'error')
+    assert.equal(init?.method, 'GET')
+    assert.ok(init?.signal)
+    assert.equal(importButton().disabled, true)
+    await selectModel('allowed-model')
+    assert.equal(importButton().disabled, false)
+    const cache = client
+      .getQueryCache()
+      .getAll()
+      .map(({ queryKey, state }) => ({ queryKey, state }))
+    assert.doesNotMatch(
+      JSON.stringify(cache),
+      /target-key-secret|console-session-secret/
+    )
+    assert.doesNotMatch(
+      document.body.textContent ?? '',
+      /target-key-secret|console-session-secret/
+    )
+    assert.doesNotMatch(
+      JSON.stringify([localStorage, sessionStorage]),
+      /target-key-secret|console-session-secret/
+    )
+    assert.equal(JSON.stringify(cache).includes(issued), false)
+    assert.equal(document.body.textContent?.includes(issued), false)
+    const popup = {
+      closed: false,
+      location: { href: '' },
+      opener: window,
+      focus() {},
+      close() {},
+    }
+    window.open = (() => popup) as unknown as typeof window.open
+    await act(async () => importButton().click())
+    const imported = new URL(popup.location.href)
+    assert.equal(imported.protocol, 'ccswitch:')
+    assert.equal(imported.searchParams.get('model'), 'allowed-model')
+    assert.equal(imported.searchParams.get('apiKey'), expected)
+    assert.equal(
+      imported.searchParams.get('endpoint'),
+      'https://third-party.example/'
+    )
+    assert.equal(
+      requests.length,
+      1,
+      'import does not send credentials to the configured address'
+    )
   })
-  localStorage.setItem(
-    'status',
-    JSON.stringify({ server_address: 'https://third-party.example/' })
-  )
-  const requests: Array<{ url: string; init: RequestInit | undefined }> = []
-  globalThis.fetch = (async (url, init) => {
-    requests.push({ url: String(url), init })
-    return catalogue(['allowed-model'])
-  }) as typeof fetch
-  const client = await render({
-    open: true,
-    tokenId: 42,
-    tokenKey: 'sk-target-key-secret',
-  })
-  assert.deepEqual(await options(), ['allowed-model'])
-  assert.deepEqual(accountRequests, ['/api/token/42'])
-  assert.equal(requests.length, 1)
-  assert.equal(requests[0].url, '/v1/models')
-  const init = requests[0].init
-  assert.equal(
-    new Headers(init?.headers).get('Authorization'),
-    'Bearer sk-target-key-secret'
-  )
-  assert.equal(init?.credentials, 'omit')
-  assert.equal(init?.cache, 'no-store')
-  assert.equal(init?.redirect, 'error')
-  assert.equal(init?.method, 'GET')
-  assert.ok(init?.signal)
-  assert.equal(importButton().disabled, true)
-  await selectModel('allowed-model')
-  assert.equal(importButton().disabled, false)
-  const cache = client
-    .getQueryCache()
-    .getAll()
-    .map(({ queryKey, state }) => ({ queryKey, state }))
-  assert.doesNotMatch(
-    JSON.stringify(cache),
-    /target-key-secret|console-session-secret/
-  )
-  assert.doesNotMatch(
-    document.body.textContent ?? '',
-    /target-key-secret|console-session-secret/
-  )
-  assert.doesNotMatch(
-    JSON.stringify([localStorage, sessionStorage]),
-    /target-key-secret|console-session-secret/
-  )
-  const popup = {
-    closed: false,
-    location: { href: '' },
-    opener: window,
-    focus() {},
-    close() {},
-  }
-  window.open = (() => popup) as unknown as typeof window.open
-  await act(async () => importButton().click())
-  const imported = new URL(popup.location.href)
-  assert.equal(imported.protocol, 'ccswitch:')
-  assert.equal(imported.searchParams.get('model'), 'allowed-model')
-  assert.equal(imported.searchParams.get('apiKey'), 'sk-target-key-secret')
-  assert.equal(
-    imported.searchParams.get('endpoint'),
-    'https://third-party.example/'
-  )
-  assert.equal(
-    requests.length,
-    1,
-    'import does not send credentials to the configured address'
-  )
-})
+}
 
 function deferred<T>() {
   let resolve!: (value: T) => void
