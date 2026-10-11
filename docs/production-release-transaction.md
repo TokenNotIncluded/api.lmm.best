@@ -1,5 +1,12 @@
 # Manual release acceptance and rollback
 
+The current [production policy](deployment-workflow.md#forward-only-production-policy)
+requires higher patch repairs and forbids lowering running versions. Rollback
+procedures below describe legacy tool contracts, not the default failure action.
+The wrapper still has automatic rollback behavior; do not use it for the current
+production policy. Use direct native phases instead. Preserve data backups, integrity and exact
+transaction evidence. No rollback code or required protocol field was removed.
+
 Backend deployment is manual. Tests run locally; GitHub Actions builds, signs
 and publishes official artifacts. The frontend-only exception is described
 below. The local `scripts/production-release-transaction.py` wrapper remains available to an
@@ -38,6 +45,10 @@ completed local checks with their actual revision, exits and log hashes; verify
 complete component object equality before reuse. Reuse already published signed
 assets and qualified native packages rather than rebuilding or resigning them.
 Keep application tests, artifact qualification and live acceptance distinct.
+
+Candidate/rollback tuples and old-version compatibility checks below remain
+legacy native-format requirements. Reuse existing evidence; do not add a new
+old-version failure drill or execute legacy rollback commands for this rollout.
 
 Bind each real input's canonical path, SHA-256, size and `stat` profile
 (device/inode, uid/gid, mode and link count), checked for replacement while read.
@@ -196,6 +207,11 @@ if they supported it. Source tests are separate from official artifact and
 production qualification.
 
 ## Failure and uncertainty
+
+The following is the wrapper's **legacy runtime behavior**, incompatible with
+the current policy when it installs older software. It remains implemented;
+documentation does not switch it off. Use exact-state reconciliation and a
+higher patch repair rather than that downgrade path.
 
 A settled `ROLLBACK_REQUIRED` activation or failed public acceptance while
 `AWAITING_CONFIRMATION` triggers one native rollback request. The wrapper

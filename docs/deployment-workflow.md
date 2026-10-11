@@ -9,6 +9,29 @@ operations. New backend binaries do not accept `operator`. Build and stage the
 signed tool independently from API probes; do not point deployment commands at
 the API executable. Retained historical transactions keep their pinned tool.
 
+## Forward-only production policy
+
+Production versions only move forward. Go and Web keep independent versions;
+an unchanged component may stay at its current version. Fix a failed release
+with an unused, higher patch version instead of activating an older release.
+Never move an existing tag or overwrite its signed assets.
+
+Protect data throughout the change: retain verified backups, restore proofs,
+financial/history evidence and integrity checks, including writes made after
+the backup. Data recovery does not authorize lowering the running version.
+Do not delay an upgrade for extra old-version restore qualifications or failure
+drills that restart an older release.
+
+Existing tools still have legacy `rollback` fields, commands and failure
+handlers; this policy does not remove or disable them. Reuse exact qualified
+legacy inputs where the protocol requires them, without bypassing a gate.
+Use direct native phases or a reviewed granular systemd caller; do not invoke
+legacy rollback commands or the automatic rollback wrapper. Existing legacy
+fields do not require removing old tool capabilities or publishing another tool
+version before an upgrade. Reconcile uncertain transactions read-only, preserve
+their evidence, and repair forward when needed. Closing an unchanged transaction
+or restoring configuration is distinct from lowering Go/Web versions.
+
 ## Read the live state first
 
 Before building or dispatching, freeze one source revision and capture a single
@@ -215,8 +238,9 @@ a bad signature, or a revision mismatch blocks publication.
 
 **Do not blindly rerun a failed or interrupted deployment.** The first host may
 already have switched, and the remote forced command rejects an existing release
-ID. Inspect both hosts through the approved operator path; complete or roll back
-the recorded transaction explicitly. Do not delete release directories to force
+ID. Inspect both hosts through the approved operator path; complete or safely
+close the recorded transaction without lowering its running version.
+Do not delete release directories to force
 a retry. See [server operations](server-ops.md).
 
 ## Backend updates

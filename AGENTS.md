@@ -32,6 +32,12 @@ translation changes, and generated output limited to the requested scope.
 
 ## Safety and verification
 
+Production versions only move forward. Preserve data backups and integrity;
+fix failures with a new, higher patch release instead of activating older code.
+Do not delay deployment for extra old-version restore qualifications. Follow the
+[forward-only production policy](docs/deployment-workflow.md#forward-only-production-policy);
+legacy rollback fields and commands still exist and do not authorize a downgrade.
+
 Never commit credentials, cookies, private keys, production data, or unredacted
 logs. Do not use a production database for development or tests. When using
 api.lmm.best, each user may have only one account; do not register accounts in

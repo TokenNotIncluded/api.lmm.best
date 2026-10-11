@@ -67,10 +67,11 @@ Open <http://localhost:5173> and complete setup. See the [development guide](doc
 ## Deploy and upgrade
 
 Go and Web have separate release tags: `go-vX.Y.Z` and `web-vX.Y.Z`. **A merge or release does not deploy to production.** Read the [deployment workflow](docs/deployment-workflow.md) and select the path for the existing installation first.
+Production versions only move forward; fix failures in a higher patch while retaining data backups and integrity checks. See the [forward-only policy](docs/deployment-workflow.md#forward-only-production-policy).
 
 | Existing installation | Start here |
 | --- | --- |
-| Standalone systemd service | [Inspect, upgrade, confirm, and roll back](docs/manual-systemd-deployment.md) |
+| Standalone systemd service | [Inspect, upgrade, and confirm](docs/manual-systemd-deployment.md) |
 | Package-managed Go / Web | [Signed releases and upgrade transactions](docs/seamless-upgrades.md) |
 | Frontend-only update | [Deployment and installation types](docs/deployment-workflow.md) · [Release boundaries](docs/release-architecture.md) |
 | Database and cache | [PostgreSQL migration](docs/postgresql-migration.md) · [Production cutover](docs/postgresql-cutover.md) · [Valkey operations](docs/valkey-lmm-api.md) |
