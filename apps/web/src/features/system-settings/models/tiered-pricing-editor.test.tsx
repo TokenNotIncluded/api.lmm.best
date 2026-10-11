@@ -240,3 +240,27 @@ test('estimator maps separate cache counts and decimal audio seconds independent
     await ctx.cleanup()
   }
 })
+
+test('estimator prices classified cache counts with a generic cache rate', async () => {
+  const ctx = await setup('tier("base", p * 2 + c * 3 + cr * 0.1)')
+  try {
+    for (const [field, value, cost] of [
+      ['Text Cache Read', '1000', 0.0001],
+      ['Image Cache Read', '2000', 0.0003],
+      ['Audio Cache Read', '3000', 0.0006],
+      ['Cache Read', '4000', 0.0004],
+      ['Cache Read', '0', 0.0006],
+      ['Text Cache Read', '', 0.0005],
+    ] as const) {
+      await ctx.change(field, value)
+      assert.ok(
+        ctx.container.textContent?.includes(
+          `Estimated cost (USD): ${cost.toLocaleString(undefined, { maximumFractionDigits: 12 })}`
+        )
+      )
+    }
+    assert.deepEqual(ctx.changes, [])
+  } finally {
+    await ctx.cleanup()
+  }
+})
