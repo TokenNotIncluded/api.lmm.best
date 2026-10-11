@@ -59,6 +59,7 @@ import {
   defaultMetaDelegationSetup,
 } from './meta-delegation-setup'
 import { useMarketMoneyDraft } from './money'
+import { MarketNextStep } from './setup-guide'
 
 type IssuedToken = { token: string; record: MarketToken }
 type ClientAccess = {
@@ -534,6 +535,15 @@ function ConnectionWorkspace({
               {m('summary')}
             </p>
           </div>
+          <MarketNextStep>
+            {issued
+              ? t(
+                  'Copy the configuration into your MCP client, then choose tools for this same Client ID.'
+                )
+              : t(
+                  'Create a connection token, add the configuration to your MCP client, then choose and authorize tools.'
+                )}
+          </MarketNextStep>
           <form
             onSubmit={(event) => {
               event.preventDefault()

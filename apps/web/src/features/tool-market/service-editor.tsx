@@ -34,6 +34,7 @@ import {
   type StoredEditorCredentials,
   type ToolDefinitionChanges,
 } from './service-editor-utils'
+import { MarketNextStep } from './setup-guide'
 import { maximumUsageQuota, usageMetrics } from './usage-pricing'
 import { UsagePricingEditor } from './usage-pricing-editor'
 
@@ -545,7 +546,11 @@ export function ServiceEditor({
             )}
             <Button
               type='button'
-              variant='outline'
+              variant={
+                !inspectVersion || inspectedEndpoint !== endpoint
+                  ? 'default'
+                  : 'outline'
+              }
               disabled={pending || !endpoint || !credentialsReady}
               onClick={() => void inspect()}
             >
@@ -1002,10 +1007,34 @@ export function ServiceEditor({
                         )}
             </p>
           )}
+          {credentialsReady && !pending && (
+            <MarketNextStep id='market-save-next-step'>
+              {!inspectVersion || inspectedEndpoint !== endpoint
+                ? t(
+                    'Read tool definitions first. Then review the tools and prices before saving.'
+                  )
+                : !selected.length
+                  ? t('Select at least one tool to continue.')
+                  : hasInvalidPrice
+                    ? t('Fix the selected tool prices before saving.')
+                    : requiresReview && !reviewedChanges
+                      ? t(
+                          'Review and accept the definition changes before saving.'
+                        )
+                      : t(
+                          'Save the draft. Next, validate the connection and submit it for review.'
+                        )}
+            </MarketNextStep>
+          )}
           <div className='flex flex-wrap gap-2 border-t pt-4'>
             <Button
               type='submit'
               className='min-h-11'
+              aria-describedby={
+                credentialsReady && !pending
+                  ? 'market-save-next-step'
+                  : undefined
+              }
               disabled={
                 pending ||
                 !credentialsReady ||
