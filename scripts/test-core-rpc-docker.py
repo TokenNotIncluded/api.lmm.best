@@ -33,11 +33,12 @@ done
 """
 ROTATE_SECRET = VERIFY_SECRETS + """
 test "$#" = 1
-trap 'chmod 0400 "$1"' EXIT
+fixture_secret_path=$1
+trap 'chmod 0400 "$fixture_secret_path"' EXIT
 trap 'exit 1' HUP INT TERM
-chmod 0600 "$1"
-cat > "$1"
-chmod 0400 "$1"
+chmod 0600 "$fixture_secret_path"
+cat > "$fixture_secret_path"
+chmod 0400 "$fixture_secret_path"
 """ + VERIFY_SECRETS
 
 
