@@ -16,6 +16,11 @@ import (
 )
 
 func ShouldRetryRelayError(c *gin.Context, apiErr *types.NewAPIError, retryTimes int) bool {
+	// Acceptance is request-scoped and overrides even channel errors or status
+	// mappings: another attempt would submit a second asynchronous provider job.
+	if c != nil && common.GetContextKeyBool(c, constant.ContextKeyUpstreamAsyncTaskAccepted) {
+		return false
+	}
 	if c != nil && (common.GetContextKeyBool(c, constant.ContextKeyHTTPStreamCommitted) || common.GetContextKeyBool(c, constant.ContextKeyHTTPStreamDownstreamFailure)) {
 		return false
 	}

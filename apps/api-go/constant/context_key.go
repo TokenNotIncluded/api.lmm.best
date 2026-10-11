@@ -57,6 +57,10 @@ const (
 	ContextKeyUpstreamCapabilityMismatch   ContextKey = "upstream_capability_mismatch"
 	ContextKeyUpstreamUnsupportedParameter ContextKey = "upstream_unsupported_parameter"
 
+	// Latched after a decoded asynchronous submission supplies a task ID. This
+	// prevents resubmission within this relay request; it is not billing state.
+	ContextKeyUpstreamAsyncTaskAccepted ContextKey = "upstream_async_task_accepted"
+
 	ContextKeyAutoGroup           ContextKey = "auto_group"
 	ContextKeyAutoGroupIndex      ContextKey = "auto_group_index"
 	ContextKeyAutoGroupRetryIndex ContextKey = "auto_group_retry_index"

@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/constant"
 	"github.com/LIghtJUNction/api.lmm.best/logger"
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
@@ -315,6 +316,11 @@ func aliImageHandler(a *Adaptor, c *gin.Context, resp *http.Response, info *rela
 	err = common.Unmarshal(responseBody, &aliTaskResponse)
 	if err != nil {
 		return types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError), nil
+	}
+	if !a.IsSyncImageModel && strings.TrimSpace(aliTaskResponse.Output.TaskId) != "" {
+		// Polling or result conversion can still fail after acceptance. Retrying
+		// the submission would create another provider job, not resume this one.
+		common.SetContextKey(c, constant.ContextKeyUpstreamAsyncTaskAccepted, true)
 	}
 
 	if aliTaskResponse.Message != "" {

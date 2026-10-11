@@ -79,3 +79,27 @@ func TestShouldRetryRelayErrorSkipsClientDisconnect(t *testing.T) {
 	)
 	assert.False(t, ShouldRetryRelayError(c, apiErr, 1))
 }
+
+func TestAcceptedAsyncTaskOverridesRetryAndStaysRequestScoped(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		apiErr     *types.NewAPIError
+		capability bool
+	}{
+		{"channel_error", types.NewError(errors.New("fixture"), types.ErrorCodeChannelNoAvailableKey), false},
+		{"mapped_capability_error", types.NewErrorWithStatusCode(errors.New("fixture"), types.ErrorCodeBadResponse, 400), true},
+		{"upstream_timeout", types.NewErrorWithStatusCode(errors.New("fixture"), types.ErrorCodeUpstreamTimeout, 504), false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _ := gin.CreateTestContext(httptest.NewRecorder())
+			c.Request = httptest.NewRequest("POST", "/v1/images/generations", nil)
+			common.SetContextKey(c, constant.ContextKeyUpstreamCapabilityMismatch, tc.capability)
+			assert.True(t, ShouldRetryRelayError(c, tc.apiErr, 2))
+			common.SetContextKey(c, constant.ContextKeyUpstreamAsyncTaskAccepted, true)
+			assert.False(t, ShouldRetryRelayError(c, tc.apiErr, 2))
+			fresh, _ := gin.CreateTestContext(httptest.NewRecorder())
+			common.SetContextKey(fresh, constant.ContextKeyUpstreamCapabilityMismatch, tc.capability)
+			assert.True(t, ShouldRetryRelayError(fresh, tc.apiErr, 2))
+		})
+	}
+}
