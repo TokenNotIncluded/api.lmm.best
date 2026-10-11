@@ -177,6 +177,14 @@
     }
   }
 
+  if (root.dataset.page === 'intro') {
+    setStatus('To authorize an AI, ask it to create a signed HumanGrant request. Open the human_authorization_url that the AI shares. You must sign in and approve each permission yourself.');
+    const link = document.createElement('a');
+    link.href = '/human/grants';
+    link.textContent = 'Review and revoke my existing AI grants';
+    byId('grant-list').hidden = false;
+    byId('grant-list').append(link);
+  }
   if (root.dataset.page === 'review') review();
   if (root.dataset.page === 'grants') grants();
 })();
