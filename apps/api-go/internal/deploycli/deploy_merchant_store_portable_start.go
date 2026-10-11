@@ -189,6 +189,19 @@ func (runtime *productionRuntime) verifyMerchantStorePortableInstalled(c product
 	}
 	return nil
 }
+
+func (runtime *productionRuntime) verifyMerchantStorePortableStartExecutables(c productionMerchantStoreCapsule) error {
+	installed, err := sha256File(c.Binary)
+	allowed := installed == c.Writer.Candidate.PayloadSHA256 || c.Format == 1 && installed == c.Writer.Rollback.PayloadSHA256
+	if err != nil || !allowed || runtime.verifyMerchantStorePortableInstalled(c, installed) != nil {
+		return errors.New("portable startup provider is not the explicit installed signed provider")
+	}
+	if sha256MustEqual("/proc/self/exe", c.deploymentSHA256()) != nil {
+		return errors.New("portable startup checker is not the signed deployment executable")
+	}
+	return nil
+}
+
 func (runtime *productionRuntime) portableTerminal(ctx context.Context, c productionMerchantStoreCapsule, digest string) error {
 	if c.Format == 2 {
 		return errors.New("startup baseline is not ordinary transaction authority")
@@ -576,10 +589,8 @@ func (runtime *productionRuntime) merchantStorePortableStart(ctx context.Context
 	if err := runtime.portableStartControlPID(ctx, c, invocation); err != nil {
 		return err
 	}
-	installed, err := sha256File(c.Binary)
-	allowed := installed == c.Writer.Candidate.PayloadSHA256 || c.Format == 1 && installed == c.Writer.Rollback.PayloadSHA256
-	if err != nil || !allowed || runtime.verifyMerchantStorePortableInstalled(c, installed) != nil || sha256MustEqual("/proc/self/exe", installed) != nil {
-		return errors.New("portable startup checker is not the explicit installed signed provider")
+	if err := runtime.verifyMerchantStorePortableStartExecutables(c); err != nil {
+		return err
 	}
 	if err := runtime.qualifyMerchantStoreCapsule(ctx, c, digest, invocation, false); err != nil {
 		return err
