@@ -1,0 +1,68 @@
+name: PR 675 isolated rebase
+on:
+  push:
+    branches: [maintenance/rebase-pr675-20261011-124234]
+    paths: [.github/workflows/pr675-rebase-maintenance.yml]
+permissions:
+  contents: read
+concurrency:
+  group: pr675-rebase-20261011-124234
+  cancel-in-progress: false
+defaults:
+  run:
+    shell: bash
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+      - name: Inspect and attempt rebase without updating remote refs
+        env:
+          EXPECTED_HEAD: 1a2db5f244468932fbda8c013891e72ad91ef566
+        run: |
+          set -euo pipefail
+          git fetch origin main wip/rust-core-go-extensions
+          source_ref=refs/remotes/origin/wip/rust-core-go-extensions
+          test "$(git rev-parse "$source_ref")" = "$EXPECTED_HEAD"
+          target=$(git rev-parse refs/remotes/origin/main)
+          base=$(git merge-base "$EXPECTED_HEAD" "$target")
+          mkdir "$RUNNER_TEMP/pr675-rebase"
+          out="$RUNNER_TEMP/pr675-rebase"
+          printf 'head=%s\nmain=%s\nmerge_base=%s\n' "$EXPECTED_HEAD" "$target" "$base" | tee "$out/refs.txt"
+          git rev-list --left-right --count "$EXPECTED_HEAD...$target"
+          git log --reverse --format='%h %s' "$base..$target" | tee "$out/main-commits.txt"
+          git log --reverse --format='%h %p %s' "$base..$EXPECTED_HEAD" | tee "$out/wip-commits.txt"
+          git diff --stat "$base" "$target" | tee "$out/main-diff-stat.txt"
+          git bundle create "$out/pr675-before.bundle" "$source_ref" refs/remotes/origin/main
+          git bundle verify "$out/pr675-before.bundle"
+          sha256sum "$out/pr675-before.bundle" | tee "$out/bundle.sha256"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git switch -c pr675-rebase "$EXPECTED_HEAD"
+          set +e
+          GIT_EDITOR=true git -c rerere.enabled=false -c merge.conflictStyle=diff3 rebase --rebase-merges "$target" 2>&1 | tee "$out/rebase.log"
+          result=${PIPESTATUS[0]}
+          set -e
+          printf 'rebase_exit=%s\n' "$result" | tee -a "$out/refs.txt"
+          if [ "$result" -ne 0 ]; then
+            git status --short | tee "$out/status.txt"
+            git diff --name-only --diff-filter=U | tee "$out/conflicts.txt"
+            git diff --cc > "$out/conflicts.diff"
+            head -c 70000 "$out/conflicts.diff"
+          else
+            git rev-parse HEAD | tee "$out/rebased-head.txt"
+            git diff --stat "$EXPECTED_HEAD" HEAD | tee "$out/rebased-stat.txt"
+            git merge-base --is-ancestor "$target" HEAD
+          fi
+          exit "$result"
+      - name: Preserve source history and conflict evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: pr675-rebase-inspection-${{ github.run_id }}
+          path: ${{ runner.temp }}/pr675-rebase/
+          if-no-files-found: error
+          retention-days: 2
