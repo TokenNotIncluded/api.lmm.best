@@ -2,6 +2,7 @@ package model
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
@@ -58,6 +59,10 @@ func sanitizeClickHouseLikePattern(input string) (string, error) {
 }
 
 type Log struct {
+	QuotaMoneyProjection `gorm:"embedded"`
+	// Computed by history reads; neither stored nor included in migrations.
+	QuotaStoredValid bool `json:"-" gorm:"column:quota_stored_valid;->;-:migration"`
+
 	Id                int    `json:"id" gorm:"index:idx_created_at_id,priority:2;index:idx_user_id_id,priority:2"`
 	UserId            int    `json:"user_id" gorm:"index;index:idx_user_id_id,priority:1"`
 	CreatedAt         int64  `json:"created_at" gorm:"bigint;index:idx_created_at_id,priority:1;index:idx_created_at_type"`
@@ -151,6 +156,7 @@ func assignDisplayLogIds(logs []*Log, startIdx int) {
 
 func formatUserLogs(logs []*Log, startIdx int) {
 	for i := range logs {
+		projectReadLogQuota(logs[i])
 		logs[i].ChannelName = ""
 		var otherMap map[string]interface{}
 		otherMap, _ = common.StrToMap(logs[i].Other)
@@ -174,7 +180,7 @@ func tokenLogQuery(tokenId int) *gorm.DB {
 	if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
 		order = clickHouseLogOrder("")
 	}
-	return LOG_DB.Model(&Log{}).Where("token_id = ?", tokenId).Order(order)
+	return LOG_DB.Model(&Log{}).Select("logs.*, logs.quota IS NOT NULL AS quota_stored_valid").Where("token_id = ?", tokenId).Order(order)
 }
 
 func GetLogByTokenId(tokenId int) (logs []*Log, err error) {
@@ -577,12 +583,15 @@ func GetAllLogs(logType int, startTimestamp int64, endTimestamp int64, modelName
 	if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
 		order = clickHouseLogOrder("logs.")
 	}
-	err = tx.Order(order).Limit(num).Offset(startIdx).Find(&logs).Error
+	err = tx.Select("logs.*, logs.quota IS NOT NULL AS quota_stored_valid").Order(order).Limit(num).Offset(startIdx).Find(&logs).Error
 	if err != nil {
 		return nil, 0, err
 	}
 	if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
 		assignDisplayLogIds(logs, startIdx)
+	}
+	for _, log := range logs {
+		projectReadLogQuota(log)
 	}
 
 	channelIds := types.NewSet[int]()
@@ -668,7 +677,7 @@ func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int
 	if common.UsingLogDatabase(common.DatabaseTypeClickHouse) {
 		order = clickHouseLogOrder("logs.")
 	}
-	err = tx.Order(order).Limit(num).Offset(startIdx).Find(&logs).Error
+	err = tx.Select("logs.*, logs.quota IS NOT NULL AS quota_stored_valid").Order(order).Limit(num).Offset(startIdx).Find(&logs).Error
 	if err != nil {
 		common.SysError("failed to search user logs: " + err.Error())
 		return nil, 0, errors.New("查询日志失败")
@@ -679,9 +688,15 @@ func GetUserLogs(userId int, logType int, startTimestamp int64, endTimestamp int
 }
 
 type Stat struct {
+	QuotaMoneyProjection `gorm:"embedded"`
+
 	Quota int `json:"quota"`
 	Rpm   int `json:"rpm"`
 	Tpm   int `json:"tpm"`
+
+	// If truncated, this count covers only the bounded projection prefix.
+	UnpricedQuotaRecords     int  `json:"unpriced_quota_records" gorm:"-"`
+	QuotaProjectionTruncated bool `json:"quota_projection_truncated" gorm:"-"`
 }
 
 // SumUsedQuota returns quota and current rate statistics. Optional request IDs
@@ -702,10 +717,34 @@ func SumUsedQuotaByUserID(logType int, startTimestamp int64, endTimestamp int64,
 }
 
 func sumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, userID int, tokenName string, channel int, group string, requestIDs ...string) (stat Stat, err error) {
-	tx := LOG_DB.Table("logs").Select("COALESCE(sum(quota), 0) quota")
+	if LOG_DB == nil {
+		return stat, gorm.ErrInvalidDB
+	}
+	options := &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true}
+	switch LOG_DB.Dialector.Name() {
+	case "postgres", "mysql":
+	case "sqlite":
+		options.Isolation = sql.LevelDefault
+	default:
+		// Keep existing raw statistics on log stores without snapshot support.
+		// Independent queries cannot prove one complete monetary aggregate.
+		return sumUsedQuotaSnapshot(LOG_DB, false, logType, startTimestamp, endTimestamp, modelName, username, userID, tokenName, channel, group, requestIDs...)
+	}
+	err = LOG_DB.Transaction(func(snapshot *gorm.DB) error {
+		var queryErr error
+		stat, queryErr = sumUsedQuotaSnapshot(snapshot, true, logType, startTimestamp, endTimestamp, modelName, username, userID, tokenName, channel, group, requestIDs...)
+		return queryErr
+	}, options)
+	return stat, err
+}
+
+// The raw sum and its monetary projection must describe the same rows, even
+// while new billing records arrive. Never upgrade separate snapshots to known.
+func sumUsedQuotaSnapshot(snapshot *gorm.DB, projectMoney bool, logType int, startTimestamp int64, endTimestamp int64, modelName string, username string, userID int, tokenName string, channel int, group string, requestIDs ...string) (stat Stat, err error) {
+	tx := snapshot.Table("logs").Select("COALESCE(sum(quota), 0) quota")
 
 	// 为rpm和tpm创建单独的查询
-	rpmTpmQuery := LOG_DB.Table("logs").Select("count(*) rpm, COALESCE(sum(prompt_tokens), 0) + COALESCE(sum(completion_tokens), 0) tpm")
+	rpmTpmQuery := snapshot.Table("logs").Select("count(*) rpm, COALESCE(sum(prompt_tokens), 0) + COALESCE(sum(completion_tokens), 0) tpm")
 
 	if tx, err = applyExplicitLogTextFilter(tx, "username", username); err != nil {
 		return stat, err
@@ -757,7 +796,7 @@ func sumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 	rpmTpmQuery = rpmTpmQuery.Where("created_at >= ?", time.Now().Add(-60*time.Second).Unix())
 
 	// 执行查询
-	if err := tx.Scan(&stat).Error; err != nil {
+	if err := tx.Session(&gorm.Session{}).Scan(&stat).Error; err != nil {
 		common.SysError("failed to query log stat: " + err.Error())
 		return stat, errors.New("查询统计数据失败")
 	}
@@ -773,6 +812,15 @@ func sumUsedQuota(logType int, startTimestamp int64, endTimestamp int64, modelNa
 	}
 	stat.Rpm = rateStat.Rpm
 	stat.Tpm = rateStat.Tpm
+	if !projectMoney {
+		stat.QuotaMoneyProjection = unknownQuotaMoney("unsupported_log_snapshot")
+		return stat, nil
+	}
+	stat.QuotaMoneyProjection, stat.UnpricedQuotaRecords, stat.QuotaProjectionTruncated, err = projectQuotaStatistic(tx)
+	if err != nil {
+		common.SysError("failed to project log stat: " + err.Error())
+		return stat, errors.New("查询统计数据失败")
+	}
 
 	return stat, nil
 }

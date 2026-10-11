@@ -2,6 +2,7 @@ package controller
 
 import (
 	"archive/zip"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -47,6 +48,8 @@ type financeExportManifest struct {
 }
 
 type financeUserExport struct {
+	usageProjectionFields `gorm:"-"`
+
 	ID                 int      `json:"user_id" gorm:"column:id"`
 	Username           string   `json:"username" gorm:"column:username"`
 	Role               int      `json:"role" gorm:"column:role"`
@@ -156,6 +159,8 @@ type financeSubscriptionPaymentEventExport struct {
 }
 
 type financeUsageExport struct {
+	model.QuotaMoneyProjection `gorm:"embedded"`
+
 	ID               int    `json:"log_id" gorm:"column:id"`
 	UserID           int    `json:"user_id" gorm:"column:user_id"`
 	CreatedAt        int64  `json:"created_at" gorm:"column:created_at"`
@@ -170,6 +175,19 @@ type financeUsageExport struct {
 	IsStream         bool   `json:"is_stream" gorm:"column:is_stream"`
 	ChannelID        int    `json:"channel_id" gorm:"column:channel_id"`
 	Group            string `json:"group" gorm:"column:group"`
+	// Read one row's metadata solely to derive the allowlisted money projection.
+	// Opaque metadata must never enter an exported document.
+	Other            string `json:"-" gorm:"column:other"`
+	QuotaStoredValid bool   `json:"-" gorm:"column:quota_stored_valid"`
+}
+
+func projectFinanceUsage(row *financeUsageExport) {
+	if row.QuotaStoredValid {
+		row.QuotaMoneyProjection = model.ProjectLogQuotaMoney(row.Quota, row.Type, row.Other)
+	} else {
+		row.QuotaMoneyProjection = model.QuotaMoneyProjection{QuotaMoneyBasis: "invalid_stored_quota"}
+	}
+	row.Other = ""
 }
 
 type financeBountyLedgerExport struct {
@@ -331,7 +349,7 @@ func countFinanceExportRows(query *gorm.DB) (int, bool, error) {
 // immediately. In particular, it must not be replaced with Find(&slice): the
 // export endpoint is intentionally usable on installations with millions of
 // ledger/log rows.
-func streamFinanceQueryJSON[T any](writer io.Writer, query *gorm.DB) error {
+func streamFinanceQueryJSON[T any](writer io.Writer, query *gorm.DB, project ...func(*T)) error {
 	if _, err := io.WriteString(writer, "["); err != nil {
 		return err
 	}
@@ -346,6 +364,9 @@ func streamFinanceQueryJSON[T any](writer io.Writer, query *gorm.DB) error {
 		var value T
 		if err := query.ScanRows(rows, &value); err != nil {
 			return err
+		}
+		for _, apply := range project {
+			apply(&value)
 		}
 		if wroteRow {
 			if _, err := io.WriteString(writer, ","); err != nil {
@@ -383,6 +404,10 @@ func loadFinanceExportBundle(start, end int64) (financeExportBundle, error) {
 				"redemptions exclude redemption keys and include all non-deleted codes subject to the row limit",
 				"user-subscriptions contains quota entitlement snapshots; payment trade/provider payloads remain excluded",
 				"the export is an analysis snapshot, not an accounting ledger of record",
+				"quota fields retain their original integer units; historical raw quotas must not be divided by today's QuotaPerUnit or CreditsPerUSD",
+				"users-balances normalized_used_quota is in current ledger credits (500000 per USD) only when usage_projection_available is true; used_quota and affiliate_history_quota remain historical raw counters",
+				"usage-billing-records quota_usd is a decimal string using only that consumption record's captured credits-per-USD basis; false or missing quota_money_available means monetary history is unknown, not zero",
+				"payment currency and amount snapshots remain independent of display FX; check-in, affiliate, bounty and subscription historical raw quota fields are not normalized by this export",
 			},
 		},
 	}
@@ -512,7 +537,7 @@ func loadFinanceExportBundle(start, end int64) (financeExportBundle, error) {
 	}
 	usageQuery := func() *gorm.DB {
 		return usageBase().
-			Select("id", "user_id", "created_at", "type", "username", "token_name", "model_name", "quota", "prompt_tokens", "completion_tokens", "use_time", "is_stream", "channel_id", "group").
+			Select("id", "user_id", "created_at", "type", "username", "token_name", "model_name", "quota", "prompt_tokens", "completion_tokens", "use_time", "is_stream", "channel_id", "group", "other", "quota IS NOT NULL AS quota_stored_valid").
 			Order("created_at ASC, id ASC").Limit(financeExportMaxRows)
 	}
 	usageCount, usageTruncated, err := countFinanceExportRows(usageBase())
@@ -522,7 +547,7 @@ func loadFinanceExportBundle(start, end int64) (financeExportBundle, error) {
 	bundle.Manifest.Rows["usage"] = usageCount
 	bundle.Manifest.Truncated["usage"] = usageTruncated
 	bundle.UsageStream = func(writer io.Writer) error {
-		return streamFinanceQueryJSON[financeUsageExport](writer, usageQuery())
+		return streamFinanceQueryJSON[financeUsageExport](writer, usageQuery(), projectFinanceUsage)
 	}
 
 	bountyLedgerBase := func() *gorm.DB {
@@ -653,9 +678,32 @@ func applyFinanceUserRatios(users []financeUserExport, options map[string]string
 }
 
 // streamFinanceUsersJSON writes the complete user snapshot without retaining
-// all user rows in the request heap. A million users therefore costs roughly
-// one batch, not a million-row slice plus JSON copies.
+// all user rows in the request heap. User rows cost roughly one batch; the
+// existing UsageProjector also retains the validated migration/refund facts.
 func streamFinanceUsersJSON(writer io.Writer, options map[string]string) error {
+	if model.DB == nil {
+		return gorm.ErrInvalidDB
+	}
+	transactionOptions := &sql.TxOptions{Isolation: sql.LevelRepeatableRead, ReadOnly: true}
+	switch model.DB.Dialector.Name() {
+	case "postgres", "mysql":
+	case "sqlite":
+		transactionOptions.Isolation = sql.LevelDefault
+	default:
+		return gorm.ErrUnsupportedDriver
+	}
+	return model.DB.Transaction(func(tx *gorm.DB) error {
+		var projector usageProjector
+		if captured, err := model.LoadUsageProjector(tx); err == nil {
+			projector = captured
+		}
+		// Invalid retained migration facts disable the display projection.
+		// A database failure still propagates when the snapshot is queried.
+		return streamFinanceUsersSnapshotJSON(writer, tx, options, projector)
+	}, transactionOptions)
+}
+
+func streamFinanceUsersSnapshotJSON(writer io.Writer, tx *gorm.DB, options map[string]string, projector usageProjector) error {
 	if _, err := io.WriteString(writer, "["); err != nil {
 		return err
 	}
@@ -664,7 +712,7 @@ func streamFinanceUsersJSON(writer io.Writer, options map[string]string) error {
 	wroteRow := false
 	for {
 		rows := make([]financeUserExport, 0, financeExportUserBatchSize)
-		query := model.DB.Model(&model.User{}).
+		query := tx.Model(&model.User{}).
 			Select("id", "username", "role", "status", "group", "quota", "used_quota", "aff_quota", "aff_history", "request_count", "created_at", "last_api_activity_at", "trust_level_override").
 			Where("id > ?", lastID).
 			Order("id ASC").
@@ -677,6 +725,7 @@ func streamFinanceUsersJSON(writer io.Writer, options map[string]string) error {
 		}
 		applyFinanceUserRatios(rows, options)
 		for index := range rows {
+			rows[index].usageProjectionFields = projectUserUsage(projector, &model.User{Id: rows[index].ID, UsedQuota: rows[index].UsedQuota})
 			if wroteRow {
 				if _, err := io.WriteString(writer, ","); err != nil {
 					return err

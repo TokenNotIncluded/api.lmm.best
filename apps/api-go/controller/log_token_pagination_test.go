@@ -30,6 +30,7 @@ type tokenLogPaginationRow struct {
 	Content     string
 	ChannelName string
 	Other       string
+	Quota       int
 }
 
 func useTokenLogPaginationDB(t *testing.T, db *gorm.DB, dialect common.DatabaseType) {

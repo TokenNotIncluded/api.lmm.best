@@ -20,13 +20,12 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, test } from 'node:test'
 
+import { LinearScale } from '@visactor/vscale'
+
 import {
-  formatFiatCurrencyAmount,
-  formatAmountInCurrency,
-  formatQuotaInCurrency,
-  quotaToDisplayAmount,
-} from '@/lib/currency'
-import { DEFAULT_CURRENCY_CONFIG } from '@/stores/system-config-store'
+  DEFAULT_CURRENCY_CONFIG,
+  useSystemConfigStore,
+} from '@/stores/system-config-store'
 
 import type { QuotaDataItem } from '../types'
 import {
@@ -35,7 +34,6 @@ import {
   getDashboardChartColors,
   processChartData,
   processUserChartData,
-  type ChartCurrencyFormatter,
 } from './charts'
 
 function channelLuminance(hex: string): number {
@@ -190,11 +188,7 @@ describe('dashboard chart time buckets', () => {
       },
     ]
 
-    const result = processChartData(rows, 'week', undefined, undefined, {
-      formatQuota: (quota) => String(quota),
-      quotaToAmount: (quota) => quota,
-      formatAmount: (amount) => String(amount),
-    })
+    const result = processChartData(rows, 'week', undefined, undefined, 'en')
     const values = result.spec_line.data[0].values as Array<{
       Time: string
       rawQuota: number
@@ -226,41 +220,17 @@ describe('dashboard chart time buckets', () => {
   })
 })
 
-describe('dashboard chart monetary units', () => {
-  const config = {
-    ...DEFAULT_CURRENCY_CONFIG,
-    currencyUnit: 'credit' as const,
-    creditsPerUsd: 500_000,
-    creditsPerUsdExact: '500000',
-    cnyPerUsd: 7,
-    cnyPerUsdExact: '7',
-  }
-  const currencyFormatter = (
-    currency: 'USD' | 'CNY' | 'CREDIT'
-  ): ChartCurrencyFormatter => ({
-    formatQuota: (quota, options) =>
-      formatQuotaInCurrency(
-        quota,
-        currency,
-        { ...options, locale: 'en' },
-        config
-      ),
-    quotaToAmount: (quota) => quotaToDisplayAmount(quota, currency, config),
-    formatAmount: (amount, options) =>
-      currency === 'CREDIT'
-        ? formatAmountInCurrency(amount, 'CREDIT', { ...options, locale: 'en' })
-        : formatFiatCurrencyAmount(amount, currency, {
-            ...options,
-            locale: 'en',
-          }),
-  })
-  const rows = [
+describe('dashboard historical raw quota units', () => {
+  const rows: QuotaDataItem[] = [
     {
       created_at: 1_720_000_000,
       model_name: 'model-a',
       username: 'alice',
       quota: 3_500_000,
       count: 1,
+      token_used: 40,
+      quota_money_available: false,
+      quota_money_basis: 'bucket_without_credit_basis',
     },
     {
       created_at: 1_720_000_000,
@@ -268,113 +238,94 @@ describe('dashboard chart monetary units', () => {
       username: 'bob',
       quota: 1,
       count: 1,
+      token_used: 2,
     },
   ]
 
-  test('model and user charts share true USD, CNY and exact Credit values', () => {
-    for (const unit of ['USD', 'CNY', 'CREDIT'] as const) {
-      const currency = currencyFormatter(unit)
-      const model = processChartData(
-        rows,
-        'day',
-        undefined,
-        undefined,
-        currency
-      )
-      const user = processUserChartData(rows, 'day', undefined, 10, currency)
-      const values = model.spec_line.data[0].values
-      const expectedLarge = unit === 'USD' ? 7 : unit === 'CNY' ? 49 : 3_500_000
-      const expectedSmall =
-        unit === 'USD' ? 1 / 500_000 : unit === 'CNY' ? 7 / 500_000 : 1
-      assert.equal(values[0].Usage, expectedLarge)
-      assert.equal(values[1].Usage, expectedSmall)
-      assert.equal(
-        model.spec_line.axes[1].label.formatMethod(expectedSmall),
-        currency.formatQuota(1, {
-          digitsLarge: 4,
-          digitsSmall: 8,
-          abbreviate: false,
+  test('model and user history keep raw units, one-unit values and request counts across FX changes', () => {
+    const original = useSystemConfigStore.getState().config.currency
+    try {
+      for (const fx of [7, 9, 0]) {
+        useSystemConfigStore.getState().setConfig({
+          currency: {
+            ...DEFAULT_CURRENCY_CONFIG,
+            currencyUnit: 'credit',
+            creditsPerUsd: 500000,
+            creditsPerUsdExact: '500000',
+            cnyPerUsd: fx,
+            cnyPerUsdExact: String(fx),
+          },
         })
-      )
-      assert.equal(
-        user.spec_user_rank.label.formatMethod(expectedSmall),
-        currency.formatQuota(1, {
-          digitsLarge: 2,
-          digitsSmall: 8,
-          abbreviate: false,
-        })
-      )
-      assert.ok(
-        values[1].Usage > 0,
-        'one Credit must survive chart aggregation'
-      )
-      assert.equal(model.spec_area.data[0].values[1].Usage, expectedSmall)
-      assert.equal(user.spec_user_rank.data[0].values[1].Usage, expectedSmall)
-      assert.equal(user.spec_user_trend.data[0].values[1].Usage, expectedSmall)
-      assert.equal(
-        model.spec_line.axes[1].label.formatMethod(expectedLarge),
-        currency.formatQuota(3_500_000, {
-          digitsLarge: 4,
-          digitsSmall: 8,
-          abbreviate: false,
-        })
-      )
-      assert.equal(
-        user.spec_user_trend.axes[1].label.formatMethod(expectedLarge),
-        currency.formatQuota(3_500_000, {
-          digitsLarge: 2,
-          digitsSmall: 8,
-          abbreviate: false,
-        })
-      )
-      const tooltip = model.spec_line.tooltip.dimension.updateContent(
-        values.map((row: { Model: string; rawQuota: number }) => ({
-          key: row.Model,
-          value: row.rawQuota,
-          datum: row,
-        }))
-      )
-      assert.equal(
-        tooltip[0].value,
-        currency.formatQuota(3_500_001, {
-          digitsLarge: 4,
-          digitsSmall: 8,
-          abbreviate: false,
-        })
-      )
+        const model = processChartData(rows, 'day', undefined, undefined, 'en')
+        const user = processUserChartData(rows, 'day', undefined, 10, 'en')
+        const values = model.spec_line.data[0].values
+        assert.equal(values[0].Usage, 3_500_000)
+        assert.equal(values[1].Usage, 1)
+        assert.equal(model.spec_area.data[0].values[1].Usage, 1)
+        assert.equal(user.spec_user_rank.data[0].values[1].Usage, 1)
+        assert.equal(user.spec_user_trend.data[0].values[1].Usage, 1)
+        assert.equal(
+          model.spec_line.axes[1].label.formatMethod(1),
+          '1 Raw credits'
+        )
+        assert.equal(user.spec_user_rank.label.formatMethod(1), '1 Raw credits')
+        assert.equal(
+          user.spec_user_trend.axes[1].label.formatMethod(3500000),
+          '3,500,000 Raw credits'
+        )
+        assert.equal(model.totalQuotaDisplay, '3,500,001 Raw credits')
+        assert.equal(model.totalCountDisplay, '2')
+        const tooltip = model.spec_line.tooltip.dimension.updateContent(
+          values.map((row: { Model: string; rawQuota: number }) => ({
+            key: row.Model,
+            value: row.rawQuota,
+            datum: row,
+          }))
+        )
+        assert.equal(tooltip[0].value, '3,500,001 Raw credits')
+        assert.doesNotMatch(JSON.stringify(tooltip), /USD|CNY/)
+      }
+    } finally {
+      useSystemConfigStore.getState().setConfig({ currency: original })
     }
   })
 
-  test('collapses excess models from raw Credits before converting the Other total', () => {
+  test('Other totals aggregate the original ledger amounts without a denomination guess', () => {
     const data = Array.from({ length: 17 }, (_, index) => ({
       created_at: 1_720_000_000,
       model_name: `model-${index}`,
       quota: index < 15 ? 10 : 1,
       count: 1,
     }))
-    const result = processChartData(
-      data,
-      'day',
-      undefined,
-      undefined,
-      currencyFormatter('USD')
-    )
+    const result = processChartData(data, 'day', undefined, undefined, 'en')
     const other = result.spec_area.data[0].values.find(
       (row: { Model: string }) => row.Model === 'Other'
     )
     assert.equal(other.rawQuota, 2)
-    assert.equal(other.Usage, 2 / 500_000)
-    assert.equal(result.totalQuotaDisplay, '0.000304 USD')
+    assert.equal(other.Usage, 2)
+    assert.equal(result.totalQuotaDisplay, '152 Raw credits')
   })
 
-  test('unknown denomination suppresses monetary series instead of plotting NaN', () => {
-    const currency = {
-      ...currencyFormatter('USD'),
-      quotaToAmount: () => Number.NaN,
+  test('one-credit history uses integral ticks without missing axis labels', () => {
+    const data = [rows[1]]
+    const model = processChartData(data, 'day', undefined, undefined, 'en')
+    const user = processUserChartData(data, 'day', undefined, 10, 'en')
+    const axes = [
+      model.spec_line.axes[1],
+      model.spec_area.axes[1],
+      user.spec_user_trend.axes[1],
+    ]
+    for (const axis of axes) {
+      // Use the scale that VChart uses, including the axis's actual tick options.
+      const ticks = new LinearScale()
+        .domain([0, 1])
+        .range([0, 300])
+        .ticks(5, axis.tick)
+      assert.deepEqual(ticks, [0, 1])
+      assert.deepEqual(ticks.map(axis.label.formatMethod), [
+        '0 Raw credits',
+        '1 Raw credits',
+      ])
     }
-    const result = processChartData(rows, 'day', undefined, undefined, currency)
-    assert.equal(result.spec_line.data[0].values.length, 0)
-    assert.equal(result.spec_area.data[0].values.length, 0)
-    assert.equal(result.totalCountDisplay, '2')
   })
 })

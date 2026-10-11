@@ -22,7 +22,8 @@ import { useMemo } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Skeleton } from '@/components/ui/skeleton'
-import { useBillingUSD } from '@/hooks/use-billing-usd'
+import { useHistoricalQuotaMoney } from '@/hooks/use-historical-quota-money'
+import { historicalQuotaUSD } from '@/lib/historical-quota-money'
 import { cn } from '@/lib/utils'
 
 import { getLogStats, getUserLogStats } from '../api'
@@ -37,9 +38,13 @@ function StatBadge(props: {
   label: string
   value: string | number
   accent: string
+  title?: string
 }) {
   return (
-    <span className='border-border/60 bg-muted/25 inline-flex h-7 items-center gap-2 rounded-md border px-2.5 text-xs shadow-xs'>
+    <span
+      title={props.title}
+      className='border-border/60 bg-muted/25 inline-flex h-7 items-center gap-2 rounded-md border px-2.5 text-xs shadow-xs'
+    >
       <span className={cn('h-3.5 w-0.5 rounded-full', props.accent)} />
       <span className='text-muted-foreground'>{props.label}</span>
       <span className='text-foreground/85 font-mono font-semibold tabular-nums'>
@@ -59,10 +64,17 @@ function UsageTrend(props: {
   onSelect: (bucket: TrendBucket) => void
 }) {
   const { t } = useTranslation()
-  const { formatQuota } = useBillingUSD()
-  const formatLogQuota = (raw: number) =>
-    formatQuota(raw, { digitsLarge: 4, digitsSmall: 8, abbreviate: false })
-  const maxMetric = Math.max(1, ...props.buckets.map((bucket) => bucket.quota))
+  const { formatHistoricalQuota, formatRawQuota } = useHistoricalQuotaMoney()
+  const moneyAvailable =
+    props.buckets.length > 0 &&
+    props.buckets.every((bucket) => historicalQuotaUSD(bucket) !== null)
+  const metric = (bucket: TrendBucket) =>
+    moneyAvailable ? (historicalQuotaUSD(bucket) ?? 0) : bucket.quota
+  const formatBucketQuota = (bucket: TrendBucket) =>
+    moneyAvailable
+      ? formatHistoricalQuota(bucket.quota, bucket)
+      : formatRawQuota(bucket.quota)
+  const maxMetric = Math.max(Number.EPSILON, ...props.buckets.map(metric))
 
   if (props.loading) {
     return <Skeleton className='h-16 w-full min-w-[220px] rounded-md' />
@@ -108,7 +120,7 @@ function UsageTrend(props: {
         aria-label={t('Usage trend for the selected time range')}
       >
         {props.buckets.map((bucket) => {
-          const value = bucket.quota
+          const value = metric(bucket)
           const height = value > 0 ? Math.max(10, (value / maxMetric) * 100) : 4
           return (
             <button
@@ -116,8 +128,8 @@ function UsageTrend(props: {
               type='button'
               className='bg-primary/55 hover:bg-primary/80 focus-visible:ring-ring min-w-0 flex-1 rounded-t-sm transition-[height,background-color] focus-visible:ring-2 focus-visible:outline-none motion-reduce:transition-none'
               style={{ height: `${height}%` }}
-              title={`${formatBucket(bucket.start)} · ${formatLogQuota(bucket.quota)}`}
-              aria-label={`${formatBucket(bucket.start)}: ${formatLogQuota(bucket.quota)}`}
+              title={`${formatBucket(bucket.start)} · ${formatBucketQuota(bucket)}`}
+              aria-label={`${formatBucket(bucket.start)}: ${formatBucketQuota(bucket)}`}
               onClick={() => props.onSelect(bucket)}
             />
           )
@@ -125,6 +137,9 @@ function UsageTrend(props: {
       </div>
       <p className='text-muted-foreground mt-1 text-[11px]'>
         {t('Click a bar to filter logs to that time window.')}
+        {!moneyAvailable
+          ? ` ${t('Historical monetary value unavailable')}`
+          : ''}
       </p>
     </div>
   )
@@ -132,9 +147,7 @@ function UsageTrend(props: {
 
 export function CommonLogsStats() {
   const { t } = useTranslation()
-  const { formatQuota } = useBillingUSD()
-  const formatLogQuota = (raw: number) =>
-    formatQuota(raw, { digitsLarge: 4, digitsSmall: 8, abbreviate: false })
+  const { formatHistoricalQuota } = useHistoricalQuotaMoney()
   const { isAdminView: isAdmin } = useLogsViewScope()
   const searchParams = route.useSearch()
   const { sensitiveVisible } = useUsageLogsContext()
@@ -225,7 +238,16 @@ export function CommonLogsStats() {
       <div className='flex flex-wrap items-center gap-2'>
         <StatBadge
           label={t('Usage')}
-          value={sensitiveVisible ? formatLogQuota(stats?.quota || 0) : '••••'}
+          value={
+            sensitiveVisible
+              ? formatHistoricalQuota(stats?.quota ?? 0, stats)
+              : '••••'
+          }
+          title={
+            sensitiveVisible && historicalQuotaUSD(stats) === null
+              ? t('Historical monetary value unavailable')
+              : undefined
+          }
           accent='console-stat-accent-info'
         />
         <StatBadge

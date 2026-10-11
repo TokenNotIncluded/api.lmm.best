@@ -119,11 +119,7 @@ func GetLogsStat(c *gin.Context) {
 	c.JSON(http.StatusOK, gin.H{
 		"success": true,
 		"message": "",
-		"data": gin.H{
-			"quota": stat.Quota,
-			"rpm":   stat.Rpm,
-			"tpm":   stat.Tpm,
-		},
+		"data":    stat,
 	})
 	return
 }
@@ -148,12 +144,7 @@ func GetLogsSelfStat(c *gin.Context) {
 	c.JSON(200, gin.H{
 		"success": true,
 		"message": "",
-		"data": gin.H{
-			"quota": quotaNum.Quota,
-			"rpm":   quotaNum.Rpm,
-			"tpm":   quotaNum.Tpm,
-			//"token": tokenNum,
-		},
+		"data":    quotaNum,
 	})
 	return
 }

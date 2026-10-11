@@ -21,13 +21,7 @@ import type {
   ProcessedChartData,
   ProcessedUserChartData,
 } from '@/features/dashboard/types'
-import {
-  formatAmountInCurrency,
-  getWalletDisplayCurrency,
-  formatQuotaWithCurrency,
-  quotaToDisplayAmount,
-  type CurrencyFormatOptions,
-} from '@/lib/currency'
+import { formatHistoricalRawQuota } from '@/lib/historical-quota-money'
 import { formatChartTime, type TimeGranularity } from '@/lib/time'
 
 type TFunction = (key: string) => string
@@ -194,21 +188,6 @@ export function getDashboardChartHoverColor(): string {
   return '#faf9f5'
 }
 
-export interface ChartCurrencyFormatter {
-  formatQuota: (rawQuota: number, options?: CurrencyFormatOptions) => string
-  quotaToAmount: (rawQuota: number) => number
-  formatAmount: (amount: number, options?: CurrencyFormatOptions) => string
-}
-
-const defaultChartCurrency: ChartCurrencyFormatter = {
-  formatQuota: formatQuotaWithCurrency,
-  quotaToAmount: quotaToDisplayAmount,
-  formatAmount: (amount, options) => {
-    const currency = getWalletDisplayCurrency()
-    return formatAmountInCurrency(amount, currency, options)
-  },
-}
-
 /**
  * Process and aggregate chart data
  */
@@ -217,7 +196,7 @@ export function processChartData(
   timeGranularity: TimeGranularity = 'day',
   t?: TFunction,
   chartCornerRadius?: number,
-  currency: ChartCurrencyFormatter = defaultChartCurrency
+  locale?: Intl.LocalesArgument
 ): ProcessedChartData {
   const tt: TFunction = t ?? ((x) => x)
   const otherLabel = tt('Other')
@@ -225,23 +204,9 @@ export function processChartData(
   const formatInt = (value: number) =>
     Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(value)
   const formatQuotaValue = (value: number) =>
-    currency.formatQuota(value, {
-      digitsLarge: 4,
-      digitsSmall: 8,
-      abbreviate: false,
-    })
-  const formatQuotaTotal = (value: number) =>
-    currency.formatQuota(value, {
-      digitsLarge: 2,
-      digitsSmall: 8,
-      abbreviate: false,
-    })
-  const formatAmount = (value: number) =>
-    currency.formatAmount(value, {
-      digitsLarge: 4,
-      digitsSmall: 8,
-      abbreviate: false,
-    })
+    formatHistoricalRawQuota(value, tt('Raw credits'), locale)
+  const formatQuotaTotal = formatQuotaValue
+  const formatAmount = formatQuotaValue
 
   const MAX_TOOLTIP_MODELS = 15
   const isOtherTooltipKey = (key: string) =>
@@ -457,7 +422,7 @@ export function processChartData(
     }))
     .sort((a, b) => b.value - a.value)
 
-  // Stacked bar: model quota distribution in the selected currency
+  // Historical buckets retain raw ledger units; current FX cannot value them.
   const lineValues: Array<{
     Time: string
     Model: string
@@ -470,7 +435,7 @@ export function processChartData(
     const timeData = sortedModels.map((model) => {
       const stats = timeModelMap.get(time)?.get(model)
       const rawQuota = Number(stats?.quota) || 0
-      const usage = currency.quotaToAmount(rawQuota)
+      const usage = rawQuota
       return {
         Time: time,
         Model: model,
@@ -515,7 +480,7 @@ export function processChartData(
       const prev = buckets.get(key) || { rawQuota: 0, usage: 0 }
       buckets.set(key, {
         rawQuota: prev.rawQuota + rawQuota,
-        usage: currency.quotaToAmount(prev.rawQuota + rawQuota),
+        usage: prev.rawQuota + rawQuota,
       })
     })
     for (const [model, vals] of buckets) {
@@ -659,6 +624,7 @@ export function processChartData(
         {
           orient: 'left',
           type: 'linear',
+          tick: { noDecimals: true },
           label: { formatMethod: formatAmount },
         },
       ],
@@ -710,6 +676,7 @@ export function processChartData(
         {
           orient: 'left',
           type: 'linear',
+          tick: { noDecimals: true },
           label: { formatMethod: formatAmount },
         },
       ],
@@ -875,21 +842,12 @@ export function processUserChartData(
   timeGranularity: TimeGranularity = 'day',
   t?: TFunction,
   limit = 10,
-  currency: ChartCurrencyFormatter = defaultChartCurrency
+  locale?: Intl.LocalesArgument
 ): ProcessedUserChartData {
   const tt: TFunction = t ?? ((x) => x)
   const formatVal = (raw: number) =>
-    currency.formatQuota(raw, {
-      digitsLarge: 2,
-      digitsSmall: 8,
-      abbreviate: false,
-    })
-  const formatAmount = (amount: number) =>
-    currency.formatAmount(amount, {
-      digitsLarge: 2,
-      digitsSmall: 8,
-      abbreviate: false,
-    })
+    formatHistoricalRawQuota(raw, tt('Raw credits'), locale)
+  const formatAmount = formatVal
   const userColors = getDashboardChartColors(10)
   const chartHoverColor = getDashboardChartHoverColor()
 
@@ -945,7 +903,7 @@ export function processUserChartData(
   const rankValues = sorted.slice(0, limit).map(([username, quota]) => ({
     User: username,
     rawQuota: quota,
-    Usage: currency.quotaToAmount(quota),
+    Usage: quota,
   }))
 
   const userColorMap = topUsers.reduce<Record<string, string>>(
@@ -990,7 +948,7 @@ export function processUserChartData(
         Time: time,
         User: user,
         rawQuota: q,
-        Usage: currency.quotaToAmount(q),
+        Usage: q,
       })
     })
   })
@@ -1082,6 +1040,7 @@ export function processUserChartData(
         {
           orient: 'left',
           type: 'linear',
+          tick: { noDecimals: true },
           label: {
             formatMethod: (value: number) => formatAmount(value),
           },

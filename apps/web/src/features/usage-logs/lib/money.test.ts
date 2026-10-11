@@ -209,7 +209,7 @@ describe('log monetary snapshots', () => {
     )
   })
 
-  test('copies the displayed bill with its unit while preserving original content verbatim', () => {
+  test('copies raw historical amounts when no captured unit exists and preserves evidence', () => {
     const log = { type: 2, quota: 3_500_000 } as UsageLog
     const other = {
       billing_source: 'subscription',
@@ -224,10 +224,88 @@ describe('log monetary snapshots', () => {
       formatter(),
       (key) => key
     )
-    assert.match(usd, /Billing Details \(USD\)\nTotal Cost: 7 USD/)
-    assert.match(usd, /Final Consumed: 0\.000002 USD/)
+    assert.match(
+      usd,
+      /Billing Details \(Raw credits\)\nTotal Cost: 3,500,000 Raw credits/
+    )
+    assert.match(usd, /Final Consumed: 1 Raw credits/)
+    assert.match(usd, /Remaining: 3,499,999 Raw credits/)
     assert.ok(usd.endsWith(original))
-    assert.doesNotMatch(usd, /Credits:|CNY|Billing Details \(CREDIT\)/)
+    assert.doesNotMatch(usd, /Total Cost: .*USD|CNY|Billing Details \(USD\)/)
+  })
+
+  test('copies captured charges without revaluing a mixed historical subscription pool', () => {
+    const log = { type: 2, quota: 3_500_000 } as UsageLog
+    const other = {
+      pricing_credits_per_usd: 3_500_000,
+      billing_source: 'subscription',
+      subscription_consumed: 1_750_000,
+      subscription_remain: 3_499_999,
+    }
+    const copy = buildLogCopyText('', log, other, formatter(), (key) => key)
+    assert.match(copy, /Total Cost: 1 USD/)
+    assert.match(copy, /Final Consumed: 0\.5 USD/)
+    assert.match(copy, /Remaining: 3,499,999 Raw credits/)
+    const unavailable = buildLogCopyText(
+      '',
+      { ...log, quota_money_available: false },
+      other,
+      formatter(),
+      (key) => key
+    )
+    assert.match(unavailable, /Total Cost: 3,500,000 Raw credits/)
+    const refund = buildLogCopyText(
+      '',
+      { ...log, type: 6 },
+      other,
+      formatter(),
+      (key) => key
+    )
+    assert.match(refund, /Total Cost: 3,500,000 Raw credits/)
+  })
+
+  test('copies absent stored charges as unavailable and preserves real zero and independent subscription remaining', () => {
+    const log = {
+      type: 2,
+      quota: 0,
+      quota_money_available: false,
+      quota_money_basis: 'invalid_stored_quota',
+    } as UsageLog
+    const other = { billing_source: 'subscription', subscription_remain: 0 }
+    const copy = buildLogCopyText(
+      'Original trace',
+      log,
+      other,
+      formatter(),
+      (key) => key
+    )
+    assert.match(copy, /Total Cost: —/)
+    assert.match(copy, /Final Consumed: —/)
+    assert.match(copy, /Remaining: 0 Raw credits/)
+    assert.doesNotMatch(copy, /Total Cost: 0/)
+    assert.ok(copy.endsWith('Original trace'))
+    const zero = buildLogCopyText(
+      '',
+      { ...log, quota_money_basis: 'missing_credit_basis' },
+      other,
+      formatter(),
+      (key) => key
+    )
+    assert.match(zero, /Total Cost: 0 Raw credits/)
+    assert.match(zero, /Final Consumed: 0 Raw credits/)
+    const auditCopy = buildLogCopyText(
+      '',
+      { ...log, type: 3 },
+      {
+        op: { action: 'user.quota_add', params: { quota: '500 Credits' } },
+      },
+      formatter(),
+      (key: string, params?: Record<string, unknown>) =>
+        key.replaceAll(/\{\{(\w+)\}\}/g, (_, name: string) =>
+          String(params?.[name])
+        )
+    )
+    assert.match(auditCopy, /Increased user quota by 500 Raw credits/)
   })
 
   test('copies matched expression prices and each tool surcharge with its own frozen unit', () => {

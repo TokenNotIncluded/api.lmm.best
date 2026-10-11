@@ -94,6 +94,8 @@ func TestGetFlowQuotaDataUsesQuotaDataRoleSpecificDimensions(t *testing.T) {
 	// Token 11 was soft-deleted, so its name is intentionally left empty for the
 	// frontend to render a localized "deleted (id)" label instead.
 	require.Equal(t, FlowQuotaData{
+		QuotaMoneyProjection: QuotaMoneyProjection{QuotaMoneyBasis: "bucket_without_credit_basis"},
+
 		UserID:      1,
 		Username:    "alice",
 		NodeName:    "node-a",

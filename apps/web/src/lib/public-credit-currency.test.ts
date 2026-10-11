@@ -248,17 +248,17 @@ test('chart sums and tooltips retain raw integer credits without converting twic
   assert.equal(values[1].Usage, 500000 / 500000)
   assert.equal(
     model.spec_line.axes[1].label.formatMethod(500000),
-    '500,000 Credits'
+    '500,000 Raw credits'
   )
   assert.equal(
     model.spec_line.axes[1].label.formatMethod(values[1].Usage),
-    '1 Credits'
+    '1 Raw credits'
   )
   assert.equal(
     user.spec_user_rank.label.formatMethod(values[1].Usage),
-    '1 Credits'
+    '1 Raw credits'
   )
-  assert.equal(model.totalQuotaDisplay, '500,001 Credits')
+  assert.equal(model.totalQuotaDisplay, '500,001 Raw credits')
   const tooltip = model.spec_line.tooltip.dimension.updateContent(
     values.map((row: { Model: string; rawQuota: number }) => ({
       key: row.Model,
@@ -266,7 +266,7 @@ test('chart sums and tooltips retain raw integer credits without converting twic
       datum: row,
     }))
   )
-  assert.equal(tooltip[0].value, '500,001 Credits')
+  assert.equal(tooltip[0].value, '500,001 Raw credits')
 })
 
 test('old revalued balances cannot silently use a different USD conversion', () => {
