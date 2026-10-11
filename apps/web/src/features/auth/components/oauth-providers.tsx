@@ -37,6 +37,7 @@ import {
 } from '../lib/registration'
 import type { SystemStatus } from '../types'
 import { TelegramLoginDialog } from './telegram-login-dialog'
+import { HumanGrantButton } from './humangrant-button'
 
 type OAuthProvidersProps = {
   status: SystemStatus | null
@@ -212,7 +213,9 @@ export function OAuthProviders({
     }
   }
 
-  if (providerButtons.length === 0) return null
+  if (providerButtons.length === 0) {
+    return registrationOnly ? null : <HumanGrantButton disabled={disabled} />
+  }
 
   const featuredProvider = providerButtons.find((provider) => provider.featured)
   const otherProviders = providerButtons.filter(
@@ -245,6 +248,7 @@ export function OAuthProviders({
   return (
     <>
       <div className={cn('space-y-3', className)}>
+        {!registrationOnly && <HumanGrantButton disabled={disabled || isLoading} />}
         {featuredProvider
           ? renderProviderButton(featuredProvider, false)
           : null}

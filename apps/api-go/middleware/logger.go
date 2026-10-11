@@ -11,6 +11,16 @@ import (
 func loggedRequestPath(param gin.LogFormatterParams) string {
 	if param.Request != nil && param.Request.URL != nil {
 		path := param.Request.URL.Path
+		// HumanGrant links and actor/request/resource identifiers are private.
+		// Redact malformed attempts too; never retain a raw query string.
+		for _, prefix := range []string{"/human/", "/invite/", "/api/user/auth/humangrant/", "/v1/requests/", "/v1/accounts/"} {
+			if strings.HasPrefix(path, prefix) {
+				return prefix + "[REDACTED]"
+			}
+		}
+		if path == "/v1/requests" || path == "/v1/session" || path == "/humangrant" || strings.HasPrefix(path, "/humangrant/") {
+			return path
+		}
 		// The opaque token is an authorization credential, including malformed
 		// tokens and failed collection attempts. Never log its actual spelling.
 		if strings.HasPrefix(path, "/api/store/claim/") {
