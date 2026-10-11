@@ -162,7 +162,7 @@ def serve(path, expected, uid=0, lock_paths=None, observed_host=None):
                     reply = {'protocol': PROTOCOL, 'binding_sha256': expected,
                              'transition_id': value['transition_id'], 'plan_sha256': value['plan_sha256'],
                              'guardian_pid': os.getpid(), 'transferred_paths': list(paths.values()), 'locks': locks}
-                    connection.sendmsg([json.dumps(reply).encode()],
+                    connection.sendmsg([json.dumps(reply).encode() + b'\n'],
                                        [(socket.SOL_SOCKET, socket.SCM_RIGHTS, array.array('i', descriptors.values()))])
                     connection.settimeout(None)
                     while connection.recv(1):
