@@ -600,9 +600,11 @@ test('two required announcements advance in order and then open the workspace', 
     async (container) => {
       assert.equal(container.querySelector('[data-testid="workspace"]'), null)
       assert.ok(container.textContent?.includes('Announcement 1 of 2'))
-      await confirmAnnouncement(container)
-      assert.deepEqual(acknowledged, [1])
       assert.ok(container.textContent?.includes('Announcement 2 of 2'))
+      assert.equal(
+        container.querySelectorAll('[role="region"] article').length,
+        2
+      )
       await confirmAnnouncement(container)
       assert.deepEqual(acknowledged, [1, 2])
       assert.ok(container.querySelector('[data-testid="workspace"]'))
