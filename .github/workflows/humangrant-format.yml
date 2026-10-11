@@ -26,7 +26,7 @@ jobs:
           gofmt -w apps/api-go/service/humangrant.go
           (
             cd apps/web
-            node scripts/format-with-protected-headers.mjs --write
+            bun run format
           )
           git add apps/api-go/service/humangrant.go
           git add apps/web/src/features/auth/components/humangrant-button.tsx
