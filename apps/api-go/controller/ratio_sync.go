@@ -671,8 +671,8 @@ func convertOpenRouterToRatioDataWithAnchor(reader io.Reader, targetK float64) (
 	}
 	var orResp struct {
 		Data []struct {
-			ID      string            `json:"id"`
-			Pricing map[string]string `json:"pricing"`
+			ID      string          `json:"id"`
+			Pricing json.RawMessage `json:"pricing"`
 		} `json:"data"`
 	}
 
@@ -689,8 +689,13 @@ func convertOpenRouterToRatioDataWithAnchor(reader io.Reader, targetK float64) (
 		if strings.TrimSpace(m.ID) == "" {
 			continue
 		}
+		pricing, reason := decodeOpenRouterFlatPricing(m.Pricing)
+		if reason != "" {
+			skippedModels[m.ID] = reason
+			continue
+		}
 		unsupported := ""
-		for field, raw := range m.Pricing {
+		for field, raw := range pricing {
 			if field == "prompt" || field == "completion" || field == "input_cache_read" {
 				continue
 			}
@@ -704,8 +709,8 @@ func convertOpenRouterToRatioDataWithAnchor(reader io.Reader, targetK float64) (
 			skippedModels[m.ID] = unsupported
 			continue
 		}
-		promptPrice, promptErr := syncFloatLiteral(m.Pricing["prompt"])
-		completionPrice, compErr := syncFloatLiteral(m.Pricing["completion"])
+		promptPrice, promptErr := syncFloatLiteral(pricing["prompt"])
+		completionPrice, compErr := syncFloatLiteral(pricing["completion"])
 
 		// Reject models where both prices are missing or invalid
 		if promptErr != nil && compErr != nil {
@@ -729,8 +734,8 @@ func convertOpenRouterToRatioDataWithAnchor(reader io.Reader, targetK float64) (
 		}
 
 		if promptPrice == 0 && completionPrice == 0 {
-			if m.Pricing["input_cache_read"] != "" {
-				cache, err := syncFloatLiteral(m.Pricing["input_cache_read"])
+			if pricing["input_cache_read"] != "" {
+				cache, err := syncFloatLiteral(pricing["input_cache_read"])
 				if err != nil || cache != 0 {
 					continue
 				}
@@ -764,8 +769,8 @@ func convertOpenRouterToRatioDataWithAnchor(reader io.Reader, targetK float64) (
 			continue
 		}
 		// Convert input_cache_read to cache_ratio (= cache_read_price / prompt_price)
-		if m.Pricing["input_cache_read"] != "" {
-			cachePrice, err := syncFloatLiteral(m.Pricing["input_cache_read"])
+		if pricing["input_cache_read"] != "" {
+			cachePrice, err := syncFloatLiteral(pricing["input_cache_read"])
 			if err != nil {
 				continue
 			}
@@ -794,6 +799,26 @@ func convertOpenRouterToRatioDataWithAnchor(reader io.Reader, targetK float64) (
 	}
 
 	return converted, nil
+}
+
+// OpenRouter pricing now includes structured fields such as overrides. Decode
+// each quote independently so an unsupported billing shape cannot abort every
+// other model, or silently become its cheaper flat base price.
+func decodeOpenRouterFlatPricing(raw json.RawMessage) (map[string]string, string) {
+	var fields map[string]json.RawMessage
+	if json.Unmarshal(raw, &fields) != nil || fields == nil {
+		return nil, "OpenRouter quote has an invalid pricing object"
+	}
+	pricing := make(map[string]string, len(fields))
+	for field, value := range fields {
+		value = bytes.TrimSpace(value)
+		var literal string
+		if len(value) == 0 || value[0] != '"' || json.Unmarshal(value, &literal) != nil {
+			return nil, "OpenRouter quote has an unsupported pricing value for " + field
+		}
+		pricing[field] = literal
+	}
+	return pricing, ""
 }
 
 func GetSyncableChannels(c *gin.Context) {
