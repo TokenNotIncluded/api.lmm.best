@@ -388,7 +388,7 @@ func schemaMaintenanceOutcomeGuardQuery(query string, holderPID int) (string, er
 	}
 	guard := `DO $lmm_schema_outcome$ BEGIN
  PERFORM pg_catalog.pg_stat_clear_snapshot();
- IF EXISTS(SELECT 1 FROM pg_catalog.pg_stat_activity WHERE datid=(SELECT oid FROM pg_catalog.pg_database WHERE datname=pg_catalog.current_database()) AND backend_type='client backend' AND pid NOT IN (pg_catalog.pg_backend_pid(),` + strconv.Itoa(holderPID) + `)) THEN RAISE EXCEPTION 'schema maintenance outcome has another client'; END IF;
+ IF EXISTS(SELECT 1 FROM pg_catalog.pg_stat_activity WHERE datid=(SELECT oid FROM pg_catalog.pg_database WHERE datname=pg_catalog.current_database()) AND (backend_type='client backend' OR backend_type IS NULL) AND pid NOT IN (pg_catalog.pg_backend_pid(),` + strconv.Itoa(holderPID) + `)) THEN RAISE EXCEPTION 'schema maintenance outcome has another client'; END IF;
 END $lmm_schema_outcome$;`
 	return begin + "\n" + guard + "\n" + body + "\n" + guard + "\nCOMMIT;", nil
 }
@@ -407,7 +407,7 @@ func (f *productionSchemaMaintenanceFence) requireSchemaMaintenanceNoOtherClient
 		return errors.New("schema outcome client visibility is unavailable")
 	}
 	var others int
-	err := f.lease.connection.QueryRow(ctx, `SELECT count(*)::int FROM pg_catalog.pg_stat_activity WHERE datid=(SELECT oid FROM pg_catalog.pg_database WHERE datname=current_database()) AND backend_type='client backend' AND pid<>pg_backend_pid()`).Scan(&others)
+	err := f.lease.connection.QueryRow(ctx, `SELECT count(*)::int FROM pg_catalog.pg_stat_activity WHERE datid=(SELECT oid FROM pg_catalog.pg_database WHERE datname=pg_catalog.current_database()) AND (backend_type='client backend' OR backend_type IS NULL) AND pid<>pg_catalog.pg_backend_pid()`).Scan(&others)
 	f.lease.mu.Unlock()
 	if err != nil || others != 0 {
 		return errors.New("schema outcome still has an unclassified database client")
