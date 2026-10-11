@@ -149,6 +149,7 @@ export interface SystemStatus {
     oauth_register_enabled?: boolean
     oauth_registration_disabled_methods?: string[]
     register_enabled?: boolean
+    humangrant_enabled?: boolean
     password_login_enabled?: boolean
     password_register_enabled?: boolean
     custom_oauth_providers?: CustomOAuthProviderInfo[]
