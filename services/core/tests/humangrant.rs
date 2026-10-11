@@ -26,7 +26,10 @@ use tower::ServiceExt;
 
 const ORIGIN: &str = "http://api.lmm.local";
 fn clock() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs() as i64
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
 }
 
 struct Signer {
@@ -37,14 +40,20 @@ impl Signer {
     fn new() -> Self {
         let rng = SystemRandom::new();
         let pkcs8 = Ed25519KeyPair::generate_pkcs8(&rng).unwrap();
-        Self { key: Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).unwrap(), next: AtomicU64::new(1) }
+        Self {
+            key: Ed25519KeyPair::from_pkcs8(pkcs8.as_ref()).unwrap(),
+            next: AtomicU64::new(1),
+        }
     }
     fn actor(&self) -> String {
-        format!("ed25519:{}", URL_SAFE_NO_PAD.encode(Sha256::digest(self.key.public_key().as_ref())))
+        format!(
+            "ed25519:{}",
+            URL_SAFE_NO_PAD.encode(Sha256::digest(self.key.public_key().as_ref()))
+        )
     }
     fn headers(&self, method: &str, path: &str, body: &[u8], auth: &str) -> Vec<(String, String)> {
         let mut nonce = [0_u8; 24];
-        nonce[..8].copy_from_slice(&self.next.fetch_add(1,Ordering::SeqCst).to_be_bytes());
+        nonce[..8].copy_from_slice(&self.next.fetch_add(1, Ordering::SeqCst).to_be_bytes());
         let created = clock();
         let content_type = "application/json";
         let digest = format!("sha-256=:{}:", STANDARD.encode(Sha256::digest(body)));
@@ -52,7 +61,9 @@ impl Signer {
         let authorization = format!("HumanGrant {auth}");
         let input = format!(
             "hg=(\"@method\" \"@target-uri\" \"content-digest\" \"content-type\" \"x-hg-key\" \"authorization\");created={created};expires={};nonce=\"{}\";keyid=\"{}\";alg=\"ed25519\";tag=\"humangrant-0.1\"",
-            created+60,URL_SAFE_NO_PAD.encode(nonce),self.actor()
+            created + 60,
+            URL_SAFE_NO_PAD.encode(nonce),
+            self.actor()
         );
         let signed = format!(
             "\"@method\": {method}\n\"@target-uri\": {ORIGIN}{path}\n\"content-digest\": {digest}\n\"content-type\": {content_type}\n\"x-hg-key\": {public_key}\n\"authorization\": {authorization}\n\"@signature-params\": {}",
@@ -60,12 +71,12 @@ impl Signer {
         );
         let signature = STANDARD.encode(self.key.sign(signed.as_bytes()).as_ref());
         vec![
-            ("content-type".into(),content_type.into()),
-            ("content-digest".into(),digest),
-            ("x-hg-key".into(),public_key),
-            ("authorization".into(),authorization),
-            ("signature-input".into(),input),
-            ("signature".into(),format!("hg=:{signature}:")),
+            ("content-type".into(), content_type.into()),
+            ("content-digest".into(), digest),
+            ("x-hg-key".into(), public_key),
+            ("authorization".into(), authorization),
+            ("signature-input".into(), input),
+            ("signature".into(), format!("hg=:{signature}:")),
         ]
     }
 }
@@ -77,12 +88,18 @@ async fn call(
     headers: &[(String, String)],
 ) -> (StatusCode, Value) {
     let mut builder = Request::builder().uri(path).method(method);
-    for (name,value) in headers { builder=builder.header(name.as_str(),value.as_str()); }
-    let response = app.clone().oneshot(builder.body(Body::from(body.to_vec())).unwrap()).await.unwrap();
-    let status=response.status();
-    let bytes=to_bytes(response.into_body(),65536).await.unwrap();
-    let value=serde_json::from_slice::<Value>(&bytes).unwrap_or(Value::Null);
-    (status,value)
+    for (name, value) in headers {
+        builder = builder.header(name.as_str(), value.as_str());
+    }
+    let response = app
+        .clone()
+        .oneshot(builder.body(Body::from(body.to_vec())).unwrap())
+        .await
+        .unwrap();
+    let status = response.status();
+    let bytes = to_bytes(response.into_body(), 65536).await.unwrap();
+    let value = serde_json::from_slice::<Value>(&bytes).unwrap_or(Value::Null);
+    (status, value)
 }
 async fn signed(
     app: &Router,
@@ -91,9 +108,9 @@ async fn signed(
     path: &str,
     body: &[u8],
     token: &str,
-) -> (StatusCode,Value) {
-    let headers=signer.headers(method,path,body,token);
-    call(app,method,path,body,&headers).await
+) -> (StatusCode, Value) {
+    let headers = signer.headers(method, path, body, token);
+    call(app, method, path, body, &headers).await
 }
 async fn browser(
     app: &Router,
@@ -116,24 +133,37 @@ async fn signed_human_consent_claim_replay_expiry_disable_and_revoke(pool: PgPoo
     let store = IdentityStore::from_pool(pool.clone()).with_registration_enabled(true);
     store.init_database().await.unwrap();
     store.check_schema().await.unwrap();
-    let config=LegacyAuthConfig::new(ORIGIN,&[43;32]).unwrap().with_insecure_local_http().unwrap();
-    let app=legacy_auth::router(store,config);
-    let (status,_) = browser(
-        &app,"POST","/api/user/register",
+    let config = LegacyAuthConfig::new(ORIGIN, &[43; 32])
+        .unwrap()
+        .with_insecure_local_http()
+        .unwrap();
+    let app = legacy_auth::router(store, config);
+    let (status, _) = browser(
+        &app,
+        "POST",
+        "/api/user/register",
         json!({"username":"alice","password":"abc12345","accepted_legal":true}),
-        None,None,true
-    ).await;
-    assert_eq!(status,StatusCode::OK);
-    let (status,login) = browser(
-        &app,"POST","/api/user/login",
+        None,
+        None,
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+    let (status, login) = browser(
+        &app,
+        "POST",
+        "/api/user/login",
         json!({"username":"alice","password":"abc12345"}),
-        None,None,true
-    ).await;
-    assert_eq!(status,StatusCode::OK, "{login:?}");
-    let bearer=login["data"]["access_token"].as_str().unwrap();
-    let uid=login["data"]["user"]["id"].as_i64().unwrap();
-    let signer=Signer::new();
-    let request=json!({
+        None,
+        None,
+        true,
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK, "{login:?}");
+    let bearer = login["data"]["access_token"].as_str().unwrap();
+    let uid = login["data"]["user"]["id"].as_i64().unwrap();
+    let signer = Signer::new();
+    let request = json!({
         "client_id":"test_agent",
         "target_service":"lmm",
         "purpose":"Read profile to display an account greeting",
