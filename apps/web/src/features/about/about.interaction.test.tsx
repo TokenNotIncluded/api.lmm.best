@@ -7,7 +7,24 @@ import { after, afterEach, test } from 'node:test'
 import { Window } from 'happy-dom'
 import type { ReactNode } from 'react'
 
-const dom = new Window({ url: 'https://console.example.test/about' })
+const unexpectedRequests: string[] = []
+function rejectNetwork({ request }: { request: { url: string } }): never {
+  unexpectedRequests.push(request.url)
+  throw new Error(`Unexpected network request in About test: ${request.url}`)
+}
+const dom = new Window({
+  url: 'https://console.example.test/about',
+  settings: {
+    // Assert the iframe URL and sandbox without navigating to the fixture host.
+    navigation: { disableChildFrameNavigation: true },
+    fetch: {
+      interceptor: {
+        beforeAsyncRequest: async (context) => rejectNetwork(context),
+        beforeSyncRequest: rejectNetwork,
+      },
+    },
+  },
+})
 dom.document.write('<!doctype html><html><head></head><body></body></html>')
 Object.defineProperty(dom.document, 'compatMode', {
   configurable: true,
@@ -184,6 +201,7 @@ afterEach(async () => {
   api.post = originalPost
   document.body.innerHTML = ''
   localStorage.clear()
+  assert.deepEqual(unexpectedRequests.splice(0), [])
 })
 after(() => {
   dom.close()

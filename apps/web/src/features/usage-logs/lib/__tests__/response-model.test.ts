@@ -19,13 +19,13 @@ type CompatibilityCase = {
 }
 const contract: CompatibilityCase[] = JSON.parse(
   readFileSync(
-    new URL(
-      '../../../../../../api-go/relay/common/testdata/response_model_compatibility.json',
-      import.meta.url
-    ),
+    new URL('./testdata/response-model-compatibility.json', import.meta.url),
     'utf8'
   )
 )
+
+assert.equal(contract.length, 24)
+assert.equal(new Set(contract.map((scenario) => scenario.name)).size, 24)
 
 function modelInfo(other: unknown) {
   return formatModelName(
@@ -41,7 +41,7 @@ function modelInfo(other: unknown) {
   )
 }
 
-describe('response model compatibility shared with Go and Rust', () => {
+describe('response model historical compatibility contract', () => {
   for (const scenario of contract) {
     test(scenario.name, () => {
       assert.equal(

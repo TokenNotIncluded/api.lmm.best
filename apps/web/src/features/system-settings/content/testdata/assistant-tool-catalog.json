@@ -1,0 +1,616 @@
+{
+  "success": true,
+  "data": {
+    "capabilities": {
+      "policy_rules": true
+    },
+    "groups": [
+      {
+        "id": "service_help",
+        "label": "Service help",
+        "tools": [
+          {
+            "name": "discover_tools",
+            "label": "Load assistant tools",
+            "description": "Load only the needed tool definitions for this request; never execute the selected tools.",
+            "effect": "read_only",
+            "access": "user"
+          },
+          {
+            "name": "end_conversation",
+            "label": "End this turn",
+            "description": "Deliver a final answer and stop this run without blocking future messages or changing account access.",
+            "effect": "server_guarded",
+            "access": "user"
+          },
+          {
+            "name": "get_service_facts",
+            "label": "Service connection and activities",
+            "description": "Read current connection endpoints, console activities and key setup guidance.",
+            "effect": "read_only",
+            "access": "user"
+          },
+          {
+            "name": "navigate_to_page",
+            "label": "Open a console page",
+            "description": "Suggest a permitted console page without submitting its forms.",
+            "effect": "navigation",
+            "access": "user"
+          },
+          {
+            "name": "get_setup_guide",
+            "label": "Client setup guidance",
+            "description": "Read setup steps for the chosen client, device and live model ID.",
+            "effect": "read_only",
+            "access": "user"
+          },
+          {
+            "name": "search_web",
+            "label": "Search the web",
+            "description": "Search through the configured provider; results cannot authorize account changes.",
+            "effect": "read_only",
+            "access": "user"
+          },
+          {
+            "name": "calculate_math",
+            "label": "Arithmetic calculator",
+            "description": "Evaluate bounded arithmetic expressions without shell or database access.",
+            "effect": "read_only",
+            "access": "user"
+          }
+        ]
+      },
+      {
+        "id": "account_access",
+        "label": "Account and access",
+        "tools": [
+          {
+            "name": "get_account_access",
+            "label": "Account access and progress",
+            "description": "Read your current access level, wallet balance and recorded setup progress.",
+            "effect": "read_only",
+            "access": "user"
+          },
+          {
+            "name": "get_user_overview",
+            "label": "Account overview",
+            "description": "Read your account overview, or an authorized administrator view.",
+            "effect": "read_only",
+            "access": "user"
+          },
+          {
+            "name": "get_user_usage_summary",
+            "label": "Account usage details",
+            "description": "Read bounded account usage statistics for the permitted account.",
+            "effect": "read_only",
+            "access": "user"
+          },
+          {
+            "name": "get_usage_summary",
+            "label": "Usage summary",
+            "description": "Read your current model and group usage summary.",
+            "effect": "read_only",
+            "access": "l1"
+          },
+          {
+            "name": "prepare_user_action",
+            "label": "Prepare an account action",
+            "description": "Prepare a secure form for supported profile or account actions; the user must confirm.",
+            "effect": "confirmation",
+            "access": "user"
+          },
+          {
+            "name": "grant_l1_access",
+            "label": "Grant verified L1 access",
+            "description": "Activate only the current L0 account after server-checked conversation and registration requirements.",
+            "effect": "server_guarded",
+            "access": "l0"
+          }
+        ]
+      },
+      {
+        "id": "models_pricing",
+        "label": "Models and costs",
+        "tools": [
+          {
+            "name": "get_available_models",
+            "label": "Available models",
+            "description": "Read live public model IDs for L0, or usable model IDs for an authorized account.",
+            "effect": "read_only",
+            "access": "user"
+          },
+          {
+            "name": "get_model_pricing",
+            "label": "Model pricing",
+            "description": "Read live pricing for one exact model and permitted routing group.",
+            "effect": "read_only",
+            "access": "user"
+          },
+          {
+            "name": "calculate_cost",
+            "label": "Cost estimate",
+            "description": "Calculate an estimate from supplied token counts and verified prices.",
+            "effect": "read_only",
+            "access": "user"
+          },
+          {
+            "name": "get_plan_offers",
+            "label": "Plans and top-up offers",
+            "description": "Read current offers while retaining the L0 payment-intent and checkout restrictions.",
+            "effect": "read_only",
+            "access": "user"
+          }
+        ]
+      },
+      {
+        "id": "api_keys",
+        "label": "API keys",
+        "tools": [
+          {
+            "name": "request_create_key",
+            "label": "Prepare API key creation",
+            "description": "Prepare a browser confirmation for a key in a permitted group; never reveal it in chat.",
+            "effect": "confirmation",
+            "access": "l1"
+          },
+          {
+            "name": "list_my_api_keys",
+            "label": "List your API key metadata",
+            "description": "Read your key IDs, names and status without exposing credentials.",
+            "effect": "read_only",
+            "access": "user"
+          },
+          {
+            "name": "prepare_api_key_action",
+            "label": "Prepare API key revocation",
+            "description": "Prepare deletion or disabling of one exact owned key; confirmation and secure verification remain required.",
+            "effect": "confirmation",
+            "access": "user"
+          }
+        ]
+      },
+      {
+        "id": "rewards",
+        "label": "Rewards",
+        "tools": [
+          {
+            "name": "send_invitation",
+            "label": "Send an invitation",
+            "description": "Prepare an invitation email using your own referral link; send only after confirmation.",
+            "effect": "confirmation",
+            "access": "l1"
+          },
+          {
+            "name": "get_invitation_rewards",
+            "label": "Invitation rewards",
+            "description": "Read your invitation reward status and the current reward rules.",
+            "effect": "read_only",
+            "access": "l1"
+          },
+          {
+            "name": "get_new_user_gift_status",
+            "label": "Welcome gift status",
+            "description": "Read a stored gift decision without evaluating or claiming a gift.",
+            "effect": "read_only",
+            "access": "user"
+          },
+          {
+            "name": "prepare_new_user_gift",
+            "label": "Grant a welcome gift",
+            "description": "Grant a bounded welcome gift directly; the server prevents duplicate credit. Zero creates no new decision.",
+            "effect": "server_guarded",
+            "access": "user"
+          },
+          {
+            "name": "get_weekly_discount_status",
+            "label": "Weekly discount status",
+            "description": "Read the current stored weekly decision without changing it.",
+            "effect": "read_only",
+            "access": "user"
+          },
+          {
+            "name": "prepare_weekly_discount",
+            "label": "Evaluate a weekly discount",
+            "description": "Record a server-checked weekly decision and prepare its claim card.",
+            "effect": "server_guarded",
+            "access": "user"
+          }
+        ]
+      },
+      {
+        "id": "bounties",
+        "label": "Open-source bounties",
+        "tools": [
+          {
+            "name": "get_bounty_guide",
+            "label": "Bounty guidance",
+            "description": "Read the workflow for publishing, funding, reviewing and settling bounties.",
+            "effect": "read_only",
+            "access": "user"
+          },
+          {
+            "name": "get_bounty_data",
+            "label": "Bounty data",
+            "description": "Read public bounty data or authorized private and administrator views; never fund or settle a bounty.",
+            "effect": "read_only",
+            "access": "mixed"
+          }
+        ]
+      },
+      {
+        "id": "market_catalog",
+        "label": "Products and tool catalogues",
+        "tools": [
+          {
+            "name": "get_store_products",
+            "label": "Product catalogue",
+            "description": "Read visible store products without buying or issuing credentials.",
+            "effect": "read_only",
+            "access": "user"
+          },
+          {
+            "name": "get_store_product",
+            "label": "Product details",
+            "description": "Read one visible product and its purchase requirements.",
+            "effect": "read_only",
+            "access": "user"
+          },
+          {
+            "name": "get_tool_market_services",
+            "label": "MCP service catalogue",
+            "description": "Read tool-market service listings without loading, authorizing or invoking their tools.",
+            "effect": "read_only",
+            "access": "user"
+          },
+          {
+            "name": "get_tool_market_service",
+            "label": "MCP service details",
+            "description": "Read one service and its published tool metadata without invoking it.",
+            "effect": "read_only",
+            "access": "user"
+          }
+        ]
+      },
+      {
+        "id": "drawing",
+        "label": "Image generation",
+        "tools": [
+          {
+            "name": "prepare_image_generation",
+            "label": "Prepare image generation",
+            "description": "Prepare a drawing confirmation using current permitted models; generation may charge the wallet after confirmation.",
+            "effect": "confirmation",
+            "access": "l1"
+          }
+        ]
+      },
+      {
+        "id": "human_support",
+        "label": "Human support",
+        "tools": [
+          {
+            "name": "get_human_support_status",
+            "label": "Support eligibility and requests",
+            "description": "Read your support eligibility and active in-site request.",
+            "effect": "read_only",
+            "access": "user"
+          },
+          {
+            "name": "book_technical_support",
+            "label": "Request a support appointment",
+            "description": "Create an in-site appointment only after an explicit booking request and server-checked recharge eligibility.",
+            "effect": "server_guarded",
+            "access": "user"
+          },
+          {
+            "name": "request_human_support",
+            "label": "Prepare human support or account review",
+            "description": "Prepare an in-site handoff or account-disable review request; the user must confirm.",
+            "effect": "confirmation",
+            "access": "user"
+          }
+        ]
+      },
+      {
+        "id": "personalization",
+        "label": "Memory and personalization",
+        "tools": [
+          {
+            "name": "get_overview_greeting",
+            "label": "Read overview greeting",
+            "description": "Read your localized overview templates and supported variables.",
+            "effect": "read_only",
+            "access": "user"
+          },
+          {
+            "name": "set_overview_greeting",
+            "label": "Edit overview greeting",
+            "description": "Prepare a change to your own localized greeting without changing other settings.",
+            "effect": "confirmation",
+            "access": "user"
+          },
+          {
+            "name": "set_conversation_title",
+            "label": "Conversation title",
+            "description": "Store a short title for the current new conversation without account changes.",
+            "effect": "server_guarded",
+            "access": "user"
+          },
+          {
+            "name": "recall_memory",
+            "label": "Recall your memories",
+            "description": "Read only your own relevant long-term memories.",
+            "effect": "read_only",
+            "access": "user"
+          },
+          {
+            "name": "remember_memory",
+            "label": "Remember a preference",
+            "description": "Store a bounded durable preference or project detail for your account; secrets are prohibited.",
+            "effect": "server_guarded",
+            "access": "user"
+          },
+          {
+            "name": "remember_profile_skill",
+            "label": "Save a response preference",
+            "description": "Store a coarse response-style preference without changing permissions or billing.",
+            "effect": "server_guarded",
+            "access": "user"
+          },
+          {
+            "name": "forget_profile_skill",
+            "label": "Forget an AI response preference",
+            "description": "Remove only your AI-created response preference after your explicit request.",
+            "effect": "server_guarded",
+            "access": "user"
+          }
+        ]
+      },
+      {
+        "id": "registration_safety",
+        "label": "Registration protection",
+        "tools": [
+          {
+            "name": "get_registration_risk",
+            "label": "Registration eligibility check",
+            "description": "Read server-verified evidence for the current L0 account.",
+            "effect": "read_only",
+            "access": "l0"
+          },
+          {
+            "name": "notify_registration_risk",
+            "label": "Record a registration alert",
+            "description": "Record a bounded in-site risk alert only from server-verified registration evidence.",
+            "effect": "server_guarded",
+            "access": "l0"
+          },
+          {
+            "name": "end_registration_conversation",
+            "label": "Hold an unsafe registration",
+            "description": "Hold the current L0 registration flow only when deterministic server checks require it.",
+            "effect": "server_guarded",
+            "access": "l0"
+          },
+          {
+            "name": "ban_l0_user",
+            "label": "Suspend an abusive L0 account",
+            "description": "Suspend only the current L0 account when matching server evidence and the global suspension cap permit it.",
+            "effect": "server_guarded",
+            "access": "l0"
+          }
+        ]
+      },
+      {
+        "id": "admin_read",
+        "label": "Administrator reads",
+        "tools": [
+          {
+            "name": "get_admin_user_skills",
+            "label": "Read user personalization",
+            "description": "Read permitted account profiles and memories with live administrator authority.",
+            "effect": "read_only",
+            "access": "admin"
+          },
+          {
+            "name": "get_admin_server_config",
+            "label": "Read server settings",
+            "description": "Read allowed server configuration without secrets; root authority is required.",
+            "effect": "read_only",
+            "access": "root"
+          },
+          {
+            "name": "get_admin_channels",
+            "label": "Read routing channels",
+            "description": "Read bounded channel configuration without provider credentials.",
+            "effect": "read_only",
+            "access": "admin"
+          },
+          {
+            "name": "get_admin_model_inventory",
+            "label": "Read model inventory",
+            "description": "Read enabled model IDs, routing groups and missing local metadata.",
+            "effect": "read_only",
+            "access": "admin"
+          },
+          {
+            "name": "list_admin_operations",
+            "label": "Discover console operations",
+            "description": "Read exact permitted console operation metadata; generic execution remains read-only.",
+            "effect": "read_only",
+            "access": "admin"
+          },
+          {
+            "name": "execute_admin_operation",
+            "label": "Run a console read operation",
+            "description": "Run one discovered read operation with current route permissions; writes and disabled tool aliases are rejected.",
+            "effect": "read_only",
+            "access": "admin"
+          },
+          {
+            "name": "audit_admin_model_pricing",
+            "label": "Audit model pricing",
+            "description": "Inspect supported model pricing without modifying prices.",
+            "effect": "read_only",
+            "access": "admin"
+          }
+        ]
+      },
+      {
+        "id": "admin_changes",
+        "label": "Administrator changes",
+        "tools": [
+          {
+            "name": "prepare_admin_user_skill_change",
+            "label": "Prepare user personalization changes",
+            "description": "Prepare an exact administrator preview for supported profile or memory changes.",
+            "effect": "confirmation",
+            "access": "admin"
+          },
+          {
+            "name": "prepare_admin_config_change",
+            "label": "Prepare server setting changes",
+            "description": "Prepare allowlisted server settings with root authority and explicit browser confirmation.",
+            "effect": "confirmation",
+            "access": "root"
+          },
+          {
+            "name": "prepare_admin_channel_change",
+            "label": "Prepare channel changes",
+            "description": "Prepare validated channel changes while preserving role and secret restrictions.",
+            "effect": "confirmation",
+            "access": "admin"
+          },
+          {
+            "name": "prepare_admin_model_sync",
+            "label": "Prepare model metadata import",
+            "description": "Verify selected upstream model IDs and prepare a root-only metadata import.",
+            "effect": "confirmation",
+            "access": "root"
+          },
+          {
+            "name": "prepare_admin_pricing_change",
+            "label": "Prepare model pricing changes",
+            "description": "Prepare exact pricing changes with root authority and explicit browser confirmation.",
+            "effect": "confirmation",
+            "access": "root"
+          }
+        ]
+      },
+      {
+        "id": "site_issues",
+        "label": "Site improvement issues",
+        "tools": [
+          {
+            "name": "get_site_issues",
+            "label": "Read issue status",
+            "description": "Read your visible reports and updates; administrators can read all reports.",
+            "effect": "read_only",
+            "access": "user"
+          },
+          {
+            "name": "create_site_issue",
+            "label": "Create an improvement issue",
+            "description": "Prepare a bug, security, experience or feature report for confirmation.",
+            "effect": "confirmation",
+            "access": "user"
+          },
+          {
+            "name": "update_site_issue",
+            "label": "Update issue status",
+            "description": "Prepare an administrator update with status, visibility and a note.",
+            "effect": "confirmation",
+            "access": "admin"
+          }
+        ]
+      },
+      {
+        "id": "market_connections",
+        "label": "Tool market connections",
+        "tools": [
+          {
+            "name": "get_connected_market_tools",
+            "label": "Read connected market tools",
+            "description": "Read allowed services, exact schemas and your own current grants.",
+            "effect": "read_only",
+            "access": "l1"
+          },
+          {
+            "name": "connect_market_tool",
+            "label": "Authorize a market tool",
+            "description": "Prepare version-bound access and spending limits for browser confirmation.",
+            "effect": "confirmation",
+            "access": "l1"
+          },
+          {
+            "name": "call_market_tool",
+            "label": "Use a connected market tool",
+            "description": "Call an allowed remote tool using your explicit bounded grant and the existing billing checks.",
+            "effect": "server_guarded",
+            "access": "l1"
+          }
+        ]
+      },
+      {
+        "id": "visualizations",
+        "label": "Visualizations",
+        "tools": [
+          {
+            "name": "show_chart",
+            "label": "Statistical chart",
+            "description": "Display a line, bar or donut chart from bounded data.",
+            "effect": "read_only",
+            "access": "user"
+          },
+          {
+            "name": "show_statistics",
+            "label": "Statistic cards",
+            "description": "Display key values with labels and optional icons.",
+            "effect": "read_only",
+            "access": "user"
+          },
+          {
+            "name": "show_choices",
+            "label": "Choice buttons",
+            "description": "Offer choices that fill the composer without submitting actions.",
+            "effect": "read_only",
+            "access": "user"
+          },
+          {
+            "name": "show_flowchart",
+            "label": "Flow diagram",
+            "description": "Display a process using labelled steps and connections.",
+            "effect": "read_only",
+            "access": "user"
+          }
+        ]
+      },
+      {
+        "id": "site_policies",
+        "label": "Site policies",
+        "tools": [
+          {
+            "name": "get_site_policy",
+            "label": "Read site policy",
+            "description": "Read the published user agreement, privacy policy or refund policy with language, revision and page cursors.",
+            "effect": "read_only",
+            "access": "user"
+          },
+          {
+            "name": "search_site_policies",
+            "label": "Search site policies",
+            "description": "Search the site's configured policy text without fetching external URLs.",
+            "effect": "read_only",
+            "access": "user"
+          },
+          {
+            "name": "prepare_admin_site_policy_change",
+            "label": "Prepare site policy changes",
+            "description": "Prepare an exact policy edit; root authority, a fresh revision and explicit browser confirmation are required.",
+            "effect": "confirmation",
+            "access": "root"
+          }
+        ]
+      }
+    ]
+  }
+}
