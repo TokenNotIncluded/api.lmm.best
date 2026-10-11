@@ -71,14 +71,14 @@ def main():
                                  "published": "0", "host_ip": "127.0.0.1", "protocol": "tcp"}]
             configs[group] = data
         core, ext = configs["core"], configs["extensions"]
-        assert set(core["services"]) == {"core", "core-db", "core-admin"}
+        assert set(core["services"]) == {"core", "core-db", "core-init"}
         assert set(ext["services"]) == {"extensions"}
         assert not core["services"]["core-db"].get("ports")
         assert core["networks"]["identity"]["internal"]
         assert "identity" not in ext["networks"] and ext["volumes"]["core-rpc"]["external"]
         mount = next(v for v in ext["services"]["extensions"]["volumes"] if v["target"] == "/run/lmm-core-rpc")
         assert mount["read_only"]
-        core["services"]["core-admin"]["image"] = core["services"]["core"]["image"]
+        core["services"]["core-init"]["image"] = core["services"]["core"]["image"]
         core["networks"]["identity"]["name"] = projects["core"] + "-database"
         core["volumes"]["core-identity-data"]["name"] = projects["core"] + "-data"
         ext["secrets"]["extension_token"]["file"] = str(temp / "extension-token")
@@ -121,15 +121,15 @@ def main():
         try:
             compose("core", "build", "core")
             compose("core", "up", "-d", "--wait", "core-db")
-            compose("core", "run", "--rm", "-T", "core-admin", "init-db")
+            compose("core", "run", "--rm", "-T", "core-init", "init-db")
             try:
-                compose("core", "run", "--rm", "-T", "core-admin", "init-db")
+                compose("core", "run", "--rm", "-T", "core-init", "init-db")
             except subprocess.CalledProcessError:
                 pass
             else:
                 raise AssertionError("second initialization must reject the existing database")
             user_id = 9007199254740993
-            session = json.loads(compose("core", "run", "--rm", "-T", "core-admin", "bootstrap-user",
+            session = json.loads(compose("core", "run", "--rm", "-T", "core-init", "bootstrap-user",
                                          data=json.dumps({"user_id": user_id, "platform_level": 1})))
             compose("core", "up", "-d", "core")
             wait(lambda: core_call("/health/live"))

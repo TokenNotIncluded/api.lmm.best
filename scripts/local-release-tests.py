@@ -20,17 +20,19 @@ import shlex
 import subprocess
 import sys
 
+DISTRIBUTION_PATHS = ('packaging/distribution.json', 'scripts/build-distribution.py')
+NATIVE_PACKAGE_PATHS = ('packaging/linux',) + DISTRIBUTION_PATHS
 EXTENSION_PATHS = ('apps/lmm-extensions', 'contracts', 'deployment/docker/extensions.Dockerfile',
                    'deployment/docker/compose.extensions.yml', 'deployment/docker/compose.rpc-extensions.yml',
-                   'scripts/generate-core-protocol.sh')
+                   'scripts/generate-core-protocol.sh') + NATIVE_PACKAGE_PATHS
 PATHS = {
-    'web': ('apps/web', 'packages', 'package.json', 'bun.lock', 'contracts/api-route',
-            'packaging/common/lmm-api/lmm-api-web.install'),
+    'web': ('apps/web', 'packages', 'package.json', 'bun.lock', 'contracts/api-route') + DISTRIBUTION_PATHS,
     'go': EXTENSION_PATHS,
     'extensions': EXTENSION_PATHS,
     'core': ('apps/lmm-core', 'contracts', 'deployment/docker/core.Dockerfile',
              'deployment/docker/compose.core.yml', 'deployment/docker/compose.identity.yml',
-             'deployment/docker/compose.rpc-core.yml', 'scripts/generate-core-protocol.sh'),
+             'deployment/docker/compose.rpc-core.yml', 'scripts/generate-core-protocol.sh') + NATIVE_PACKAGE_PATHS,
+    'cli': ('apps/lmm',) + NATIVE_PACKAGE_PATHS,
     'full': ('.',),
 }
 SHA_RE = re.compile(r'^[0-9a-f]{40}$')
@@ -56,7 +58,8 @@ def source_objects(commit, component):
     if component == 'full':
         return {'.': git('rev-parse', commit + '^{tree}').decode().strip()}
     required_root = {'web': 'apps/web', 'go': 'apps/lmm-extensions',
-                     'extensions': 'apps/lmm-extensions', 'core': 'apps/lmm-core'}[component]
+                     'extensions': 'apps/lmm-extensions', 'core': 'apps/lmm-core',
+                     'cli': 'apps/lmm'}[component]
     if not git('ls-tree', '-d', commit, '--', required_root).strip():
         raise ValueError('component source directory is missing: ' + required_root)
     return {path: git('ls-tree', '-z', commit, '--', path).decode()

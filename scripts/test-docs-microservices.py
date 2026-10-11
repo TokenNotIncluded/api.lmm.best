@@ -16,14 +16,15 @@ class MicroserviceDocsTests(unittest.TestCase):
         for name in ("README.md", "README_EN.md", "docs/development.md"):
             self.assertIn("init-db", (ROOT / name).read_text())
 
-    def test_old_install_guides_have_no_executable_steps(self):
+    def test_retired_install_guides_use_one_fixed_history_index(self):
+        archive = (ROOT / "docs/archive.md").read_text()
         for name in ("manual-systemd-deployment.md", "postgresql-migration.md",
                      "postgresql-cutover.md", "production-release-transaction.md",
                      "seamless-upgrades.md", "backend-cli-deployment-contract.md"):
-            text = (ROOT / "docs" / name).read_text()
-            self.assertNotIn("```", text)
-            self.assertIn("72667564c0431754d4856dc2e0db55f360bd2745", text)
-            self.assertIn("release-architecture.md", text)
+            self.assertFalse((ROOT / "docs" / name).exists())
+            self.assertIn("/blob/72667564c0431754d4856dc2e0db55f360bd2745/docs/" + name,
+                          archive)
+        self.assertNotIn("```", archive)
 
     def test_public_legal_aliases_do_not_publish_fixed_operator_details(self):
         for file, target in (("terms.html", "/user-agreement"), ("privacy.html", "/privacy-policy"),

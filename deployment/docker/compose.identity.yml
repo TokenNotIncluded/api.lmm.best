@@ -1,5 +1,5 @@
 # Combine with compose.core.yml for a fresh-install core database.
-# Run core-admin init-db once. Startup never creates or upgrades tables.
+# Run lmm-core init-db once. Startup never creates or upgrades tables.
 services:
   core:
     environment:
@@ -36,10 +36,10 @@ services:
       retries: 10
     networks: [identity]
 
-  core-admin:
+  core-init:
     profiles: [tools]
     image: lmm-core:${LMM_CORE_IMAGE_TAG:-dev}
-    entrypoint: [/usr/local/bin/lmm-core-admin]
+    entrypoint: [/usr/local/bin/lmm-core]
     command: [init-db]
     environment:
       LMM_CORE_DATABASE_URL_FILE: /run/secrets/core_database_url

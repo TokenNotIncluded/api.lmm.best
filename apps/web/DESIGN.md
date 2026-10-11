@@ -78,6 +78,34 @@ Also run the console page, interaction and navigation scripts and frontend quali
 - [inferred confidence=high] Every icon-only action needs an accessible name and tooltip where recognition is not universal. Status requires text/icon in addition to color.
 - [inferred confidence=high] Preserve keyboard reachability, focus after dialogs/sheets, comfortable compact-screen hit targets, and readable light/dark contrast.
 
+## Frontend behavior boundaries
+
+These rules describe retained browser behavior, not completed server integration. The current core HTTP host and extension host do not expose the legacy assistant, tool-market, store or ranked-game APIs. Pages, mocks, fixtures and browser receipts cannot establish backend availability, payment settlement or production acceptance. Current server contracts live in the module READMEs, including [tool market](../lmm-extensions/internal/modules/toolmarket/README.md); financial safeguards belong to the [payment contract](../../docs/payment-money-contract.md).
+
+### Navigation, motion and optional experiences
+
+- Keep the homepage directory entry a real link with click and Enter fallback. Wheel/swipe progress is bounded; reverse movement, multiple touches and interactive controls cancel the gesture. Remove owned listeners on unmount.
+- Use one mobile scroll-chrome provider per layout. Menus, dialogs, text editing and short pages remain reachable; route/keyboard changes reset hiding. Hidden chrome is inert and releases reserved height. Respect explicit scroll roots, ignore markers and reduced motion.
+- Waiting companions are optional local play after four seconds. They never delay output/navigation, send network requests, award rewards or move money. Reset per task, preserve 48px controls, accessible status and restored focus; collapsing play does not cancel the task.
+- Shared shader surfaces use at most one GPU context, bounded initial resolution and frame rate, offscreen/hidden pausing and a static reduced-motion fallback. Preserve generated-source attribution/checksums and composition sync checks. They must not obstruct controls or imply financial status. The homepage poster retains its separately documented rendering budget.
+- Signal Path is optional play, never an authentication or anti-bot gate. Agent identity is self-reported. Publishing requires the signed-in user and explicit confirmation; WebMCP state excludes claim tokens and private email. A local game or submission UI does not establish ranked-server availability.
+
+Sources: `src/features/forge/home-directory-gesture.ts`, `src/components/layout/lib/mobile-scroll-controller.ts`, `src/components/wait-companion.tsx`, `src/components/shaders/shader-policy.ts`, `src/features/signal-game/webmcp.ts` and their adjacent tests.
+
+### Assistant and tool consent
+
+- OpenUI accepts only its bounded Stack, Metric, BarChart, DataTable and ConsoleLink catalog. No arbitrary HTML, script, forms or network actions. Keep units consistent, distinguish missing values from zero, retain Markdown explanation and show source fallback on invalid output. Streaming content is noninteractive; a navigation link does not complete a business action.
+- Preference actions are bound to the current user/session and run at most once. Mode/theme previews expire without saving; language/currency patch only their fields, and currency changes display only. Undo touches matching fields from the latest action and preserves later manual changes. Prepared actions are not successful receipts; failed or uncertain writes are not replayed.
+- Human handoff scopes requests/polling to the visible user, session and conversation and discards stale responses. Takeover pauses AI and disables old operation cards. A saved request does not promise a human is available. Administrative actions keep their actual confirmation and receipt paths, including explicitly validated chat confirmation where implemented; ambiguity does not authorize replay.
+- Tool-policy edits remain drafts until saved. Group disable wins; unavailable policy never enables tools. Gate advanced rules on advertised capabilities, preserve drafts on conflicts and require review instead of silent retry or broader permissions.
+- Connection secrets stay in transient account-scoped component state, outside caches and JSON previews. Copy requires explicit action; account/provider switches, hiding, expiry or revocation clear them, with a five-minute display limit. Failed permission reads are failures, not empty grants. Failed delegation preserves the original once-only token instead of minting a replacement. Disconnecting does not cancel or refund accepted work.
+- Login and installed connections do not authorize paid calls. Consent names the client, tool version, permissions, price ceiling, finite budget and expiry; unsupported quotes are never shown as free. Preserve exact integers and raw business JSON through editing and locale changes. Browser validation does not replace server authorization.
+- A submitted call freezes parameters and request identity. Confirm each paid round; after network errors or unknown/unsettled results, query or retry that same identity. Only an explicit refusal before execution permits edited parameters and a new identity. Show immutable pricing/usage evidence; provider-reported or unknown usage is not platform-verified.
+
+Sources: `src/components/ai-elements/openui/policy.ts`, `src/features/assistant/use-assistant-ui-preferences.ts`, `use-assistant-support.ts`, `src/features/system-settings/content/assistant-tool-policy-editor.tsx`, and `src/features/tool-market/{connections.tsx,service-editor.tsx,invoke-body.ts,call-utils.ts}` with their focused tests. UI presets, old MetaMCP descriptions and paid-test examples do not establish supported server capabilities.
+
+This section consolidates the useful browser constraints from sixteen former guides in the [fixed source revision](https://github.com/TokenNotIncluded/api.lmm.best/tree/c33503f212cbcfab0695d554f57b5153cd4f3bfd/docs): `frontend-design`, `home-directory-navigation`, `mobile-scroll-chrome`, `waiting-experience`, `shaders`, `games/signal-path`, `assistant-openui`, `assistant-ui-preferences`, `assistant-human-support`, `assistant-tool-policy`, `tool-market-connections`, `tool-market-guide`, `tool-market-metamcp`, `tool-market-metering`, `tool-market-paid-test-mcp` and `tool-market-provider-presets`. Historical commands and deployment claims remain history; current source and versioned contracts determine behavior.
+
 ## Source references
 
 - `components.json`

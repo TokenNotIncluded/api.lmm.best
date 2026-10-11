@@ -3,9 +3,67 @@ use lmm_core::{
     identity::IdentityStore,
     lifecycle::{Admission, Lifecycle, ingress::IngressAcks},
 };
-use std::{env, error::Error, net::SocketAddr};
+use std::{env, error::Error, ffi::OsString, io, net::SocketAddr};
+
+mod admin;
+
+const USAGE: &str = "Usage: lmm-core [serve | init-db | bootstrap-user]\n\n\
+Commands:\n\
+  serve           Start the core service (the default without arguments).\n\
+  init-db         Initialize a new, empty core database.\n\
+  bootstrap-user  Read a user_id and platform_level JSON object from stdin.\n\n\
+Options:\n\
+  -h, --help      Show this help without reading database configuration.\n\
+  -V, --version   Show the core version.\n\n\
+bootstrap-user accepts at most 4096 bytes and writes a one-time credential to\n\
+stdout. Redirect that output to a private file; do not put secrets in arguments.";
+
+enum Command {
+    Serve,
+    InitDb,
+    BootstrapUser,
+    Help,
+    Version,
+}
+
+fn command(args: impl IntoIterator<Item = OsString>) -> io::Result<Command> {
+    let args: Vec<OsString> = args.into_iter().collect();
+    if args.is_empty() {
+        return Ok(Command::Serve);
+    }
+    let first = args[0].to_str();
+    let known_command = matches!(first, Some("serve" | "init-db" | "bootstrap-user"));
+    if args.len() == 2 && known_command && matches!(args[1].to_str(), Some("-h" | "--help")) {
+        return Ok(Command::Help);
+    }
+    if args.len() == 1 {
+        match first {
+            Some("serve") => return Ok(Command::Serve),
+            Some("init-db") => return Ok(Command::InitDb),
+            Some("bootstrap-user") => return Ok(Command::BootstrapUser),
+            Some("-h" | "--help") => return Ok(Command::Help),
+            Some("-V" | "--version") => return Ok(Command::Version),
+            _ => {}
+        }
+    }
+    // Do not echo arguments: an operator may accidentally pass a secret.
+    Err(io::Error::new(io::ErrorKind::InvalidInput, USAGE))
+}
 
 fn main() -> Result<(), Box<dyn Error>> {
+    let operation = match command(env::args_os().skip(1))? {
+        Command::Help => {
+            println!("{USAGE}");
+            return Ok(());
+        }
+        Command::Version => {
+            println!("lmm-core {}", env!("CARGO_PKG_VERSION"));
+            return Ok(());
+        }
+        Command::Serve => None,
+        Command::InitDb => Some(admin::Operation::InitDb),
+        Command::BootstrapUser => Some(admin::Operation::bootstrap(io::stdin().lock())?),
+    };
     // One worker and a bounded blocking pool are sufficient for the 1-core
     // profile. Password hashing remains on a separate bounded blocking worker.
     let runtime = tokio::runtime::Builder::new_multi_thread()
@@ -13,7 +71,10 @@ fn main() -> Result<(), Box<dyn Error>> {
         .max_blocking_threads(4)
         .enable_all()
         .build()?;
-    runtime.block_on(run_core())
+    match operation {
+        Some(operation) => runtime.block_on(admin::run(operation)),
+        None => runtime.block_on(run_core()),
+    }
 }
 
 async fn run_core() -> Result<(), Box<dyn Error>> {

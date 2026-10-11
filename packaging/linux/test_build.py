@@ -88,13 +88,27 @@ class PackageTests(unittest.TestCase):
                     self.assertNotIn("/usr/bin/lmm-core-admin", info["files"])
                     self.assertTrue(info["preview"])
 
-    def test_admin_package_does_not_install_or_require_core_daemon(self):
-        config, info = self.prepare(self.archive(), component="core-admin")
-        self.assertEqual(config["name"], "lmm-core-admin")
+    def test_cli_package_does_not_install_or_require_a_daemon(self):
+        config, info = self.prepare(self.archive("cli"), component="cli")
+        self.assertEqual(config["name"], "lmm")
         self.assertEqual(config["scripts"], {})
-        self.assertNotIn("/usr/bin/lmm-core", info["files"])
-        self.assertFalse(any("systemd" in d or "lmm-core" in d for d in config["depends"]))
+        self.assertEqual({p for p in info["files"] if p.startswith("/usr/bin/")}, {"/usr/bin/lmm"})
+        self.assertFalse(any("systemd" in d or "lmm-core" in d or "lmm-extensions" in d for d in config["depends"]))
         self.assertFalse(any(p.startswith("/etc/") for p in info["files"]))
+
+    def test_catalog_has_exactly_three_programs_and_static_web(self):
+        catalog = json.loads((self.root / "packaging/linux/packages.json").read_text())
+        self.assertEqual(set(catalog["packages"]), {"core", "extensions", "cli", "web"})
+        self.assertEqual({p["name"] for p in catalog["packages"].values()},
+                         {"lmm-core", "lmm-extensions", "lmm", "lmm-web"})
+        self.assertEqual([name for p in catalog["packages"].values() for name in p["binaries"]],
+                         ["lmm-core", "lmm-extensions", "lmm"])
+        for component in ("core", "extensions", "cli", "web"):
+            _, info = self.prepare(self.archive(component), component=component)
+            expected = {"/usr/bin/" + b for b in self.spec["components"][component]["binaries"]}
+            self.assertEqual({p for p in info["files"] if p.startswith("/usr/bin/")}, expected)
+            self.assertEqual({p for p, f in info["files"].items() if f["mode"] == 0o755
+                              and not p.startswith("/etc/init.d/")}, expected)
 
     def test_extensions_are_separate_and_templates_are_shipped(self):
         config, info = self.prepare(self.archive("extensions"), component="extensions")
@@ -156,6 +170,10 @@ class PackageTests(unittest.TestCase):
         for change in ({"expected_hash": "0" * 64}, {"revision": "b" * 40}, {"component": "extensions"}):
             with self.subTest(change=change), self.assertRaises(ValueError):
                 self.prepare(archive, stage=self.work / str(len(list(self.work.iterdir()))), **change)
+
+    def test_retired_admin_package_selector_is_rejected(self):
+        with self.assertRaisesRegex(ValueError, "unknown native package component"):
+            self.prepare(self.archive(), component="core-admin")
 
     def test_wrong_cpu_is_rejected(self):
         binary = self.work / "wrong-arch"

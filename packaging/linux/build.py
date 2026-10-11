@@ -153,8 +153,10 @@ def prepare(root: Path, archive: Path, expected_hash: str, revision: str,
         raise ValueError("architecture-independent packages must contain only web assets")
     distribution = json.loads(DIST.read_regular(root, "packaging/distribution.json"))
     spec = distribution["components"][package["archive"]]
-    if manifest["package"] != spec["package"]:
+    if manifest["package"] != spec["package"] or package["name"] != spec["package"]:
         raise ValueError("archive package identity mismatch")
+    if package["binaries"] != spec["binaries"]:
+        raise ValueError("native package binary inventory differs from the component archive")
     allowed = set(distribution["common"] + spec["resources"] + ["README.md"])
     allowed.update("bin/" + b for b in spec["binaries"])
     actual = set(manifest["files"])
@@ -285,7 +287,7 @@ def main() -> int:
     parser.add_argument("--archive", type=Path, required=True)
     parser.add_argument("--sha256", required=True, help="SHA-256 from a trusted build record, not trust inferred from the archive")
     parser.add_argument("--revision", required=True)
-    parser.add_argument("--component", choices=("core", "core-admin", "extensions", "cli", "web"), required=True)
+    parser.add_argument("--component", choices=("core", "extensions", "cli", "web"), required=True)
     parser.add_argument("--format", choices=FORMATS, required=True)
     parser.add_argument("--release", type=int, default=1)
     parser.add_argument("--output", type=Path, default=Path("out/linux-packages"))

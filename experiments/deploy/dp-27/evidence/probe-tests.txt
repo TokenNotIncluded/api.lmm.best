@@ -1,2 +1,0 @@
-?   	dp27.local/healthprobe/full	[no test files]
-ok  	dp27.local/healthprobe	1.013s

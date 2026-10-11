@@ -15,11 +15,22 @@ fingerprint and refuses a different contract.
 
 ```sh
 cd apps/lmm-core
-cargo run --locked --bin lmm-core-admin -- init-db
+cargo run --locked --bin lmm-core -- init-db
 # Public registration is disabled unless explicitly enabled.
 export LMM_CORE_REGISTRATION_ENABLED=true
 cargo run --locked --bin lmm-core
 ```
+
+The same `lmm-core` executable serves HTTP by default, or with `serve`. `--help`
+and `--version` work without database configuration. Unknown or extra arguments
+are rejected before reading configuration or starting a listener. Only the
+explicit `init-db` command installs the schema; normal startup only checks it.
+
+An operator can explicitly provision a user with `lmm-core bootstrap-user`.
+Provide `{"user_id":1,"platform_level":6}` on stdin, at most 4096 bytes, and
+redirect stdout to a private file. Unknown JSON fields are rejected. The command
+returns a one-time credential on stdout and does not print it to stderr. Do not
+pass that input or a credential as command-line arguments.
 
 Terminate public TLS at a trusted proxy. Do not log Authorization headers,
 password bodies, callback query strings, session responses or invitation tokens.

@@ -1,0 +1,8 @@
+# Development tools for the long-lived microservice branch.
+# Runtime services do not load this file or any development database secrets.
+[tools]
+bun = "1.3.14"
+go = "1.27.2"
+just = "1.58.0"
+node = "26.10.0"
+rust = { version = "1.99.0", profile = "minimal", components = ["clippy", "rustfmt"] }

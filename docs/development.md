@@ -2,16 +2,23 @@
 
 这是全新安装分支。不要连接现有站点数据库。服务分工见[架构与状态](core-migration.md)，创建数据库和密钥只使用 [Docker 指南](../deployment/docker/README.md)。
 
-全新核心库通过 `lmm-core-admin init-db` 显式安装一次；已有应用对象时拒绝。
+全新核心库通过 `lmm-core init-db` 显式安装一次；已有应用对象时拒绝。
 
 ## 工具与目录
 
-核心工具链由 `apps/lmm-core/rust-toolchain.toml` 固定。CI 使用 Go 1.27.2、Bun 1.3.14。前端需要 Node.js 22.12 或更高版本。CLI 使用 `apps/lmm/Cargo.toml`，不与核心混为一个程序。
+本分支使用根目录 `mise.toml` 固定 Rust、Go、Bun、Node.js 和 just。Rust 版本与 `apps/lmm-core/rust-toolchain.toml` 保持一致，包含 rustfmt 与 clippy。CI 使用 Go 1.27.2、Bun 1.3.14。CLI 使用 `apps/lmm/Cargo.toml`，不与核心混为一个程序。
 
 ```sh
-bun install --frozen-lockfile
-just --list
+mise install
+mise exec -- just setup
+mise exec -- just --list
 ```
+
+后续命令通过 `mise exec -- <命令>` 执行；just 的 recipe 也自动使用 mise。
+例如 `mise exec -- bun run --filter @lmm/web typecheck`。先用
+`mise exec -- rustc --version`、`mise exec -- go version` 和
+`mise exec -- bun --version` 核对实际版本。mise 不读取测试数据库私有文件；
+独立测试 DSN 仍由操作者注入对应子进程，不能放进 `mise.toml`。
 
 ## 启动扩展与前端
 

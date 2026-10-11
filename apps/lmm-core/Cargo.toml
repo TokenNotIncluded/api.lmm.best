@@ -4,8 +4,13 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.91"
 default-run = "lmm-core"
+autobins = false
 license = "AGPL-3.0-or-later"
 publish = false
+
+[[bin]]
+name = "lmm-core"
+path = "src/main.rs"
 
 [dependencies]
 argon2 = "=0.5.3"

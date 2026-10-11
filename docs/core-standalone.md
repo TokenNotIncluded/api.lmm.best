@@ -36,7 +36,7 @@ dc config --services
 # 预期只有 core；不能列出 extensions、core-db。
 dc build core
 # 仅新空库一次；绝不能对生产库执行。
-dc run --rm -T --entrypoint /usr/local/bin/lmm-core-admin core init-db
+dc run --rm -T core init-db
 dc up -d --no-deps core
 curl --fail http://127.0.0.1:18080/health/live
 curl -i http://127.0.0.1:18080/health/ready
@@ -44,7 +44,7 @@ curl -i http://127.0.0.1:18080/health/ready
 
 最后一条预期为 503：这是尚未连接计费模型的安全行为，不是核心进程崩溃。若初始化失败，检查数据库网络、文件权限和 schema；不要执行清空数据库或跳过 schema 检查。
 
-也可只安装已经发布并验证签名的对应架构 `lmm-core` 和 `lmm-core-admin` 二进制，用 systemd 管理。核心自身无需 Docker 或 Go，但仍必须配置数据库、运行用户、监听地址、重启及资源限制；不要把未签名的预览包当正式发行包。
+也可使用[原生 Linux 预览包](../packaging/linux/README.md)安装对应架构的 `lmm-core`，用 systemd 或 OpenRC 管理。数据库初始化使用同一程序的 `lmm-core init-db`；没有独立管理程序。核心自身无需 Docker 或 Go，但仍必须配置数据库、运行用户、监听地址、重启及资源限制。预览包及其校验和不代表正式签名发行或生产验收。
 
 ## 真实测量后再调小
 
@@ -56,7 +56,7 @@ docker stats --no-stream "$(dc ps -q core)"
 docker inspect --format '{{.State.OOMKilled}} {{.State.RestartCount}}' "$(dc ps -q core)"
 ```
 
-建议继续跟踪单进程内存和 cgroup 内存（包含页缓存）；Docker `mem_limit` 不是 RSS。压缩容器镜像主要节省磁盘和下载量，不能直接当作常驻内存的改善。与研究目录 `experiments/deploy/dp-25`、`dp-26` 的实验结果应分开存证。
+建议继续跟踪单进程内存和 cgroup 内存（包含页缓存）；Docker `mem_limit` 不是 RSS。压缩容器镜像主要节省磁盘和下载量，不能直接当作常驻内存的改善。与[部署研究](deployment-research.md)中的 DP-25、DP-26 历史组件结果应分开存证。
 
 ## 安全边界
 

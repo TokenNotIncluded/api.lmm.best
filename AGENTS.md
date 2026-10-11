@@ -27,6 +27,8 @@ before editing. Load only the skills needed for the task.
 | Publishing or reviewing a bounty | [Skill index](.agents/skills/README.md) |
 
 Commands use the repository root unless a command explicitly changes directory.
+Use the pinned tools in `mise.toml`: install with `mise install`, then run
+commands through `mise exec --`. The `justfile` also selects tools through mise.
 The frontend is `apps/web`, not a root-level frontend directory. Keep app changes,
 translation changes, and generated output limited to the requested scope.
 

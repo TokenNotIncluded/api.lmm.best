@@ -1,4 +1,4 @@
-set shell := ["bash", "-eu", "-o", "pipefail", "-c"]
+set shell := ["mise", "exec", "--", "bash", "-eu", "-o", "pipefail", "-c"]
 
 # Fresh-install WIP. No production promotion or automatic database setup.
 default:

@@ -9,15 +9,16 @@ model, payment or database migration paths are ready for production.
 | Selector | Installed program or data | Runtime dependency on another LMM package |
 | --- | --- | --- |
 | `core` | `/usr/bin/lmm-core` and optional service definition | None; PostgreSQL is configured separately |
-| `core-admin` | `/usr/bin/lmm-core-admin` | None; offline tool, not a daemon |
 | `extensions` | `/usr/bin/lmm-extensions` and external policy templates | None; remote core configured only when needed |
 | `cli` | `/usr/bin/lmm` | None |
 | `web` | `/usr/share/lmm-web/dist/` | None; no reverse proxy configuration is installed |
 
-The core archive still contains both Rust programs for portable use. Native
-packages split them, so the serving node need not install the administrator tool.
-Installing extensions does not install or restart core. No package installs a
-local PostgreSQL server, Docker, the user CLI or a language toolchain.
+The product has three executable programs: `lmm`, `lmm-core` and `lmm-extensions`.
+Database initialization and the first administrator are explicit `lmm-core init-db`
+and `lmm-core bootstrap-user` subcommands. They are never run during installation
+or ordinary service startup. Installing extensions does not install or restart
+core. Each package is independent; the user CLI is installed only by selecting
+`cli`. No package installs a local PostgreSQL server, Docker or a language toolchain.
 
 ## Distribution and architecture rules
 
@@ -59,8 +60,8 @@ python3 packaging/linux/build.py \
   --component core --format deb
 ```
 
-Repeat with `core-admin` using the same core archive, or with another component
-and its own archive. `--format rpm|apk|archlinux` changes the native format.
+Repeat with `extensions`, `cli` or `web` and its own archive.
+`--format rpm|apk|archlinux` changes the native format.
 `--release 2` changes the packaging revision without inventing a new source
 version. Prerelease labels `alpha`, `beta`, `rc` and `preview`, optionally followed
 by `.number`, are converted to each package manager's version rules. The original
@@ -79,6 +80,8 @@ The native formats are built by nFPM, not by a new in-house package encoder.
 Build output is unsigned by default. Sign with the approved distribution/repository
 key before publication. Do not teach production users to bypass signature checks;
 unsigned-install switches in tests are confined to disposable test containers.
+The CLI's Linux credential storage requires the user's Secret Service session;
+packaging a static executable does not provide a desktop session or keyring daemon.
 
 ## Installation does not activate services
 
@@ -120,7 +123,7 @@ python3 -B packaging/linux/test_native.py -v   # requires reviewed nFPM
 `test_build.py` uses synthetic native ELF fixtures to test packaging contracts,
 not product runtime behavior. `test_native.py` builds all formats, inspects DEB
 contents and checks repeatability. The read-only `linux-packages.yml` workflow
-builds actual core/extensions binaries for two architectures and tests package
+builds actual `lmm`, `lmm-core` and `lmm-extensions` binaries for two architectures and tests package
 installation in disposable distro containers. Record the exact run and CPU
 architecture before claiming any installation matrix passed. No release or
 production deployment is part of that workflow.

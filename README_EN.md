@@ -8,11 +8,11 @@
   <p><a href="README.md">简体中文</a> · <a href="README_EN.md">English</a></p>
 </div>
 
-The Rust core owns identity, permissions, billing and model routing. Go extensions hold separately updated business modules. The React console and CLI have separate builds.
+This branch has exactly three executable programs: the `lmm` client, the `lmm-core` Rust core and the `lmm-extensions` Go host. The React console has a separate static Web build.
 
 **This fresh-install microservice branch is WIP, not a deployable replacement for the existing site.** Passing module tests does not prove a complete model, payment or funds flow. There is no old-database import, automatic schema upgrade or legacy-server fallback.
 
-Initialize a new core database explicitly with `lmm-core-admin init-db`; normal startup does not create or alter tables.
+Initialize a new core database explicitly with `lmm-core init-db`; normal startup does not create or alter tables.
 
 ## Start here
 
@@ -20,14 +20,20 @@ Initialize a new core database explicitly with `lmm-core-admin init-db`; normal 
 | --- | --- |
 | Understand ownership and remaining work | [Architecture and status](docs/core-migration.md) |
 | Start an isolated environment | [Docker development stack](deployment/docker/README.md) |
-| Develop and test | [Development](docs/development.md) |
+| Develop and test with mise | [Development](docs/development.md) |
 | Configure user, privacy and refund policies | [Policy templates](docs/legal/README.md) |
 | Build and inspect separate archives | [Packaging and distribution](docs/release-architecture.md) |
 | Find detailed contracts and historical material | [Documentation](docs/README.md) |
 
 ## Layout and runtime boundaries
 
-`apps/lmm-core` is the Rust core; `apps/lmm-extensions` is the Go host; `apps/web` is the frontend; `apps/lmm` is the CLI. `contracts` holds cross-process contracts, `config/legal` holds editable policy drafts, and `packaging/distribution.json` defines archive contents.
+| Program | Source | Responsibility |
+| --- | --- | --- |
+| `lmm` | `apps/lmm` | User client that connects to services and calls their available features |
+| `lmm-core` | `apps/lmm-core` | Identity, permissions, billing, ledger and model routing; `init-db` and `bootstrap-user` are subcommands of this same program |
+| `lmm-extensions` | `apps/lmm-extensions` | Business extensions for the store, tools, assistant, operations and payment adapters |
+
+`apps/web` produces a separate static Web archive served by a Web server. It does not add an executable program. `contracts` holds cross-process contracts, `config/legal` holds editable policy drafts, and `packaging/distribution.json` defines archive contents.
 
 Core and extensions use separate Compose projects. Updating extensions must not restart the core or its database. A responding health route does not make model routes ready. Public policy reads do not need the core. Other business flows still require explicit integration and acceptance tests.
 

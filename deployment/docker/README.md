@@ -60,7 +60,7 @@ de() {
 dc build core
 dc up -d --wait core-db
 # 一次性空库安装；不是可重复执行的升级命令。
-dc --profile tools run --rm -T core-admin init-db
+dc --profile tools run --rm -T core-init
 dc up -d core
 de up -d --build extensions
 curl -f http://127.0.0.1:8080/health/live
@@ -69,7 +69,7 @@ curl -f http://127.0.0.1:8081/health/live
 curl -i http://127.0.0.1:8080/health/ready
 ```
 
-`init-db` 在一个事务中安装 `schema/identity.sql`。数据库已有应用对象时拒绝，第二次执行同样拒绝，不会删表或清空数据。普通启动只检查结构版本和定义指纹，不自动安装、升级或修复。
+`core-init` 是一次性 Compose 工具服务，调用同一个 `lmm-core init-db`，不是第四个程序。`init-db` 在一个事务中安装 `apps/lmm-core/schema/identity.sql`，不安装计费或路由草稿。数据库已有应用对象时拒绝，第二次执行同样拒绝，不会删表或清空数据。普通启动只检查结构版本和定义指纹，不自动安装、升级或修复。
 
 数据库只加入内部 `identity` 网络，不映射宿主端口。只有核心和离线管理命令可以访问。Go 不获得数据库网络、密码或数据卷。开发 Compose 使用单一数据库角色；生产权限拆分仍需专门实现和验证，不能把此配置当成已经完成最小权限部署。
 

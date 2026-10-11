@@ -10,11 +10,15 @@ The source is [logo-geometry.json](.github/assets/logo-geometry.json). The full 
 
 ## README
 
-Use a compact, centered logo, the project name, one descriptive line, four useful badges, and native text links. Chinese is the default README; English is available in `README_EN.md`. Both versions must describe the same features and limits.
+Use a compact, centered logo, the project name, one descriptive line, useful badges, and native text links. Chinese is the default README; English is available in `README_EN.md`. Both versions must describe the same features and limits.
 
-The badges show the actual CI workflow, separate Go and Web releases, and this project's AGPL license. Do not use a general latest-release badge that can confuse Go and Web. Do not add a container badge while the documented checkout lacks Dockerfiles.
+The WIP badges link to its microkernel checks and this project's AGPL license.
+They do not advertise a production release or completed deployment. Any future
+release badge must identify the independently versioned component.
 
-Below the header, show the purpose, core features, live site, local start, deployment choices, documentation, and contribution and license details. Keep detailed environment and recipe notes in [the development guide](docs/development.md). Use GitHub-native text and tables; do not put essential instructions inside an image.
+Below the header, show the purpose, WIP status, runtime boundaries, canonical
+development and deployment guides, and contribution and license details.
+Keep detailed environment and recipe notes in [the development guide](docs/development.md). Use GitHub-native text and tables; do not put essential instructions inside an image.
 
 TokenRouter is the information-layout reference. No reference-project artwork, screenshots, feature claims, or license text are copied.
 

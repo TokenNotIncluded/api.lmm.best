@@ -4,6 +4,12 @@ Fresh-install extension code for `wip/rust-core-go-extensions`, based on
 `b83723cdac3f148140806b8025cb5360a2f6a26d`. No legacy migration, production
 registration, public protocol change or deployment is included.
 
+The current [host entry point](../../app/run.go) registers only `identity`;
+`store` and `support` are not mounted. The interfaces below describe module
+code awaiting assembly, not an available shop service or completed Rust funds
+integration. [Support](../support/README.md) retains its own storage and authority
+boundary.
+
 ## Integration boundary
 
 `Service` implements the host's `Name() string` / `Handler() http.Handler`
@@ -25,7 +31,7 @@ have no core database credentials, grants, foreign keys or network access.
 The SQL driver belongs to composition; these modules depend only on `database/sql`.
 There is no global database, default database, startup DDL or fallback memory store.
 
-The default host supplies `/extensions/v1/store/*` and removes its service token.
+When registered, the host mounts `/extensions/v1/store/*` and removes its service token.
 Mutating/private endpoints require the separate `X-LMM-User-Credential` header.
 The Rust adapter accepts verified sessions only: the current protobuf has no
 commerce permission scopes for API keys, so all API keys fail closed.
@@ -85,7 +91,9 @@ This version supports one full refund decision per order, not partial refunds.
 
 `DisabledFunds` is the default, including a typed-nil dependency. Paid purchase,
 payment, refund and settlement return `payments_unavailable` (HTTP 503), never a
-fake receipt. No new money RPC or public protobuf is invented here.
+fake receipt. Paid purchase fails before reserving inventory. No new money RPC
+or public protobuf is invented here; core ledger code alone does not provide
+a working store funds adapter.
 
 Before enabling `Funds`, the Rust implementation MUST:
 
@@ -112,12 +120,40 @@ the same key and frozen payload. Unknown results return HTTP 202 with
 Known rejected operations are terminal under that key; they must not be retried
 under a fresh key to hide a rejected decision. New purchases need a new order key.
 
+## Legacy Web and historical contracts
+
+The [Web client](../../../../web/src/features/store/api.ts) still requests the
+old `/api/store` API. Its guest pickup/email, delivery templates, partial refunds,
+external gateways and analytics are not supplied by this module. Retained pages
+and tests do not establish backend integration or payment-provider acceptance.
+The [delivery parser](../../../../web/src/features/store/delivery-template.ts)
+interprets only a valid v1 envelope matching the frozen order template; other
+contents remain literal text. This is a legacy Web contract, not a new delivery API.
+
+[Extore mapping](../../../../web/src/features/store/extore-import-protocol.ts)
+remains a one-time draft import of one explicitly enabled variant: preserve the
+source reference price and currency, leave the actual sale price for the merchant,
+and never infer stock or publish automatically. Missing visibility is private;
+missing variant identity or enabled status permits preview only. This branch has
+no Extore authorize/catalog backend. Browser callback cleanup does not prove
+server or proxy logs are protected, and a frontend update cannot enable the flow.
+
+Legacy `merchant_store_*` schemas, writer floors, native startup baselines and
+provider procedures are [fixed historical sources](https://github.com/TokenNotIncluded/api.lmm.best/tree/c33503f212cbcfab0695d554f57b5153cd4f3bfd/docs),
+with their scope explained in the [archive guide](../../../../../docs/archive.md).
+They do not authorize this branch to upgrade an old database or recover a running
+service. Existing paid orders, delivery and refund obligations retain their frozen
+original evidence; unknown payment results do not justify releasing holds or
+sending a new money-moving request.
+
 ## Storage choices
 
 Each entity has its own table in `lmm_store`: shops, products, variants, orders,
 commands, stock_movements and money_operations. The row payload is JSONB, with a
 shop-scoped primary key, explicit inventory/order checks, and query indexes.
 This keeps immutable order snapshots separate from mutable catalog records.
+The schema is for a new extension database; it does not migrate old
+`merchant_store_*` tables.
 Only whitelisted table names can reach the SQL adapter. All SQL values are bound.
 Historical command/operation records must not be pruned while retries are possible.
 The test memory repository exists only in `_test.go`.

@@ -1,4 +1,4 @@
-//! Test-only producer/server. Never built into lmm-core or lmm-core-admin.
+//! Test-only producer/server. Never built into the lmm-core executable.
 use lmm_core::{
     events::{EventStore, NewEvent, SCHEMA},
     identity::IdentityStore,

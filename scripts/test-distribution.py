@@ -31,7 +31,7 @@ class DistributionTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         self.inputs = self.root / "inputs"
         self.inputs.mkdir()
-        for name in ("lmm-core", "lmm-core-admin", "lmm-extensions", "lmm"):
+        for name in ("lmm-core", "lmm-extensions", "lmm"):
             (self.inputs / name).write_bytes(elf())
         (self.inputs / "index.html").write_text("<!doctype html><title>Test fixture</title>")
 
@@ -43,12 +43,15 @@ class DistributionTests(unittest.TestCase):
         return DIST.build(**args)
 
     def test_each_component_has_exact_binaries_and_licenses(self):
-        for component, expected in [("core", 2), ("extensions", 1), ("cli", 1), ("web", 0)]:
+        expected_binaries = {"core": {"bin/lmm-core"}, "extensions": {"bin/lmm-extensions"},
+                             "cli": {"bin/lmm"}, "web": set()}
+        for component, expected in expected_binaries.items():
             with self.subTest(component=component):
                 archive = self.build(component)
                 manifest = DIST.verify(archive, SHA)
                 files = manifest["files"]
-                self.assertEqual(sum(name.startswith("bin/") for name in files), expected)
+                self.assertEqual({name for name in files if name.startswith("bin/")}, expected)
+                self.assertEqual({name for name, info in files.items() if info["mode"] == 0o755}, expected)
                 for name in ("LICENSE", "NOTICE", "THIRD-PARTY-LICENSES.md"):
                     self.assertIn(name, files)
                 self.assertNotIn("lmm-api-web.install", files)
@@ -73,7 +76,7 @@ class DistributionTests(unittest.TestCase):
         self.assertEqual(first.read_bytes(), original)
 
     def test_missing_binary_and_wrong_architecture(self):
-        (self.inputs / "lmm-core-admin").unlink()
+        (self.inputs / "lmm-core").unlink()
         with self.assertRaises(OSError):
             self.build("core")
         (self.inputs / "lmm-extensions").write_bytes(elf(183))
@@ -146,6 +149,33 @@ class DistributionTests(unittest.TestCase):
                     entry.type, entry.linkname = tarfile.SYMTYPE, "/etc/passwd"
                     target.addfile(entry)
             with self.subTest(change=change), self.assertRaises(ValueError):
+                DIST.verify(path)
+
+    def test_only_three_product_executables_are_declared(self):
+        spec = json.loads((ROOT / "packaging/distribution.json").read_text())
+        self.assertEqual(set(spec["components"]), {"core", "extensions", "cli", "web"})
+        self.assertEqual([name for component in spec["components"].values()
+                          for name in component["binaries"]], ["lmm-core", "lmm-extensions", "lmm"])
+
+    def test_manifest_cannot_authorize_an_extra_executable(self):
+        original = self.build("core")
+        for name in ("bin/lmm-core-admin", "bin/lmm-api-deploy", "bin/lmm-api-go-deploy", "tools/deploy"):
+            path = self.root / (name.replace("/", "-") + ".tar.gz")
+            data = elf()
+            with tarfile.open(original) as source, tarfile.open(path, "w:gz") as target:
+                manifest = json.load(source.extractfile("MANIFEST.json"))
+                manifest["files"][name] = {"sha256": hashlib.sha256(data).hexdigest(),
+                                           "size": len(data), "mode": 0o755}
+                for entry in source:
+                    payload = source.extractfile(entry).read()
+                    if entry.name == "MANIFEST.json":
+                        payload = (json.dumps(manifest) + "\n").encode()
+                        entry.size = len(payload)
+                    target.addfile(entry, io.BytesIO(payload))
+                entry = tarfile.TarInfo(name)
+                entry.mode, entry.size = 0o755, len(data)
+                target.addfile(entry, io.BytesIO(data))
+            with self.subTest(name=name), self.assertRaisesRegex(ValueError, "executable"):
                 DIST.verify(path)
 
     def test_resource_manifest_only_contains_existing_reviewed_files(self):

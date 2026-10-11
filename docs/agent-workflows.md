@@ -21,10 +21,11 @@
 | 根目录命令 | [justfile](../justfile)、[package.json](../package.json) |
 | 前端命令与依赖 | [apps/web/package.json](../apps/web/package.json) |
 | 本地环境与端口 | [开发指南](development.md) |
-| CI、签名发布与部署 | [Actions 说明](ci-workflow-layout.md)、[Docker 开发栈](../deployment/docker/README.md)、[独立分发](release-architecture.md) |
+| 检查、预览构建与安装边界 | [Actions 说明](ci-workflow-layout.md)、[Docker 开发栈](../deployment/docker/README.md)、[独立分发](release-architecture.md) |
 | 翻译同步的实际行为 | [sync-i18n.mjs](../apps/web/scripts/sync-i18n.mjs) |
 
-除命令明确切换目录外，均从仓库根目录执行。应用前端位于 `apps/web`。
+除命令明确切换目录外，均从仓库根目录执行，使用开发指南中的 mise 工具链。应用前端位于 `apps/web`。
+本分支只有 `lmm`、`lmm-core` 和 `lmm-extensions` 三个可执行程序；前端输出静态 Web 包。核心初始化使用 `lmm-core init-db`，客户端不承载旧单体部署引擎。当前分发工作流只生成预览产物，旧站点的发布与部署流程已从本分支退役。
 不要把组件包内命令直接当成根目录命令，也不要通过更新依赖来修复文档路径。
 
 ## 按改动选择检查

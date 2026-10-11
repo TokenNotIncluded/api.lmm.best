@@ -1,170 +1,154 @@
 # Payment money contract
 
-This document defines the units used by wallet top-ups and subscription payments. A bare number or `$` symbol is not a sufficient money type.
+This is the financial safety boundary for the fresh-install microservice WIP, not
+an assertion that payments are enabled. Rust owns identity, authorization, payer
+selection, balances and ledger receipts. Go owns provider orders, evidence and
+module-local business state; it never chooses credit amounts or accesses the core
+database. The assembled Go host registers only `identity`; the core still keeps
+public billing/model readiness unavailable. See [architecture](core-migration.md)
+and the [payment module](../apps/lmm-extensions/internal/modules/payments/README.md).
 
-## Dimensions
+## Units and compatibility
 
-| Name | Meaning | Unit |
-| --- | --- | --- |
-| `credits` (`q`) | Integer wallet ledger and smallest balance unit | credit |
-| `credits_per_usd` (`K`) | Persisted, immutable ledger denomination | credit / real USD |
-| `cny_per_usd` (`R`) | Live operator-configured real-fiat FX rate | CNY / USD |
-| `legacy_batch` (`P`) | Compatibility input for old top-up and price tables | legacy pricing unit |
-| `QuotaPerUnit` (`Q`) | Retained conversion of a legacy batch to credits | credit / legacy pricing unit |
-| `settlement_amount` | Amount sent to and verified from a provider | real ISO fiat |
-| `price_multiplier` | Group, channel, tier, or coupon adjustment | dimensionless |
+A bare number or `$` symbol is not a money type. Every boundary must identify its
+unit, currency, scale and protocol version.
 
-Credits are independent of model tokens. There is no platform dollar, and one CNY is never defined to be one USD. The platform contract is always 1 USD = 500000 credits. Fiat FX applies only when converting between USD and CNY.
+| Value | Meaning |
+| --- | --- |
+| Legacy Web `CREDIT` | Integer raw wallet credits, historically 500000 credits per USD. Not model tokens or legacy batches. |
+| Current core `credit_500k_usd` | The unit currently declared by Rust billing, the ledger schema and Protobuf: 500000 integer units per USD. |
+| Provider `amount_minor` | Integer smallest units of the explicitly named ISO fiat currency; not wallet credits. |
+| Fiat FX and price multipliers | Separate conversion/pricing policy, never a new ledger denomination. |
 
-Initialization requires `CreditsPerUSD`, `QuotaPerUnit`,
-`LegacyPricingQuotaPerUnit`, and `PublicCreditsPerUSD` to be fixed at 500000.
-It persists `K = 500000`, independently of `R` and
-`TopUpPlatformUnitsPerCNY`. CREDIT display uses the exact integer wallet balance;
-`PublicCreditsPerUSD` is a compatibility option fixed at 500000, not a second
-adjustable denomination. Existing non-500000 anchors fail startup verification
-and require an explicit audited credit-balance migration. Initialization never
-silently rewrites user balances, token limits, subscription quotas, pending
-orders, or historical prices.
+The browser declaration does not authorize a core monetary operation. Its unit
+must match the explicit core type and versioned protocol. Any boundary with a
+different unit requires a validated, exact adapter; never pass an unchanged integer
+between scales or infer a conversion from an untyped field.
 
-To correct the historical 1 CNY = 1 USD recharge convention, divide affected
-remaining integer credit balances by the explicitly selected migration FX rate
-(for example 6.8), using a documented integer rounding rule. The integer ledger
-must actually change; relabeling fiat or changing `K` is not a correction. Such a
-migration needs an idempotent journal, a snapshot of affected balances, writer
-quiescence and cache invalidation. Paid order and historical usage snapshots
-remain historical evidence. Group multipliers are a separate policy change.
+Amounts and arithmetic must remain exact integers or decimals, with checked
+bounds and overflow. Do not pass 64-bit values beyond JavaScript's exact integer
+range through `Number`. Display currency, language, FX, model tokens, coupons and
+recharge prices never alter the ledger unit. USD and CNY totals are kept separate.
 
-An absent or invalid denomination prevents financial operations; it never
-implies 1:1 fiat. Migration verification is read-only; initialization requires
-migration apply.
+This branch installs empty databases; it does not run the retired Go balance or
+subscription migrations. Historical corrections require separately authorized
+scope, snapshots, reviewed integer rounding, writer quiescence, durable duplicate
+protection and cache invalidation. Do not relabel balances, alter the denomination
+or rewrite paid orders, prices or usage history to simulate a correction. Missing
+or inconsistent calibration blocks financial operations. Historical procedures
+remain in the [archive](archive.md).
 
-```text
-USD = q / K
-CNY = q / K * R
-```
+## Legacy Web input boundary
 
-Display currency is a separate per-account preference: CREDIT, CNY, USD, or automatic. Automatic chooses CNY for Chinese and USD for English; a manual preference survives language changes. Settlement currency remains a real fiat ISO code. Changing display units changes neither credits nor the payment invoice.
+The retained Web wallet sends `{amount:q,amount_unit:"CREDIT"}` to
+`/api/user/topup/currency/v2/` quote, checkout and discount-validation routes.
+These are legacy frontend compatibility calls, not enabled native core payment
+routes. A missing route or capability must disable checkout rather than fall back
+to an endpoint that might interpret `q` as legacy batches or another scale.
 
-## Wallet top-up
+`X-LMM-Credit-Unit: 500000` declares that browser input contract; it is not an
+identity or authorization credential. It never rescales request bodies. An input
+unit mismatch or an uncertain mutation must not trigger automatic replay.
 
-For a top-up that grants `q` credits before a dimensionless price multiplier `M`:
+The selected amount, payment method, discount code and input revision bind the
+quote and confirmation. Changing any of them invalidates the old confirmation.
+Use current authoritative limits and a matching quote; unavailable or failed
+validation is not permission to pay. The server independently recalculates and
+enforces every amount, provider and promotion limit. A top-up navigation link
+only prefills a form; it does not place an order or grant value.
 
-```text
-base_usd = q / K
-net_usd  = base_usd * M
-```
+## Payment evidence, receipts and refunds
 
-Provider settlement is then a real-fiat conversion:
+Before provider checkout, persist the economic account and actor, exact credited
+amount and unit, expected settlement amount and ISO currency, provider, merchant,
+environment, product/store binding, stable order key and applied pricing policy.
+Callbacks can grant value only after independent verification against that frozen
+intent. Go cannot assert verification with a boolean, service token or supplied
+user ID. A callback acknowledgement or locally queued job is not a posted credit.
 
-```text
-Epay (CNY)           = net_usd * R CNY
-USD provider         = net_usd USD
-```
+Confirm browser payment by the exact order ID in the authenticated owner's order
+history. A larger balance, similar amount, newer history ID or checkout URL
+parameter is not payment evidence. Credentials, provider signatures and bearer
+links never belong in public status, logs or presentation receipts.
 
-A quote must persist all of the following before redirecting to a provider:
+An exact retry retains its authenticated scope, original key and complete payload;
+a changed request under that key is rejected. Missing responses and timeouts may
+mean the commit succeeded. Query/reconcile that operation before any new attempt;
+do not invent a fresh debit, refund, release or compensating transfer. Validate
+receipt identity, unit, committed state and original-operation binding. A pending
+result is a recovery handle, not usable value.
 
-- credited integer credits;
-- expected settlement amount in integer micros (or provider minor units);
-- uppercase ISO settlement currency;
-- provider, product/store binding, and stable trade number;
-- applied dimensionless multipliers.
+Refunds use the captured charge, fiat conversion and entitlement snapshot, and
+return value only to the original economic payer. Enforce the cumulative original
+amount cap. Hold funds before a provider refund; independently verified terminal
+success commits it, verified terminal failure releases the hold. Timeout, missing
+callback or unsigned success proves neither. A pre-credit refund must fence later
+stale credit replay. Ledger refund and external provider payout are separate steps.
 
-Callbacks grant value only after matching the persisted amount, currency, provider, and product binding.
+## Funding, transfers and subscription lifecycle
 
-### Frontend quote display
+Store actor, Key owner and payer separately. A personal Key defaults to its own
+account; a team Key uses only its team. Current membership and explicit spending
+grants are required. Platform roles, host credentials and tool installation do
+not grant authority to spend someone else's funds.
 
-The new wallet keeps its amount as an integer credit count and sends
-`{amount:q,amount_unit:"CREDIT"}` only to the distinct
-`/api/user/topup/currency/` quote, checkout and discount-validation routes.
-An older server returns 404 for these routes; the client must not fall back to
-an older route that could interpret the same integer as legacy batches. The
-canonical route accepts only an ordinary decimal integer within the safe wallet
-range, without fractions, strings or exponents. Fiat entry uses the decimal
-inverse of `K` and `R`; changing the display unit preserves the chosen integer.
+Fix the payer, price version, budget window and funding components when accepting
+a request. Retries, streaming completion, callbacks and refunds retain them even
+after membership or Key changes. Select only explicitly authorized sources; an
+unknown result, permission failure or database error cannot fall back to another
+payer. One request does not split payment across unrelated accounts.
 
-`/api/user/topup/info` retains compatibility fields and publishes versioned raw
-`credit_amount_options`, `credit_discount`, provider credit minimums and
-per-method `min_topup_credit` / `max_topup_credit`. New clients require these
-authoritative values and disable arbitrary-amount checkout when they are
-unavailable. Older routes still accept their explicit USD, CNY, CREDIT or LEGACY
-units and old omitted-unit behavior, including TOKENS configuration. Existing
-presets and coupon thresholds retain their original qualification; canonical
-TOKENS qualification compares raw credits directly.
+Authorization, applicable budgets, pending reservations, ledger movements and
+audit/outbox records need a consistent transaction boundary. Leave/rejoin, role
+changes and new Keys cannot reset accumulated budget. Do not hold database
+transactions over provider calls or streams. A dependency outage must fail closed,
+never allow an uncharged request or manufacture a zero balance.
 
-`max_topup` is a credited-USD limit, not an amount of platform credit. The Go
-backend derives `max_topup_amount` in the units accepted by the top-up request,
-using the fixed credit denomination and the request's explicit amount unit.
-Duplicate payment types share their strictest configured limit. Custom gateway
-pricing, discounts, and display currencies do not change this ceiling.
-The new frontend compares integer credits with the authoritative credit limits.
-Legacy `max_topup_amount` remains a compatibility projection for older clients;
-it is not an input to the canonical wallet. Backend quote and checkout still
-enforce every configured and provider limit independently of the UI.
+Transfer debit, claim/cancel transition, credit/refund and receipt commit together;
+repeat requests cannot move funds twice. Links and QR codes are bearer credentials:
+keep secrets in URL fragments and request bodies, never public query strings or
+third-party QR services. Ordinary GET must not claim. Tool writes require the exact
+active grant and explicit confirmation bound to actor, auth version, tool/version,
+request and amount, rechecked on dispatch/resume. Resume the original uncertain
+request. Retain financial history and tombstones; do not delete or refund records
+outside the state machine.
 
-Standard recharge pricing uses the fixed denomination and current real-fiat FX.
-Explicit custom gateway prices and promotions remain separate invoice pricing;
-they can make the amount paid differ from the credited balance value. The
-confirmation shows both values and the settlement currency. Neither a discount
-nor a custom gateway price changes the ledger denomination or model USD prices.
+Subscription orders freeze plan, currency, entitlement and provider bindings.
+Renewals have unique event/transaction keys and recorded periods; failed or
+`past_due` payments grant no new period. Cancel-at-period-end preserves paid access.
+Immediate cancellation/refund follows verified evidence and policy. Do not reprice
+existing orders from today's plan, FX or settings. Round only at the defined
+provider boundary and persist the exact rounded amount to verify later.
 
-An amount, payment-method, or discount-code change invalidates pending discount
-validation and payment confirmation. A successful response for an older input
-must not authorize confirmation for the current input. Checkout still recalculates
-and enforces the payment rules on the server.
+## Pricing, rewards and safety review
 
-Checkout-link discounts are validated against the amount, payment method, code,
-and current input revision. Changing payment methods revalidates the discount;
-confirmation waits for the matching discounted quote. A failed validation or
-quote unlocks the code for editing and manual retry without an automatic retry
-loop. Normalizing a valid code must not start a duplicate validation.
+Price reads and unchanged saves preserve stored bytes, expressions and captured
+calibration. Missing historical calibration is unknown, not permission to use
+current values. Monetary edits require an explicit unit/version, selective keys
+and a revision check; stale revisions need a fresh read, not a blind overwrite or
+USD fallback to a legacy endpoint. Every writer respects exact model-price locks.
+Validate complete committed snapshots and requested lock state; malformed replies
+or transport errors do not prove rollback or authorize a stale fallback.
 
-Homepage purchase actions follow the server's developer-access decision. Pending
-accounts continue to access review; approved accounts can enter the wallet.
-Registration links wait for live registration capabilities. Payment does not
-grant developer access, and the pricing overview does not expose the protected
-model catalog before approval.
+Rewards need independently verified eligibility, a funded authorized treasury,
+durable entitlement uniqueness, bounded policy and a matching ledger receipt.
+Gifts, transfers and manual order completion are not proof of cash payment. Keep
+promised policy snapshots, append-only grants/reversals and first-payment markers;
+callbacks, refunds or appeals cannot silently reset eligibility. The promotions
+module's unavailable Rust reward adapter must remain closed until that authority
+exists; fake top-ups and generic transfers are not substitutes.
 
-## Subscription plans
+Risk scores and model confidence are review heuristics, not proof of abuse or
+authority to ban, change roles or move funds. Shared networks or ordinary language
+alone do not authorize sanctions. Recheck actor ownership, durable evidence and
+permissions for sensitive actions; keep protected-role boundaries and audit.
+Expose only owner-scoped, minimized/redacted data, never foreign private messages,
+identities or credentials. Review resets do not delete historical receipts.
 
-`SubscriptionPlan.PriceAmount` plus `SubscriptionPlan.Currency` is a real ISO-fiat list price. It is independent of top-up presets or promotional multipliers.
-
-Legacy version-0 plans were forcibly tagged `USD` while behaving like platform/CNY amounts. Startup migrates them once to `CNY` and sets `PriceCurrencyVersion=1`; explicitly created version-1 USD plans remain USD.
-
-For a plan priced `F USD`:
-
-```text
-Epay                 = F * R CNY
-Waffo/Pancake        = F USD
-Stripe/Creem (USD)   = F USD
-wallet balance       = F * K credits
-```
-
-For a CNY plan, wallet payment charges `F / R * K` credits. A wallet order captures the charged credits and the original plan/currency/entitlement snapshot. Refunds use that captured charge rather than today's FX or a changed plan. Paid legacy orders and all external payment snapshots remain unchanged.
-
-## Model prices and historical usage
-
-Model-price APIs and the new administrator pricing endpoints expose real USD with schema version 2. USD is the canonical price denomination; presentation can also show CNY or credits. Existing legacy maps, pricing expressions, locks, and in-flight snapshots remain byte-for-byte compatible with the previous backend. The compatibility scale is `S = K / Q`:
-
-```text
-true USD fixed/minute/tool price = legacy price / S
-true USD per million tokens     = ModelRatio * 1,000,000 / K
-```
-
-Completion, cache, audio, image, and group ratios remain dimensionless. Expressions receive a whole-expression conversion, rather than rewritten constants. Historical expressions use their captured `Q / K`; absolute historical prices without a captured basis are unavailable, while the billed integer credit total is always preserved.
-
-The new administrator editor uses separate versioned GET/validate/bulk routes with a revision check. It must not fall back to saving USD numbers through the old legacy option route. Reading and saving an unchanged price keeps the original stored bytes, avoiding a floating-point round-trip that could change the last charged credit.
-
-A pending subscription order stores an immutable plan/entitlement snapshot, expected settlement micros, ISO currency, provider product/price ID, and provider subscription ID. Provider callbacks and renewals must never re-price from mutable settings or a mutable plan row.
-
-## Recurring lifecycle
-
-- Initial successful settlement creates one local entitlement.
-- Every renewal payment has a provider event/transaction idempotency key and a recorded billing period.
-- Failed payments and `past_due` do not grant a new period.
-- Cancel-at-period-end retains already-paid access through the paid period.
-- Immediate cancellation/refund revokes only according to verified provider evidence and the product policy.
-- USD and CNY totals are grouped by ISO currency; they are never directly summed.
-
-## Rounding
-
-Business calculations use decimal arithmetic. Round only at the provider boundary using that currency's supported minor-unit policy, and persist the exact rounded amount that the callback must match.
+Content moderation defaults off and requires explicit published scope and policy.
+Failed, pending, partial or unreviewed content and model output cannot become a
+user violation or penalty. At most one explicitly configured, capped penalty may
+apply per original request; never create negative debt or collect a shortfall from
+future top-ups. Preserve deduplication, exact actual-charge receipts, human appeal,
+privacy and applicable notice requirements. These constraints do not enable the
+retired moderation or referral APIs in the current host.

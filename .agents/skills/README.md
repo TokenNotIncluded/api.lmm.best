@@ -9,7 +9,7 @@ reference document into each task.
 | Skill | Use it for |
 | --- | --- |
 | [docs-maintenance](docs-maintenance/SKILL.md) | Check README, docs, skills, source paths, and command examples. |
-| [deployment](deployment/SKILL.md) | Publish, deploy, upgrade, or recover the requested component. Production authorization is separate. |
+| [deployment](deployment/SKILL.md) | Build and verify packages for the three programs, review isolated installation and recovery. Production authorization is separate. |
 | [i18n-translate](i18n-translate/SKILL.md) | Add or change UI text and translations, including a single key. |
 | [shadcn-ui](shadcn-ui/SKILL.md) | Work on components, forms, themes, and responsive layouts. |
 | [vercel-react-best-practices](vercel-react-best-practices/SKILL.md) | Investigate React performance in this Rsbuild application. |

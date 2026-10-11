@@ -6,7 +6,7 @@ Use this document before opening a request in this repository.
 
 - Project overview and operations: [`README.md`](./README.md)
 - Bounty flow details: [`docs/open-source-bounties.md`](./docs/open-source-bounties.md)
-- Authentication and session behavior: [`docs/authentication.md`](./docs/authentication.md)
+- Authentication and session behavior: [`docs/core-identity.md`](./docs/core-identity.md)
 - Legal / policy: [`docs/legal`](./docs/legal)
 - Security incidents: [`SECURITY.md`](./SECURITY.md)
 

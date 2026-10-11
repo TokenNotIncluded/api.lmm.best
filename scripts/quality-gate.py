@@ -99,7 +99,7 @@ def sensitive(name: str) -> bool:
     leaf = PurePosixPath(name).name.lower()
     return (name.startswith(('.github/', '.quality/', 'scripts/', 'contracts/'))
             or leaf in {'justfile', 'package.json', 'cargo.toml', 'cargo.lock', 'go.mod',
-                        'go.sum', 'bun.lock', 'turbo.json', '.gitignore', '.gitattributes'}
+                        'go.sum', 'bun.lock', 'turbo.json', 'mise.toml', 'mise.lock', '.gitignore', '.gitattributes'}
             or any(word in leaf for word in ('test', 'spec', 'lint', 'baseline', 'coverage', 'tsconfig')))
 
 

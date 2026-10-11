@@ -2,7 +2,7 @@
 
 ## Scope and pinned sources
 
-This update changes plugin Git submodules and installer support, not the Go/Rust service or the unrelated `apps/coweft` application. All pins refer to committed source, not copied vendor directories.
+This update changes plugin Git submodules and installer support, not the Go/Rust service. All pins refer to committed source, not copied vendor directories.
 
 | Submodule | Provider version | Host target | Pinned revision |
 | --- | --- | --- | --- |

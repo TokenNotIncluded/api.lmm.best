@@ -202,6 +202,17 @@ def verify(archive: Path, revision: str | None = None) -> dict:
         raise ValueError("manifest identity does not match")
     if set(manifest["files"]) != set(files):
         raise ValueError("manifest inventory does not match")
+    spec = json.loads((ROOT / "packaging/distribution.json").read_text())
+    component = spec["components"].get(manifest["component"])
+    if (component is None or manifest["package"] != component["package"]
+            or manifest["platform"] not in component["platforms"]):
+        raise ValueError("manifest component or platform does not match")
+    suffix = ".exe" if manifest["platform"].startswith("windows-") else ""
+    binaries = {"bin/" + name + suffix for name in component["binaries"]}
+    if {name for name in files if name.startswith("bin/")} != binaries:
+        raise ValueError("archive executable inventory does not match the component")
+    if {name for name, (_, mode) in files.items() if mode == 0o755} != binaries:
+        raise ValueError("only component binaries may be executable")
     for name, (data, mode) in files.items():
         expected = manifest["files"][name]
         if expected != {"sha256": hashlib.sha256(data).hexdigest(), "size": len(data), "mode": mode}:

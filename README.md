@@ -8,11 +8,11 @@
   <p><a href="README.md">简体中文</a> · <a href="README_EN.md">English</a></p>
 </div>
 
-Rust 核心负责身份、权限、计费与模型路由。Go 扩展承载商店、工具、助手和支付等可独立更新的业务。React 控制台与 CLI 分别构建。
+本分支只有三个可执行程序：`lmm` 客户端、`lmm-core` Rust 核心、`lmm-extensions` Go 扩展。React 控制台单独构建为静态 Web 文件。
 
 **这是全新安装的微服务重构分支，仍为 WIP，不是现有网站的可部署替代品。** 模块测试通过，不代表整站调用、支付和资金链路已接通。不导入旧数据库，不自动升级表结构，不使用旧单体作为运行时回退。
 
-全新核心数据库须显式执行 `lmm-core-admin init-db`；普通启动不建表、不改表。
+全新核心数据库须显式执行 `lmm-core init-db`；普通启动不建表、不改表。
 
 ## 从这里开始
 
@@ -20,14 +20,20 @@ Rust 核心负责身份、权限、计费与模型路由。Go 扩展承载商店
 | --- | --- |
 | 了解边界与剩余工作 | [架构与状态](docs/core-migration.md) |
 | 启动隔离环境 | [Docker 开发栈](deployment/docker/README.md) |
-| 开发、测试 | [开发指南](docs/development.md) |
+| 使用 mise 开发、测试 | [开发指南](docs/development.md) |
 | 配置用户、隐私、退款协议 | [协议模板](docs/legal/README.md) |
 | 构建和检查分发包 | [打包与分发](docs/release-architecture.md) |
 | 查阅详细接口及历史资料 | [文档目录](docs/README.md) |
 
 ## 目录与运行边界
 
-`apps/lmm-core` 是 Rust 核心；`apps/lmm-extensions` 是 Go 扩展；`apps/web` 是前端；`apps/lmm` 是独立 CLI。`contracts` 保存跨进程契约，`config/legal` 保存可编辑协议草稿，`packaging/distribution.json` 定义各分发包的内容。
+| 程序 | 源码 | 职责 |
+| --- | --- | --- |
+| `lmm` | `apps/lmm` | 用户客户端，连接服务并调用已提供的功能 |
+| `lmm-core` | `apps/lmm-core` | 身份、权限、计费、账本与模型路由；`init-db` 和 `bootstrap-user` 也是这个程序的子命令 |
+| `lmm-extensions` | `apps/lmm-extensions` | 商店、工具、助手、运营与支付适配等业务扩展 |
+
+`apps/web` 输出独立的静态 Web 包，由 Web 服务器提供，不新增可执行程序。`contracts` 保存跨进程契约，`config/legal` 保存可编辑协议草稿，`packaging/distribution.json` 定义各分发包的内容。
 
 核心与扩展使用独立 Compose 项目。更新扩展不应重启核心或其数据库。核心健康接口可响应，不表示模型接口已就绪。当前公共协议读取无需核心服务；其他业务仍须逐项完成接入和验收。
 

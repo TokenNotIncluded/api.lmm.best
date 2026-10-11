@@ -58,6 +58,15 @@ class NativePackageTests(fixtures.PackageTests):
                 package = self.native(archive, fmt, self.work / (fmt + "-web"), "web")
                 self.assertGreater(package.stat().st_size, 0)
 
+    def test_cli_builds_in_every_format_without_server_files(self):
+        archive = self.archive("cli")
+        for fmt in PKG.FORMATS:
+            with self.subTest(fmt=fmt):
+                package = self.native(archive, fmt, self.work / (fmt + "-cli"), "cli")
+                info = json.loads(Path(str(package) + ".buildinfo.json").read_text())
+                self.assertEqual({p for p in info["files"] if p.startswith("/usr/bin/")}, {"/usr/bin/lmm"})
+                self.assertFalse(any(p.startswith("/etc/") or p.endswith(".service") for p in info["files"]))
+
 
 if __name__ == "__main__":
     unittest.main()

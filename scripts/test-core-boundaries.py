@@ -9,6 +9,15 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class CoreBoundaryTests(unittest.TestCase):
+    def test_mise_pins_match_component_toolchain_contracts(self):
+        tools = tomllib.loads((ROOT / "mise.toml").read_text())["tools"]
+        rust = tomllib.loads((ROOT / "apps/lmm-core/rust-toolchain.toml").read_text())["toolchain"]
+        package = json.loads((ROOT / "package.json").read_text())
+        self.assertEqual(tools["rust"]["version"], rust["channel"])
+        self.assertEqual(tools["rust"]["profile"], rust["profile"])
+        self.assertEqual(set(tools["rust"]["components"]), set(rust["components"]))
+        self.assertEqual(f"bun@{tools['bun']}", package["packageManager"])
+
     def test_retired_backends_and_migration_entry_points_are_absent(self):
         for name in ("apps/api-rust", "apps/extensions-go", "apps/core-rust", "apps/api-go", "apps/lmm-core/migrations",
                      "apps/lmm-extensions/model", "apps/lmm-extensions/controller", "apps/lmm-extensions/relay",
@@ -102,10 +111,19 @@ class CoreBoundaryTests(unittest.TestCase):
         runtime = (ROOT / "apps/lmm-core/src/identity/mod.rs").read_text()
         self.assertNotIn("MIGRATOR", runtime)
         self.assertNotIn("sqlx::migrate!", runtime)
-        admin = (ROOT / "apps/lmm-core/src/bin/lmm-core-admin.rs").read_text()
-        self.assertIn('"init-db"', admin)
+        admin = (ROOT / "apps/lmm-core/src/admin.rs").read_text()
+        self.assertIn("store.init_database()", admin)
         self.assertNotIn('"migrate"', admin)
-        self.assertNotIn("init_database", (ROOT / "apps/lmm-core/src/main.rs").read_text())
+        main = (ROOT / "apps/lmm-core/src/main.rs").read_text()
+        self.assertIn('Some("init-db")', main)
+        self.assertIn('Some("bootstrap-user")', main)
+        self.assertNotIn("init_database", main.split("async fn run_core()", 1)[1])
+
+    def test_core_management_shares_the_single_core_executable(self):
+        cargo = tomllib.loads((ROOT / "apps/lmm-core/Cargo.toml").read_text())
+        self.assertFalse(cargo["package"]["autobins"])
+        self.assertEqual(cargo["bin"], [{"name": "lmm-core", "path": "src/main.rs"}])
+        self.assertFalse((ROOT / "apps/lmm-core/src/bin/lmm-core-admin.rs").exists())
 
     def test_core_has_no_extension_startup_dependency(self):
         cargo = tomllib.loads((ROOT / "apps/lmm-core/Cargo.toml").read_text())

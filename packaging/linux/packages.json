@@ -4,10 +4,35 @@
   "maintainer": "LIghtJUNction <support@lmm.best>",
   "homepage": "https://github.com/TokenNotIncluded/api.lmm.best",
   "packages": {
-    "core": {"name": "lmm-core", "archive": "core", "binaries": ["lmm-core"], "service": true},
-    "core-admin": {"name": "lmm-core-admin", "archive": "core", "binaries": ["lmm-core-admin"], "service": false},
-    "extensions": {"name": "lmm-extensions", "archive": "extensions", "binaries": ["lmm-extensions"], "service": true},
-    "cli": {"name": "lmm", "archive": "cli", "binaries": ["lmm"], "service": false},
-    "web": {"name": "lmm-web", "archive": "web", "binaries": [], "service": false}
+    "core": {
+      "name": "lmm-core",
+      "archive": "core",
+      "binaries": [
+        "lmm-core"
+      ],
+      "service": true
+    },
+    "extensions": {
+      "name": "lmm-extensions",
+      "archive": "extensions",
+      "binaries": [
+        "lmm-extensions"
+      ],
+      "service": true
+    },
+    "cli": {
+      "name": "lmm",
+      "archive": "cli",
+      "binaries": [
+        "lmm"
+      ],
+      "service": false
+    },
+    "web": {
+      "name": "lmm-web",
+      "archive": "web",
+      "binaries": [],
+      "service": false
+    }
   }
 }

@@ -73,14 +73,16 @@ jobs:
           node --test scripts/workflow-topology.test.mjs
           python3 -B packaging/linux/test_native.py -v 2>&1 | tee out/evidence/native-tests.log
           go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color .github/workflows/linux-packages.yml
-      - name: Build real core and extension binaries for this architecture
+      - name: Build the three product binaries for this architecture
         run: |
           target_env=$(printf '%s' "$RUST_TARGET" | tr '[:lower:]-' '[:upper:]_')
           export "CARGO_TARGET_${target_env}_LINKER=musl-gcc"
-          cargo +1.99.0 build --manifest-path apps/lmm-core/Cargo.toml --locked --release --target "$RUST_TARGET" --bins
-          mkdir -p out/core out/extensions
+          export "CC_${RUST_TARGET//-/_}=musl-gcc"
+          cargo +1.99.0 build --manifest-path apps/lmm-core/Cargo.toml --locked --release --target "$RUST_TARGET" --bin lmm-core
+          cargo +1.99.0 build --manifest-path apps/lmm/Cargo.toml --locked --release --target "$RUST_TARGET" --bin lmm
+          mkdir -p out/core out/extensions out/cli
           cp "apps/lmm-core/target/$RUST_TARGET/release/lmm-core" out/core/
-          cp "apps/lmm-core/target/$RUST_TARGET/release/lmm-core-admin" out/core/
+          cp "apps/lmm/target/$RUST_TARGET/release/lmm" out/cli/
           (cd apps/lmm-extensions && CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" \
             go build -mod=readonly -trimpath -ldflags='-s -w' -o ../../out/extensions/lmm-extensions ./cmd/extensions)
       - name: Build verified source archives and native packages
@@ -88,14 +90,14 @@ jobs:
           revision=$(git rev-parse HEAD)
           SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)
           export SOURCE_DATE_EPOCH
-          for component in core extensions; do
+          for component in core extensions cli; do
             python3 scripts/build-distribution.py build --component "$component" \
               --version 0.1.0-preview --revision "$revision" --platform "linux-$ARCH" --input "out/$component"
           done
-          for component in core core-admin extensions; do
-            source_component=$component
-            if [[ "$component" == core-admin ]]; then source_component=core; fi
-            archive="out/distributions/lmm-${source_component}-0.1.0-preview-linux-${ARCH}.tar.gz"
+          for component in core extensions cli; do
+            package="lmm-$component"
+            if [[ "$component" == cli ]]; then package=lmm; fi
+            archive="out/distributions/${package}-0.1.0-preview-linux-${ARCH}.tar.gz"
             digest=$(sha256sum "$archive" | cut -d ' ' -f 1)
             for format in deb rpm apk archlinux; do
               for release in 1 2; do

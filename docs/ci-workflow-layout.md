@@ -11,7 +11,8 @@
 | --- | --- |
 | [ci.yml](../.github/workflows/ci.yml) | 手动诊断；调用微服务检查，并检查前端和翻译。 |
 | [core-protocol.yml](../.github/workflows/core-protocol.yml) | 手动、可复用及指定 WIP 路径触发；检查真实 Rust/Go 实现、协议与一次性数据库。 |
-| [microservice-distribution.yml](../.github/workflows/microservice-distribution.yml) | 手动或复用，生成独立预览包；不发布 Release，不部署。 |
+| [microservice-distribution.yml](../.github/workflows/microservice-distribution.yml) | 手动或复用，生成三个程序与静态 Web 的独立预览归档；不发布 Release，不部署。 |
+| [linux-packages.yml](../.github/workflows/linux-packages.yml) | 构建三个程序的原生 Linux 预览包，并在一次性容器中检查安装、升级、运行与卸载；不发布或部署。 |
 | [store-claim-refund-review.yml](../.github/workflows/store-claim-refund-review.yml) | 手动；复用当前微服务检查，保留商店前端及浏览器回归。旧单体用例仍在 main。 |
 
 检查成功、失败、取消和未运行项必须分别记录。指定路径的触发规则不代表
@@ -20,9 +21,9 @@
 
 ## 发布与生产边界
 
-[Web 发布](../.github/workflows/release-web.yml)与
-[Web 部署](../.github/workflows/deploy-web-frontend.yml)仍是独立手动入口。
-它们不是变基或测试的后续步骤；本 WIP 不能据此替换线上服务。
+旧站点的 Web 发布、部署工作流和专用包装链路已从本分支退役。
+当前工作流生成预览包和检查证据，不安装到现有主机，也不替换线上服务。
+历史发布与恢复说明保留在[固定版本的历史入口](archive.md)。
 微服务包的支持范围、校验与限制见[打包与分发](release-architecture.md)。
 
 真实测试记录必须绑定实际源码、命令、退出码与日志。保留

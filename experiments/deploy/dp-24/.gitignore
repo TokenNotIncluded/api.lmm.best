@@ -1,7 +1,0 @@
-results/
-__pycache__/
-*.pyc
-*.key
-*.pem
-policy.test
-.gocache/

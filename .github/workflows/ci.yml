@@ -49,9 +49,7 @@ jobs:
           bun run --filter @lmm/web typecheck
 
       - name: Test web workspace
-        run: |
-          bun run --filter @lmm/web test
-          node --test scripts/service-unavailable.test.mjs
+        run: bun run --filter @lmm/web test
 
       - name: Human-support confirmation regressions
         working-directory: apps/web

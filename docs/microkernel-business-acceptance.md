@@ -10,4 +10,4 @@ The old single-server qualification tests cannot execute after their database, r
 
 Current executable coverage is the Rust identity/account schema and authorization tests, Go host/client tests, shared Protobuf contracts and Docker process-isolation tests. It is not a complete store, payment, billing or streaming qualification.
 
-The retired Go-only portions of the CoWeft, CLI OAuth, editor/provider registration, profile aggregation, wallet and tool-market workflows have also been removed. Their retained client/frontend checks remain useful but do not verify a replacement identity or financial backend. Native Rust OAuth and each future Go module need new executable backend acceptance tests.
+The retired Go-only portions of the CLI OAuth, editor/provider registration, profile aggregation, wallet and tool-market workflows have also been removed. Their retained client/frontend checks remain useful but do not verify a replacement identity or financial backend. Native Rust OAuth and each future Go module need new executable backend acceptance tests.

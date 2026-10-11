@@ -9,8 +9,7 @@
     "core": {
       "package": "lmm-core",
       "binaries": [
-        "lmm-core",
-        "lmm-core-admin"
+        "lmm-core"
       ],
       "platforms": [
         "linux-amd64",

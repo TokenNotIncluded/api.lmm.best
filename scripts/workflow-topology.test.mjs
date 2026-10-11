@@ -8,23 +8,26 @@ const workflow = (name) => read(`.github/workflows/${name}.yml`);
 
 // Source contracts complement actionlint and runtime tests. They do not assert
 // that unimplemented business modules are ready or that release is authorized.
-test('backend and release workflows do not have server access', () => {
+test('current workflows preserve preview artifacts without publishing or server access', () => {
   const files = readdirSync(new URL('.github/workflows/', root))
     .filter((name) => /\.ya?ml$/.test(name));
-  for (const name of ['ci.yml', 'core-protocol.yml', 'release-web.yml', 'server-release-qualification.yml']) {
+  for (const name of ['ci.yml', 'core-protocol.yml', 'microservice-distribution.yml', 'server-release-qualification.yml']) {
     assert.ok(files.includes(name), `missing workflow: ${name}`);
   }
   assert.ok(!files.includes('server-ops.yml'));
-  for (const file of files.filter((name) => name !== 'deploy-web-frontend.yml')) {
+  for (const file of files) {
     const source = read(`.github/workflows/${file}`);
     assert.doesNotMatch(source, /PRODUCTION_SSH|production-auto-deploy|deploy-production|server-ops|inputs\.deploy/);
     assert.doesNotMatch(source, /environment:\s*production/);
     assert.doesNotMatch(source, /^\s*(?:run:\s*)?(?:ssh|scp|rsync)\s/m);
+    assert.doesNotMatch(source, /contents: write|id-token: write|gh release\s/);
   }
   for (const path of ['.github/actions/deploy-production/action.yml', '.github/server-ops-343-request.json', 'scripts/auto-deploy-production-release.sh', 'scripts/server-ops.py']) {
     assert.throws(() => read(path), /ENOENT/);
   }
   assert.throws(() => workflow('release-go'), /ENOENT/);
+  assert.throws(() => workflow('release-web'), /ENOENT/);
+  assert.throws(() => workflow('deploy-web-frontend'), /ENOENT/);
   assert.match(workflow('server-release-qualification'), /uses: \.\/\.github\/workflows\/core-protocol\.yml/);
   assert.throws(() => read('scripts/ci/qualify-go-migration-startup.sh'), /ENOENT/);
 });
@@ -42,33 +45,20 @@ test('OpenCode fixture runs the pinned child and real host without privileged ev
 });
 
 
-test('manual frontend deployment is restricted to a signed web release on both origins', () => {
-  const deploy = workflow('deploy-web-frontend');
-  const triggers = deploy.split('\non:\n')[1]?.split('\npermissions:\n')[0];
-  assert.ok(triggers, 'frontend deploy workflow has an event block');
-  assert.deepEqual([...triggers.matchAll(/^  ([\w-]+):/gm)].map((match) => match[1]), ['workflow_dispatch']);
-  assert.doesNotMatch(deploy, /github\.event\.workflow_run/);
-  assert.match(deploy, /environment: production/);
-  assert.match(deploy, /LMM_WEB_DEPLOY_SSH_KEY/);
-  assert.match(deploy, /LMM_WEB_DEPLOY_KNOWN_HOSTS/);
-  assert.ok(deploy.includes('INPUT_TAG: ${{ inputs.release_tag }}'));
-  assert.ok(deploy.includes('.target_commitish'));
-  assert.ok(!deploy.includes('gh release list --repo'));
-  const release = workflow('release-web');
-  assert.match(release, /Preserve signed web package for recovery/);
-  assert.match(release, /gh release upload/);
-  assert.match(release, /stable_checks == 2/);
-  assert.match(deploy, /curl --fail [^\n]*\\\n\s+--retry 3 /);
-  assert.ok(deploy.includes('/releases/download/${RELEASE_TAG}'));
-  assert.match(deploy, /cosign verify-blob/);
-  assert.match(deploy, /certificate-oidc-issuer/);
-  assert.match(deploy, /revision=\$\(tar -xzOf/);
-  assert.match(deploy, /\[\[ "\$target" == "\$revision" \]\]/);
-  assert.doesNotMatch(deploy, /gh release download/);
-  assert.match(deploy, /sha256sum --check/);
-  assert.match(deploy, /publish "API origin" "\$API_HOST" "\$API_PORT"\n\s+publish "Public ingress" "\$INGRESS_HOST" "\$INGRESS_PORT"/);
-  assert.match(deploy, /StrictHostKeyChecking=yes/);
-  assert.doesNotMatch(deploy, /release-go\.yml|production-release-transaction\.py|lmm-api-deploy\s|operator\s+plan/);
+test('retired single-server deployment tools cannot bypass the preview boundary', () => {
+  for (const path of ['scripts/web-ship.py', 'scripts/fetch-deploy-artifact.sh',
+    'scripts/build-release-package.sh', 'scripts/reconcile-frontend-package.py',
+    'scripts/server-repairs/install-cluster-nginx.sh', 'scripts/render-frontend-proxy-overlay.py',
+    'scripts/lmm-api-deploy.sh', '.github/required-release-checks.txt',
+    '.github/required-go-web-release-checks.txt']) {
+    assert.throws(() => read(path), /ENOENT/, path);
+  }
+  const preview = workflow('microservice-distribution');
+  assert.match(preview, /component: \[core, extensions, cli, web\]/);
+  assert.match(preview, /scripts\/build-distribution\.py verify/);
+  assert.match(preview, /Preserve preview archives only/);
+  assert.doesNotMatch(preview, /LMM_WEB_DEPLOY|PRODUCTION_SSH|gh release|pacman|systemctl/);
+  assert.doesNotMatch(workflow('ci'), /service-unavailable\.test\.mjs/);
 });
 
 

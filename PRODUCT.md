@@ -10,6 +10,11 @@ web
 
 This record describes the public repository entry and README brand. Application-level product records describe their own workflows. The present brand task covers README imagery and reusable logo assets.
 
+This checkout is the fresh-install microservice WIP. The capabilities below
+describe the existing product to preserve during migration, not completed WIP
+integration. Current ownership and missing business flows are recorded in
+[architecture and status](docs/core-migration.md).
+
 ## Users
 
 The README serves model users choosing a client, creators publishing MCP tools, open-source contributors working on bounties, and developers running an instance.
@@ -36,7 +41,7 @@ LMM Forge combines a multi-provider AI API gateway, a versioned MCP tool marketp
 
 ## Evidence on Hand
 
-The root README, docs/tool-market-guide.md, docs/tool-market-connections.md, docs/open-source-bounties.md, docs/release-architecture.md, and application configuration supply the product facts. The preceding published README screenshots are comparison evidence, not a quality target.
+The root README, apps/web/DESIGN.md, docs/payment-money-contract.md, docs/open-source-bounties.md, docs/release-architecture.md, and application configuration supply the product facts. The preceding published README screenshots are comparison evidence, not a quality target.
 
 ## Product Principles
 

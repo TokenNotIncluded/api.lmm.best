@@ -12,7 +12,7 @@ description: >-
 
 Read [components.json](../../../apps/web/components.json),
 [package.json](../../../apps/web/package.json), and
-[frontend design](../../../docs/frontend-design.md) before changing components.
+[frontend design](../../../apps/web/DESIGN.md) before changing components.
 The app is in `apps/web`. Do not assume Next.js, a particular component base,
 icon library, or import alias from a generic example.
 

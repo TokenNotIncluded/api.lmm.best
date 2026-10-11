@@ -2,7 +2,7 @@
 
 核心数据库只接受全新安装，不导入旧用户、Key 或余额，不维护旧表的升级路径。数据库定义位于 `apps/lmm-core/schema/identity.sql`。Go 扩展不得连接这个数据库。
 
-先按 [Docker 指南](../deployment/docker/README.md) 创建隔离开发栈，并在当前 Bash 会话中定义其中的 `dc` 和 `de`。`core-admin init-db` 只安装空库，第二次执行拒绝；服务启动不会执行建表、改表或修复。版本和指纹检查是安装契约检查，不是对任意人工改表的完整检测。
+先按 [Docker 指南](../deployment/docker/README.md) 创建隔离开发栈，并在当前 Bash 会话中定义其中的 `dc` 和 `de`。`lmm-core init-db` 只安装空库，第二次执行拒绝；服务启动不会执行建表、改表或修复。版本和指纹检查是安装契约检查，不是对任意人工改表的完整检测。
 
 ## 账号与权限分开
 
@@ -14,6 +14,8 @@ Key 保存 `owner_account_id`；每个付款候选保存于 `key_funding_rules` 
 
 个人 Key 默认只允许个人账号；明确配置后才能添加当前已获消费授权的团队。团队 Key 只能使用所属团队，不能回退到个人或其他团队。服务凭证和平台管理角色均不能代替用户的消费授权。
 
+计费接入必须在接受请求时固定付款账号，校验当前团队成员身份和明确的消费许可。拒绝、数据库故障或未知结果不能触发换人付款；一笔费用不能拆分到多个账号。预算须包含已提交金额和待结算预留，不能通过退出重入、换 Key 或修改角色清零；资金操作还需独立授权。这些是接入约束，不表示团队付费流量已启用。
+
 ## 创建测试用户并验证 Key
 
 `bootstrap-user` 是离线开发工具，不是注册、登录或 OAuth 接口。它只创建新用户，不覆盖已有用户；会话仅输出一次。不要将该命令公开为网页接口。
@@ -21,7 +23,7 @@ Key 保存 `owner_account_id`；每个付款候选保存于 `key_funding_rules` 
 ```sh
 # 当前 shell 已设置 umask 077；拒绝覆盖现有凭证文件。
 (set -C; printf '%s\n' '{"user_id":1,"platform_level":1}' |
-  dc --profile tools run --rm -T core-admin bootstrap-user \
+  dc --profile tools run --rm -T core-init bootstrap-user \
   > deployment/docker/.secrets/identity-session.json)
 ```
 

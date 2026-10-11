@@ -1,15 +1,15 @@
 # 打包与分发（预览）
 
-核心、扩展、CLI 和前端是四个独立产物。分发包定义集中在 `packaging/distribution.json`，构建器是 `scripts/build-distribution.py`。没有安装后执行脚本，不修改数据库，也不自动重启服务。
+本分支只有 `lmm`、`lmm-core`、`lmm-extensions` 三个可执行程序。核心、扩展、客户端和静态 Web 分别形成四种独立分发产物；Web 包不包含第四个程序。分发包定义集中在 `packaging/distribution.json`，构建器是 `scripts/build-distribution.py`。组件 tar.gz 不含安装后执行脚本；构建和校验不修改数据库，也不启动或重启服务。
 
 | 组件 | 内容 | 当前支持的包格式 |
 | --- | --- | --- |
-| `core` | `lmm-core`、`lmm-core-admin` | Linux amd64 / arm64 的 tar.gz |
+| `core` | `lmm-core`，含 `init-db`、`bootstrap-user` 子命令 | Linux amd64 / arm64 的 tar.gz |
 | `extensions` | `lmm-extensions`、外部协议草稿 | Linux amd64 / arm64 的 tar.gz |
-| `cli` | `lmm` | Linux / macOS / Windows 的 amd64 / arm64 tar.gz |
-| `web` | 独立 `dist/` | 与 CPU 无关的 tar.gz |
+| `cli` | 用户客户端 `lmm` | Linux / macOS / Windows 的 amd64 / arm64 tar.gz |
+| `web` | 独立静态 `dist/`，无可执行程序 | 与 CPU 无关的 tar.gz |
 
-支持包格式不等于每个平台已经构建验证。新增分发工作流在 Linux amd64 上构建四个组件。CLI 的多系统检查另见 `lmm.yml`。不将旧 `lmm-api-go`、数据库升级命令或 `lmm-api-web.install` 混入新包。
+支持包格式不等于每个平台已经构建验证。分发工作流在 Linux amd64 上构建四种产物；[原生 Linux 打包](../packaging/linux/README.md)为三个程序生成 DEB、RPM、APK 和 Arch 包。CLI 的多系统检查另见 `lmm.yml`。核心管理操作使用同一个 `lmm-core`；旧单体程序、自动数据库升级和旧站点安装钩子不进入新包。
 
 ## 构建
 
@@ -22,7 +22,7 @@ docker buildx build -f deployment/docker/extensions.Dockerfile   --target binari
 python3 scripts/build-distribution.py build --component core   --version 0.1.0-preview --revision "$(git rev-parse HEAD)"   --platform linux-amd64 --input out/core
 ```
 
-核心和扩展 Linux 包以 Docker 的 Debian bookworm 构建环境为准。本地 CLI 的运行库要求由其构建系统决定；不要假设 Rust 程序都是静态链接。
+上面的核心与扩展归档输入来自 Docker 的 Debian bookworm 构建环境；原生 Linux 工作流另行构建 musl 目标。本地 CLI 的运行库要求由其构建系统决定，不要假设所有 Rust 产物都采用相同的链接方式。
 
 CLI 使用 `cargo build --manifest-path apps/lmm/Cargo.toml --locked --release`，输入目录为 `apps/lmm/target/release`。Windows 程序名为 `lmm.exe`。前端使用 `bun run --filter @lmm/web build`，输入目录为 `apps/web/dist`，平台为 `any`。构建器检查二进制格式与架构，不会把脚本或错误架构包装成成功产物。
 
@@ -43,4 +43,4 @@ SHA-256 不是发布者签名。只有与可信构建记录核对后，才能确
 
 `microservice-distribution.yml` 手动运行或由只读验证工作流调用，构建、检查并上传预览包。没有 Release、注册表推送、AUR 发布或部署权限。`core-protocol.yml` 保留业务模块检查，并校验文档和分发脚本。
 
-旧 `release-web.yml`、AUR recipe 和前端部署工具仍用于已有线上版本的签名包处理，不能当作本分支新服务的安装器；本轮不改动既有签名版本与公开包。旧操作文档已改为[历史入口](archive.md)。正式发布、版本命名与部署仍需另行审查和授权。
+旧站点的 Web 发布、部署工作流、AUR recipe、服务资源与部署工具已从本分支退役。当前维护的打包入口只有组件归档构建器和原生 Linux 包构建器；旧操作文档保留为[固定版本的历史入口](archive.md)。已发布的历史包及其签名不因此改变。正式发布、版本命名与部署仍需另行审查和授权。

@@ -1,4 +1,0 @@
-__pycache__/
-# Keep compact evidence in the PR; the delivery archive retains raw logs.
-evidence/*/
-evidence/*.log

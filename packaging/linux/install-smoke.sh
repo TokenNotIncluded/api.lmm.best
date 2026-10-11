@@ -12,7 +12,7 @@ case "$format" in
     apt-get update -qq
     apt-get install -y --no-install-recommends ca-certificates systemd curl
     install_packages() { dpkg --force-confold --force-confdef -i /packages/*-"$1"-"$arch".deb; }
-    remove_packages() { dpkg -r lmm-core lmm-core-admin lmm-extensions; }
+    remove_packages() { dpkg -r lmm-core lmm-extensions lmm; }
     ;;
   rpm)
     if command -v dnf >/dev/null; then
@@ -21,22 +21,30 @@ case "$format" in
       zypper --non-interactive install ca-certificates systemd curl
     fi
     install_packages() { rpm -Uvh /packages/*-"$1"-"$arch".rpm; }
-    remove_packages() { rpm -e lmm-core lmm-core-admin lmm-extensions; }
+    remove_packages() { rpm -e lmm-core lmm-extensions lmm; }
     ;;
   apk)
     apk add --no-cache ca-certificates openrc curl
     # Unsigned previews are permitted only inside this disposable test container.
     install_packages() { apk add --allow-untrusted /packages/*-"$1"-"$arch".apk; }
-    remove_packages() { apk del lmm-core lmm-core-admin lmm-extensions; }
+    remove_packages() { apk del lmm-core lmm-extensions lmm; }
     ;;
   archlinux)
     pacman -Syu --noconfirm --needed ca-certificates systemd curl
     install_packages() { pacman -U --noconfirm /packages/*-"$1"-"$arch".pkg.tar.zst; }
-    remove_packages() { pacman -R --noconfirm lmm-core lmm-core-admin lmm-extensions; }
+    remove_packages() { pacman -R --noconfirm lmm-core lmm-extensions lmm; }
     ;;
   *) exit 2 ;;
 esac
 install_packages 1
+for program in lmm lmm-core lmm-extensions; do
+    [ -x "/usr/bin/$program" ]
+done
+for retired in lmm-core-admin lmm-api-deploy lmm-api-go-deploy; do
+    [ ! -e "/usr/bin/$retired" ]
+done
+/usr/bin/lmm --version
+/usr/bin/lmm-core --version
 # Installation must not start the daemons, modify a database or need Go/Docker.
 if curl --silent --fail --max-time 1 http://127.0.0.1:8080/health/live; then exit 1; fi
 printf '\n# operator-setting-survives\n' >> /etc/lmm-core/service.env

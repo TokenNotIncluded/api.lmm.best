@@ -117,6 +117,8 @@ class LocalReleaseTests(unittest.TestCase):
 
     def add_microkernel_fixture(self):
         for name in ('apps/lmm-extensions/host.go', 'apps/lmm-core/schema/identity.sql',
+                     'apps/lmm/Cargo.toml', 'packaging/distribution.json',
+                     'packaging/linux/packages.json', 'scripts/build-distribution.py',
                      'contracts/proto/lmm/core/v1/control.proto',
                      'deployment/docker/compose.rpc-core.yml',
                      'deployment/docker/compose.rpc-extensions.yml'):
@@ -164,6 +166,25 @@ class LocalReleaseTests(unittest.TestCase):
         self.assertEqual(1, result.returncode)
         self.assertIn('source directory is missing', result.stderr)
         self.assertFalse(self.record.exists())
+
+    def test_distribution_change_invalidates_every_component_record(self):
+        self.add_microkernel_fixture()
+        records = {component: self.record_component(component)
+                   for component in ('web', 'core', 'extensions', 'cli')}
+        (self.repo / 'packaging/distribution.json').write_text('changed archive contract\n')
+        self.commit()
+        for component, record in records.items():
+            self.record = record
+            self.assertEqual(1, self.verify(component).returncode, component)
+
+    def test_native_package_change_invalidates_cli_evidence_but_not_static_web(self):
+        self.add_microkernel_fixture()
+        records = {component: self.record_component(component) for component in ('web', 'cli')}
+        (self.repo / 'packaging/linux/packages.json').write_text('changed native package contract\n')
+        self.commit()
+        for component, expected in (('web', 0), ('cli', 1)):
+            self.record = records[component]
+            self.assertEqual(expected, self.verify(component).returncode, component)
 
 if __name__ == '__main__':
     unittest.main()
