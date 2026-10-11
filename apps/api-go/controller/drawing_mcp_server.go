@@ -113,6 +113,70 @@ func drawingMCPGroups(userGroup string) []drawingMCPGroup {
 	return result
 }
 
+// Only the bearer verifier supplies OAuth grant metadata. A missing or malformed
+// group snapshot must not turn an OAuth credential into account-wide access.
+// Personal API-key and exact marketplace-tool grants keep their own policies.
+func drawingMCPGrantedGroups(request *mcp.CallToolRequest) ([]string, error) {
+	if request == nil || request.Extra == nil || request.Extra.TokenInfo == nil {
+		return nil, nil
+	}
+	extra := request.Extra.TokenInfo.Extra
+	rawOAuth, exists := extra["oauth"]
+	if !exists {
+		return nil, nil
+	}
+	oauth, ok := rawOAuth.(bool)
+	if !ok {
+		return nil, errors.New("drawing MCP OAuth grant metadata is invalid")
+	}
+	if !oauth {
+		return nil, nil
+	}
+	groups, ok := extra["granted_groups"].([]string)
+	if !ok || len(groups) == 0 {
+		return nil, errors.New("drawing MCP OAuth grant has no authorized routing groups")
+	}
+	for _, group := range groups {
+		// Reuse the issuer's canonical group grammar without normalizing the
+		// trusted grant into a different group or silently skipping bad members.
+		if _, err := service.OAuthGroupFromID(service.OAuthGroupID(group)); err != nil {
+			return nil, errors.New("drawing MCP OAuth grant metadata is invalid")
+		}
+	}
+	return groups, nil
+}
+
+func drawingMCPGroupForGrant(userGroup, requested string, granted []string) (string, error) {
+	if granted == nil {
+		return requested, nil
+	}
+	requested = strings.TrimSpace(requested)
+	if requested != "" {
+		if !slices.Contains(granted, requested) {
+			return "", errors.New("the selected routing group is not authorized by this OAuth grant")
+		}
+		return requested, nil
+	}
+	// Prefer the ordinary drawing default only when it is both granted and
+	// image-capable. Other granted groups can be chat-only; do not select those.
+	var fallback string
+	for _, group := range drawingMCPGroups(userGroup) {
+		if !slices.Contains(granted, group.Name) || len(group.Models) == 0 {
+			continue
+		}
+		if group.Name == model.DrawingTokenGroup {
+			return group.Name, nil
+		}
+		if fallback == "" {
+			fallback = group.Name
+		}
+	}
+	if fallback == "" {
+		return "", errors.New("this OAuth grant has no available image routing group")
+	}
+	return fallback, nil
+}
+
 func drawingMCPResolveInput(user *model.UserBase, input drawingMCPGenerateInput) (drawingMCPGenerateInput, error) {
 	input.Prompt = strings.TrimSpace(input.Prompt)
 	if input.Prompt == "" || len([]rune(input.Prompt)) > drawingMCPMaxPromptRunes {
@@ -220,11 +284,19 @@ func registerDrawingMCPTools(server *mcp.Server, relay http.Handler) {
 		if err != nil {
 			return nil, drawingMCPOutput{}, err
 		}
+		granted, err := drawingMCPGrantedGroups(request)
+		if err != nil {
+			return nil, drawingMCPOutput{}, err
+		}
+		groups := drawingMCPGroups(user.Group)
+		if granted != nil {
+			groups = slices.DeleteFunc(groups, func(group drawingMCPGroup) bool { return !slices.Contains(granted, group.Name) })
+		}
 		return nil, drawingMCPOutput{
 			Message: "Drawing capabilities loaded.",
 			Data: map[string]any{
 				"enabled":        true,
-				"groups":         drawingMCPGroups(user.Group),
+				"groups":         groups,
 				"max_images":     drawingMCPMaxImages,
 				"max_prompt_len": drawingMCPMaxPromptRunes,
 				"endpoint":       "/mcp/drawing",
@@ -242,6 +314,14 @@ func registerDrawingMCPTools(server *mcp.Server, relay http.Handler) {
 			return nil, drawingMCPOutput{}, err
 		}
 		user, err := drawingMCPAuthorizedUser(userID)
+		if err != nil {
+			return nil, drawingMCPOutput{}, err
+		}
+		granted, err := drawingMCPGrantedGroups(request)
+		if err != nil {
+			return nil, drawingMCPOutput{}, err
+		}
+		input.Group, err = drawingMCPGroupForGrant(user.Group, input.Group, granted)
 		if err != nil {
 			return nil, drawingMCPOutput{}, err
 		}
@@ -555,7 +635,7 @@ func NewDrawingMCPHandler(sharedAdmission ...gin.HandlerFunc) http.Handler {
 			if err != nil {
 				return nil, fmt.Errorf("%w: invalid OAuth MCP grant", auth.ErrInvalidToken)
 			}
-			return &auth.TokenInfo{UserID: strconv.FormatInt(int64(user.Id), 10), Scopes: []string{service.OAuthMCPDrawingScope}, Extra: map[string]any{"protocol_version": openSourceBountyMCPProtocolVersion, "oauth": true, "scope_count": len(grant.Scopes)}}, nil
+			return &auth.TokenInfo{UserID: strconv.FormatInt(int64(user.Id), 10), Scopes: []string{service.OAuthMCPDrawingScope}, Extra: map[string]any{"protocol_version": openSourceBountyMCPProtocolVersion, "oauth": true, "scope_count": len(grant.Scopes), "granted_groups": integration.GrantedGroups(user, grant)}}, nil
 		}
 		identity, err := model.VerifyDrawingMCPToken(token)
 		if err != nil {

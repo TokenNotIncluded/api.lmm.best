@@ -593,9 +593,7 @@ func TokenAuthReadOnly() func(c *gin.Context) {
 			c.Abort()
 			return
 		}
-		if strings.HasPrefix(key, "Bearer ") || strings.HasPrefix(key, "bearer ") {
-			key = strings.TrimSpace(key[7:])
-		}
+		key = stripRelayBearerScheme(key)
 		key = strings.TrimPrefix(key, "sk-")
 		parts := strings.Split(key, "-")
 		key = parts[0]
@@ -783,19 +781,23 @@ func prepareRelayTokenCredential(c *gin.Context) {
 }
 
 func relayTokenCredential(c *gin.Context) (string, []string) {
-	key := c.Request.Header.Get("Authorization")
-	if strings.HasPrefix(key, "Bearer ") || strings.HasPrefix(key, "bearer ") {
-		key = strings.TrimSpace(key[7:])
-	}
+	key := stripRelayBearerScheme(c.Request.Header.Get("Authorization"))
 	if key == "" || key == "midjourney-proxy" {
-		key = c.Request.Header.Get("mj-api-secret")
-		if strings.HasPrefix(key, "Bearer ") || strings.HasPrefix(key, "bearer ") {
-			key = strings.TrimSpace(key[7:])
-		}
+		key = stripRelayBearerScheme(c.Request.Header.Get("mj-api-secret"))
 	}
 	key = strings.TrimPrefix(key, "sk-")
 	parts := strings.Split(key, "-")
 	return parts[0], parts
+}
+
+// Authentication scheme names are case-insensitive. Keep legacy raw keys and
+// their whitespace unchanged when there is no space-delimited Bearer scheme.
+func stripRelayBearerScheme(key string) string {
+	const prefix = "Bearer "
+	if len(key) >= len(prefix) && strings.EqualFold(key[:len(prefix)], prefix) {
+		return strings.TrimSpace(key[len(prefix):])
+	}
+	return key
 }
 
 func writeRelayTokenAuthFailure(c *gin.Context, failure *relayTokenAuthFailure) {

@@ -225,13 +225,21 @@ func TestBI10RealAdminGatesIgnoreForgedRoleHeaders(t *testing.T) {
 func TestBI10RealRoutesRejectRotatedPAT(t *testing.T) {
 	fixture := bi10HTTP(t)
 	actor := fixture.actors["a"]
-	bi10OwnExport(t, fixture, actor, actor.pat)
+	// AccessToken points to actor.pat, so GORM updates to actor.user can also
+	// mutate the fixture credential. Preserve the actual pre-rotation value.
+	originalPAT := actor.pat
+	bi10OwnExport(t, fixture, actor, originalPAT)
 	before := bi10Row(t, fixture.db, actor.key.Id)
 	// This is a stored revocation fixture, not a claim that the account's PAT
 	// rotation controller has been tested. That controller needs separate tests.
-	require.NoError(t, fixture.db.Model(&actor.user).Update("access_token", "bi10-replacement-pat").Error)
-	response := fixture.request(http.MethodDelete, fmt.Sprintf("/api/token/%d", actor.key.Id), actor.pat, "")
+	const replacementPAT = "bi10-replacement-pat"
+	updated := fixture.db.Model(&actor.user).Update("access_token", replacementPAT)
+	require.NoError(t, updated.Error)
+	require.EqualValues(t, 1, updated.RowsAffected)
+	response := fixture.request(http.MethodDelete, fmt.Sprintf("/api/token/%d", actor.key.Id), originalPAT, "")
 	bi10Denied(t, response)
+	require.Equal(t, before, bi10Row(t, fixture.db, actor.key.Id))
+	bi10OwnExport(t, fixture, actor, replacementPAT)
 	require.Equal(t, before, bi10Row(t, fixture.db, actor.key.Id))
 }
 

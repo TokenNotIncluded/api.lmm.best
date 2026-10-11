@@ -20,8 +20,9 @@ const (
 )
 
 // DiscountCodeReservation atomically prevents two unpaid orders from both
-// claiming the last limited-use coupon slot. A later signed payment is always credited even
-// when its reservation expired or was released; provider settlement must never
+// claiming the last limited-use coupon slot. ExpiresTime is not permission to
+// reuse a slot while its order can still settle. A later signed payment is always
+// credited, including legacy released reservations; provider settlement must never
 // fail because coupon capacity changed after checkout.
 type DiscountCodeReservation struct {
 	Id             int    `json:"id"`
@@ -85,6 +86,52 @@ func validateDiscountCodeReservationTerms(code *DiscountCode, topUp *TopUp, now 
 	return nil
 }
 
+// payableDiscountCodeTopUps mirrors CompleteExternalTopUp's unsettled states.
+// A local Waffo checkout timeout is recoverable by a later signed payment, so
+// neither that state nor the reservation TTL proves that a coupon slot is free.
+func payableDiscountCodeTopUps(tx *gorm.DB) *gorm.DB {
+	return tx.Model(&TopUp{}).Select("trade_no").
+		Where("status = ? OR (status = ? AND payment_provider = ? AND failure_reason_code = ?)",
+			common.TopUpStatusPending, common.TopUpStatusFailed, PaymentProviderWaffoPancake, string(PaymentOrderFailureCheckoutTimeout))
+}
+
+// closedDiscountCodeTopUps proves that an existing order cannot settle under
+// the current lifecycle. Older callers persist terminal states with TopUp.Update
+// without releasing the reservation, so both counting and release use this rule.
+func closedDiscountCodeTopUps(tx *gorm.DB) *gorm.DB {
+	return tx.Model(&TopUp{}).Select("trade_no").
+		Where("trade_no IS NOT NULL").
+		Where("status = ? OR (status = ? AND (COALESCE(payment_provider, '') <> ? OR failure_reason_code <> ?))",
+			common.TopUpStatusExpired, common.TopUpStatusFailed, PaymentProviderWaffoPancake, string(PaymentOrderFailureCheckoutTimeout))
+}
+
+// countDiscountCodeCapacityHolds is shared by preview and atomic reservation.
+// Reserved rows remain held unless an existing order is definitively closed;
+// missing or unknown orders fail closed. Older released rows
+// also retain capacity whenever their persisted order can still accept payment.
+// Consumed rows are already represented by DiscountCode.UsedCount. Legacy
+// payable orders without a reservation row are also outstanding liabilities.
+func countDiscountCodeCapacityHolds(tx *gorm.DB, discountCodeID int) (int64, error) {
+	var count int64
+	err := tx.Model(&DiscountCodeReservation{}).
+		Where("discount_code_id = ?", discountCodeID).
+		Where("(status = ? AND top_up_trade_no NOT IN (?)) OR (status = ? AND top_up_trade_no IN (?))",
+			DiscountCodeReservationStatusReserved, closedDiscountCodeTopUps(tx),
+			DiscountCodeReservationStatusReleased, payableDiscountCodeTopUps(tx)).
+		Count(&count).Error
+	if err != nil {
+		return 0, err
+	}
+	var unreservedOrders int64
+	reservations := tx.Model(&DiscountCodeReservation{}).Select("1").
+		Where("top_up_trade_no = top_ups.trade_no")
+	err = payableDiscountCodeTopUps(tx).
+		Where("discount_code_id = ?", discountCodeID).
+		Where("NOT EXISTS (?)", reservations).
+		Count(&unreservedOrders).Error
+	return count + unreservedOrders, err
+}
+
 func reserveDiscountCodeUsageTx(tx *gorm.DB, topUp *TopUp) error {
 	if topUp == nil || topUp.DiscountCodeId <= 0 {
 		return nil
@@ -114,10 +161,8 @@ func reserveDiscountCodeUsageTx(tx *gorm.DB, topUp *TopUp) error {
 	}
 
 	if code.MaxUses > 0 {
-		var activeReservations int64
-		if err := tx.Model(&DiscountCodeReservation{}).
-			Where("discount_code_id = ? AND status = ? AND expires_time > ?", code.Id, DiscountCodeReservationStatusReserved, now).
-			Count(&activeReservations).Error; err != nil {
+		activeReservations, err := countDiscountCodeCapacityHolds(tx, code.Id)
+		if err != nil {
 			return err
 		}
 		if code.UsedCount+activeReservations >= code.MaxUses {
@@ -191,8 +236,11 @@ func releaseDiscountCodeReservationTx(tx *gorm.DB, tradeNo string) error {
 	if tradeNo == "" {
 		return nil
 	}
+	// Only existing failed/expired states that settlement rejects can release a
+	// hold. Keep pending, unknown, missing, and recoverable timeout orders held.
+	closedOrders := closedDiscountCodeTopUps(tx).Where("trade_no = ?", tradeNo)
 	return tx.Model(&DiscountCodeReservation{}).
-		Where("top_up_trade_no = ? AND status = ?", tradeNo, DiscountCodeReservationStatusReserved).
+		Where("top_up_trade_no = ? AND status = ? AND top_up_trade_no IN (?)", tradeNo, DiscountCodeReservationStatusReserved, closedOrders).
 		Updates(map[string]any{
 			"status":       DiscountCodeReservationStatusReleased,
 			"updated_time": common.GetTimestamp(),

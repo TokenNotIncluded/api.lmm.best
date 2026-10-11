@@ -36,6 +36,11 @@ type drawingParityFixture struct {
 // This uses only the existing isolated SQL unit-test fixture and a loopback
 // mock provider. It is not a production/strict-PostgreSQL acceptance rehearsal.
 func newDrawingParityFixture(t *testing.T, quota int, upstreamStatus int, upstreamResponse ...json.RawMessage) *drawingParityFixture {
+	return newDrawingParityFixtureWithProviderURL(t, quota, upstreamStatus, "", upstreamResponse...)
+}
+
+// A supplied provider URL allows transport-only tests without a listening server.
+func newDrawingParityFixtureWithProviderURL(t *testing.T, quota int, upstreamStatus int, providerURL string, upstreamResponse ...json.RawMessage) *drawingParityFixture {
 	t.Helper()
 	setupAssistantCurrencyTest(t)
 	previousDB, previousLogDB := model.DB, model.LOG_DB
@@ -79,28 +84,31 @@ func newDrawingParityFixture(t *testing.T, quota int, upstreamStatus int, upstre
 		RemainQuota: common.GetTrustQuota(), UnlimitedQuota: false,
 	}
 	require.NoError(t, db.Create(&fixture.token).Error)
-	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fixture.upstream.Add(1)
-		if r.URL.Path != "/v1/images/generations" {
-			http.Error(w, "unexpected mock-provider route", http.StatusNotFound)
-			return
-		}
-		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(upstreamStatus)
-		if upstreamStatus != http.StatusOK {
-			_, _ = w.Write([]byte(`{"error":{"message":"mock provider rejected request","type":"invalid_request_error","code":"invalid_request"}}`))
-			return
-		}
-		if len(upstreamResponse) != 0 {
-			_, _ = w.Write(upstreamResponse[0])
-			return
-		}
-		_, _ = w.Write([]byte(`{"created":1,"data":[{"url":"https://example.test/parity-1.png"},{"url":"https://example.test/parity-2.png"}]}`))
-	}))
-	t.Cleanup(upstream.Close)
+	if providerURL == "" {
+		upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			fixture.upstream.Add(1)
+			if r.URL.Path != "/v1/images/generations" {
+				http.Error(w, "unexpected mock-provider route", http.StatusNotFound)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(upstreamStatus)
+			if upstreamStatus != http.StatusOK {
+				_, _ = w.Write([]byte(`{"error":{"message":"mock provider rejected request","type":"invalid_request_error","code":"invalid_request"}}`))
+				return
+			}
+			if len(upstreamResponse) != 0 {
+				_, _ = w.Write(upstreamResponse[0])
+				return
+			}
+			_, _ = w.Write([]byte(`{"created":1,"data":[{"url":"https://example.test/parity-1.png"},{"url":"https://example.test/parity-2.png"}]}`))
+		}))
+		t.Cleanup(upstream.Close)
+		providerURL = upstream.URL
+	}
 	fixture.channel = model.Channel{
 		Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled,
-		Name: "mock drawing billing", Key: "mock-upstream-key", BaseURL: &upstream.URL,
+		Name: "mock drawing billing", Key: "mock-upstream-key", BaseURL: &providerURL,
 		Models: drawingParityModel, Group: "image-2",
 	}
 	require.NoError(t, db.Create(&fixture.channel).Error)

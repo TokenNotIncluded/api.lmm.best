@@ -66,6 +66,20 @@ func cleanupAuthArtifacts() {
 	if err := model.DeleteExpiredAuthFlows(now); err != nil {
 		common.SysError("failed to delete expired authentication flows: " + err.Error())
 	}
+	if model.DB.Migrator().HasTable(&model.OAuthServerAuthorization{}) {
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		defer cancel()
+		for batch := 0; batch < 20; batch++ {
+			count, err := model.CleanupExpiredOAuthAuthorizations(model.DB.WithContext(ctx), "", time.Now())
+			if err != nil {
+				common.SysError("failed to delete expired OAuth browser transactions: " + err.Error())
+				break
+			}
+			if count < model.OAuthAuthorizationCleanupBatchSize {
+				break
+			}
+		}
+	}
 	// A minimal test database or a node still completing its first migration
 	// may not have assistant storage yet. The next hourly pass will pick it up.
 	if model.DB.Migrator().HasTable(&model.AssistantSecureCard{}) {

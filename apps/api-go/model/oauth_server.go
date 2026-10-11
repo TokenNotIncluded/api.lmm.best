@@ -7,7 +7,7 @@ import "gorm.io/gorm"
 // These tables deliberately have no relation to dashboard JWTs or API key tokens.
 type OAuthServerAuthorization struct {
 	Digest                string `gorm:"primaryKey;size:64"`
-	Issuer                string `gorm:"not null;size:512"`
+	Issuer                string `gorm:"not null;size:512;index:idx_oauth_authorization_issuer_expiry,priority:1"`
 	ClientID              string `gorm:"not null;size:128"`
 	ClientName            string `gorm:"not null;default:'';size:256"`
 	RedirectURI           string `gorm:"not null;size:1024"`
@@ -19,7 +19,7 @@ type OAuthServerAuthorization struct {
 	ConsentDigest         string `gorm:"not null;size:64"`
 	UserID                int64  `gorm:"not null"`
 	CreatedAtMs           int64  `gorm:"not null"`
-	ExpiresAtMs           int64  `gorm:"not null;index"`
+	ExpiresAtMs           int64  `gorm:"not null;index;index:idx_oauth_authorization_issuer_expiry,priority:2"`
 	ConsumedAtMs          int64  `gorm:"not null"`
 	LockVersion           int64  `gorm:"not null"`
 	BrowserCSRFHash       string `gorm:"not null;default:'';size:64"`

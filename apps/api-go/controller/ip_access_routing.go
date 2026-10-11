@@ -23,6 +23,17 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+const (
+	ipPolicyBypassSourceFailures = 10
+	ipPolicyBypassGlobalFailures = 256
+	ipPolicyBypassWindowSeconds  = 60
+)
+
+// Keep optional, unauthenticated bypass work bounded even when credentials or
+// source addresses rotate. Only canonical client IPs and a constant global key
+// are retained; authorization decisions and credentials are never cached here.
+var ipPolicyBypassLimiter = &common.InMemoryRateLimiter{}
+
 func ipAccessRoutingError(c *gin.Context, status int, code string, message string) {
 	c.Header(accessPolicyResultHeader, accessPolicyDenied)
 	c.AbortWithStatusJSON(status, gin.H{
@@ -54,7 +65,7 @@ func loopbackPeer(remoteAddr string) bool {
 // relayTokenKeyFromAuthorizationHeader mirrors the credential extraction used
 // by the relay token middlewares (Bearer/"sk-" prefix, group suffix split).
 // Duplicated here in miniature rather than exported across packages because
-// this internal policy check must stay a read-only, side-effect-free lookup.
+// this internal policy check must not run relay authentication side effects.
 func relayTokenKeyFromAuthorizationHeader(header string) string {
 	key := strings.TrimSpace(header)
 	if key == "" {
@@ -71,15 +82,37 @@ func relayTokenKeyFromAuthorizationHeader(header string) string {
 // carries a valid API key belonging to an enabled, L1+ trust-level user who
 // has explicitly opted in to bypassing the IP/region access policy. Any
 // failure (missing/invalid key, insufficient trust, opt-in disabled, or a
-// lookup error) must fall through to the normal policy evaluation below
+// lookup error, or exhausted lookup budget) must preserve the policy rejection
 // without ever revealing which specific check failed — that concealment is
 // the existing job of authenticateRelayToken once the request reaches the
 // Go application layer.
-func keyBypassesIPPolicy(c *gin.Context) bool {
+func keyBypassesIPPolicy(c *gin.Context) (bypassed bool) {
 	key := relayTokenKeyFromAuthorizationHeader(c.GetHeader("Authorization"))
 	if key == "" {
 		return false
 	}
+	clientIP, err := netip.ParseAddr(strings.TrimSpace(c.GetHeader("X-Original-Client-IP")))
+	if err != nil {
+		return false
+	}
+	// Reserve before lookup, not Check followed by Request: concurrent misses
+	// must already occupy capacity. Take the global reservation first so source
+	// churn cannot evict an exhausted global budget. In-flight work stays pinned
+	// across expiry; all unsuccessful bypasses consume the failure budget.
+	completeGlobal, allowed := ipPolicyBypassLimiter.Reserve("global", ipPolicyBypassGlobalFailures, ipPolicyBypassWindowSeconds)
+	if !allowed {
+		return false
+	}
+	completeSource, allowed := ipPolicyBypassLimiter.Reserve("source:"+clientIP.Unmap().String(), ipPolicyBypassSourceFailures, ipPolicyBypassWindowSeconds)
+	if !allowed {
+		completeGlobal(false)
+		return false
+	}
+	defer func() {
+		completeSource(!bypassed)
+		completeGlobal(!bypassed)
+	}()
+
 	token, err := model.ValidateUserToken(key)
 	if err != nil {
 		return false
@@ -101,11 +134,6 @@ func keyBypassesIPPolicy(c *gin.Context) bool {
 func CheckIPAccessRoutingPolicy(c *gin.Context) {
 	if !loopbackPeer(c.Request.RemoteAddr) {
 		ipAccessRoutingError(c, http.StatusForbidden, "INTERNAL_ONLY", "internal policy endpoint")
-		return
-	}
-
-	if keyBypassesIPPolicy(c) {
-		c.Status(http.StatusNoContent)
 		return
 	}
 
@@ -144,11 +172,25 @@ func CheckIPAccessRoutingPolicy(c *gin.Context) {
 		DSCPSet:         dscpRaw != "" && dscpErr == nil,
 	})
 	if err != nil {
+		// Missing optional edge attributes (for example unavailable GeoIP) can
+		// make a rule undecidable. Preserve the opt-in key escape hatch for
+		// these requests, with the same bounded lookup as a definite rejection.
+		// Malformed country metadata and missing/invalid client IPs fail closed;
+		// keyBypassesIPPolicy validates the latter before reserving any work.
+		countryValid := edgeCountry == "" || (len(edgeCountry) == 2 && edgeCountry[0] >= 'A' && edgeCountry[0] <= 'Z' && edgeCountry[1] >= 'A' && edgeCountry[1] <= 'Z')
+		if countryValid && keyBypassesIPPolicy(c) {
+			c.Status(http.StatusNoContent)
+			return
+		}
 		common.SysError("IP access routing evaluation failed: " + err.Error())
 		ipAccessRoutingError(c, http.StatusForbidden, "POLICY_UNAVAILABLE", "access policy unavailable")
 		return
 	}
 	if action == setting.IPAccessRouteReject {
+		if keyBypassesIPPolicy(c) {
+			c.Status(http.StatusNoContent)
+			return
+		}
 		common.SysLog(fmt.Sprintf("IP access routing rejected client_ip=%s country=%s rule_line=%d", originalIP, edgeCountry, lineNumber))
 		ipAccessRoutingError(c, http.StatusForbidden, "IP_ACCESS_ROUTE_REJECTED", "request rejected by IP access routing")
 		return

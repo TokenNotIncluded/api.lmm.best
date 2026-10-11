@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/i18n"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
 	"github.com/gin-gonic/gin"
 )
@@ -16,6 +17,9 @@ import (
 // A rejection is allowed for ambiguous input. If accepted, the stages must
 // agree. Do not reverse this invariant to preserve a first-key/last-key split.
 func TestRT17ModelParserContinuity(t *testing.T) {
+	if err := i18n.Init(); err != nil {
+		t.Fatal(err)
+	}
 	tests := []struct {
 		name, fields string
 		mustAccept   bool
@@ -77,6 +81,9 @@ func TestRT17ModelParserContinuity(t *testing.T) {
 }
 
 func TestRT17PlaygroundGroupParserContinuity(t *testing.T) {
+	if err := i18n.Init(); err != nil {
+		t.Fatal(err)
+	}
 	tests := []struct {
 		name, fields string
 		mustAccept   bool

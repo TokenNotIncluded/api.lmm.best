@@ -197,10 +197,8 @@ func ValidateDiscountCodeForUserDecimal(value string, amount decimal.Decimal, no
 		return nil, ErrDiscountCodeNotFound
 	}
 	if row.MaxUses > 0 {
-		var activeReservations int64
-		if err := DB.Model(&DiscountCodeReservation{}).
-			Where("discount_code_id = ? AND status = ? AND expires_time > ?", row.Id, DiscountCodeReservationStatusReserved, now).
-			Count(&activeReservations).Error; err != nil {
+		activeReservations, err := countDiscountCodeCapacityHolds(DB, row.Id)
+		if err != nil {
 			return nil, err
 		}
 		if row.UsedCount+activeReservations >= row.MaxUses {
