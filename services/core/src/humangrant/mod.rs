@@ -180,9 +180,7 @@ fn exact_header<'a>(headers: &'a HeaderMap, name: &str) -> Result<&'a str> {
     first.to_str().map_err(|_| Error::unauthorized())
 }
 fn human_bearer(headers: &HeaderMap, origin: &str, write: bool) -> Result<String> {
-    if write
-        && exact_header(headers, "origin").map_err(|_| Error::forbidden())? != origin
-    {
+    if write && exact_header(headers, "origin").map_err(|_| Error::forbidden())? != origin {
         return Err(Error::forbidden());
     }
     let value = exact_header(headers, "authorization")?;
