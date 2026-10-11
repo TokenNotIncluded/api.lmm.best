@@ -73,7 +73,7 @@ Go and Web have separate release tags: `go-vX.Y.Z` and `web-vX.Y.Z`. **A merge o
 | Standalone systemd service | [Inspect, upgrade, confirm, and roll back](docs/manual-systemd-deployment.md) |
 | Package-managed Go / Web | [Signed releases and upgrade transactions](docs/seamless-upgrades.md) |
 | Frontend-only update | [Deployment and installation types](docs/deployment-workflow.md) · [Release boundaries](docs/release-architecture.md) |
-| Database and cache | [PostgreSQL migration](docs/postgresql-migration.md) · [Production cutover](docs/postgresql-cutover.md) · [Valkey operations](docs/valkey-lmm-api.md) |
+| Database and cache | [Historical SQLite to PostgreSQL 18 migration](docs/postgresql-migration.md) · [Production cutover](docs/postgresql-cutover.md) · [Valkey operations](docs/valkey-lmm-api.md) |
 
 ## Documentation
 
@@ -81,6 +81,7 @@ The [documentation index](docs/README.md) groups guides by user, developer, and 
 
 - **Use and contribute:** [Tool publishing](docs/tool-market-guide.md), [connections and permissions](docs/tool-market-connections.md), [bounties and settlement](docs/open-source-bounties.md).
 - **Development and APIs:** [Local development](docs/development.md), [contribution guide](CONTRIBUTING.md), [admin API](docs/openapi/api.json), [relay API](docs/openapi/relay.json).
+- **Database rehearsal:** New PostgreSQL schema changes use [pgroll](docs/pgroll-migrations.md) migration files and rehearsal evidence as the default delivery format. The pinned tool and isolated PostgreSQL 17+ exercise are available; application and production migration integration remains future work.
 - **Releases and maintenance:** [Release architecture](docs/release-architecture.md), [authentication and sessions](docs/authentication.md), [Rust preview](docs/rust-blue-green.md).
 
 ## Agent workflow

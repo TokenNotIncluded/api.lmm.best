@@ -28,6 +28,7 @@
 ## 开发与维护 · Development
 
 - [本地环境与命令](development.md)、[认证与会话](authentication.md)、[Go 内存管理](go-memory-management.md)。
+- [pgroll 独立演练](pgroll-migrations.md)：新增 PostgreSQL schema 变更默认交付 pgroll 文件与演练证据；固定工具版本与哈希，用临时 PostgreSQL 17+ 验证双版本、回填、回滚和完成，尚未接入应用或生产。
 - [Agent 工作流程](agent-workflows.md)、[文档维护技能](../.agents/skills/docs-maintenance/SKILL.md)、[CI 与本地测试](ci-workflow-layout.md)。
 - [前端设计](frontend-design.md)、[着色器维护](shaders.md)、[Logo 规范](../.github/assets/README.md)。
 - [异步任务指标](async-task-performance-metrics.md)、[脚本插件宿主决策](task-plugin-host-decision.md)。
@@ -41,7 +42,7 @@
 | 入口与边界 | [部署流程](deployment-workflow.md) · [组件发布架构](release-architecture.md) · [运行入口与回退约束](backend-cli-deployment-contract.md) |
 | 更新已有实例 | [systemd 部署](manual-systemd-deployment.md) · [签名升级](seamless-upgrades.md) |
 | 发布验收 | [发布事务](production-release-transaction.md) · [控制器备份格式](controller-only-backup-format.md) |
-| 数据库 | [PostgreSQL 迁移](postgresql-migration.md) · [生产切换](postgresql-cutover.md) |
+| 数据库 | [历史 SQLite → PostgreSQL 18 迁移](postgresql-migration.md) · [生产切换](postgresql-cutover.md) · [pgroll 独立演练与接入边界](pgroll-migrations.md) |
 | 缓存与打包 | [Valkey 运维](valkey-lmm-api.md) · [AUR 打包](../packaging/aur/README.md) |
 
 开发命令不是生产安装器。Go 与 Web 独立发版；合并、测试、发布和部署是不同步骤。

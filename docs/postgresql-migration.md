@@ -1,5 +1,10 @@
 # SQLite to PostgreSQL migration contract
 
+For future PostgreSQL schema evolution, see the separate
+[pgroll rehearsal guide](pgroll-migrations.md). Its PostgreSQL 17+ synthetic
+exercise does not replace this PostgreSQL 18 conversion contract, its frozen
+manifest, or the current application migration and production ownership rules.
+
 This document describes the auditable offline rehearsal and verification
 workflow for the PostgreSQL 18 target. It does not authorize or implement a
 production cutover. Production may already be running Go with PostgreSQL after

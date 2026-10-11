@@ -53,6 +53,14 @@ Choose one path:
 - Shared PostgreSQL migration: its reviewed plan and dedicated maintenance path,
   not a normal code update. Rust is an explicit preview only.
 
+For new PostgreSQL schema changes, use pgroll migration files and isolated
+rehearsal evidence as the default delivery format; read the
+[pgroll integration boundary](../../../docs/pgroll-migrations.md). Production
+still requires application view compatibility, one shared-PG migration owner,
+catalog contracts and compatible per-start startup seals. Do not default to
+`migrate --apply` for a new pgroll change. Existing application bootstrap and
+historical recovery contracts keep their documented paths.
+
 ## Avoid repeated work
 
 Build once through the official publisher, then deploy the same verified files.
