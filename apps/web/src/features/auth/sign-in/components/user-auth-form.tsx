@@ -108,8 +108,9 @@ export function UserAuthForm({
     (requiresLegalConsent && !agreedToLegal)
   const hasWeChatLogin = Boolean(status?.wechat_login)
   const hasOAuthLogin = hasOAuthLoginProvider(status)
+  const humanGrantEnabled = Boolean(status?.humangrant_enabled ?? status?.data?.humangrant_enabled)
   const hasAlternativeLogin =
-    passkeyLoginEnabled || hasWeChatLogin || hasOAuthLogin
+    passkeyLoginEnabled || hasWeChatLogin || hasOAuthLogin || humanGrantEnabled
 
   useEffect(() => {
     if (requiresLegalConsent) {
@@ -324,6 +325,13 @@ export function UserAuthForm({
         isWeChatLoading={isWeChatSubmitting}
         featureGoogle
       />
+
+      {humanGrantEnabled && (
+        <a href='/human' className='border-border text-foreground hover:bg-muted inline-flex h-11 w-full items-center justify-center gap-2 rounded-xl border font-medium transition-colors'>
+          <KeyRound className='h-4 w-4' />
+          {t('Continue with human beings')}
+        </a>
+      )}
 
       {passkeyLoginEnabled && (
         <div className='space-y-1'>
