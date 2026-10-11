@@ -1,60 +1,47 @@
-# GitHub Actions 入口
+# 微服务分支的 GitHub Actions 入口
 
-[文档目录](README.md) · [贡献指南](../CONTRIBUTING.md) · [部署流程](deployment-workflow.md)
+[文档目录](README.md) · [贡献指南](../CONTRIBUTING.md) · [架构与状态](core-migration.md)
 
-本文说明默认分支的入口。修改工作流后，以该提交的 `on`、输入参数、权限和
-被调用脚本为准。不要从旧说明、工作流名称或残留注释推断触发方式。
+本文对应 PR #675 的微服务分支，不是 main 旧单体的发布说明。
+触发方式、输入和权限以当前提交的工作流为准。
 
-## 测试、发布与部署分开
-
-测试在本地运行并记录结果。当前 [ci.yml](../.github/workflows/ci.yml) 只有
-`workflow_dispatch` 入口，可用于明确选择的手动诊断；不能宣称打开 PR、推送
-main 或标签就会自动运行这套测试。其他辅助工作流应逐个检查其实际触发条件，
-不能用 `ci.yml` 的条件代替它们，也不能把残留的自动触发条件写成统一政策。
+## 检查入口
 
 | 入口 | 作用和边界 |
 | --- | --- |
-| [ci.yml](../.github/workflows/ci.yml) | 手动诊断。检查任务的成功、失败、取消和跳过情况，不只看汇总颜色。 |
-| [release-go.yml](../.github/workflows/release-go.yml) | 在 Go 组件标签上手动构建、签名和发布；要求 `local_test_evidence`。 |
-| [release-web.yml](../.github/workflows/release-web.yml) | 在 Web 组件标签上手动构建、签名和发布；要求 `local_test_evidence`。 |
-| [deploy-web-frontend.yml](../.github/workflows/deploy-web-frontend.yml) | 单独授权、单独触发的前端部署。不是签名发布的自动后续步骤。 |
+| [ci.yml](../.github/workflows/ci.yml) | 手动诊断；调用微服务检查，并检查前端和翻译。 |
+| [core-protocol.yml](../.github/workflows/core-protocol.yml) | 手动、可复用及指定 WIP 路径触发；检查真实 Rust/Go 实现、协议与一次性数据库。 |
+| [microservice-distribution.yml](../.github/workflows/microservice-distribution.yml) | 手动或复用，生成独立预览包；不发布 Release，不部署。 |
+| [store-claim-refund-review.yml](../.github/workflows/store-claim-refund-review.yml) | 手动；复用当前微服务检查，保留商店前端及浏览器回归。旧单体用例仍在 main。 |
 
-Go/Web 发布前须有与目标代码匹配的真实本地测试记录。发布工作流读取
-`local_test_evidence`，不是等待 PR 检查全部变绿。记录格式和来源校验以
-[local-release-tests.py](../scripts/local-release-tests.py) 和
-[verify-release-commit-checks.sh](../scripts/verify-release-commit-checks.sh) 为准。
-不能伪造记录、套用不同源码的旧结果，或把本地测试脚本退出成功当成产物已发布。
+检查成功、失败、取消和未运行项必须分别记录。指定路径的触发规则不代表
+整个仓库每次提交都会运行完整检查。测试入口不能修改成空检查来消除失败。
+旧 `ci_plan.py` 与单体 Go 发布流程已移除，不适用于本分支。
 
-## 诊断计划不是触发条件
+## 发布与生产边界
 
-[ci_plan.py](../scripts/ci_plan.py) 负责选择检查任务。它处理哪些事件或路径，
-不等于当前工作流已为这些事件启用自动触发。任务汇总规则仍需检查：未选择的
-任务可以跳过；要求执行的任务失败、取消或缺失，不能解释为验收完成。
+[Web 发布](../.github/workflows/release-web.yml)与
+[Web 部署](../.github/workflows/deploy-web-frontend.yml)仍是独立手动入口。
+它们不是变基或测试的后续步骤；本 WIP 不能据此替换线上服务。
+微服务包的支持范围、校验与限制见[打包与分发](release-architecture.md)。
 
-新增组件或修改检查计划时，核对计划脚本及其测试。修改工作流名称、路径或
-调用关系时，同时核对 [workflow-topology.test.mjs](../scripts/workflow-topology.test.mjs)。
-Go/Web 签名工作流路径属于签名身份，不为整理文件而随意改名或合并。
+真实测试记录必须绑定实际源码、命令、退出码与日志。保留
+[本地证据工具](../scripts/local-release-tests.py)和
+[校验入口](../scripts/verify-release-commit-checks.sh)的限制，
+不伪造记录，不套用不同源码的结果。
 
-## 生产边界
-
-发版与部署是两件事。先按目标机器的安装方式选择
-[部署流程](deployment-workflow.md)，核对当前版本和兼容性，保留签名校验、
-备份、锁、确认和恢复步骤。包管理安装与压缩包安装不能混用更新路径。
-
-手动触发成功只表示请求被接受。需要记录准确的运行 ID、提交、标签、结果和
-目标环境验收，才能声明发布或部署完成。不要查询“最新一次运行”来替代本次运行。
-文档修改不应触发发版、服务器访问或自动恢复，也不应改变测试触发策略。
+模块测试通过不代表前端、权限、订单与资金的完整链路已接通。
+跨服务业务缺口仍按[业务验收范围](microkernel-business-acceptance.md)记录。
+任何生产操作都需要单独授权；手动触发请求被接受也不等于部署完成。
 
 ## 修改后验证
 
-在仓库根目录运行相关本地检查：
-
-```bash
-python3 -B -m unittest discover -s scripts -p test_ci_plan.py
-python3 -B -m unittest discover -s scripts -p test_ci_quality_gate.py
+```sh
+python3 -B scripts/check-docs-brand.py
+python3 -B -m unittest discover -s scripts -p test_check_docs_brand.py
+python3 -B scripts/test-core-boundaries.py
+python3 -B scripts/test-docs-microservices.py
 node --test scripts/workflow-topology.test.mjs
-bash scripts/test-verify-release-commit-checks.sh
 ```
 
-仅修改本文时，运行文档检查即可；这些命令用于工作流或配套脚本改动。隔离
-测试通过不等于生产数据库恢复、服务器部署或全部应用测试已经完成。
+这些检查验证文档与工作流边界，不替代应用、数据库及生产验收。

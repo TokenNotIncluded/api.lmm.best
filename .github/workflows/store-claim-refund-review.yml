@@ -7,57 +7,11 @@ concurrency:
   group: store-claim-refund-review-${{ github.ref }}
   cancel-in-progress: true
 jobs:
+  # The legacy monolith tests remain on main. This branch validates the actual
+  # Rust core, Go extensions, and store/support PostgreSQL implementation.
+  # Module checks do not establish complete migrated payment/refund acceptance.
   backend:
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    services:
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_USER: store_test
-          POSTGRES_PASSWORD: disposable_test_only
-          POSTGRES_DB: store_test
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd "pg_isready -U store_test -d store_test"
-          --health-interval 5s --health-timeout 5s --health-retries 12
-    env:
-      GOMAXPROCS: '2'
-    steps:
-      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
-        with: {persist-credentials: false}
-      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
-        with:
-          go-version-file: apps/api-go/go.mod
-          cache-dependency-path: apps/api-go/go.sum
-      - name: Install native package fixture tools
-        run: sudo apt-get update -qq && sudo apt-get install -y libarchive-tools
-      - name: Store, auth and refund regression
-        working-directory: apps/api-go
-        run: |
-          set -o pipefail
-          go test -p 2 -count=1 -json -run 'Test(MerchantStore|StoreClaim|ProductionMerchantStore(WriterStatus|WriterTargets|SignedMarkerInventory|ContractCannot|CapsuleClosed))' ./model ./service ./controller ./router . ./internal/appcli ./internal/deploycli | tee "$RUNNER_TEMP/store-go-tests.jsonl"
-      - name: Deployment CLI and documentation contracts
-        run: |
-          python3 -B scripts/check-docs-brand.py --docs-only
-          python3 -B -m unittest discover -s scripts -p test_check_docs_brand.py
-          python3 -B -m unittest discover -s scripts -p test_qualify_merchant_store_postgres.py
-          cd apps/api-go
-          go test -p 2 -count=1 ./internal/appcli
-      - name: Refund receipt race and actual PostgreSQL locks
-        if: ${{ !cancelled() }}
-        env:
-          MERCHANT_STORE_POSTGRES_TEST_DSN: postgres://store_test:disposable_test_only@127.0.0.1:5432/store_test?sslmode=disable
-        working-directory: apps/api-go
-        run: |
-          set -o pipefail
-          go test -p 2 -race -count=1 -json -run 'TestMerchantStore(RefundSync|PickupDenials)' ./model ./service | tee "$RUNNER_TEMP/store-go-race.jsonl"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: always()
-        with:
-          name: store-refund-backend-results
-          path: ${{ runner.temp }}/store-go-*.jsonl
-          retention-days: 7
+    uses: ./.github/workflows/core-protocol.yml
   frontend:
     runs-on: ubuntu-latest
     timeout-minutes: 20

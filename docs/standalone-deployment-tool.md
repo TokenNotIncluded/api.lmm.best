@@ -1,4 +1,6 @@
-# Deployment is separate from the Go API
+# Deployment is separate from the Go API（旧单体参考）
+
+> 本文的旧 Go 部署引擎、打包脚本与隔离测试不适用于当前 WIP。旧实现保留在 main；新分支使用 [独立分发包](release-architecture.md)，不恢复旧单体工具。
 
 `lmm-api-go` no longer implements `operator` or `deploy`. The scripts do not
 resolve a backend provider to run deployment operations. Existing native safety

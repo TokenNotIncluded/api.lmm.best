@@ -1,4 +1,6 @@
-# Waffo Pancake（测试环境）
+# Waffo Pancake（测试环境）（旧单体参考）
+
+> 本文保留 main 的支付协议与回归说明。`apps/api-go`、旧数据库迁移与部署命令不适用于当前微服务分支。当前实现以 [架构与状态](core-migration.md)及 [Go 扩展](../apps/lmm-extensions/README.md)为准，不能据此认定付款或退款链路已迁移完成。
 
 当前 Go 后端使用官方 `github.com/waffo-com/waffo-pancake-sdk-go` 完成服务端集成。仓库根目录另外安装官方 `@waffo/pancake-ts`，仅供服务端 smoke runner 使用；不要把它放进 Web bundle：Waffo 的私钥只能留在服务端。
 
@@ -40,6 +42,7 @@ bun run waffo:pancake:smoke -- \
 ## 端点
 
 - 已登录用户创建钱包 checkout：`POST /api/user/self/waffo-pancake/pay`
+- 客户门户免邮箱验证登录：`POST /api/user/self/waffo-pancake/portal`，见[接入与验收](waffo-pancake-portal.md)。
 - 测试 webhook：`POST /api/waffo-pancake/webhook/test`
 - 正式 webhook：`POST /api/waffo-pancake/webhook/prod`
 
@@ -54,6 +57,38 @@ external ID 绑定本地订单；订阅事件只有 `WAFFO_PANCAKE_SUB-*` 订单
 `refundStatus` 必须与事件类型一致。字段缺失仍兼容旧载荷；签名有效但状态
 自相矛盾的事件会记录错误并确认，不会入账，也不会因为同一份坏载荷反复重试。
 
+## 2026-10-10 SDK 与付款金额适配
+
+Go 后端固定使用 SDK `v0.17.0`。本节核对范围为 2026-09-10 至 2026-10-10；
+上文的 TypeScript 测试脚本不因 Go 依赖升级而自动改变。
+依据为[官方版本记录](https://github.com/waffo-com/waffo-pancake-sdk-go/blob/v0.17.0/CHANGELOG.md)
+及[付款回调文档](https://docs.waffo.ai/api-reference/webhooks)。
+
+从 SDK `v0.14.0` 起，写请求不再自动带 `X-Idempotency-Key`。本项目显式绑定
+钱包收银台的订单号，以及创建店铺、创建及发布商品的操作标识。商店退款使用原订单号
+和退款号生成固定标识，不能使用每次查询都会变化的临时令牌。Waffo 的去重窗口为
+24 小时；本地付款收据、退款状态和数据库唯一限制仍是重复记账的最终保护。
+鉴权令牌和商品查询不能共用收银台的防重标识。退款超时后仍仅查询，不自动重提。
+
+付款事件优先使用 `chargedAmount`，退款事件优先使用 `refundedAmount`。
+`0.00` 表示明确的零金额，不能用商品原价替换。新格式有价格快照、但通道金额
+缺失时，不得回退到旧 `amount` 字段，因为它可能使用原价兜底。
+旧格式没有这些新字段时，继续保留原有金额处理和订单金额校验。
+
+`listPrice`、`originalPayment`、`planPrice` 分别描述付款标价、被退款付款的
+价格快照、订阅阶段价格。它们不证明实际收款或退款。
+已知的 `originalChargedAmount` 是单笔退款上限的额外依据；累计退款还必须通过
+原有本地流水校验，不能只检查一份回调。金额未知时不得入账或冲销余额。
+
+保留可选的 `periodNumber`，不把它当成成功扣款次数或回调防重键。值为零的
+授权阶段不能触发付款发放。当前 Go 后端分别记录实收和订阅周期，不根据付款日期
+猜测现代付款事件缺失的账期；本次没有增加按 `orderId + periodNumber` 关联的数据库迁移。
+
+免邮箱验证客户门户已增加服务端入口，详见[客户门户](waffo-pancake-portal.md)。
+本次没有增加前端按钮，也没有启用自助换套餐或改变套餐权益映射。
+收银台继续显式使用 45 分钟有效期，不采用新文档中的 24 小时默认值。
+本次不改变币种、金额快照、计费倍率或其他支付商的行为。
+
 ## 2026-09-06 订阅 webhook 变更
 
 `subscription.payment_succeeded.data` 已移除 `billingPeriod`、
@@ -62,19 +97,22 @@ external ID 绑定本地订单；订阅事件只有 `WAFFO_PANCAKE_SUB-*` 订单
 
 | 付款类型 | 周期事件 | 处理条件 |
 | --- | --- | --- |
-| 首次付款 | `subscription.activated` | 与同一订单的 `subscription.payment_succeeded` 关联后开通 |
-| 续费付款 | `subscription.renewed` | 与同一订单对应账期的 `subscription.payment_succeeded` 关联后续期 |
+| 首次付款 | `subscription.activated` | 已验签并绑定本地订单的生命周期事件开通权益；付款另行记账 |
+| 续费付款 | `subscription.renewed` | 已验签并绑定本地订单的生命周期事件更新周期；付款另行记账 |
 
 **上线时必须在商户后台「Webhook 设置」勾选 `subscription.renewed`。**
 仅部署代码不会开启商户后台的事件投递；未勾选时，新续费的周期信息无法到达。
 首次付款不会触发 `subscription.renewed`。
 
-当前 Go 部署应通过既有迁移与 `verify` 流程检查付款、周期凭据表及幂等索引。
-旧 Rust 独立迁移已删除；新核心不得绕过这些凭据和幂等要求，支付迁移仍待验收。
+使用 PostgreSQL 独立迁移流程的部署，需要先应用 contract 8 的
+`apps/api-rust/migrations/0008_waffo_subscription_webhooks.sql`，再启动新版 API。
+该迁移新增付款与周期凭据表及幂等索引；Go 的迁移与 `verify` 模式也要求这两张表。
 
-后端持久化已经验签并绑定本地订单的付款凭据和生命周期周期记录，使用 `orderId`
-关联订阅，并使用付款的 `paymentDate` 匹配对应周期。回调可以乱序到达；缺少配对
-证据时保留待处理记录，另一事件到达后再结算。单独收到生命周期事件不会发放权益。
+当前 Go 后端分别持久化已经验签并绑定本地订单的付款凭据和生命周期周期记录。
+`subscription.payment_succeeded` 记录实收，不推算缺失的账期；
+`subscription.activated`、`subscription.renewed`、`subscription.recovered` 更新对应权益。
+两条路径独立处理，不把生命周期事件当作实收凭据，也不等待按付款日期配对。
+实现见 `apps/api-go/model/waffo_pancake_subscription_apply.go`；不要把旧版配对流程当作当前行为。
 重复投递保持幂等；迟到的旧周期不会覆盖更新的订阅周期。历史周期独立保存，不依赖
 订单表中滚动更新的当前周期。日期字段同时接受 RFC3339 时间戳和 `YYYY-MM-DD`；
 仅日期格式按 UTC 零点解释，避免服务器时区改变账期。
@@ -94,8 +132,8 @@ external ID 绑定本地订单；订阅事件只有 `WAFFO_PANCAKE_SUB-*` 订单
 测试模式使用 Visa `4576 7500 0000 0110`，任意未来有效期和三位 CVC。成功后应看到：
 
 1. checkout session 返回 `checkout_url`；
-2. 钱包充值处理 `order.completed` 后，本地订单变为成功；订阅首次付款需收到
-   `subscription.activated` 和 `subscription.payment_succeeded` 后完成开通；
+2. 钱包充值处理 `order.completed` 后，本地订单变为成功；订阅的
+   `subscription.activated` 更新权益，`subscription.payment_succeeded` 独立记账，两者均需验收；
 3. 退款成功事件写入幂等的财务收入冲销记录；退款失败只记录审计，不扣用户额度；
 4. 重复投递不会重复记账或重复写入退款审计日志（包括 `refund.failed`）。
 
@@ -109,6 +147,59 @@ SDK 默认的 45 分钟签名重放窗口。可通过
 本地回归：
 
 ```sh
-cd apps/lmm-extensions
-go test ./model ./service ./controller -run 'WaffoPancake|PaymentWebhook' -count=1
+cd apps/api-go
+go test ./model ./service ./controller -run 'WaffoPancake|PaymentWebhook|MerchantStoreRefund' -count=1
 ```
+
+
+
+## 同一套餐的两种 Waffo 购买方式
+
+套餐新增 `waffo_pancake_products`：每项包含 `product_type`（`one_time` 或
+`subscription`）、`product_id` 和 `enabled`。两种商品共享同一套餐的额度和有效期。
+新建套餐不会强制接入 Waffo；管理员可点击「同时启用两种购买方式」，也可只启用一种。
+保存表单时按需调用现有的商品创建接口，已绑定且价格、币种、周期未变化的商品不重复创建。
+此配置只属于 Waffo Pancake，不改变 Stripe、Creem、ePay 或余额支付。
+
+一次性购买只发放一次套餐权益，到期不会再次扣费。自动续费沿用现有的付款记账与生命周期权益
+更新流程。关闭某种购买方式只限制新订单，不取消已有自动续费合同。
+
+购买接口 `POST /api/subscription/waffo-pancake/pay` 新增 `product_type`。
+两种方式都启用时必须传入选择；只有一种方式时仍兼容旧客户端省略参数。
+用户不能提交任意商品 ID。后端从最新套餐配置选择已启用商品，按该商品核对币种和报价，
+再将所选商品和类型写入订单快照；不从后来的套餐配置推断旧订单类型。
+
+`GET /api/subscription/plans` 返回 `waffo_pancake_options`，逐项提供
+`product_type`、`auto_renew` 和服务端 `settlement` 报价。前端不得把一种商品的报价
+用于另一种商品，也不得在一次性购买不可用时自动改为自动续费。
+
+数据库新增可空 text 列 `subscription_plans.waffo_pancake_products`。
+Go 自动迁移可创建该列；使用独立 PostgreSQL 迁移的环境，必须在启动新版本之前
+执行 [SQL](sql/waffo-plan-products.sql) 并验证该列。此变更未修改 Rust 预览版的
+支付实现或其迁移合同；不得据此宣称 Rust 支持本功能。
+数据库 NULL/JSON null 保留旧单商品设置，JSON [] 表示明确关闭两种方式。
+旧订单快照不回填、不重写。必须先更新全部 Go API 节点和前端，再启用双模式。
+新旧 API 节点混用期间不得启用双模式：旧节点会忽略新请求中的商品类型。
+
+### 商品创建失败
+
+表单会立即保存每次成功返回的商品 ID，然后才创建下一种商品。任一请求失败后，
+本次表单不会自动重试该种商品创建；应刷新 Waffo 目录，选择已经创建的商品后再保存，
+或关闭失败的方式。超时不代表远端未创建。关闭/刷新表单可能丢失未保存的草稿 ID，
+重新打开前应先在商户目录核对。这里没有宣称跨刷新、跨进程的商品创建幂等保证。
+更改价格、币种或自动续费周期会创建替代商品；不要停用仍被旧订阅使用的远端商品。
+
+### 官方资料（核对于 2026-10-10）
+
+- [Payments](https://waffo.mintlify.app/dashboard/payments)：微信支付目前只用于
+  符合条件的一次性付款，不用于自动续费；具体显示仍由收银台按币种、地区和渠道条件决定。
+- [Products](https://waffo.mintlify.app/features/products)：一次性商品和订阅商品分开；
+  CNY 仅支持一次性商品。当前应用仍只处理 CNY/USD，不代表供应商只支持这两种币种。
+
+不要在通用支付层写死「微信一律不支持订阅」，也不要仅凭用户界面语言承诺微信可用。
+
+### 验证
+
+补丁提供独立的产品配置/选择和前端商品准备测试。它们不替代全应用、数据库和签名
+回调测试。合并前还需运行原有 Go Waffo 支付/续费/退款测试、前端类型检查及购买弹窗测试，
+并在测试环境验证实际收银台及事件投递。不得用测试卡模拟结果声称生产已部署。

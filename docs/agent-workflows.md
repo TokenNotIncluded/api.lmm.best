@@ -21,7 +21,7 @@
 | 根目录命令 | [justfile](../justfile)、[package.json](../package.json) |
 | 前端命令与依赖 | [apps/web/package.json](../apps/web/package.json) |
 | 本地环境与端口 | [开发指南](development.md) |
-| CI、签名发布与部署 | [Actions 说明](ci-workflow-layout.md)、[部署流程](deployment-workflow.md) |
+| CI、签名发布与部署 | [Actions 说明](ci-workflow-layout.md)、[Docker 开发栈](../deployment/docker/README.md)、[独立分发](release-architecture.md) |
 | 翻译同步的实际行为 | [sync-i18n.mjs](../apps/web/scripts/sync-i18n.mjs) |
 
 除命令明确切换目录外，均从仓库根目录执行。应用前端位于 `apps/web`。
