@@ -12,10 +12,12 @@ import (
 )
 
 type schemaMaintenanceSchedulerRunner struct {
-	plan     productionSchemaMaintenancePlan
-	sha      string
-	commands []productionCommand
-	failAt   int
+	plan       productionSchemaMaintenancePlan
+	sha        string
+	commands   []productionCommand
+	failAt     int
+	action     string
+	replyError string
 }
 
 func (r *schemaMaintenanceSchedulerRunner) Run(_ context.Context, command productionCommand) ([]byte, error) {
@@ -24,7 +26,11 @@ func (r *schemaMaintenanceSchedulerRunner) Run(_ context.Context, command produc
 		return nil, errors.New("reply lost after potentially accepted mutation")
 	}
 	result, _ := json.Marshal(map[string]string{"phase": "test-only"})
-	reply := schemaMaintenanceRPCReply{Protocol: schemaMaintenanceRPCProtocol, Action: "close", Nonce: strings.Repeat("e", 64), OK: true, Result: result, Binding: schemaMaintenanceRPCBinding{PlanSHA256: r.sha, TransitionID: r.plan.TransitionID, DaemonPID: 123, DaemonInvocationID: strings.Repeat("b", 32), DaemonExeSHA256: r.plan.Worker.Provider.DeployEngineSHA256, DaemonStartTicks: 10}}
+	action := r.action
+	if action == "" {
+		action = "close"
+	}
+	reply := schemaMaintenanceRPCReply{Protocol: schemaMaintenanceRPCProtocol, Action: action, Nonce: strings.Repeat("e", 64), OK: true, Error: r.replyError, Result: result, Binding: schemaMaintenanceRPCBinding{PlanSHA256: r.sha, TransitionID: r.plan.TransitionID, DaemonPID: 123, DaemonInvocationID: strings.Repeat("b", 32), DaemonExeSHA256: r.plan.Worker.Provider.DeployEngineSHA256, DaemonStartTicks: 10}}
 	raw, err := schemaMaintenanceRPCMarshal(reply)
 	return append(raw, '\n'), err
 }

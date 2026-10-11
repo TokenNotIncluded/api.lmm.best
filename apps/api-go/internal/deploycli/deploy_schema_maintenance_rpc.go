@@ -43,7 +43,7 @@ func schemaMaintenanceRPCActionTimeout(action string) (time.Duration, error) {
 	switch action {
 	case "worker":
 		return 15 * time.Minute, nil
-	case "close", "claim", "capture-recovery", "capture-ready", "capture-startable", "status", "capture-outcome", "capture-recovery-profile", "install-recovery-hook":
+	case "close", "claim", "capture-recovery", "capture-ready", "capture-startable", "status", "capture-outcome", "capture-recovery-profile", "install-recovery-hook", "prepare-abort", "check-abort-prestate", "capture-abort-startable", "capture-abort-ready":
 		// One full capsule qualification checks both signed providers, each with
 		// a two-minute signature, 35-second status and five-minute verifier bound.
 		return 20 * time.Minute, nil
@@ -51,13 +51,13 @@ func schemaMaintenanceRPCActionTimeout(action string) (time.Duration, error) {
 		return 5 * time.Minute, nil
 	case "backup-export":
 		return 15 * time.Minute, nil
-	case "release":
+	case "release", "create-abort-binding":
 		return 45 * time.Minute, nil // Two ordered full origin qualifications.
-	case "finish":
+	case "finish", "finish-abort":
 		return 65 * time.Minute, nil // Both origins, then the exact local generation.
-	case "start-recovery":
+	case "start-recovery", "start-abort-old":
 		return 65 * time.Minute, nil // Both origins, native startup, local ready proof.
-	case "reopen":
+	case "reopen", "reopen-abort":
 		return 110 * time.Minute, nil // Both origins before and after, plus local qualification.
 	case "stop":
 		return 3 * time.Minute, nil

@@ -107,7 +107,7 @@ func (runtime *productionReleaseRuntime) schemaMaintenanceRemoteRPC(ctx context.
 		limit = (8 << 20) + 4096
 	}
 	out, callErr := runtime.runner.Run(ctx, productionCommand{Name: commandSSH, Args: []string{"-o", "BatchMode=yes", "-o", "StrictHostKeyChecking=yes", "-o", "ControlMaster=no", "-o", "ControlPath=none", "-o", "ConnectTimeout=10", origin.Alias, strings.Join(words, " ")}, Timeout: budget + 10*time.Second, OutputLimit: limit})
-	if callErr != nil || schemaMaintenanceRPCDecode(bytes.TrimSuffix(out, []byte{'\n'}), &reply) != nil || reply.Protocol != schemaMaintenanceRPCProtocol || validateSchemaMaintenanceRPCBinding(reply.Binding) != nil || reply.Action != action || reply.Binding.PlanSHA256 != planSHA || reply.Binding.TransitionID != plan.TransitionID || reply.Binding.DaemonExeSHA256 != plan.Worker.Provider.DeployEngineSHA256 || !productionSHA256Pattern.MatchString(reply.Nonce) || !reply.OK {
+	if callErr != nil || schemaMaintenanceRPCDecode(bytes.TrimSuffix(out, []byte{'\n'}), &reply) != nil || reply.Protocol != schemaMaintenanceRPCProtocol || validateSchemaMaintenanceRPCBinding(reply.Binding) != nil || reply.Action != action || reply.Binding.PlanSHA256 != planSHA || reply.Binding.TransitionID != plan.TransitionID || reply.Binding.DaemonExeSHA256 != plan.Worker.Provider.DeployEngineSHA256 || !productionSHA256Pattern.MatchString(reply.Nonce) || !reply.OK || reply.Error != "" {
 		return reply, errors.New("schema native RPC did not return one exact successful result; retain daemons and reconcile without repeating mutation")
 	}
 	return reply, nil
@@ -117,13 +117,9 @@ func (runtime *productionReleaseRuntime) schemaMaintenanceRemoteRPC(ctx context.
 // concurrently can deadlock the two serial holders while they observe each
 // other. Every attempt is durable before dispatch; a lost reply cannot retry it.
 func (runtime *productionReleaseRuntime) dispatchSchemaMaintenancePhase(ctx context.Context, plan productionSchemaMaintenancePlan, planSHA, action string) ([]schemaMaintenanceRPCReply, error) {
-	primaryOnly := false
-	switch action {
-	case "close", "stop", "install-recovery-hook", "start-recovery", "reopen", "finish":
-	case "claim", "worker", "release", "capture-outcome":
-		primaryOnly = true
-	default:
-		return nil, errors.New("schema dispatcher accepts only fixed mutation phases")
+	origins, err := schemaMaintenanceDispatchOrigins(plan, action)
+	if err != nil {
+		return nil, err
 	}
 	lock, err := acquireSchemaMaintenanceSchedulerLock(plan.BackupPolicy.ControllerDirectory)
 	if err != nil {
@@ -131,6 +127,9 @@ func (runtime *productionReleaseRuntime) dispatchSchemaMaintenancePhase(ctx cont
 	}
 	defer lock.Close() // Only the controller's private scheduling lock, never a host lock.
 	state := filepath.Join(plan.BackupPolicy.ControllerDirectory, "state")
+	if err := schemaMaintenanceCheckDispatchLane(plan, action); err != nil {
+		return nil, err
+	}
 	if err := schemaMaintenanceCheckPreviousDispatches(plan, planSHA); err != nil {
 		return nil, err
 	}
@@ -140,10 +139,6 @@ func (runtime *productionReleaseRuntime) dispatchSchemaMaintenancePhase(ctx cont
 	}{"lmm-schema-maintenance-dispatch-v1", plan.TransitionID, planSHA, action, runtime.now().UTC()})
 	if err := schemaMaintenanceControllerNewFile(filepath.Join(state, "dispatch-"+action+".json"), append(intent, '\n')); err != nil {
 		return nil, err
-	}
-	origins := plan.Origins
-	if primaryOnly {
-		origins = origins[:1]
 	}
 	var results []schemaMaintenanceRPCReply
 	for _, origin := range origins {
@@ -180,9 +175,73 @@ type productionSchemaMaintenanceDispatchComplete struct {
 	Replies      []productionReleaseFilePlan `json:"replies"`
 }
 
+func schemaMaintenanceNormalDispatchActions() []string {
+	return []string{"close", "stop", "claim", "worker", "capture-outcome", "install-recovery-hook", "release", "start-recovery", "reopen", "finish"}
+}
+
+func schemaMaintenanceAbortDispatchActions() []string {
+	return []string{"prepare-abort", "create-abort-binding", "start-abort-old", "reopen-abort", "finish-abort"}
+}
+
+func schemaMaintenanceDispatchOrigins(plan productionSchemaMaintenancePlan, action string) ([]productionSchemaMaintenanceOriginPlan, error) {
+	switch action {
+	case "close", "stop", "install-recovery-hook", "start-recovery", "reopen", "finish", "prepare-abort", "start-abort-old", "reopen-abort", "finish-abort":
+		return plan.Origins, nil
+	case "claim", "worker", "release", "capture-outcome", "create-abort-binding":
+		return plan.Origins[:1], nil
+	default:
+		return nil, errors.New("schema dispatcher accepts only fixed mutation phases")
+	}
+}
+
+func schemaMaintenanceCheckDispatchLane(plan productionSchemaMaintenancePlan, action string) error {
+	state := filepath.Join(plan.BackupPolicy.ControllerDirectory, "state")
+	abortActions := schemaMaintenanceAbortDispatchActions()
+	abortIndex := -1
+	for index, candidate := range abortActions {
+		if candidate == action {
+			abortIndex = index
+		}
+	}
+	for index, candidate := range abortActions {
+		_, err := os.Lstat(filepath.Join(state, "dispatch-"+candidate+".json"))
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if abortIndex < 0 {
+			return errors.New("schema abort was attempted; normal mutation phases remain frozen")
+		}
+		if index >= abortIndex {
+			return errors.New("schema abort phase was already attempted or a later abort phase exists; observe without resending mutation")
+		}
+	}
+	if abortIndex < 0 {
+		return nil
+	}
+	// This is only local sequencing. The native controller must independently
+	// prove NEVER_CLAIMED; neither local receipts nor this lane authorize DDL.
+	for _, candidate := range schemaMaintenanceNormalDispatchActions()[2:] {
+		if _, err := os.Lstat(filepath.Join(state, "dispatch-"+candidate+".json")); !errors.Is(err, os.ErrNotExist) {
+			return errors.New("schema abort cannot follow an attempted claim or later normal phase")
+		}
+	}
+	prerequisites := append([]string{"close", "stop"}, abortActions[:abortIndex]...)
+	for _, candidate := range prerequisites {
+		if _, err := os.Lstat(filepath.Join(state, "dispatch-"+candidate+".json")); err != nil {
+			return errors.New("schema abort requires completed close, stop and each earlier abort phase")
+		}
+	}
+	// The caller now validates every prerequisite's canonical completion and
+	// exact ordered successful native receipts under this same scheduler lock.
+	return nil
+}
+
 func schemaMaintenanceCheckPreviousDispatches(plan productionSchemaMaintenancePlan, sha string) error {
 	state := filepath.Join(plan.BackupPolicy.ControllerDirectory, "state")
-	for _, action := range []string{"close", "stop", "claim", "worker", "capture-outcome", "install-recovery-hook", "release", "start-recovery", "reopen", "finish"} {
+	for _, action := range append(schemaMaintenanceNormalDispatchActions(), schemaMaintenanceAbortDispatchActions()...) {
 		intentPath := filepath.Join(state, "dispatch-"+action+".json")
 		if _, err := os.Lstat(intentPath); errors.Is(err, os.ErrNotExist) {
 			continue
@@ -201,9 +260,9 @@ func schemaMaintenanceCheckPreviousDispatches(plan productionSchemaMaintenancePl
 		if !bytes.Equal(append(canonical, '\n'), raw) {
 			return errors.New("schema prior dispatch completion is ambiguous")
 		}
-		origins := plan.Origins
-		if action == "claim" || action == "worker" || action == "capture-outcome" || action == "release" {
-			origins = origins[:1]
+		origins, err := schemaMaintenanceDispatchOrigins(plan, action)
+		if err != nil {
+			return err
 		}
 		if len(complete.Replies) != len(origins) {
 			return errors.New("schema prior dispatch did not complete every required origin")
@@ -214,7 +273,7 @@ func schemaMaintenanceCheckPreviousDispatches(plan productionSchemaMaintenancePl
 			}
 			raw, err := controllerBackupReadPrivate(ref.Path, os.Geteuid(), 65536)
 			var reply schemaMaintenanceRPCReply
-			if err != nil || startupContentSHA256(raw) != ref.SHA256 || schemaMaintenanceRPCDecode(bytes.TrimSuffix(raw, []byte{'\n'}), &reply) != nil || !reply.OK || reply.Action != action || reply.Binding.PlanSHA256 != sha || reply.Binding.TransitionID != plan.TransitionID || reply.Binding.DaemonExeSHA256 != plan.Worker.Provider.DeployEngineSHA256 || validateSchemaMaintenanceRPCBinding(reply.Binding) != nil {
+			if err != nil || startupContentSHA256(raw) != ref.SHA256 || schemaMaintenanceRPCDecode(bytes.TrimSuffix(raw, []byte{'\n'}), &reply) != nil || !reply.OK || reply.Error != "" || reply.Protocol != schemaMaintenanceRPCProtocol || !productionSHA256Pattern.MatchString(reply.Nonce) || reply.Action != action || reply.Binding.PlanSHA256 != sha || reply.Binding.TransitionID != plan.TransitionID || reply.Binding.DaemonExeSHA256 != plan.Worker.Provider.DeployEngineSHA256 || validateSchemaMaintenanceRPCBinding(reply.Binding) != nil {
 				return errors.New("schema prior dispatch lost its exact successful native receipt")
 			}
 		}
