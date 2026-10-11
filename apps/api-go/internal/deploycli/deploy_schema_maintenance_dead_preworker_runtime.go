@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -21,7 +22,7 @@ func (runtime *productionRuntime) checkSchemaMaintenanceDeadNoWorker(workspace s
 	}
 	for _, name := range []string{"schema-worker-intent.json", "schema-worker-result.json", "schema-worker-output.log", "schema-outcome.json", "owner-released.json", "recovery-binding.json", "recovery-startup-profile.json", "recovery-hook-intent.json", "recovery-hook-bound.json", "recovery-start-intent.json", "recovery-started.json", "host-finished.json", "abort-binding.json", "abort-start-intent.json", "abort-started.json", "abort-host-finished.json", "abort-finish-intent.json"} {
 		if _, err := os.Lstat(filepath.Join(workspace, "state", name)); !errors.Is(err, os.ErrNotExist) {
-			return errors.New("dead-preworker recovery found possible worker or recovery evidence")
+			return fmt.Errorf("dead-preworker recovery found possible worker or recovery evidence at %s", name)
 		}
 	}
 	return nil
@@ -264,6 +265,45 @@ func (runtime *productionRuntime) reconcileSchemaMaintenanceDeadPreWorkerOwner(c
 		return result, errors.New("dead-preworker reconciliation changed the actual original recoverer intent")
 	}
 	result.IntentSHA256 = startupContentSHA256(raw)
+	result, err = runtime.observeSchemaMaintenanceDeadPreWorkerOwner(ctx, a, result, raw)
+	if err != nil {
+		return result, err
+	}
+	canonical, _ = json.MarshalIndent(result, "", "  ")
+	if err := runtime.writeSchemaMaintenanceRawNewFile(filepath.Join(workspace, "state", "dead-preworker-cas-reconciled.json"), append(canonical, '\n')); err != nil {
+		return result, errors.New("dead-preworker reconciliation receipt already exists or is uncertain")
+	}
+	return result, nil
+}
+
+func (runtime *productionRuntime) schemaMaintenanceDeadOwnerReceipt(workspace string) ([]byte, bool, error) {
+	path := filepath.Join(workspace, "state", "schema-owner.json")
+	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
+		return nil, false, nil
+	} else if err != nil {
+		return nil, false, err
+	}
+	raw, err := runtime.readExistingSchemaSealedFile(path, true)
+	return raw, true, err
+}
+
+// Diagnose never publishes an authorization receipt. Its observations use the
+// same fixed read-only transaction as reconciliation, with no DELETE or retry.
+func (runtime *productionRuntime) diagnoseSchemaMaintenanceDeadPreWorkerOwner(ctx context.Context, a productionSchemaMaintenanceDeadPreWorkerCASAuthority) (productionSchemaMaintenanceDeadPreWorkerCASResult, error) {
+	var result productionSchemaMaintenanceDeadPreWorkerCASResult
+	if _, err := runtime.validateSchemaMaintenanceDeadAuthority(ctx, a); err != nil {
+		return result, err
+	}
+	result = newSchemaMaintenanceDeadCASResult(a, runtime.now())
+	result, err := runtime.observeSchemaMaintenanceDeadPreWorkerOwner(ctx, a, result, nil)
+	if err == nil && result.Outcome == "OWNER_ABSENCE_RECONCILED" {
+		result.Outcome = "OWNER_ABSENCE_OBSERVED"
+	}
+	return result, err
+}
+
+func (runtime *productionRuntime) observeSchemaMaintenanceDeadPreWorkerOwner(ctx context.Context, a productionSchemaMaintenanceDeadPreWorkerCASAuthority, result productionSchemaMaintenanceDeadPreWorkerCASResult, intentRaw []byte) (productionSchemaMaintenanceDeadPreWorkerCASResult, error) {
+	workspace := schemaMaintenanceHostWorkspace(runtime.paths, a.Plan.TransitionID)
 	ownerReceipt, ownerReceiptPresent, err := runtime.schemaMaintenanceDeadOwnerReceipt(workspace)
 	if err != nil || ownerReceiptPresent && (a.OwnerMode != schemaMaintenanceDeadPreWorkerExactOwner || !bytes.Equal(ownerReceipt, a.OriginalOwnerRaw)) {
 		return result, errors.New("dead-preworker reconciliation original owner receipt differs")
@@ -307,9 +347,11 @@ func (runtime *productionRuntime) reconcileSchemaMaintenanceDeadPreWorkerOwner(c
 	if receiptErr != nil || receiptPresent != ownerReceiptPresent || !bytes.Equal(actualReceipt, ownerReceipt) {
 		return result, errors.New("dead-preworker reconciliation original owner receipt changed during observation")
 	}
-	actualIntent, intentErr := runtime.readExistingSchemaSealedFile(filepath.Join(workspace, "state", "dead-preworker-cas-intent.json"), true)
-	if intentErr != nil || !bytes.Equal(actualIntent, raw) {
-		return result, errors.New("dead-preworker reconciliation intent changed during observation")
+	if len(intentRaw) != 0 {
+		actualIntent, intentErr := runtime.readExistingSchemaSealedFile(filepath.Join(workspace, "state", "dead-preworker-cas-intent.json"), true)
+		if intentErr != nil || !bytes.Equal(actualIntent, intentRaw) {
+			return result, errors.New("dead-preworker reconciliation intent changed during observation")
+		}
 	}
 	if err := a.CheckLocalDeadAuthority(ctx); err != nil {
 		return result, err
@@ -321,20 +363,5 @@ func (runtime *productionRuntime) reconcileSchemaMaintenanceDeadPreWorkerOwner(c
 		return result, errors.New("dead-preworker read-only reconciliation did not finish cleanly")
 	}
 	result.FinishedUTC = runtime.now().UTC()
-	canonical, _ = json.MarshalIndent(result, "", "  ")
-	if err := runtime.writeSchemaMaintenanceRawNewFile(filepath.Join(workspace, "state", "dead-preworker-cas-reconciled.json"), append(canonical, '\n')); err != nil {
-		return result, errors.New("dead-preworker reconciliation receipt already exists or is uncertain")
-	}
 	return result, nil
-}
-
-func (runtime *productionRuntime) schemaMaintenanceDeadOwnerReceipt(workspace string) ([]byte, bool, error) {
-	path := filepath.Join(workspace, "state", "schema-owner.json")
-	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
-		return nil, false, nil
-	} else if err != nil {
-		return nil, false, err
-	}
-	raw, err := runtime.readExistingSchemaSealedFile(path, true)
-	return raw, true, err
 }
