@@ -10,6 +10,7 @@ import { Switch } from '@/components/ui/switch'
 import { Textarea } from '@/components/ui/textarea'
 import { useAuthStore } from '@/stores/auth-store'
 
+import { storeTermsSupported } from './access-types'
 import { storeApi } from './api'
 import {
   StoreMerchantHomeSettings,
@@ -190,7 +191,7 @@ function StorePaymentSettings() {
           </>
         )
       )}
-      {catalog.data?.store_access_supported === true && (
+      {storeTermsSupported(catalog.data) && (
         <StoreMerchantTermsEditor sellerId={user.id} />
       )}
       {user.role >= 100 && (

@@ -65,8 +65,9 @@ useAuthStore.getState().auth.setBootstrapState('complete')
 const { api } = await import('@/lib/api')
 const { StoreCheckout } = await import('./product-page')
 const { StoreGuestOrders } = await import('./guest-orders')
-const { StoreProductEditor, StoreInventoryImport } =
+const { StoreProductEditor, StoreInventoryImport, StoreSellerPage } =
   await import('./seller-page')
+const { StoreSettingsPage } = await import('./settings-page')
 const i18n = createInstance()
 await i18n.use(initReactI18next).init({ lng: 'en', resources: {} })
 const originalGet = api.get
@@ -227,7 +228,11 @@ const order = {
   email_pickup_link: false,
   payment_issued: false,
 }
-function mockAccess(supported = true, official = true) {
+function mockAccess(
+  supported = true,
+  official = true,
+  capabilities?: Record<string, unknown>
+) {
   const writes: Array<{
     url: string
     body: Record<string, unknown>
@@ -237,7 +242,9 @@ function mockAccess(supported = true, official = true) {
   api.get = (async (url: string) => {
     reads.push(url)
     if (url === '/api/store/config') {
-      return result(supported ? { store_access_supported: true } : {})
+      return result(
+        capabilities ?? (supported ? { store_access_supported: true } : {})
+      )
     }
     if (url.endsWith('/terms')) return result(sellerTerms)
     if (url === `/api/store/products/${product.id}`) {
@@ -359,6 +366,152 @@ test('missing access capability preserves sign-in purchase and never calls terms
     reads.some((url) => url.endsWith('/terms')),
     false
   )
+})
+test('independent seller terms require explicit consent and send the exact version while access and guest routes stay disabled', async () => {
+  const { writes, reads } = mockAccess(false, true, {
+    store_access_supported: false,
+    store_terms_supported: true,
+  })
+  await mount(<StoreCheckout product={product} />)
+  assert.ok(reads.includes(`/api/store/products/${product.id}/terms`))
+  assert.equal(writes.length, 0)
+  await click(button('Place order'))
+  assert.equal(button('Agree and place order').disabled, true)
+  const checkbox = document.getElementById('store-accept-seller-terms')
+  assert.ok(checkbox)
+  await click(checkbox)
+  assert.equal(writes.length, 0)
+  await click(button('Agree and place order'))
+  const checkout = writes.find((write) => write.url === '/api/store/orders')
+  assert.ok(checkout)
+  assert.equal(checkout.body.seller_terms_version, sellerTerms.version)
+  assert.equal(checkout.body.accept_seller_terms, true)
+  assert.equal(checkout.body.product_id, product.id)
+  assert.equal(checkout.body.payment_method, 'balance')
+  assert.equal(
+    reads.some((url) => url.includes('/by-request-key/')),
+    false
+  )
+  assert.equal(
+    [...reads, ...writes.map((write) => write.url)].some((url) =>
+      url.includes('/guest/')
+    ),
+    false
+  )
+})
+test('independent terms do not enable anonymous guest checkout', async () => {
+  const { writes } = mockAccess(false, true, {
+    store_access_supported: false,
+    store_terms_supported: true,
+  })
+  await mount(<StoreCheckout product={guestProduct} />, true)
+  assert.match(document.body.textContent || '', /Sign in to buy/)
+  assert.equal(writes.length, 0)
+})
+test('explicitly disabled terms override old access and do not fetch or submit seller terms', async () => {
+  const { writes, reads } = mockAccess(true, true, {
+    store_access_supported: true,
+    store_terms_supported: false,
+  })
+  await mount(<StoreCheckout product={product} />)
+  assert.equal(
+    reads.some((url) => url.endsWith('/terms')),
+    false
+  )
+  await click(button('Place order'))
+  const checkout = writes.find((write) => write.url === '/api/store/orders')
+  assert.ok(checkout)
+  assert.equal(checkout.body.seller_terms_version, undefined)
+  assert.equal(checkout.body.accept_seller_terms, undefined)
+})
+test('advertised independent terms with a missing version cannot create an order even after checking consent', async () => {
+  const { writes } = mockAccess(false, true, {
+    store_access_supported: false,
+    store_terms_supported: true,
+  })
+  const get = api.get
+  api.get = (async (url: string, options?: unknown) =>
+    url.endsWith('/terms')
+      ? result({ ...sellerTerms, version: '' })
+      : get(url, options as never)) as typeof api.get
+  await mount(<StoreCheckout product={product} />)
+  await agreeTerms()
+  assert.equal(button('Agree and place order').disabled, true)
+  await click(button('Agree and place order'))
+  assert.equal(writes.length, 0)
+})
+test('seller settings can edit independent terms with the exact version while access stays disabled', async () => {
+  mockAccess(false, true, {
+    store_access_supported: false,
+    store_terms_supported: true,
+  })
+  const get = api.get
+  let terms = { ...sellerTerms }
+  const writes: Array<{ url: string; body: Record<string, unknown> }> = []
+  api.get = (async (url: string, options?: unknown) => {
+    if (url === '/api/store/payments/settings') {
+      return result({ items: [], balance_quota: 0, fee_bps: 0 })
+    }
+    if (url === '/api/store/my/terms') return result(terms)
+    return get(url, options as never)
+  }) as typeof api.get
+  api.put = (async (url: string, body: Record<string, unknown>) => {
+    writes.push({ url, body })
+    terms = {
+      ...terms,
+      content: String(body.content),
+      version: '22222222-2222-2222-2222-222222222222',
+    }
+    return result(terms)
+  }) as typeof api.put
+  await mount(<StoreSettingsPage />)
+  await act(flush)
+  const textarea = document.querySelector<HTMLTextAreaElement>(
+    '#store-seller-terms'
+  )
+  assert.ok(textarea, document.body.textContent || 'seller terms form missing')
+  const setter = Object.getOwnPropertyDescriptor(
+    dom.HTMLTextAreaElement.prototype,
+    'value'
+  )?.set
+  assert.ok(setter)
+  await act(async () => {
+    setter.call(textarea, 'Reviewed updated seller terms.')
+    textarea.dispatchEvent(new Event('input', { bubbles: true }))
+    await flush()
+  })
+  await click(button('Save'))
+  assert.deepEqual(writes, [
+    {
+      url: '/api/store/my/terms',
+      body: {
+        content: 'Reviewed updated seller terms.',
+        expected_version: sellerTerms.version,
+      },
+    },
+  ])
+})
+test('seller center exposes the real terms settings link without enabling product access controls', async () => {
+  mockAccess(false, true, {
+    store_access_supported: false,
+    store_terms_supported: true,
+  })
+  const get = api.get
+  api.get = (async (url: string, options?: unknown) => {
+    if (url === '/api/store/payments/settings') {
+      return result({ items: [], balance_quota: 0, fee_bps: 0 })
+    }
+    if (url === '/api/store/my/products') {
+      return result({ items: [], offset: 0, limit: 20, has_more: false })
+    }
+    return get(url, options as never)
+  }) as typeof api.get
+  await mount(<StoreSellerPage />)
+  const link = document.querySelector<HTMLAnchorElement>(
+    'a[href="/store/settings#seller-terms"]'
+  )
+  assert.ok(link)
+  assert.equal(document.querySelector('#store-purchase-login'), null)
 })
 test('guest external checkout requires real seller terms and uses private session header for create, pay and order read', async () => {
   const { writes } = mockAccess()
@@ -646,6 +799,52 @@ test('legacy unknown checkout never calls a new lookup endpoint and explicit rep
   assert.match(document.body.textContent || '', /Order paid/)
 })
 
+test('unknown independent-terms checkout replays the frozen version and consent with the same key after terms change', async () => {
+  const { reads } = mockAccess(false, true, {
+    store_access_supported: false,
+    store_terms_supported: true,
+  })
+  const get = api.get
+  const post = api.post
+  let terms = { ...sellerTerms }
+  const creates: Record<string, unknown>[] = []
+  api.get = (async (url: string, options?: unknown) =>
+    url.endsWith('/terms')
+      ? result(terms)
+      : get(url, options as never)) as typeof api.get
+  api.post = (async (
+    url: string,
+    body: Record<string, unknown>,
+    options?: unknown
+  ) => {
+    if (url !== '/api/store/orders') return post(url, body, options as never)
+    creates.push(body)
+    if (creates.length === 1) throw new Error('Network result unknown')
+    return post(url, body, options as never)
+  }) as typeof api.post
+  await mount(<StoreCheckout product={product} />)
+  await agreeTerms()
+  await click(button('Agree and place order'))
+  assert.equal(creates.length, 1)
+  terms = {
+    ...sellerTerms,
+    version: '22222222-2222-2222-2222-222222222222',
+    content: 'New seller terms after an unknown create.',
+  }
+  await remount(<StoreCheckout product={product} />)
+  assert.equal(creates.length, 1)
+  assert.equal(
+    reads.some((url) => url.includes('/by-request-key/')),
+    false
+  )
+  await click(button('Retry this order request'))
+  assert.equal(creates.length, 2)
+  assert.deepEqual(creates[1], creates[0])
+  assert.equal(creates[1].seller_terms_version, sellerTerms.version)
+  assert.equal(creates[1].accept_seller_terms, true)
+  assert.notEqual(creates[1].seller_terms_version, terms.version)
+})
+
 test('cart selection survives sign-in and an unavailable linked SKU requires an explicit replacement before order or cart writes', async () => {
   const { writes } = mockAccess(false)
   const get = api.get
@@ -907,84 +1106,108 @@ test('switching accounts after a paid receipt does not rebind the previous order
   )
 })
 
-test('only an exact authoritative precreate terms rejection releases its key; new terms require a fresh checkbox and explicit create', async () => {
-  mockAccess()
-  const get = api.get
-  const post = api.post
-  let terms = { ...sellerTerms }
-  const requests: Record<string, unknown>[] = []
-  api.get = (async (url: string, options?: unknown) =>
-    url.endsWith('/terms')
-      ? result(terms)
-      : get(url, options as never)) as typeof api.get
-  api.post = (async (
-    url: string,
-    body: Record<string, unknown>,
-    options?: unknown
-  ) => {
-    if (url !== '/api/store/orders') return post(url, body, options as never)
-    requests.push(body)
-    if (requests.length === 1) {
-      terms = {
-        ...sellerTerms,
-        version: '22222222-2222-2222-2222-222222222222',
-        content: 'Updated actual seller terms.',
+for (const scenario of [
+  { capabilities: { store_access_supported: true }, guest: false },
+  {
+    capabilities: {
+      store_access_supported: false,
+      store_terms_supported: true,
+    },
+    guest: false,
+  },
+  { capabilities: { store_access_supported: true }, guest: true },
+]) {
+  test(`exact precreate terms rejection releases its key and requires fresh consent (${JSON.stringify(scenario)})`, async () => {
+    mockAccess(true, true, scenario.capabilities)
+    const get = api.get
+    const post = api.post
+    let terms = { ...sellerTerms }
+    const requests: Record<string, unknown>[] = []
+    api.get = (async (url: string, options?: unknown) =>
+      url.endsWith('/terms')
+        ? result(terms)
+        : get(url, options as never)) as typeof api.get
+    api.post = (async (
+      url: string,
+      body: Record<string, unknown>,
+      options?: unknown
+    ) => {
+      if (
+        url !==
+        (scenario.guest ? '/api/store/guest/orders' : '/api/store/orders')
+      ) {
+        return post(url, body, options as never)
       }
-      throw {
-        response: {
-          status: 409,
-          data: {
-            success: false,
-            code: 'STORE_TERMS_UPDATED',
-            request_key: body.request_key,
-            order_created: false,
+      requests.push(body)
+      if (requests.length === 1) {
+        terms = {
+          ...sellerTerms,
+          version: '22222222-2222-2222-2222-222222222222',
+          content: 'Updated actual seller terms.',
+        }
+        throw {
+          response: {
+            status: 409,
+            data: {
+              success: false,
+              code: 'STORE_TERMS_UPDATED',
+              request_key: body.request_key,
+              order_created: false,
+            },
           },
-        },
+        }
       }
-    }
-    return post(url, body, options as never)
-  }) as typeof api.post
-  await mount(<StoreCheckout product={product} />)
-  await agreeTerms()
-  await click(button('Agree and place order'))
-  assert.equal(requests.length, 1)
-  assert.equal(
-    JSON.parse(localStorage.getItem('lmm:store:checkout-intents') || '{}')
-      .records.length,
-    0
-  )
-  assert.match(document.body.textContent || '', /Updated actual seller terms/)
-  assert.equal(button('Agree and place order').disabled, true)
-  const checkbox = document.querySelector<HTMLElement>('[role="checkbox"]')
-  assert.ok(checkbox)
-  assert.equal(checkbox.getAttribute('aria-checked'), 'false')
-  await click(checkbox)
-  assert.equal(requests.length, 1)
-  await click(button('Agree and place order'))
-  assert.equal(requests.length, 2)
-  assert.notEqual(requests[0].request_key, requests[1].request_key)
-  assert.equal(requests[1].seller_terms_version, terms.version)
-  assert.equal(requests[1].accept_seller_terms, true)
-})
+      return post(url, body, options as never)
+    }) as typeof api.post
+    await mount(
+      <StoreCheckout product={scenario.guest ? guestProduct : product} />,
+      scenario.guest
+    )
+    await agreeTerms()
+    await click(button('Agree and place order'))
+    assert.equal(requests.length, 1)
+    assert.equal(
+      JSON.parse(localStorage.getItem('lmm:store:checkout-intents') || '{}')
+        .records.length,
+      0
+    )
+    assert.match(document.body.textContent || '', /Updated actual seller terms/)
+    assert.equal(button('Agree and place order').disabled, true)
+    const checkbox = document.querySelector<HTMLElement>('[role="checkbox"]')
+    assert.ok(checkbox)
+    assert.equal(checkbox.getAttribute('aria-checked'), 'false')
+    await click(checkbox)
+    assert.equal(requests.length, 1)
+    await click(button('Agree and place order'))
+    assert.equal(requests.length, 2)
+    assert.notEqual(requests[0].request_key, requests[1].request_key)
+    assert.equal(requests[1].seller_terms_version, terms.version)
+    assert.equal(requests[1].accept_seller_terms, true)
+  })
+}
 
-test('a plain terms conflict never releases an unknown checkout or creates a replacement request', async () => {
-  mockAccess()
+test('a non-409 terms response with matching precreate markers remains unknown', async () => {
+  mockAccess(false, true, {
+    store_access_supported: false,
+    store_terms_supported: true,
+  })
   const post = api.post
-  let calls = 0
+  let creates = 0
   api.post = (async (
     url: string,
     body: Record<string, unknown>,
     options?: unknown
   ) => {
     if (url !== '/api/store/orders') return post(url, body, options as never)
-    calls++
+    creates++
     throw {
       response: {
-        status: 409,
+        status: 503,
         data: {
           success: false,
-          code: 'STORE_SELLER_TERMS_REQUIRED',
+          code: 'STORE_TERMS_UPDATED',
           request_key: body.request_key,
+          order_created: false,
         },
       },
     }
@@ -992,7 +1215,7 @@ test('a plain terms conflict never releases an unknown checkout or creates a rep
   await mount(<StoreCheckout product={product} />)
   await agreeTerms()
   await click(button('Agree and place order'))
-  assert.equal(calls, 1)
+  assert.equal(creates, 1)
   const records = JSON.parse(
     localStorage.getItem('lmm:store:checkout-intents') || '{}'
   ).records
@@ -1000,6 +1223,45 @@ test('a plain terms conflict never releases an unknown checkout or creates a rep
   assert.equal(records[0].state, 'unknown')
   assert.equal(button('Place order').disabled, true)
 })
+
+for (const capabilities of [
+  { store_access_supported: true },
+  { store_access_supported: false, store_terms_supported: true },
+]) {
+  test(`ambiguous terms conflict never releases its request or creates a replacement (${JSON.stringify(capabilities)})`, async () => {
+    mockAccess(true, true, capabilities)
+    const post = api.post
+    let calls = 0
+    api.post = (async (
+      url: string,
+      body: Record<string, unknown>,
+      options?: unknown
+    ) => {
+      if (url !== '/api/store/orders') return post(url, body, options as never)
+      calls++
+      throw {
+        response: {
+          status: 409,
+          data: {
+            success: false,
+            code: 'STORE_TERMS_UPDATED',
+            request_key: body.request_key,
+          },
+        },
+      }
+    }) as typeof api.post
+    await mount(<StoreCheckout product={product} />)
+    await agreeTerms()
+    await click(button('Agree and place order'))
+    assert.equal(calls, 1)
+    const records = JSON.parse(
+      localStorage.getItem('lmm:store:checkout-intents') || '{}'
+    ).records
+    assert.equal(records.length, 1)
+    assert.equal(records[0].state, 'unknown')
+    assert.equal(button('Place order').disabled, true)
+  })
+}
 
 test('removing available inventory requires exact variant and item confirmation; cancelling sends no delete and retained stock has no remove action', async () => {
   mockAccess()

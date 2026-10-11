@@ -3,7 +3,11 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { useAuthStore } from '@/stores/auth-store'
 
-import { storeGuestApi, type StoreGuestSession } from './access-api'
+import {
+  storeGuestApi,
+  StoreAccessRequestError,
+  type StoreGuestSession,
+} from './access-api'
 import { STORE_ACCESS_COPY as copy } from './access-copy'
 import { StoreAPIError, storeApi } from './api'
 import {
@@ -34,11 +38,13 @@ export function isStoreCheckoutActorCurrent(actor: StoreCheckoutActor) {
 export function useStoreCheckoutRecovery({
   productId,
   supported,
+  termsSupported = supported,
   userId,
   guest,
 }: {
   productId: string
   supported: boolean
+  termsSupported?: boolean
   userId?: number
   guest: StoreGuestSession | null
 }) {
@@ -246,8 +252,11 @@ export function useStoreCheckoutRecovery({
       created = await credentials.checkout(prepared.request)
     } catch (issue) {
       if (
-        supported &&
+        termsSupported &&
         issue instanceof StoreAPIError &&
+        (issue.status === 409 ||
+          (issue instanceof StoreAccessRequestError &&
+            issue.httpStatus === 409)) &&
         issue.code === 'STORE_TERMS_UPDATED' &&
         issue.requestKey === prepared.record.requestKey &&
         issue.orderCreated === false

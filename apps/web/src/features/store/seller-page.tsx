@@ -36,7 +36,11 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { STORE_ACCESS_COPY as accessCopy } from './access-copy'
 import { StoreProductAccessSettings } from './access-settings'
-import { storeVisibility, storePurchaseLoginRequired } from './access-types'
+import {
+  storeTermsSupported,
+  storeVisibility,
+  storePurchaseLoginRequired,
+} from './access-types'
 import { StoreProductAnalytics } from './analytics'
 import { storeApi, StoreAPIError } from './api'
 import { StoreCategorySelect, StoreProductCategoryEditor } from './categories'
@@ -287,7 +291,7 @@ function StoreSellerCenter() {
         </div>
         <div className='flex flex-wrap gap-2'>
           <StoreProductAnalytics />
-          {config.data?.store_access_supported === true && (
+          {storeTermsSupported(config.data) && (
             <Button
               variant='outline'
               render={<a href='/store/settings#seller-terms' />}

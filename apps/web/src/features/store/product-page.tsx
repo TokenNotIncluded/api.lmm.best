@@ -22,6 +22,7 @@ import { storeGuestApi } from './access-api'
 import { STORE_ACCESS_COPY as accessCopy } from './access-copy'
 import {
   storeAccessSupported,
+  storeTermsSupported,
   storeVisibility,
   storePurchaseLoginRequired,
 } from './access-types'
@@ -280,6 +281,7 @@ function ResolvedStoreCheckout({
     retry: false,
   })
   const accessSupported = storeAccessSupported(config.data)
+  const termsSupported = storeTermsSupported(config.data)
   const guestAllowed =
     accessSupported &&
     !user &&
@@ -318,6 +320,7 @@ function ResolvedStoreCheckout({
   const recovery = useStoreCheckoutRecovery({
     productId: product.id,
     supported: accessSupported,
+    termsSupported,
     userId: user?.id,
     guest: guest.session,
   })
@@ -331,7 +334,7 @@ function ResolvedStoreCheckout({
   const disclaimer = guestAllowed ? guestDisclaimer : memberDisclaimer
   const sellerTerms = useStoreMerchantTerms(
     product.id,
-    accessSupported,
+    termsSupported,
     user?.id,
     guest.session?.token
   )
@@ -518,14 +521,14 @@ function ResolvedStoreCheckout({
     setError(null)
     try {
       if (
-        (disclaimerNeeded || (accessSupported && !sellerTerms.ready)) &&
+        (disclaimerNeeded || (termsSupported && !sellerTerms.ready)) &&
         !accept &&
         !retry
       ) {
         setOpen(true)
         return
       }
-      if (accessSupported && !sellerTerms.ready && !retry) return
+      if (termsSupported && !sellerTerms.ready && !retry) return
       const version = disclaimer.data?.version
       if (disclaimerNeeded && !retry) {
         if (!version || !acknowledged || !read) return
@@ -556,7 +559,7 @@ function ResolvedStoreCheckout({
         ...(promotion.quote
           ? { promotion_code: promotion.quote.promotion_code }
           : {}),
-        ...(accessSupported && sellerTerms.terms
+        ...(termsSupported && sellerTerms.terms
           ? {
               seller_terms_version: sellerTerms.terms.version,
               accept_seller_terms: sellerTerms.accepted,
@@ -602,7 +605,7 @@ function ResolvedStoreCheckout({
     } catch (issue) {
       setError(issue)
       if (
-        accessSupported &&
+        termsSupported &&
         issue instanceof StoreAPIError &&
         issue.code?.includes('TERMS')
       ) {
@@ -1008,7 +1011,7 @@ function ResolvedStoreCheckout({
               email={pickupEmail}
             />
           )}
-          {accessSupported && sellerTerms.error && (
+          {termsSupported && sellerTerms.error && (
             <StoreError
               error={sellerTerms.error}
               retry={() => void sellerTerms.refresh()}
@@ -1056,7 +1059,7 @@ function ResolvedStoreCheckout({
                 recoveryBusy ||
                 !!recovery.record ||
                 (disclaimerNeeded && !disclaimer.data) ||
-                (accessSupported &&
+                (termsSupported &&
                   (!sellerTerms.terms?.configured || sellerTerms.loading))
               }
               onClick={() => void checkout()}
@@ -1077,7 +1080,7 @@ function ResolvedStoreCheckout({
               {t('Sign in to buy')}
             </Button>
           )}
-          {(!product.official || accessSupported) && (
+          {(!product.official || termsSupported) && (
             <>
               <Button
                 variant='ghost'
@@ -1090,7 +1093,7 @@ function ResolvedStoreCheckout({
                 }}
               >
                 {t(
-                  accessSupported
+                  termsSupported
                     ? accessCopy.readTerms
                     : 'Read purchase disclaimer'
                 )}
@@ -1114,7 +1117,7 @@ function ResolvedStoreCheckout({
         <DialogContent className='sm:max-w-xl'>
           <DialogTitle>
             {t(
-              accessSupported
+              termsSupported
                 ? accessCopy.purchaseTerms
                 : 'Non-official product disclaimer'
             )}
@@ -1122,7 +1125,7 @@ function ResolvedStoreCheckout({
           <StoreError error={error} />
           <DialogDescription>
             {t(
-              product.official && accessSupported
+              product.official && termsSupported
                 ? accessCopy.termsHelp
                 : 'Read the complete disclaimer before your first purchase from an independent seller.'
             )}
@@ -1156,8 +1159,8 @@ function ResolvedStoreCheckout({
                 : disclaimer.data?.text || t('Loading...')}
             </div>
           )}
-          {accessSupported && <StoreMerchantTermsAcceptance {...sellerTerms} />}
-          {(user || guest.session) && (disclaimerNeeded || accessSupported) && (
+          {termsSupported && <StoreMerchantTermsAcceptance {...sellerTerms} />}
+          {(user || guest.session) && (disclaimerNeeded || termsSupported) && (
             <>
               {disclaimerNeeded && (
                 <Field orientation='horizontal' className='items-start'>

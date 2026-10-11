@@ -18,6 +18,18 @@ export function storeAccessSupported(
 ) {
   return config?.store_access_supported === true
 }
+export function storeTermsSupported(
+  config?: {
+    store_terms_supported?: unknown
+    store_access_supported?: unknown
+  } | null
+) {
+  // A present capability is authoritative, including false or malformed data.
+  // Only servers predating the separate terms flag inherit the access contract.
+  return config && Object.hasOwn(config, 'store_terms_supported')
+    ? config.store_terms_supported === true
+    : storeAccessSupported(config)
+}
 export function storeVisibility(product: {
   visibility?: StoreVisibility
   test_mode?: boolean

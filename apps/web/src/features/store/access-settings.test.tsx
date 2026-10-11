@@ -52,8 +52,12 @@ const originalPut = api.put
 const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { StoreProductAccessSettings } = await import('./access-settings')
-const { storeAccessSupported, storeVisibility, storePurchaseLoginRequired } =
-  await import('./access-types')
+const {
+  storeAccessSupported,
+  storeTermsSupported,
+  storeVisibility,
+  storePurchaseLoginRequired,
+} = await import('./access-types')
 const i18n = createInstance()
 await i18n.use(initReactI18next).init({ lng: 'en', resources: {} })
 let root: ReturnType<typeof createRoot> | undefined
@@ -128,6 +132,29 @@ test('legacy products keep public browsing and required sign-in; capability requ
   assert.equal(storeAccessSupported({ store_access_supported: 'true' }), false)
   assert.equal(storeAccessSupported({}), false)
   assert.equal(storeAccessSupported({ store_access_supported: true }), true)
+})
+test('terms require literal true when advertised and inherit old access only when the field is absent', () => {
+  assert.equal(storeTermsSupported({ store_access_supported: true }), true)
+  assert.equal(storeTermsSupported({ store_access_supported: false }), false)
+  assert.equal(storeTermsSupported({}), false)
+  assert.equal(storeTermsSupported(null), false)
+  assert.equal(storeTermsSupported(), false)
+  assert.equal(
+    storeTermsSupported({
+      store_access_supported: false,
+      store_terms_supported: true,
+    }),
+    true
+  )
+  for (const value of [false, null, undefined, 'true', 'false', 1, 0, {}, []]) {
+    assert.equal(
+      storeTermsSupported({
+        store_access_supported: true,
+        store_terms_supported: value,
+      }),
+      false
+    )
+  }
 })
 test('guest collection changes only after the seller confirms, and cancel preserves settings', async () => {
   const changed: StoreAccessSettings[] = []
