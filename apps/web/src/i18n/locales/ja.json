@@ -1,5 +1,11 @@
 {
   "translation": {
+    "Continue with human beings": "人による認証で続行",
+    "Unable to load HumanGrant setting": "HumanGrant の設定を読み込めません",
+    "HumanGrant setting saved": "HumanGrant の設定を保存しました",
+    "Unable to save HumanGrant setting": "HumanGrant の設定を保存できません",
+    "HumanGrant remote authorization": "HumanGrant リモート認可",
+    "Allow AI clients to request limited access with explicit human approval. Existing login methods stay available.": "AI クライアントが人間の明示的な承認を得て、制限されたアクセスを要求できるようにします。既存のログイン方法は引き続き利用できます。",
     "360": "360",
     "1000": "1000",
     "10000": "10000",
