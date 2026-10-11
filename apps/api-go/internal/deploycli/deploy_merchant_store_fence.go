@@ -26,29 +26,7 @@ const merchantStoreDeploymentFenceKey = deploymentfence.AdvisoryKey
 // Always acquire the already-held shared fence before this transaction key.
 const merchantStoreDeploymentOwnerClaimKey int64 = 0x4c4d4d4150490003
 
-type productionMerchantStoreFenceOwner struct {
-	Format             int    `json:"format"`
-	State              string `json:"state"`
-	DeploymentID       string `json:"deployment_id"`
-	Host               string `json:"host"`
-	PlanSHA256         string `json:"plan_sha256"`
-	ContractSHA256     string `json:"contract_sha256"`
-	ProviderSHA256     string `json:"provider_sha256"`
-	Nonce              string `json:"nonce"`
-	HolderPID          int    `json:"holder_pid"`
-	HolderUnit         string `json:"holder_unit"`
-	HolderInvocationID string `json:"holder_invocation_id"`
-	BackendPID         int32  `json:"backend_pid"`
-	SystemIdentifier   string `json:"system_identifier"`
-	Database           string `json:"database"`
-	DatabaseOID        int64  `json:"database_oid"`
-	Schema             string `json:"schema"`
-	SchemaOID          int64  `json:"schema_oid"`
-	Role               string `json:"role"`
-	Purpose            string `json:"purpose,omitempty"`
-	Service            string `json:"service,omitempty"`
-	StartInvocationID  string `json:"start_invocation_id,omitempty"`
-}
+type productionMerchantStoreFenceOwner = deploymentfence.OwnerBinding
 
 var merchantStoreFenceHostPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,62}$`)
 
