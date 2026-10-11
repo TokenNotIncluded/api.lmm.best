@@ -270,6 +270,35 @@ GRANT EXECUTE ON FUNCTION pg_catalog.pg_control_system() TO lmm_fence_business;`
 			t.Fatalf("simultaneous claims accepted %d owners", success)
 		}
 	})
+	t.Run("dedicated maintenance environment is actual RW same physical role and schema", func(t *testing.T) {
+		r := productionRuntime{}
+		readOnly, err := r.existingSchemaMigrationValues(values, contract.Schema)
+		if err != nil {
+			t.Fatal(err)
+		}
+		child, err := schemaMaintenanceWorkerValues(readOnly, contract.Schema)
+		if err != nil {
+			t.Fatal(err)
+		}
+		sealed := map[string]string{}
+		for _, entry := range child {
+			key, value, _ := strings.Cut(entry, "=")
+			sealed[key] = value
+		}
+		configuration, err := pgx.ParseConfig(sealed["SQL_DSN"])
+		if err != nil {
+			t.Fatal("maintenance DSN parse failed")
+		}
+		connection, err := pgx.ConnectConfig(ctx, configuration)
+		if err != nil {
+			t.Fatal("maintenance physical connection failed")
+		}
+		defer connection.Close(context.Background())
+		var schema, role, readOnlySetting, system string
+		if err := connection.QueryRow(ctx, "SELECT current_schema(),current_user,current_setting('default_transaction_read_only'),system_identifier::text FROM pg_control_system()").Scan(&schema, &role, &readOnlySetting, &system); err != nil || schema != contract.Schema || role != contract.Role || readOnlySetting != "off" || system != contract.SystemIdentifier {
+			t.Fatal("maintenance did not preserve physical authority while granting dedicated child RW")
+		}
+	})
 	t.Run("dedicated schema owner excludes start and preserves exact CAS", func(t *testing.T) {
 		held, err := acquireMerchantStoreDeploymentFence(ctx, values, contract)
 		if err != nil {
