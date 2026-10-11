@@ -2,7 +2,7 @@ use super::{HgState, Error, Permission, Result, digest, exact_header, permission
 use axum::{
     Json,
     extract::{Path, State},
-    http::{HeaderMap, header},
+    http::{HeaderMap, StatusCode, header},
     response::{IntoResponse, Response},
 };
 use serde::Deserialize;
