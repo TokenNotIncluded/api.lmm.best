@@ -11,11 +11,11 @@ use sqlx::Row;
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Empty {}
+pub(super) struct Empty {}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-struct Approval {
+pub(super) struct Approval {
     permissions: Vec<Permission>,
     expires_at: i64,
 }
