@@ -1473,7 +1473,7 @@ async fn list_models_with_format(
         state.service.list(request).await
     };
     let mut response = match result {
-        Ok(models) => success_response(models, format),
+        Ok(models) => success_response(models, format, state.mode),
         Err(error) if error.kind == ModelsErrorKind::DiscoveryHidden => {
             discovery_not_found_response()
         }
@@ -1545,7 +1545,11 @@ fn query_key(query: &str) -> Option<String> {
         .find_map(|(key, value)| (key == "key").then(|| value.into_owned()))
 }
 
-fn success_response(models: Vec<ModelView>, format: ModelsFormat) -> Response {
+fn success_response(
+    models: Vec<ModelView>,
+    format: ModelsFormat,
+    mode: ModelsListenerMode,
+) -> Response {
     match format {
         ModelsFormat::OpenAi => Json(ModelsEnvelope {
             data: models,
@@ -1561,15 +1565,22 @@ fn success_response(models: Vec<ModelView>, format: ModelsFormat) -> Response {
         .into_response(),
         ModelsFormat::Anthropic => {
             if models.is_empty() {
-                // Deliberately preserves the legacy handler's unguarded
-                // `useranthropicModels[0]` failure as its public recovery
-                // envelope.  Existing Anthropic clients depend on this exact
-                // compatibility behaviour for an empty token model limit.
+                // The isolated frozen oracle preserves its historical error
+                // text. The current listener follows Go's neutral recovery
+                // message while retaining the compatible status and type.
+                let message = match mode {
+                    ModelsListenerMode::CurrentTrustPolicy => {
+                        "The server encountered an internal error. Please try again or contact support."
+                    }
+                    ModelsListenerMode::FrozenGo5418ce6 => {
+                        "Panic detected, error: runtime error: index out of range [0] with length 0. Please submit a issue here: https://github.com/Calcium-Ion/new-api"
+                    }
+                };
                 return (
                     StatusCode::INTERNAL_SERVER_ERROR,
                     Json(LegacyPanicEnvelope {
                         error: LegacyPanicError {
-                            message: "Panic detected, error: runtime error: index out of range [0] with length 0. Please submit a issue here: https://github.com/Calcium-Ion/new-api",
+                            message,
                             kind: "new_api_panic",
                         },
                     }),
@@ -2050,11 +2061,30 @@ mod tests {
 
     #[tokio::test]
     async fn preserves_legacy_anthropic_empty_models_panic_envelope() -> TestResult {
-        let response = success_response(Vec::new(), ModelsFormat::Anthropic);
+        let response = success_response(
+            Vec::new(),
+            ModelsFormat::Anthropic,
+            ModelsListenerMode::FrozenGo5418ce6,
+        );
         assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
         assert_eq!(
             json_body(response).await?,
             json!({"error":{"message":"Panic detected, error: runtime error: index out of range [0] with length 0. Please submit a issue here: https://github.com/Calcium-Ion/new-api","type":"new_api_panic"}})
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn current_anthropic_empty_models_uses_neutral_recovery_message() -> TestResult {
+        let response = success_response(
+            Vec::new(),
+            ModelsFormat::Anthropic,
+            ModelsListenerMode::CurrentTrustPolicy,
+        );
+        assert_eq!(response.status(), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            json_body(response).await?,
+            json!({"error":{"message":"The server encountered an internal error. Please try again or contact support.","type":"new_api_panic"}})
         );
         Ok(())
     }

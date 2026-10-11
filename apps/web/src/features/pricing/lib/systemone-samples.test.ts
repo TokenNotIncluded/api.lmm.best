@@ -30,7 +30,7 @@ const apiKey = 'test-jev-key'
 const answer = { account_support: { type: 'noul', noul: 0.99 } }
 const context = {
   baseUrl,
-  apiKeyEnv: 'NEW_API_KEY',
+  apiKeyEnv: 'LMM_API_KEY',
   modelName: 'jev-latest',
   endpointPath: '/typesafe/v1/systemone',
 }
@@ -84,7 +84,7 @@ describe('native TypeSafe code samples', () => {
         'bash',
         ['-c', `curl() { printf "%s\\0" "$@"; }\n${script}`],
         {
-          env: { ...process.env, NEW_API_KEY: apiKey },
+          env: { ...process.env, LMM_API_KEY: apiKey },
           encoding: 'utf8',
         }
       )
@@ -103,7 +103,7 @@ describe('native TypeSafe code samples', () => {
         'python3',
         ['-c', pythonCapture, buildSystemoneSample('python', ctx)],
         {
-          env: { ...process.env, NEW_API_KEY: apiKey },
+          env: { ...process.env, LMM_API_KEY: apiKey },
           encoding: 'utf8',
         }
       )
@@ -142,7 +142,7 @@ describe('native TypeSafe code samples', () => {
             assertNativePayload(JSON.parse(String(init.body)))
             return { json: async () => ({ answers: answer }) }
           },
-          { env: { NEW_API_KEY: apiKey } },
+          { env: { LMM_API_KEY: apiKey } },
           { log: (value: unknown) => (printed = value) }
         )
         assert.equal(requestCount, 1)

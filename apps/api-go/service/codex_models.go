@@ -70,7 +70,7 @@ func fetchLatestCodexClientVersion(ctx context.Context, client *http.Client, rel
 		return "", err
 	}
 	req.Header.Set("Accept", "application/vnd.github+json")
-	req.Header.Set("User-Agent", "new-api")
+	req.Header.Set("User-Agent", "LMM_API")
 
 	resp, err := client.Do(req)
 	if err != nil {

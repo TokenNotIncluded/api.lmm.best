@@ -268,7 +268,7 @@ func sendGotifyNotify(gotifyUrl string, gotifyToken string, priority int, data d
 
 		// 设置请求头
 		req.Header.Set("Content-Type", "application/json; charset=utf-8")
-		req.Header.Set("User-Agent", "NewAPI-Gotify-Notify/1.0")
+		req.Header.Set("User-Agent", "LMM_API-Gotify-Notify/1.0")
 
 		// 发送请求
 		client := GetSSRFProtectedHTTPClient()
