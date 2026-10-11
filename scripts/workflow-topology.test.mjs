@@ -84,6 +84,12 @@ test('only the isolated microkernel checks may run automatically', () => {
       assert.match(block[1], /branches: \[wip\/rust-core-go-extensions\]/);
       assert.match(source, /permissions:\n  contents: read/);
       assert.doesNotMatch(source, /secrets\.|contents: write|pull_request_target|environment: production/);
+    } else if (file === 'linux-packages.yml') {
+      assert.deepEqual(events, ['workflow_dispatch', 'workflow_call', 'pull_request']);
+      assert.match(block[1], /pull_request:\n    branches: \[wip\/rust-core-go-extensions\]/);
+      assert.match(source, /permissions:\n  contents: read/);
+      assert.doesNotMatch(source, /secrets\.|contents: write|id-token: write|pull_request_target|gh release|environment: production/);
+      assert.match(source, /packaging\/linux\/test_native\.py/);
     } else if (file === 'microservice-distribution.yml') {
       assert.deepEqual(events, ['workflow_dispatch', 'workflow_call']);
       assert.match(source, /permissions:\n  contents: read/);

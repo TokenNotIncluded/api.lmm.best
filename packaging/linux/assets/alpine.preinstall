@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+# Account creation only. Never start, stop, enable or restart a service here.
+if ! getent group @PACKAGE@ >/dev/null 2>&1; then
+    addgroup -S @PACKAGE@
+fi
+if ! getent passwd @PACKAGE@ >/dev/null 2>&1; then
+    adduser -S -D -H -h /var/lib/@PACKAGE@ -s /sbin/nologin -G @PACKAGE@ @PACKAGE@
+fi
+[ "$(id -u @PACKAGE@)" -ne 0 ]

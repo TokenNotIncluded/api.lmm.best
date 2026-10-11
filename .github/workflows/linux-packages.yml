@@ -1,0 +1,141 @@
+name: Native Linux package checks
+on:
+  workflow_dispatch:
+  workflow_call:
+  pull_request:
+    branches: [wip/rust-core-go-extensions]
+    paths:
+      - packaging/linux/**
+      - packaging/distribution.json
+      - scripts/build-distribution.py
+      - scripts/workflow-topology.test.mjs
+      - .github/workflows/linux-packages.yml
+permissions:
+  contents: read
+defaults:
+  run:
+    shell: bash
+concurrency:
+  group: linux-packages-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+jobs:
+  packages:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: amd64
+            runner: ubuntu-24.04
+            target: x86_64-unknown-linux-musl
+            nfpm_arch: x86_64
+            nfpm_sha256: 0660ca602b2d2d2ae4781a06c692b3eeb9d437ffea05b831d76e41f4a3188783
+          - arch: arm64
+            runner: ubuntu-24.04-arm
+            target: aarch64-unknown-linux-musl
+            nfpm_arch: arm64
+            nfpm_sha256: 1c0f5f2999b9a974bfb04fdb0cc3306096de530ac5dbb25d739cc5f5219c919c
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
+    env:
+      ARCH: ${{ matrix.arch }}
+      RUST_TARGET: ${{ matrix.target }}
+      NFPM_ARCH: ${{ matrix.nfpm_arch }}
+      NFPM_SHA256: ${{ matrix.nfpm_sha256 }}
+      CARGO_BUILD_JOBS: '2'
+      CARGO_INCREMENTAL: '0'
+      GOWORK: 'off'
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version: '1.27.2'
+          cache: false
+      - name: Install reviewed build tools, never on runtime nodes
+        run: |
+          sudo --preserve-env=GITHUB_ACTIONS python3 scripts/prepare-ci-apt.py
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends --yes binutils musl-tools gcc zstd rpm
+          rustup toolchain install 1.99.0 --profile minimal --target "$RUST_TARGET"
+          mkdir -p "$RUNNER_TEMP/nfpm"
+          curl --fail --location --retry 2 --max-time 120 \
+            "https://github.com/goreleaser/nfpm/releases/download/v2.47.0/nfpm_2.47.0_Linux_${NFPM_ARCH}.tar.gz" \
+            -o "$RUNNER_TEMP/nfpm.tar.gz"
+          printf '%s  %s\n' "$NFPM_SHA256" "$RUNNER_TEMP/nfpm.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/nfpm.tar.gz" -C "$RUNNER_TEMP/nfpm" nfpm
+          echo "$RUNNER_TEMP/nfpm" >> "$GITHUB_PATH"
+      - name: Source and native package tests
+        run: |
+          mkdir -p out/evidence
+          git rev-parse HEAD | tee out/evidence/revision.txt
+          nfpm --version | tee out/evidence/nfpm-version.txt
+          node --test scripts/workflow-topology.test.mjs
+          python3 -B packaging/linux/test_native.py -v 2>&1 | tee out/evidence/native-tests.log
+          go run github.com/rhysd/actionlint/cmd/actionlint@v1.7.12 -color .github/workflows/linux-packages.yml
+      - name: Build real core and extension binaries for this architecture
+        run: |
+          target_env=$(printf '%s' "$RUST_TARGET" | tr '[:lower:]-' '[:upper:]_')
+          export "CARGO_TARGET_${target_env}_LINKER=musl-gcc"
+          cargo +1.99.0 build --manifest-path apps/lmm-core/Cargo.toml --locked --release --target "$RUST_TARGET" --bins
+          mkdir -p out/core out/extensions
+          cp "apps/lmm-core/target/$RUST_TARGET/release/lmm-core" out/core/
+          cp "apps/lmm-core/target/$RUST_TARGET/release/lmm-core-admin" out/core/
+          (cd apps/lmm-extensions && CGO_ENABLED=0 GOOS=linux GOARCH="$ARCH" \
+            go build -mod=readonly -trimpath -ldflags='-s -w' -o ../../out/extensions/lmm-extensions ./cmd/extensions)
+      - name: Build verified source archives and native packages
+        run: |
+          revision=$(git rev-parse HEAD)
+          SOURCE_DATE_EPOCH=$(git show -s --format=%ct HEAD)
+          export SOURCE_DATE_EPOCH
+          for component in core extensions; do
+            python3 scripts/build-distribution.py build --component "$component" \
+              --version 0.1.0-preview --revision "$revision" --platform "linux-$ARCH" --input "out/$component"
+          done
+          for component in core core-admin extensions; do
+            source_component=$component
+            if [[ "$component" == core-admin ]]; then source_component=core; fi
+            archive="out/distributions/lmm-${source_component}-0.1.0-preview-linux-${ARCH}.tar.gz"
+            digest=$(sha256sum "$archive" | cut -d ' ' -f 1)
+            for format in deb rpm apk archlinux; do
+              for release in 1 2; do
+                python3 packaging/linux/build.py --archive "$archive" --sha256 "$digest" \
+                  --revision "$revision" --component "$component" --format "$format" --release "$release"
+              done
+            done
+          done
+          (cd out/linux-packages && sha256sum --check ./*.sha256)
+      - name: Install, upgrade, run and remove in disposable distribution containers
+        run: |
+          set -o pipefail
+          failed=0
+          cases=('debian:12-slim deb' 'ubuntu:24.04 deb' 'fedora:44 rpm' 'rockylinux:9 rpm' 'alpine:3.22 apk')
+          if [[ "$ARCH" == amd64 ]]; then
+            cases+=('archlinux:base archlinux' 'opensuse/leap:16.0 rpm')
+          fi
+          for item in "${cases[@]}"; do
+            read -r image format <<< "$item"
+            label=$(printf '%s' "$image" | tr ':/' '__')
+            if timeout 240 docker run --rm --cpus 1 --memory 512m --pids-limit 128 \
+              --security-opt no-new-privileges:true -e LMM_PACKAGING_ISOLATED=1 \
+              -v "$PWD/out/linux-packages:/packages:ro" \
+              -v "$PWD/packaging/linux/install-smoke.sh:/test.sh:ro" \
+              "$image" sh /test.sh "$format" "$ARCH" 2>&1 | tee "out/evidence/${label}.log"; then
+              printf '%s %s PASS\n' "$ARCH" "$image" | tee -a out/evidence/install-matrix.txt
+            else
+              printf '%s %s FAIL\n' "$ARCH" "$image" | tee -a out/evidence/install-matrix.txt
+              failed=1
+            fi
+            docker image inspect "$image" --format '{{json .RepoDigests}}' >> out/evidence/image-digests.txt || true
+          done
+          exit "$failed"
+      - name: Preserve preview packages and scoped evidence, never publish
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: native-linux-${{ matrix.arch }}-${{ github.sha }}
+          path: |
+            out/linux-packages/
+            out/evidence/
+          if-no-files-found: error
+          retention-days: 7
