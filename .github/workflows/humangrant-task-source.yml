@@ -1,4 +1,4 @@
-name: HumanGrant task source snapshot
+name: HumanGrant task verification
 on:
   push:
     branches: [feat/humangrant-login]
@@ -6,30 +6,19 @@ on:
 permissions:
   contents: read
 jobs:
-  source:
+  baseline:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
+    env:
+      GOMAXPROCS: "2"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           persist-credentials: false
-      - name: Archive tracked target source
-        run: git archive --format=tar.gz -o "$RUNNER_TEMP/lmm-source.tar.gz" HEAD
-      - uses: actions/checkout@v4
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
         with:
-          repository: LIghtJUNction/humangrant
-          path: humangrant-source
-          persist-credentials: false
-      - name: Archive tracked protocol source
-        working-directory: humangrant-source
-        run: |
-          git rev-parse HEAD > "$RUNNER_TEMP/humangrant-revision.txt"
-          git archive --format=tar.gz -o "$RUNNER_TEMP/humangrant-source.tar.gz" HEAD
-      - uses: actions/upload-artifact@v4
-        with:
-          name: humangrant-task-source
-          retention-days: 1
-          path: |
-            ${{ runner.temp }}/lmm-source.tar.gz
-            ${{ runner.temp }}/humangrant-source.tar.gz
-            ${{ runner.temp }}/humangrant-revision.txt
+          go-version-file: apps/api-go/go.mod
+          cache: false
+      - name: Existing authentication regression tests
+        working-directory: apps/api-go
+        run: go test -p 2 ./controller ./router -run 'TestGenerateAccessTokenRejectsNonBrowserSessions|TestAuthSession|TestAuthFlow' -count=1
