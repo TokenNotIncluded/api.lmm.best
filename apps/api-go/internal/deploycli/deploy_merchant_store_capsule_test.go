@@ -357,6 +357,72 @@ func TestProductionMerchantStorePortableInstalledProviderFences(t *testing.T) {
 	}
 }
 
+func TestProductionMerchantStorePortableStartSeparatesActualToolAndProvider(t *testing.T) {
+	root := t.TempDir()
+	provider := filepath.Join(root, backendGoName)
+	body := []byte("independent signed API payload fixture")
+	if err := os.WriteFile(provider, body, 0755); err != nil {
+		t.Fatal(err)
+	}
+	entry := filepath.Join(root, productionCandidateLinkName)
+	if err := os.Symlink(backendGoName, entry); err != nil {
+		t.Fatal(err)
+	}
+	actualTool, err := sha256File("/proc/self/exe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	apiDigest := startupContentSHA256(body)
+	if actualTool == apiDigest {
+		t.Fatal("fixture must use different API and actual checker bytes")
+	}
+	c := productionMerchantStoreCapsule{Format: 1, Binary: entry,
+		Candidate: productionReleasePackagePlan{DeployEngineSHA256: actualTool},
+		Writer: &productionMerchantStoreWriterContract{
+			Candidate: productionMerchantStoreWriterTarget{PayloadSHA256: apiDigest},
+			Rollback:  productionMerchantStoreWriterTarget{PayloadSHA256: strings.Repeat("a", 64)},
+		}}
+	runtime := productionRuntime{requiredOwnerUID: uint32(os.Geteuid())}
+	if err := runtime.verifyMerchantStorePortableStartExecutables(c); err != nil {
+		t.Fatalf("actual independent deployment checker rejected: %v", err)
+	}
+	c.Candidate.DeployEngineSHA256 = apiDigest
+	if runtime.verifyMerchantStorePortableStartExecutables(c) == nil {
+		t.Fatal("API digest incorrectly qualified the actual checker executable")
+	}
+	c.Candidate.DeployEngineSHA256 = actualTool
+	if err := os.WriteFile(provider, []byte("changed installed API"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if runtime.verifyMerchantStorePortableStartExecutables(c) == nil {
+		t.Fatal("signed checker hid installed API payload drift")
+	}
+	// A retained API remains independently checked while the modern candidate
+	// supplies the capsule's signed deployment program.
+	c.Writer.Rollback.PayloadSHA256 = startupContentSHA256([]byte("changed installed API"))
+	if err := runtime.verifyMerchantStorePortableStartExecutables(c); err != nil {
+		t.Fatalf("explicit retained provider rejected: %v", err)
+	}
+	c.Format = 2
+	if runtime.verifyMerchantStorePortableStartExecutables(c) == nil {
+		t.Fatal("startup baseline accepted a retained provider")
+	}
+	// Historical releases intentionally used the same ELF for both roles.
+	legacy, err := os.ReadFile("/proc/self/exe")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(provider, legacy, 0755); err != nil {
+		t.Fatal(err)
+	}
+	c.Format = 1
+	c.Candidate.DeployEngineSHA256 = ""
+	c.Writer.Candidate.PayloadSHA256 = actualTool
+	if err := runtime.verifyMerchantStorePortableStartExecutables(c); err != nil {
+		t.Fatalf("historical same-executable startup rejected: %v", err)
+	}
+}
+
 func TestProductionMerchantStorePortableOrderedStartupIsStillSealed(t *testing.T) {
 	f := realShapeStartupFixture(t, "ubuntu")
 	f.runtime.paths.WorkRoot = filepath.Join(t.TempDir(), "work")
