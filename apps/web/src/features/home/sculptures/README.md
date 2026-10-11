@@ -8,18 +8,14 @@ The five chapters, page content, scrolling, controls and point brush stay in pla
 
 | File | Active objects |
 | --- | --- |
-| `portrait.ts` | Reference-led smiling portrait, first in chapter one |
-| `portrait-materials.ts` | Subject-only material indices for the sculpted portrait surface |
-| `whale.ts` | Swimming blue whale |
-| `nature.ts` | Fish, jellyfish, dandelion, cloud, dragonfly |
-| `marks.ts`, `moon-far-side.ts` | Claude/OpenAI marks and the Moon's far side |
+| `marks.ts`, `ai-brand-outlines.ts` | Claude, OpenAI, Grok, GLM, Kimi, DeepSeek, Qwen, Gemini, Mistral and Ollama marks in chapter one |
 | `market.ts` | Shop, vending machine, market stall |
 | `abstract.ts` | Radial mechanism, gyroscope, Mobius strip, braided trefoil, double helix, wave ribbons |
 | `cosmos.ts` | Earth, Moon, Mars, Sun, solar system, galaxy, black hole |
 | `future.ts`, `spectacle.ts` | Pelican cycling, rocket launch, stylized explosion, rotating chair |
 | `bicycle.ts` | Shared frame, wheels, crank, pedals and fixed-length rider legs |
 
-There are 30 registered scenes. Retired factories are not restored to the carousel. The packaged whale remains the loading/no-canvas fallback; it is not the portrait model.
+There are 30 registered scenes. Portrait, whale, nature and Moon-far-side factories remain outside the active carousel. The local Claude mark is the loading/no-canvas fallback. Preserve the source attribution in `ai-brand-outlines.LICENSE` when updating the outlines.
 
 ## Add an object
 

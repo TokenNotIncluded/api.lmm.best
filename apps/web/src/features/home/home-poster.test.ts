@@ -74,13 +74,13 @@ function fixture() {
   }
 }
 
-test('reference portrait renders offline and other chapters keep their own scene', () => {
+test('Claude renders offline and other chapters keep their own scene', () => {
   const view = fixture()
   try {
     const { element, poster, pixels } = view.canvas()
     poster.draw(0, pointer, 0, true)
     assert.equal(element.dataset.ready, 'true')
-    assert.equal(element.dataset.sculpture, 'smilingPortrait')
+    assert.equal(element.dataset.sculpture, 'claudeMark')
     assert.ok(pixels().some((n, i) => i % 4 !== 3 && n !== 7))
     poster.draw(4, pointer, 0, true)
     assert.equal(element.dataset.sculpture, 'pelicanBicycle')
@@ -95,15 +95,15 @@ test('page and mobile canvas clocks are independent and survive pause', () => {
     const first = view.canvas(),
       second = view.canvas()
     for (let i = 0; i < 122; i++) first.poster.draw(0, pointer, 0.08)
-    assert.equal(first.element.dataset.sculpture, 'blueWhale')
+    assert.equal(first.element.dataset.sculpture, 'openaiMark')
     second.poster.draw(0, pointer, 0, true)
-    assert.equal(second.element.dataset.sculpture, 'smilingPortrait')
+    assert.equal(second.element.dataset.sculpture, 'claudeMark')
     for (let i = 0; i < 10; i++) first.poster.draw(0, pointer, 10, true)
-    assert.equal(first.element.dataset.sculpture, 'blueWhale')
+    assert.equal(first.element.dataset.sculpture, 'openaiMark')
     first.poster.draw(4, pointer, 0.08)
     assert.equal(first.element.dataset.sculpture, 'pelicanBicycle')
     first.poster.draw(0, pointer, 0, true)
-    assert.equal(first.element.dataset.sculpture, 'blueWhale')
+    assert.equal(first.element.dataset.sculpture, 'openaiMark')
   } finally {
     view.close()
   }

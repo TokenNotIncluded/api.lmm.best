@@ -24,26 +24,14 @@ import * as cosmos from './sculptures/cosmos'
 import { pelicanBicycle } from './sculptures/future'
 import { smooth, type Sculpture } from './sculptures/geometry'
 import * as market from './sculptures/market'
-import { claudeMark, openaiMark } from './sculptures/marks'
-import { moonFarSide } from './sculptures/moon-far-side'
-import { dandelion, dragonfly, fish, jellyfish } from './sculptures/nature'
-import { smilingPortrait } from './sculptures/portrait'
+import * as marks from './sculptures/marks'
 import {
   atomicExplosion,
   rotatingChair,
   spacexRocket,
 } from './sculptures/spectacle'
-import { blueWhale } from './sculptures/whale'
 const factories = {
-  smilingPortrait,
-  blueWhale,
-  fish,
-  jellyfish,
-  dandelion,
-  dragonfly,
-  claudeMark,
-  openaiMark,
-  moonFarSide,
+  ...marks,
   ...market,
   ...abstract,
   ...cosmos,
@@ -56,17 +44,19 @@ const factories = {
 export type SculptureId = keyof typeof factories
 /** Add a factory and its ID here; page layout and pointer physics are independent. */
 
+// Editorial display order, not a model-quality score. Keep Ollama last.
 export const HOME_SEQUENCES = [
   [
-    'smilingPortrait',
-    'blueWhale',
-    'fish',
-    'jellyfish',
-    'dandelion',
-    'dragonfly',
     'claudeMark',
     'openaiMark',
-    'moonFarSide',
+    'grokMark',
+    'glmMark',
+    'kimiMark',
+    'deepseekMark',
+    'qwenMark',
+    'geminiMark',
+    'mistralMark',
+    'ollamaMark',
   ],
   ['shop', 'vending', 'stall'],
   ['socket', 'gyroscope', 'mobius', 'trefoil', 'helix', 'ribbon'],
