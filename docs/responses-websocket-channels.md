@@ -10,7 +10,7 @@ identifiers and defaults are:
 | Codex | 57 | Enabled, preserving existing behavior | Disabled |
 | Advanced Custom | 58 | Disabled; explicit opt-in required | Disabled |
 | Sub2API | 59 | Disabled; explicit opt-in required | Disabled |
-| New API | 60 | Disabled; explicit opt-in required | Disabled |
+| Compatible Relay | 60 | Disabled; explicit opt-in required | Disabled |
 | OpenHuman (removed) | 61 (reserved) | Unsupported | Unsupported |
 
 The field belongs to the channel's `setting` JSON. Go uses an optional boolean so
@@ -24,7 +24,7 @@ disables the control without clearing a saved value.
 
 ## Native protocol and configuration limits
 
-Sub2API and New API use their existing native Responses adaptor, upstream URL,
+Sub2API and Compatible Relay use their existing native Responses adaptor, upstream URL,
 and Bearer credential semantics. Supporting their HTTP adaptor alone does not
 establish that an external provider implements WebSocket Responses; the configured
 upstream must accept a native `response.create` session and Responses events.

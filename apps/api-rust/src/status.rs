@@ -16,7 +16,7 @@ use sqlx::{PgPool, Row};
 use std::{collections::BTreeMap, sync::Arc};
 
 const DEFAULT_SERVER_ADDRESS: &str = "http://localhost:3000";
-const DEFAULT_DOCS_LINK: &str = "https://docs.newapi.pro/en/docs";
+const DEFAULT_DOCS_LINK: &str = "https://github.com/TokenNotIncluded/api.lmm.best#readme";
 const DEFAULT_CHATS: &str = r#"[
   {"Cherry Studio":"cherrystudio://providers/api-keys?v=1&data={cherryConfig}"},
   {"AionUI":"aionui://provider/add?v=1&data={aionuiConfig}"},
@@ -629,6 +629,7 @@ mod tests {
         expected["data"]["price"] = json!(7.3_f64);
         expected["data"]["stripe_unit_price"] = json!(1.0_f64 / 7.3_f64);
         expected["data"]["public_credit_status"] = json!("unavailable");
+        expected["data"]["docs_link"] = json!(DEFAULT_DOCS_LINK);
         assert_eq!(actual, expected);
         Ok(())
     }

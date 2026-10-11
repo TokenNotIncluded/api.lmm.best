@@ -35,7 +35,7 @@ const results = [
 ]
 const context = {
   baseUrl: 'https://gateway.example',
-  apiKeyEnv: 'NEW_API_KEY',
+  apiKeyEnv: 'LMM_API_KEY',
   modelName: 'omni-moderation-latest',
   endpointPath: '/v1/moderations',
 }
@@ -91,7 +91,7 @@ describe('native moderation code samples', () => {
         'bash',
         ['-c', `curl() { printf "%s\\0" "$@"; }\n${script}`],
         {
-          env: { ...process.env, NEW_API_KEY: apiKey },
+          env: { ...process.env, LMM_API_KEY: apiKey },
           encoding: 'utf8',
         }
       )
@@ -113,7 +113,7 @@ describe('native moderation code samples', () => {
         'python3',
         ['-c', pythonCapture, buildModerationSample('python', ctx)],
         {
-          env: { ...process.env, NEW_API_KEY: apiKey },
+          env: { ...process.env, LMM_API_KEY: apiKey },
           encoding: 'utf8',
         }
       )
@@ -152,7 +152,7 @@ describe('native moderation code samples', () => {
             assertNativePayload(JSON.parse(String(init.body)), ctx.modelName)
             return { json: async () => ({ results }) }
           },
-          { env: { NEW_API_KEY: apiKey } },
+          { env: { LMM_API_KEY: apiKey } },
           { log: (value: unknown) => (printed = value) }
         )
         assert.equal(requestCount, 1)

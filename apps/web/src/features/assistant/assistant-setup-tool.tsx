@@ -67,7 +67,8 @@ import {
 } from './setup-guide'
 
 const CHERRY_DOWNLOAD = 'https://www.cherry-ai.com/download'
-const CHERRY_DOCS = 'https://docs.cherry-ai.com/pre-basic/providers/newapi'
+const CHERRY_DOCS =
+  'https://docs.cherryai.com.cn/pre-basic/providers/zi-ding-yi-fu-wu-shang'
 const CHATBOX_DOWNLOAD =
   'https://chatboxai.app/en/guide/getting-started/download'
 const CHATBOX_DOCS = 'https://docs.chatboxai.app/guides/providers'
@@ -475,7 +476,7 @@ export function AssistantSetupTool(props: {
                     description={
                       client === 'cherry-studio'
                         ? t(
-                            'Open Settings → Model Service → New API. If your version has no New API preset, add an OpenAI-compatible provider named LMM.'
+                            'Open Settings → Model Service → Add Provider. Name it LMM_API and configure an OpenAI-compatible endpoint.'
                           )
                         : t(
                             'Open Settings → Model Provider → Add. Name it LMM and select OpenAI API Compatible. Use your own API key connection.'

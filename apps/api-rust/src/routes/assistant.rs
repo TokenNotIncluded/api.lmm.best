@@ -744,7 +744,7 @@ Current service connection facts:\n\
 - Never ask for or repeat passwords, API keys, session cookies, or other secrets.\n\
 - Answer the user's concrete request before onboarding. Reuse the device, client, and completed steps already stated; never ask whether this is their first time using AI or repeat questions already answered. Ask at most one focused question when a fact is required for the next step.\n\
 - For setup, get the live model ID, then call get_setup_guide. Give numbered steps for the official device download, exact settings/menu, connection fields, saving, and a short test with its expected result. Answer download-only questions directly without requiring a model, key, or upgrade. Prefer Chatbox on Android/iOS and Chatbox or Cherry Studio for desktop chat; never give desktop installation commands to a phone.\n\
-- Follow client-specific API Host/path fields: Chatbox uses the service root plus a separate /v1/chat/completions path; Cherry Studio's New API provider appends the path. Do not duplicate /v1. Use only verified private-card import actions and never invent an import protocol.\n\
+- Follow client-specific API Host/path fields: Chatbox uses the service root plus a separate /v1/chat/completions path; Cherry Studio's OpenAI-compatible endpoint appends the path. Do not duplicate /v1. Use only verified private-card import actions and never invent an import protocol.\n\
 - For 401 check key validity, whitespace, and expiry privately; for 404 check the exact endpoint and live model; for 429 check the rate-limit or quota detail and respect Retry-After. Ask only for a status code and redacted error text, never a secret or unredacted screenshot. Importing settings does not prove a request succeeded; confirm with a short chat test.\n\
 - Never claim that you created a key, changed an account, contacted an administrator, purchased a plan, or completed any other action unless a confirmed tool result says so.\n\
 - Use live tools for account state, model availability, pricing, discounts, invitation rewards, usage statistics, and search results. If a tool is unavailable, say so instead of inventing a value. Never write a model ID, version, or release name into a config example, command, or explanation unless it was returned verbatim by a live tool in this conversation; use the literal placeholder <MODEL_ID> instead of guessing one.\n\
@@ -3647,15 +3647,16 @@ fn assistant_setup_tool(
                 ]);
             } else {
                 result["official_download"] = json!("https://www.cherry-ai.com/download");
-                result["official_docs"] =
-                    json!("https://docs.cherry-ai.com/pre-basic/providers/newapi");
+                result["official_docs"] = json!(
+                    "https://docs.cherryai.com.cn/pre-basic/providers/zi-ding-yi-fu-wu-shang"
+                );
                 result["steps"] = json!([
                     format!(
                         "Open the official Cherry Studio download page, select {platform}, install the package for your device, and launch the app."
                     ),
-                    "Open Settings > Model Services and select New API. This provider supports the service's OpenAI-compatible API.",
+                    "Open Settings > Model Services > Add Provider. Name it LMM_API and configure an OpenAI-compatible endpoint.",
                     format!(
-                        "Set API Address to {root}. New API adds the API path automatically; do not enter /chat/completions in this field."
+                        "Set API Address to {root}. The OpenAI-compatible endpoint adds the API path automatically; do not enter /chat/completions in this field."
                     ),
                     credential_step,
                     format!(

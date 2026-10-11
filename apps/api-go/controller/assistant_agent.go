@@ -3598,11 +3598,11 @@ func executeAssistantSetupTool(userID int, input map[string]any) map[string]any 
 			}
 		} else {
 			result["official_download"] = "https://www.cherry-ai.com/download"
-			result["official_docs"] = "https://docs.cherry-ai.com/pre-basic/providers/newapi"
+			result["official_docs"] = "https://docs.cherryai.com.cn/pre-basic/providers/zi-ding-yi-fu-wu-shang"
 			result["steps"] = []string{
 				"Open the official Cherry Studio download page, select " + platform + ", install the package for your device, and launch the app.",
-				"Open Settings > Model Services and select New API. This provider supports the service's OpenAI-compatible API.",
-				"Set API Address to " + rootURL + ". New API adds the API path automatically; do not enter /chat/completions in this field.",
+				"Open Settings > Model Services > Add Provider. Name it LMM_API and configure an OpenAI-compatible endpoint.",
+				"Set API Address to " + rootURL + ". The OpenAI-compatible endpoint adds the API path automatically; do not enter /chat/completions in this field.",
 				credentialStep + " Paste the key only into Cherry Studio's API Key field.",
 				"Use Manage to fetch models, or Add to enter the exact ID " + clientModel + ". Turn on the provider's enable switch.",
 				lockedAwareStep("Click Check with the configured model. Open a new conversation, choose this provider and model, and send: Reply with OK.", testStep),

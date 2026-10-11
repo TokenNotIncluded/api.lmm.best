@@ -3209,7 +3209,7 @@ mod tests {
         assert_eq!(actual["data"]["start_time"], 1_700_000_000_i64);
         assert_eq!(
             actual["data"]["docs_link"],
-            "https://docs.newapi.pro/en/docs"
+            "https://github.com/TokenNotIncluded/api.lmm.best#readme"
         );
         assert_eq!(actual["data"]["api_info_enabled"], true);
         assert_eq!(actual["data"]["api_info"], serde_json::json!([]));

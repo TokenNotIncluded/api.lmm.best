@@ -296,7 +296,7 @@ describe('native session public API details', () => {
       )
       assert.match(
         code.textContent ?? '',
-        /Authorization: Bearer \$NEW_API_KEY/
+        /Authorization: Bearer \$LMM_API_KEY/
       )
       assert.match(code.textContent ?? '', /"model": "ordinary-chat"/)
       assert.match(code.textContent ?? '', /"messages": \[/)
