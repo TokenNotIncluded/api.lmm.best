@@ -141,7 +141,7 @@ func verifyIdentityStorageSchema(db *gorm.DB, models []interface{}) error {
 			return fmt.Errorf("required identity storage table %s is missing", stmt.Schema.Table)
 		}
 		for _, field := range stmt.Schema.Fields {
-			if field.DBName != "" && !db.Migrator().HasColumn(item, field.DBName) {
+			if field.DBName != "" && !field.IgnoreMigration && !db.Migrator().HasColumn(item, field.DBName) {
 				return fmt.Errorf("required identity storage column %s.%s is missing", stmt.Schema.Table, field.DBName)
 			}
 		}

@@ -70,6 +70,33 @@ func TestPostgresCatalogInventoryCarriesVersionedApplicationSchema(t *testing.T)
 	require.Equal(t, "lmm_prod_20260802", findPostgresConstraint(t, inventory, postgresForeignConstraint).ReferenceSchema)
 }
 
+func TestPostgresCatalogInventoryKeepsReadAliasesOutOfStoredColumns(t *testing.T) {
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	require.NoError(t, err)
+	statement := &gorm.Statement{DB: db}
+	require.NoError(t, statement.Parse(&Log{}))
+	alias := statement.Schema.LookUpField("QuotaStoredValid")
+	require.NotNil(t, alias)
+	require.Equal(t, "quota_stored_valid", alias.DBName)
+	require.True(t, alias.IgnoreMigration)
+	require.True(t, alias.Readable)
+
+	inventory, err := buildPostgresSchemaInventory(db, "app", []interface{}{&Log{}})
+	require.NoError(t, err)
+	columns := map[string]bool{}
+	for _, object := range inventory.Objects {
+		if object.column != "" {
+			columns[object.column] = true
+		}
+	}
+	for _, name := range []string{"quota_stored_valid", "quota_usd", "quota_money_available", "quota_money_basis"} {
+		require.False(t, columns[name], name)
+	}
+	for _, name := range []string{"id", "quota", "other", "type"} {
+		require.True(t, columns[name], name)
+	}
+}
+
 func TestPostgresCatalogUsesServerIdentifierLength(t *testing.T) {
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)

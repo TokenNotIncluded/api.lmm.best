@@ -628,7 +628,7 @@ func verifyLogDatabaseSchema(db *gorm.DB, databaseType common.DatabaseType) erro
 		return err
 	}
 	for _, field := range statement.Schema.Fields {
-		if field.DBName != "" && !db.Migrator().HasColumn(&Log{}, field.DBName) {
+		if field.DBName != "" && !field.IgnoreMigration && !db.Migrator().HasColumn(&Log{}, field.DBName) {
 			return fmt.Errorf("required log column %s is missing", field.DBName)
 		}
 	}
