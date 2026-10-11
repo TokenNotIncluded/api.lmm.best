@@ -37,20 +37,22 @@ export function HumanGrantSetting() {
 
   useEffect(() => {
     let active = true
-    api
-      .get<{ enabled: boolean }>('/api/humangrant/settings', {
-        skipErrorHandler: true,
-        skipBusinessError: true,
-      })
-      .then(({ data }) => {
+    void (async () => {
+      try {
+        const { data } = await api.get<{ enabled: boolean }>(
+          '/api/humangrant/settings',
+          {
+            skipErrorHandler: true,
+            skipBusinessError: true,
+          }
+        )
         if (active) setEnabled(data.enabled === true)
-      })
-      .catch(() => {
+      } catch {
         if (active) toast.error(t('Unable to load HumanGrant setting'))
-      })
-      .finally(() => {
+      } finally {
         if (active) setLoading(false)
-      })
+      }
+    })()
     return () => {
       active = false
     }
