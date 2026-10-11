@@ -19,22 +19,9 @@ import (
 // HumanGrant uses the existing database and login sessions. There is no second
 // human account database and no new credential accepted by UserAuth or TokenAuth.
 type HumanGrantStore struct{ DB *gorm.DB }
-type humanGrantRecord struct {
-	Kind      string `gorm:"primaryKey;size:32"`
-	ID        string `gorm:"primaryKey;size:64"`
-	Owner     string `gorm:"size:80;index:idx_hg_owner"`
-	ExpiresAt int64  `gorm:"index:idx_hg_expiry"`
-	Payload   string `gorm:"type:text;not null"`
-}
-
-func (humanGrantRecord) TableName() string { return "human_grant_records" }
-
-type humanGrantGate struct {
-	ID       int `gorm:"primaryKey;autoIncrement:false"`
-	Revision int64
-}
-
-func (humanGrantGate) TableName() string { return "human_grant_gate" }
+// Use the same table definitions as the controlled migration phase.
+type humanGrantRecord = model.HumanGrantRecord
+type humanGrantGate = model.HumanGrantGate
 
 type humanGrantTx struct{ db *gorm.DB }
 
@@ -45,12 +32,8 @@ func NewHumanGrantStore(db *gorm.DB) (*HumanGrantStore, error) {
 	// HG payloads include private consent and local mail content. Do not send
 	// SQL statement arguments to the application logger.
 	db = db.Session(&gorm.Session{Logger: logger.Default.LogMode(logger.Silent)})
-	if err := db.AutoMigrate(&humanGrantGate{}, &humanGrantRecord{}); err != nil {
-		return nil, err
-	}
-	if err := db.Clauses(clause.OnConflict{DoNothing: true}).Create(&humanGrantGate{ID: 1}).Error; err != nil {
-		return nil, err
-	}
+	// All schema writes run under the startup migration session. Read-only
+	// replicas must never attempt a migration or insert during router setup.
 	return &HumanGrantStore{DB: db}, nil
 }
 func (s *HumanGrantStore) Transaction(ctx context.Context, fn func(humangrant.Tx) error) error {

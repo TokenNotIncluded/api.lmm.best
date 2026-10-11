@@ -18,6 +18,7 @@ import (
 	"gorm.io/driver/mysql"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 var commonGroupCol string
@@ -341,7 +342,7 @@ func InitLogDB(session *StartupMigrationSession) (err error) {
 func mainMigrationModels() []interface{} {
 	models := append([]interface{}{
 		&RatioNotification{}, &RatioDelivery{},
-		&Channel{}, &Token{}, &UserRankingRevision{}, &User{}, &ProfileShare{}, &UserSession{}, &AuthFlow{}, &ExternalIdentityClaim{},
+		&Channel{}, &Token{}, &UserRankingRevision{}, &User{}, &ProfileShare{}, &UserSession{}, &HumanGrantGate{}, &HumanGrantRecord{}, &AuthFlow{}, &ExternalIdentityClaim{},
 		&PasskeyCredential{}, &Option{}, &Redemption{}, &Ability{}, &Log{}, &Midjourney{},
 		&DiscountCode{}, &DiscountCodeReservation{},
 		&WalletTransfer{}, &RedPacket{}, &RedPacketItem{}, &RedPacketClaim{}, &SignalGameRecord{}, &SignalGameAttempt{},
@@ -392,6 +393,10 @@ func migrateDB() error {
 	err = DB.AutoMigrate(models...)
 	if err != nil {
 		return err
+	}
+	// HumanGrant schema belongs to the controlled migration phase, not the router.
+	if err := DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&HumanGrantGate{ID: 1}).Error; err != nil {
+		return fmt.Errorf("initialize HumanGrant migration gate: %w", err)
 	}
 	if err := backfillTokenCreationSources(DB); err != nil {
 		return err
@@ -494,7 +499,7 @@ func migrateDBFast() error {
 		{&UserRankingRevision{}, "UserRankingRevision"},
 		{&User{}, "User"},
 		{&ProfileShare{}, "ProfileShare"},
-		{&UserSession{}, "UserSession"},
+		{&UserSession{}, &HumanGrantGate{}, &HumanGrantRecord{}, "UserSession"},
 		{&AuthFlow{}, "AuthFlow"},
 		{&ExternalIdentityClaim{}, "ExternalIdentityClaim"},
 		{&PasskeyCredential{}, "PasskeyCredential"},
@@ -651,6 +656,10 @@ func migrateDBFast() error {
 		if err != nil {
 			return err
 		}
+	}
+	// HumanGrant schema belongs to the controlled migration phase, not the router.
+	if err := DB.Clauses(clause.OnConflict{DoNothing: true}).Create(&HumanGrantGate{ID: 1}).Error; err != nil {
+		return fmt.Errorf("initialize HumanGrant migration gate: %w", err)
 	}
 	if common.UsingMainDatabase(common.DatabaseTypePostgreSQL) {
 		if err := ensureCompanyBillingProfilePostgresContract(DB); err != nil {
