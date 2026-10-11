@@ -42,18 +42,26 @@ type schemaMaintenanceRPCHandler func(context.Context, schemaMaintenanceRPCReque
 func schemaMaintenanceRPCActionTimeout(action string) (time.Duration, error) {
 	switch action {
 	case "worker":
-		return 10 * time.Minute, nil
-	case "close", "claim", "capture-recovery", "capture-ready", "capture-backup-source":
-		// Capsule verification may run two independently bounded, two-minute
-		// Sigstore verifiers; migration verification also uses this phase budget.
-		return 5 * time.Minute, nil
-	case "release", "finish", "reopen":
-		// These phases independently reobserve both origins, each of which can
-		// run the bounded full signed-capsule qualification above.
 		return 15 * time.Minute, nil
+	case "close", "claim", "capture-recovery", "capture-ready", "capture-startable", "status", "capture-outcome", "capture-recovery-profile", "install-recovery-hook":
+		// One full capsule qualification checks both signed providers, each with
+		// a two-minute signature, 35-second status and five-minute verifier bound.
+		return 20 * time.Minute, nil
+	case "capture-backup-source":
+		return 5 * time.Minute, nil
+	case "backup-export":
+		return 15 * time.Minute, nil
+	case "release":
+		return 45 * time.Minute, nil // Two ordered full origin qualifications.
+	case "finish":
+		return 65 * time.Minute, nil // Both origins, then the exact local generation.
+	case "start-recovery":
+		return 65 * time.Minute, nil // Both origins, native startup, local ready proof.
+	case "reopen":
+		return 110 * time.Minute, nil // Both origins before and after, plus local qualification.
 	case "stop":
-		return 90 * time.Second, nil
-	case "capture-closed", "capture-stopped", "status":
+		return 3 * time.Minute, nil
+	case "capture-closed", "capture-stopped", "check-schema-owner":
 		return 30 * time.Second, nil
 	default:
 		return 0, errors.New("unknown schema maintenance RPC action")

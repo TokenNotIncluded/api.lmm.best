@@ -10,6 +10,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/LIghtJUNction/api.lmm.best/internal/deploymentfence"
 )
 
 // Each registered origin owns one signed-engine daemon and one adopted
@@ -22,6 +24,7 @@ type productionSchemaMaintenanceController struct {
 	origin            productionSchemaMaintenanceOriginPlan
 	host              *productionSchemaMaintenanceHost
 	fence             *productionSchemaMaintenanceFence
+	claimUncertain    bool
 	finishUncertain   bool
 	finished          bool
 }
@@ -101,11 +104,69 @@ func (c *productionSchemaMaintenanceController) checkPlan(ctx context.Context) e
 		return errors.New("schema controller artifact/retained/recovery identities differ from the real plan")
 	}
 	for _, capsule := range []productionMerchantStoreCapsule{old, artifacts} {
+		if capsule.ExistingSchemaContract == nil {
+			return errors.New("schema controller real capsule lacks its original physical contract")
+		}
 		physical := *capsule.ExistingSchemaContract
 		physical.StartupSHA256, physical.SignedUnitSHA256 = "", ""
 		if physical != c.plan.PreSchema {
 			return errors.New("schema controller original physical catalog differs from its real capsules")
 		}
+	}
+	return nil
+}
+
+type productionSchemaMaintenanceActiveOwner struct {
+	Format         string `json:"format"`
+	TransitionID   string `json:"transition_id"`
+	PlanSHA256     string `json:"plan_sha256"`
+	OwnerSHA256    string `json:"owner_sha256"`
+	ProviderSHA256 string `json:"provider_sha256"`
+	PID            int    `json:"pid"`
+	InvocationID   string `json:"invocation_id"`
+}
+
+func (c *productionSchemaMaintenanceController) activeOwner(ctx context.Context) (productionSchemaMaintenanceActiveOwner, error) {
+	var active productionSchemaMaintenanceActiveOwner
+	if c.origin.Host != c.plan.PrimaryHost || c.fence == nil || c.fence.released {
+		return active, errors.New("schema transition has no original primary physical owner")
+	}
+	if err := c.fence.CheckPhysical(ctx); err != nil {
+		return active, err
+	}
+	return productionSchemaMaintenanceActiveOwner{"lmm-schema-maintenance-active-owner-v1", c.plan.TransitionID, c.planSHA, startupContentSHA256(c.fence.ownerRaw), c.fence.owner.ProviderSHA256, c.fence.owner.HolderPID, c.fence.owner.HolderInvocationID}, nil
+}
+
+func (c *productionSchemaMaintenanceController) checkActiveOwner(ctx context.Context) error {
+	if c.origin.Host == c.plan.PrimaryHost {
+		_, err := c.activeOwner(ctx)
+		return err
+	}
+	// The primary action is a leaf: it checks only its already-held physical
+	// owner and local three-FD lease, and never asks this secondary to call back.
+	remote := &productionReleaseRuntime{runner: c.runtime.runner, now: c.runtime.now}
+	reply, err := remote.schemaMaintenanceRemoteRPC(ctx, c.plan, c.planSHA, c.plan.Origins[0], "check-schema-owner")
+	if err != nil {
+		return err
+	}
+	var active productionSchemaMaintenanceActiveOwner
+	decoder := json.NewDecoder(bytes.NewReader(reply.Result))
+	decoder.DisallowUnknownFields()
+	if decoder.Decode(&active) != nil {
+		return errors.New("schema primary physical owner reply is invalid")
+	}
+	ownerPath := filepath.Join(c.origin.Workspace, "state", "schema-owner.json")
+	owner, _, err := deploymentfence.ReadSchemaMaintenanceOwner(ownerPath, active.OwnerSHA256)
+	if err != nil || active.Format != "lmm-schema-maintenance-active-owner-v1" || active.TransitionID != c.plan.TransitionID || active.PlanSHA256 != c.planSHA || active.ProviderSHA256 != c.plan.Worker.Provider.PayloadSHA256 || active.PID != owner.HolderPID || active.InvocationID != owner.HolderInvocationID || owner.PlanSHA256 != c.planSHA || owner.Host != c.plan.PrimaryHost || owner.DeploymentID != c.plan.TransitionID || owner.ProviderSHA256 != active.ProviderSHA256 {
+		return errors.New("schema secondary original staged owner differs from the actual held primary owner")
+	}
+	typed, _ := json.Marshal(active)
+	typedReply := reply
+	typedReply.Result = typed
+	want, _ := schemaMaintenanceRPCMarshal(typedReply)
+	got, _ := schemaMaintenanceRPCMarshal(reply)
+	if !bytes.Equal(want, got) {
+		return errors.New("schema primary physical owner has ambiguous typed fields")
 	}
 	return nil
 }
@@ -138,7 +199,7 @@ func (c *productionSchemaMaintenanceController) remoteCapture(ctx context.Contex
 	}
 	decoder := json.NewDecoder(bytes.NewReader(reply.Result))
 	decoder.DisallowUnknownFields()
-	if decoder.Decode(&capture) != nil || capture.Format != 1 || capture.Host != origin.Host || capture.PlanSHA256 != c.planSHA || capture.TransitionID != c.plan.TransitionID || capture.CapsuleSHA256 != origin.OldCapsule.SHA256 || capture.ProviderSHA256 != c.origin.Recovery.Candidate.PayloadSHA256 {
+	if decoder.Decode(&capture) != nil || capture.Format != 1 || capture.Host != origin.Host || capture.PlanSHA256 != c.planSHA || capture.TransitionID != c.plan.TransitionID || capture.CapsuleSHA256 != origin.OldCapsule.SHA256 || capture.ProviderSHA256 != origin.Recovery.Candidate.PayloadSHA256 {
 		return capture, errors.New("schema controller remote capture differs from the immutable fixed origin")
 	}
 	typedResult, _ := json.Marshal(capture)
@@ -167,7 +228,7 @@ func (c *productionSchemaMaintenanceController) validateObservedCapture(capture 
 		if capture.Phase != "WRITER_STOPPED" || capture.StopStartedUTC.IsZero() || !productionSHA256Pattern.MatchString(capture.ShutdownJournalSHA256) {
 			return errors.New("schema origin has no exact sealed writer stop")
 		}
-	case "capture-recovery", "capture-ready":
+	case "capture-recovery", "capture-ready", "capture-startable":
 		binding, err := c.recoveryBinding()
 		if err != nil {
 			return err
@@ -181,7 +242,17 @@ func (c *productionSchemaMaintenanceController) validateObservedCapture(capture 
 		if !matched {
 			return errors.New("schema origin qualified a different recovery binding")
 		}
-		if action == "capture-recovery" {
+		if action == "capture-startable" {
+			if capture.Phase != "RECOVERY_READY" && capture.Phase != "RECOVERY_RUNNING" {
+				return errors.New("schema start requires stopped or closed running origins on the exact recovery binding")
+			}
+			if capture.Phase == "RECOVERY_READY" && (capture.StopStartedUTC.IsZero() || !productionSHA256Pattern.MatchString(capture.ShutdownJournalSHA256)) {
+				return errors.New("schema startable stopped peer lacks its original sealed stop")
+			}
+			if capture.Phase == "RECOVERY_RUNNING" && (capture.ConfirmedPID <= 1 || !existingSchemaInvocationPattern.MatchString(capture.ConfirmedInvocationID)) {
+				return errors.New("schema startable running peer lacks its actual new writer generation")
+			}
+		} else if action == "capture-recovery" {
 			if capture.Phase != "RECOVERY_READY" || capture.StopStartedUTC.IsZero() || !productionSHA256Pattern.MatchString(capture.ShutdownJournalSHA256) {
 				return errors.New("schema origin is not actually stopped on its new recovery capsule")
 			}
@@ -190,6 +261,40 @@ func (c *productionSchemaMaintenanceController) validateObservedCapture(capture 
 		}
 	default:
 		return errors.New("schema controller capture action is not an observation")
+	}
+	return nil
+}
+
+func (c *productionSchemaMaintenanceController) captureStartable(ctx context.Context) (productionSchemaMaintenanceHostCapture, error) {
+	var capture productionSchemaMaintenanceHostCapture
+	binding, err := c.recoveryBinding()
+	if err != nil {
+		return capture, err
+	}
+	state, err := c.runtime.billingUnitState(ctx, c.runtime.paths.Service)
+	if err != nil {
+		return capture, err
+	}
+	if state["ActiveState"] == "active" && state["SubState"] == "running" {
+		capture, err = c.host.captureReady(ctx, c.plan, c.planSHA, binding)
+	} else {
+		capture, err = c.host.captureRecovery(ctx, c.plan, c.planSHA, binding)
+	}
+	if err != nil {
+		return capture, err
+	}
+	return capture, c.validateObservedCapture(capture, c.origin, "capture-startable")
+}
+
+func (c *productionSchemaMaintenanceController) checkStartableOrigins(ctx context.Context) error {
+	for _, origin := range c.plan.Origins {
+		if origin.Host == c.origin.Host {
+			if _, err := c.captureStartable(ctx); err != nil {
+				return err
+			}
+		} else if _, err := c.remoteCapture(ctx, origin, "capture-startable"); err != nil {
+			return err
+		}
 	}
 	return nil
 }
@@ -287,7 +392,7 @@ func (c *productionSchemaMaintenanceController) captureBackupSource(ctx context.
 	if err != nil {
 		return source, err
 	}
-	output, err := c.runtime.runner.Run(ctx, productionCommand{Name: commandPSQL, Args: []string{"-X", "-q", "-v", "ON_ERROR_STOP=1", "--no-align", "--tuples-only", "--command", query, databaseURL}, Env: environment, Sensitive: true, Timeout: 2 * time.Minute, OutputLimit: 1 << 20})
+	output, err := c.runtime.runner.Run(ctx, productionCommand{Name: commandPSQL, Args: []string{"-X", "-q", "-v", "ON_ERROR_STOP=1", "--no-align", "--tuples-only", "--command", query, databaseURL}, Env: environment, Sensitive: true, Timeout: 2 * time.Minute, OutputLimit: schemaMaintenanceBackupSourceMaxBytes})
 	if err != nil {
 		return source, errors.New("schema backup quiesced source snapshot unavailable")
 	}
@@ -383,6 +488,8 @@ func (c *productionSchemaMaintenanceController) handle(ctx context.Context, requ
 		return schemaMaintenanceRPCReply{}, err
 	}
 	switch request.Action {
+	case "check-schema-owner":
+		return schemaMaintenanceRPCResult(c.activeOwner(ctx))
 	case "close":
 		return schemaMaintenanceRPCResult(c.host.closeAdmission(ctx))
 	case "capture-closed":
@@ -393,8 +500,10 @@ func (c *productionSchemaMaintenanceController) handle(ctx context.Context, requ
 		return schemaMaintenanceRPCResult(c.host.sealStopped(ctx))
 	case "capture-backup-source":
 		return schemaMaintenanceRPCResult(c.captureBackupSource(ctx))
+	case "backup-export":
+		return schemaMaintenanceRPCResult(c.collectBackup(ctx))
 	case "claim":
-		if c.origin.Host != c.plan.PrimaryHost || c.fence != nil {
+		if c.origin.Host != c.plan.PrimaryHost || c.fence != nil || c.claimUncertain {
 			return schemaMaintenanceRPCReply{}, errors.New("schema owner claim is primary-only and one-shot")
 		}
 		artifacts, err := c.runtime.loadMerchantStoreCapsule(c.origin.ArtifactCapsule.Path, c.origin.ArtifactCapsule.SHA256)
@@ -406,13 +515,32 @@ func (c *productionSchemaMaintenanceController) handle(ctx context.Context, requ
 			return schemaMaintenanceRPCReply{}, err
 		}
 		authority := productionSchemaMaintenanceAuthority{TransitionID: c.plan.TransitionID, PlanSHA256: c.planSHA, Workspace: c.origin.Workspace, Artifacts: artifacts, OldCapsule: old, OldCapsuleSHA256: c.origin.OldCapsule.SHA256, CheckPlan: c.checkPlan, CheckStoppedOrigins: c.checkStoppedOrigins, CheckRecoveryOrigins: c.checkRecoveryOrigins, CheckBackup: c.checkBackup}
+		intent := map[string]string{"format": "lmm-schema-maintenance-claim-intent-v1", "transition_id": c.plan.TransitionID, "plan_sha256": c.planSHA}
+		if err := c.runtime.startupBaselineNewFile(filepath.Join(c.origin.Workspace, "state", "schema-claim-intent.json"), intent); err != nil {
+			return schemaMaintenanceRPCReply{}, errors.New("schema claim was already attempted; reconcile the exact original owner without repeating claim")
+		}
+		c.claimUncertain = true
 		c.fence, err = c.runtime.claimSchemaMaintenanceFence(ctx, authority, c.host.lease)
 		if err != nil {
 			return schemaMaintenanceRPCReply{}, err
 		}
+		c.claimUncertain = false
 		return schemaMaintenanceRPCResult(c.fence.owner, nil)
 	case "worker":
 		return schemaMaintenanceRPCResult(c.runtime.runSchemaMaintenanceWorker(ctx, c.fence))
+	case "capture-outcome":
+		if c.origin.Host != c.plan.PrimaryHost || c.fence == nil || c.fence.released {
+			return schemaMaintenanceRPCReply{}, errors.New("schema outcome requires the original live primary owner")
+		}
+		stopped, err := c.stoppedOrigins(ctx)
+		if err != nil {
+			return schemaMaintenanceRPCReply{}, err
+		}
+		if _, err := c.runtime.captureSchemaMaintenanceOutcome(ctx, c.fence, c.plan, c.planSHA, stopped); err != nil {
+			return schemaMaintenanceRPCReply{}, err
+		}
+		_, sha, err := c.runtime.readSchemaMaintenanceOutcome(c.plan, c.planSHA, startupContentSHA256(c.fence.ownerRaw))
+		return schemaMaintenanceRPCResult(productionReleaseFilePlan{Path: filepath.Join(c.origin.Workspace, "state", "schema-outcome.json"), SHA256: sha}, err)
 	case "capture-recovery":
 		binding, err := c.recoveryBinding()
 		if err != nil {
@@ -425,6 +553,22 @@ func (c *productionSchemaMaintenanceController) handle(ctx context.Context, requ
 			return schemaMaintenanceRPCReply{}, err
 		}
 		return schemaMaintenanceRPCResult(c.host.captureReady(ctx, c.plan, c.planSHA, binding))
+	case "capture-startable":
+		return schemaMaintenanceRPCResult(c.captureStartable(ctx))
+	case "capture-recovery-profile":
+		return schemaMaintenanceRPCResult(c.host.captureRecoveryProfile(ctx, c.plan, c.planSHA, c.checkActiveOwner))
+	case "install-recovery-hook":
+		binding, err := c.recoveryBinding()
+		if err != nil {
+			return schemaMaintenanceRPCReply{}, err
+		}
+		return schemaMaintenanceRPCResult(c.host.installRecoveryHook(ctx, c.plan, c.planSHA, binding, c.checkActiveOwner))
+	case "start-recovery":
+		binding, err := c.recoveryBinding()
+		if err != nil {
+			return schemaMaintenanceRPCReply{}, err
+		}
+		return schemaMaintenanceRPCResult(c.host.startRecovery(ctx, c.plan, c.planSHA, binding, c.checkStartableOrigins))
 	case "release":
 		if c.origin.Host != c.plan.PrimaryHost || c.fence == nil {
 			return schemaMaintenanceRPCReply{}, errors.New("schema owner release has no original same-process primary owner")
@@ -448,7 +592,7 @@ func (c *productionSchemaMaintenanceController) handle(ctx context.Context, requ
 		if c.finishUncertain || c.finished {
 			return schemaMaintenanceRPCReply{}, errors.New("schema guardian finish already attempted; reconcile the original exact outcome without repeating it")
 		}
-		if c.fence != nil && !c.fence.released {
+		if c.origin.Host == c.plan.PrimaryHost && (c.fence == nil || !c.fence.released || c.claimUncertain) {
 			return schemaMaintenanceRPCReply{}, errors.New("schema finish requires the original primary owner release")
 		}
 		if err := c.checkRestoredOrigins(ctx); err != nil {
@@ -477,6 +621,9 @@ func (c *productionSchemaMaintenanceController) handle(ctx context.Context, requ
 		c.finishUncertain, c.finished = false, true
 		return schemaMaintenanceRPCResult(terminal, nil)
 	case "status":
+		if c.claimUncertain {
+			return schemaMaintenanceRPCResult(map[string]string{"phase": "CLAIM_UNCERTAIN", "host": c.origin.Host, "transition_id": c.plan.TransitionID, "plan_sha256": c.planSHA}, nil)
+		}
 		if c.finishUncertain {
 			return schemaMaintenanceRPCResult(map[string]string{"phase": "FINISH_UNCERTAIN", "host": c.origin.Host, "transition_id": c.plan.TransitionID, "plan_sha256": c.planSHA}, nil)
 		}
@@ -503,6 +650,15 @@ func (c *productionSchemaMaintenanceController) handle(ctx context.Context, requ
 					return schemaMaintenanceRPCReply{}, err
 				}
 				phase = "OWNER_ACTIVE"
+				if _, err := os.Lstat(filepath.Join(c.origin.Workspace, "state", "schema-worker-intent.json")); err == nil {
+					if _, err := c.runtime.readSchemaMaintenanceWorkerResult(c.origin.Workspace, c.fence.owner, startupContentSHA256(c.fence.ownerRaw)); err != nil {
+						phase = "WORKER_RESULT_UNCERTAIN"
+					} else {
+						phase = "WORKER_SUCCEEDED"
+					}
+				} else if !errors.Is(err, os.ErrNotExist) {
+					return schemaMaintenanceRPCReply{}, err
+				}
 			}
 		}
 		return schemaMaintenanceRPCResult(map[string]string{"phase": phase, "host": c.origin.Host, "transition_id": c.plan.TransitionID, "plan_sha256": c.planSHA}, nil)

@@ -13,10 +13,13 @@ import (
 
 func runProductionSchemaMaintenance(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "schema-maintenance requires serve, rpc or environment")
+		fmt.Fprintln(stderr, "schema-maintenance requires serve, rpc, environment, phase, observe, backup-collect or backup-verify")
 		return ExitUsage
 	}
 	action := args[0]
+	if action == "phase" || action == "observe" || action == "backup-verify" || action == "backup-collect" {
+		return runProductionSchemaMaintenanceControllerAction(action, args[1:], stdout, stderr)
+	}
 	flags := flag.NewFlagSet(DeployProgramName+" production schema-maintenance "+action, flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	planPath := flags.String("plan", "", "exact canonical target maintenance plan")
