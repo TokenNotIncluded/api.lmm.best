@@ -35,6 +35,7 @@ export function FloatingSettingsNavigation() {
   const { open, setOpen, openMobile, setOpenMobile, isMobile } = useSidebar()
   const { pathname, searchStr } = useLocation()
   const navigate = useNavigate()
+  const [directoryReady, setDirectoryReady] = useState(false)
   const [query, setQuery] = useState('')
   const [preview, setPreview] = useState<number | null>(null)
   const handle = useRef<HTMLButtonElement>(null)
@@ -59,7 +60,7 @@ export function FloatingSettingsNavigation() {
     })
   )
   const current = entries[currentIndex]
-  const shown = isMobile ? openMobile : open
+  const shown = directoryReady && (isMobile ? openMobile : open)
   const setShown = useCallback(
     (value: boolean) => {
       if (isMobile) setOpenMobile(value)
@@ -96,11 +97,13 @@ export function FloatingSettingsNavigation() {
     )
   }, [currentIndex, entries.length, select, setShown])
 
-  // A settings directory must never appear automatically over the form.
+  // Client-side entry can inherit an open console sidebar. Keep the modal
+  // closed from its first render, not just after this effect resets that state.
   useEffect(() => {
     const previous = sidebar.current.open
     sidebar.current.setOpen(false)
     sidebar.current.setOpenMobile(false)
+    setDirectoryReady(true)
     return () => {
       sidebar.current.setOpen(previous)
       sidebar.current.setOpenMobile(false)
