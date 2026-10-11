@@ -28,10 +28,15 @@ class PackageTests(unittest.TestCase):
         shutil.copyfile(HERE / "packages.json", cls.root / "packaging/linux/packages.json")
         shutil.copyfile(PKG.ROOT / "packaging/distribution.json", cls.root / "packaging/distribution.json")
         cls.spec = json.loads((cls.root / "packaging/distribution.json").read_text())
-        for name in cls.spec["common"] + cls.spec["components"]["extensions"]["resources"]:
+        resources = cls.spec["common"] + [name for component in cls.spec["components"].values()
+                                          for name in component["resources"]]
+        for name in resources:
             dest = cls.root / name
             dest.parent.mkdir(parents=True, exist_ok=True)
-            dest.write_text("Synthetic packaging test resource. Not a product license or policy.\n")
+            if name.startswith("apps/lmm/"):
+                shutil.copyfile(PKG.ROOT / name, dest)
+            else:
+                dest.write_text("Synthetic packaging test resource. Not a product license or policy.\n")
         source = cls.base / "fixture.go"
         source.write_text('package main\nimport "fmt"\nfunc main() { fmt.Println("synthetic package fixture") }\n')
         cls.static = {}
@@ -95,6 +100,19 @@ class PackageTests(unittest.TestCase):
         self.assertEqual({p for p in info["files"] if p.startswith("/usr/bin/")}, {"/usr/bin/lmm"})
         self.assertFalse(any("systemd" in d or "lmm-core" in d or "lmm-extensions" in d for d in config["depends"]))
         self.assertFalse(any(p.startswith("/etc/") for p in info["files"]))
+
+    def test_cli_package_preserves_magpie_license_and_source_attribution(self):
+        archive = self.archive("cli")
+        for fmt in PKG.FORMATS:
+            with self.subTest(fmt=fmt):
+                config, info = self.prepare(archive, component="cli", fmt=fmt)
+                contents = {entry["dst"]: entry for entry in config["contents"]}
+                for name in ("apps/lmm/NOTICE", "apps/lmm/third_party/magpie/LICENSE",
+                             "apps/lmm/third_party/magpie/NOTICE.md"):
+                    destination = "/usr/share/lmm/" + name
+                    self.assertEqual(Path(contents[destination]["src"]).read_bytes(),
+                                     (PKG.ROOT / name).read_bytes())
+                    self.assertEqual(info["files"][destination]["mode"], 0o644)
 
     def test_catalog_has_exactly_three_programs_and_static_web(self):
         catalog = json.loads((self.root / "packaging/linux/packages.json").read_text())

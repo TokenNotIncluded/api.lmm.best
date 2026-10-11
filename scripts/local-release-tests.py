@@ -32,7 +32,7 @@ PATHS = {
     'core': ('apps/lmm-core', 'contracts', 'deployment/docker/core.Dockerfile',
              'deployment/docker/compose.core.yml', 'deployment/docker/compose.identity.yml',
              'deployment/docker/compose.rpc-core.yml', 'scripts/generate-core-protocol.sh') + NATIVE_PACKAGE_PATHS,
-    'cli': ('apps/lmm',) + NATIVE_PACKAGE_PATHS,
+    'cli': ('apps/lmm', '.gitmodules') + NATIVE_PACKAGE_PATHS,
     'full': ('.',),
 }
 SHA_RE = re.compile(r'^[0-9a-f]{40}$')

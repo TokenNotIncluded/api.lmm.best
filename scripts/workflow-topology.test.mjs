@@ -44,6 +44,19 @@ test('OpenCode fixture runs the pinned child and real host without privileged ev
   assert.match(source, /npm run test:host && npm run test:integration/);
 });
 
+test('CLI consumers initialize only the pinned CLI submodule', () => {
+  for (const name of ['lmm', 'microservice-distribution', 'linux-packages', 'core-protocol']) {
+    const source = workflow(name);
+    const commands = [...source.matchAll(/git submodule update[^\n]*/g)].map((match) => match[0]);
+    assert.equal(commands.length, name === 'microservice-distribution' ? 2 : 1, name);
+    for (const command of commands) {
+      assert.equal(command, 'git submodule update --init --depth 1 -- apps/lmm', name);
+    }
+    assert.doesNotMatch(source, /submodules:\s*(?:true|recursive)/);
+  }
+  assert.match(workflow('lmm'), /name: Initialize the pinned CLI only\n        working-directory: \.\n/);
+});
+
 
 test('retired single-server deployment tools cannot bypass the preview boundary', () => {
   for (const path of ['scripts/web-ship.py', 'scripts/fetch-deploy-artifact.sh',

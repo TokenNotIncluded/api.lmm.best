@@ -20,6 +20,9 @@ jobs:
         working-directory: apps/lmm
     steps:
       - uses: actions/checkout@v4
+      - name: Initialize the pinned CLI only
+        working-directory: .
+        run: git submodule update --init --depth 1 -- apps/lmm
       - name: Install Rust checks
         run: rustup component add rustfmt clippy
       - run: cargo fmt --all --check

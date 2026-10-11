@@ -50,7 +50,11 @@
         "windows-amd64",
         "windows-arm64"
       ],
-      "resources": []
+      "resources": [
+        "apps/lmm/NOTICE",
+        "apps/lmm/third_party/magpie/LICENSE",
+        "apps/lmm/third_party/magpie/NOTICE.md"
+      ]
     },
     "web": {
       "package": "lmm-web",

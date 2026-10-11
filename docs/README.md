@@ -21,7 +21,7 @@
 
 [部署研究结论与待接入项](deployment-research.md)保留已移除实验目录的有效结论与历史来源，不作为正式部署步骤。
 
-Go 模块的接口与存储规则以各自源码目录为准：[扩展宿主](../apps/lmm-extensions/README.md)、[助手](../apps/lmm-extensions/internal/modules/assistant/README.md)。[CLI 文档](../apps/lmm/README.md)与服务端部署分开。
+Go 模块的接口与存储规则以各自源码目录为准：[扩展宿主](../apps/lmm-extensions/README.md)、[助手](../apps/lmm-extensions/internal/modules/assistant/README.md)。[CLI 子项目文档](https://github.com/TokenNotIncluded/lmm#readme)与服务端部署分开。
 
 前端资料：[设计](../apps/web/DESIGN.md)、[Logo](../.github/assets/README.md)、[翻译术语](translation-glossary.md)。[安全报告](../SECURITY.md)与[支持渠道](../SUPPORT.md)不属于运行时用户协议。
 

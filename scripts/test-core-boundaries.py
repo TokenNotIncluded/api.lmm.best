@@ -1,7 +1,9 @@
 #!/usr/bin/env python3
 """Offline source boundaries. Runtime, database and Docker tests are separate."""
+import configparser
 import json
 from pathlib import Path
+import subprocess
 import tomllib
 import unittest
 
@@ -25,8 +27,17 @@ class CoreBoundaryTests(unittest.TestCase):
                      "scripts/ci/qualify-go-migration-startup.sh", "scripts/deploy-systemd.py",
                      "scripts/deploy-shared-postgres.py", "packaging/common/lmm-api/migration-compatibility.env"):
             self.assertFalse((ROOT / name).exists(), name)
-        self.assertTrue((ROOT / "apps/lmm/Cargo.toml").is_file())
         self.assertTrue((ROOT / "apps/lmm-extensions/cmd/extensions/main.go").is_file())
+
+    def test_cli_is_an_independent_pinned_subproject(self):
+        entry = subprocess.run(['git', 'ls-files', '--stage', '--', 'apps/lmm'],
+                               cwd=ROOT, check=True, capture_output=True, text=True).stdout.strip()
+        self.assertRegex(entry, r'^160000 [0-9a-f]{40} 0\tapps/lmm$')
+        modules = configparser.ConfigParser(interpolation=None)
+        modules.read(ROOT / '.gitmodules')
+        self.assertEqual(modules['submodule "apps/lmm"']['path'], 'apps/lmm')
+        self.assertEqual(modules['submodule "apps/lmm"']['url'],
+                         'https://github.com/TokenNotIncluded/lmm.git')
 
     def test_extension_has_no_core_database_or_authority_dependency(self):
         module = (ROOT / "apps/lmm-extensions/go.mod").read_text()

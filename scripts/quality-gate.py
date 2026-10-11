@@ -76,8 +76,38 @@ def paths(root: Path) -> list[str]:
     return sorted(set(x.decode('utf-8') for x in raw.split(b'\0') if x))
 
 
+def cli_submodule(root: Path) -> str | None:
+    """Only the extracted CLI must be an initialized, clean, pinned child."""
+    entries = git(root, 'ls-files', '--stage', '-z', '--', CLI).split(b'\0')
+    pin = None
+    for entry in entries:
+        if not entry:
+            continue
+        metadata, name = entry.split(b'\t', 1)
+        mode, sha, stage = metadata.split()
+        if name.decode('utf-8') == CLI and mode == b'160000':
+            if stage != b'0':
+                raise ValueError('resolve CLI submodule conflicts before checking')
+            pin = sha.decode('ascii')
+    if pin is None:
+        return None
+    child = root / CLI
+    if not (child / '.git').exists():
+        raise ValueError('CLI submodule is not initialized: ' + CLI)
+    top = Path(git(child, 'rev-parse', '--show-toplevel').decode().strip()).resolve()
+    if top != child.resolve():
+        raise ValueError('CLI submodule is not initialized: ' + CLI)
+    head = git(child, 'rev-parse', '--verify', 'HEAD^{commit}').decode().strip()
+    if head != pin:
+        raise ValueError('CLI submodule HEAD differs from the parent pin: ' + CLI)
+    if git(child, 'status', '--porcelain=v1', '--untracked-files=all', '--ignore-submodules=none'):
+        raise ValueError('CLI submodule has uncommitted or untracked source: ' + CLI)
+    return pin
+
+
 def snapshot(root: Path) -> dict:
     """Bind tracked, staged, unstaged and non-ignored untracked source, plus modes."""
+    cli_pin = cli_submodule(root)
     items = {}
     for name in paths(root):
         path = root / name
@@ -92,7 +122,7 @@ def snapshot(root: Path) -> dict:
     submodules = git(root, 'submodule', 'status', '--recursive').decode('utf-8')
     status = git(root, 'status', '--porcelain=v1', '--untracked-files=all', '--ignore-submodules=none').decode()
     return {'sha256': digest(json.dumps([items, submodules, status], sort_keys=True).encode()),
-            'file_count': len(items), 'submodules': submodules}
+            'file_count': len(items), 'submodules': submodules, 'cli_submodule': cli_pin}
 
 
 def sensitive(name: str) -> bool:

@@ -66,6 +66,13 @@ class NativePackageTests(fixtures.PackageTests):
                 info = json.loads(Path(str(package) + ".buildinfo.json").read_text())
                 self.assertEqual({p for p in info["files"] if p.startswith("/usr/bin/")}, {"/usr/bin/lmm"})
                 self.assertFalse(any(p.startswith("/etc/") or p.endswith(".service") for p in info["files"]))
+                if fmt == "deb":
+                    target = self.work / "cli-unpacked"
+                    subprocess.run(["dpkg-deb", "--extract", str(package), str(target)], check=True)
+                    for name in ("apps/lmm/NOTICE", "apps/lmm/third_party/magpie/LICENSE",
+                                 "apps/lmm/third_party/magpie/NOTICE.md"):
+                        self.assertEqual((target / "usr/share/lmm" / name).read_bytes(),
+                                         (self.root / name).read_bytes())
 
 
 if __name__ == "__main__":

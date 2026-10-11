@@ -68,6 +68,20 @@ class DistributionTests(unittest.TestCase):
             self.assertTrue(all(value == "" for value in config["variables"].values()))
         self.assertNotIn("config/legal/site.json", DIST.verify(first)["files"])
 
+    def test_cli_archive_preserves_port_attribution_and_magpie_mit_license(self):
+        archive = self.build("cli")
+        manifest = DIST.verify(archive, SHA)
+        names = ("apps/lmm/NOTICE", "apps/lmm/third_party/magpie/LICENSE",
+                 "apps/lmm/third_party/magpie/NOTICE.md")
+        with tarfile.open(archive) as tar:
+            for name in names:
+                with self.subTest(name=name):
+                    self.assertEqual(tar.extractfile(name).read(), (ROOT / name).read_bytes())
+                    self.assertEqual(manifest["files"][name]["mode"], 0o644)
+            license_text = tar.extractfile(names[1]).read()
+            self.assertIn(b"Copyright (c) 2026 yetone", license_text)
+            self.assertIn(b'THE SOFTWARE IS PROVIDED "AS IS"', license_text)
+
     def test_no_overwrite(self):
         first = self.build()
         original = first.read_bytes()

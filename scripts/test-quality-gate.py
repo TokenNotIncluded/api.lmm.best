@@ -62,6 +62,28 @@ class GateTests(unittest.TestCase):
         self.run_git('add', '.')
         self.run_git('commit', '-q', '-m', 'fixture')
 
+    def add_cli_submodule(self):
+        origin = Path(self.temporary.name) / 'cli-origin'
+        origin.mkdir()
+        for args in (('init', '-q'), ('config', 'user.name', 'CLI fixture'),
+                     ('config', 'user.email', 'fixture@example.invalid')):
+            subprocess.run(['git', '-C', str(origin), *args], check=True, capture_output=True)
+        (origin / 'source.rs').write_text('fn main() {}\n')
+        (origin / '.gitignore').write_text('/target/\n')
+        subprocess.run(['git', '-C', str(origin), 'add', '.'], check=True, capture_output=True)
+        subprocess.run(['git', '-C', str(origin), '-c', 'commit.gpgsign=false',
+                        'commit', '-qm', 'CLI fixture'], check=True, capture_output=True)
+        self.run_git('-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', str(origin), gate.CLI)
+        self.child = self.root / gate.CLI
+        self.child_git('config', 'user.name', 'CLI fixture')
+        self.child_git('config', 'user.email', 'fixture@example.invalid')
+        self.commit()
+        return self.child_git('rev-parse', 'HEAD').strip()
+
+    def child_git(self, *args):
+        return subprocess.run(['git', '-C', str(self.child), *args], text=True,
+                              capture_output=True, check=True).stdout
+
     def test_committed_staged_unstaged_and_untracked_changes_are_all_checked(self):
         self.write('apps/web/src/committed.ts', 'const a: any = 1\n')
         self.commit()
@@ -108,6 +130,44 @@ class GateTests(unittest.TestCase):
         before_mode = gate.snapshot(self.root)
         path.chmod(0o755)
         self.assertNotEqual(before_mode, gate.snapshot(self.root))
+
+    def test_cli_submodule_accepts_parent_pin_and_ignored_build_output(self):
+        pin = self.add_cli_submodule()
+        before = gate.snapshot(self.root)
+        (self.child / 'target').mkdir()
+        (self.child / 'target/lmm').write_text('ignored build output\n')
+        self.assertEqual(before, gate.snapshot(self.root))
+        self.assertEqual(before['cli_submodule'], pin)
+
+    def test_cli_submodule_rejects_uninitialized_checkout(self):
+        self.add_cli_submodule()
+        self.run_git('submodule', 'deinit', '-f', '--', gate.CLI)
+        with self.assertRaisesRegex(ValueError, 'not initialized'):
+            gate.snapshot(self.root)
+
+    def test_cli_submodule_rejects_head_different_from_parent_pin(self):
+        self.add_cli_submodule()
+        (self.child / 'source.rs').write_text('fn main() { println!("changed"); }\n')
+        self.child_git('add', '.')
+        self.child_git('-c', 'commit.gpgsign=false', 'commit', '-qm', 'Different CLI revision')
+        with self.assertRaisesRegex(ValueError, 'HEAD differs from the parent pin'):
+            gate.snapshot(self.root)
+
+    def test_cli_submodule_rejects_unstaged_staged_and_untracked_source(self):
+        self.add_cli_submodule()
+        for kind in ('unstaged', 'staged', 'untracked'):
+            with self.subTest(kind=kind):
+                name = 'new.rs' if kind == 'untracked' else 'source.rs'
+                path = self.child / name
+                path.write_text('changed source\n')
+                if kind == 'staged':
+                    self.child_git('add', name)
+                with self.assertRaisesRegex(ValueError, 'uncommitted or untracked source'):
+                    gate.snapshot(self.root)
+                if kind == 'untracked':
+                    path.unlink()
+                else:
+                    self.child_git('reset', '--hard', 'HEAD')
 
     def test_symlink_source_is_not_followed(self):
         outside = self.out / 'secret.ts'

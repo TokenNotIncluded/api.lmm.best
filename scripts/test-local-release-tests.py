@@ -186,5 +186,39 @@ class LocalReleaseTests(unittest.TestCase):
             self.record = records[component]
             self.assertEqual(expected, self.verify(component).returncode, component)
 
+    def test_cli_gitlink_pin_change_invalidates_local_evidence(self):
+        origin = self.root / 'cli-origin'
+        origin.mkdir()
+        for args in (('init', '-q'), ('config', 'user.name', 'CLI fixture'),
+                     ('config', 'user.email', 'fixture@example.invalid')):
+            subprocess.run(['git', '-C', str(origin), *args], check=True, capture_output=True)
+        (origin / 'Cargo.toml').write_text('CLI source fixture\n')
+        subprocess.run(['git', '-C', str(origin), 'add', '.'], check=True, capture_output=True)
+        subprocess.run(['git', '-C', str(origin), '-c', 'commit.gpgsign=false',
+                        'commit', '-qm', 'Initial CLI fixture'], check=True, capture_output=True)
+        self.git('-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', str(origin), 'apps/lmm')
+        self.commit()
+        self.record_component('cli')
+        self.assertEqual(0, self.verify('cli').returncode)
+        child = self.repo / 'apps/lmm'
+        (child / 'Cargo.toml').write_text('Different CLI source fixture\n')
+        subprocess.run(['git', '-C', str(child), 'add', '.'], check=True, capture_output=True)
+        subprocess.run(['git', '-C', str(child), '-c', 'user.name=CLI fixture',
+                        '-c', 'user.email=fixture@example.invalid', '-c', 'commit.gpgsign=false',
+                        'commit', '-qm', 'Changed CLI fixture'], check=True, capture_output=True)
+        self.commit()
+        self.assertEqual(1, self.verify('cli').returncode)
+
+    def test_cli_submodule_url_change_invalidates_local_evidence(self):
+        self.add_microkernel_fixture()
+        path = self.repo / '.gitmodules'
+        path.write_text('[submodule "apps/lmm"]\n\tpath = apps/lmm\n'
+                        '\turl = https://example.invalid/lmm.git\n')
+        self.commit()
+        self.record_component('cli')
+        path.write_text(path.read_text().replace('example.invalid', 'other.invalid'))
+        self.commit()
+        self.assertEqual(1, self.verify('cli').returncode)
+
 if __name__ == '__main__':
     unittest.main()
