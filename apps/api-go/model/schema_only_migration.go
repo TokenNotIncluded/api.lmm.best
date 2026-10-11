@@ -153,9 +153,9 @@ func verifySchemaOnlyMaintenanceOwner(tx *gorm.DB, owner deploymentfence.OwnerBi
 		return errors.New("schema-only PostgreSQL runtime identity differs from native owner")
 	}
 	var physical struct {
-		SystemIdentifier string
-		DatabaseOID      int64
-		SchemaOID        int64
+		SystemIdentifier string `gorm:"column:system_identifier"`
+		DatabaseOID      int64  `gorm:"column:database_oid"`
+		SchemaOID        int64  `gorm:"column:schema_oid"`
 	}
 	if err := tx.Raw(`SELECT control.system_identifier::pg_catalog.text AS system_identifier,
 		databases.oid::pg_catalog.int8 AS database_oid, namespaces.oid::pg_catalog.int8 AS schema_oid
