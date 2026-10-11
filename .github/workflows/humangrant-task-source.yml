@@ -1,0 +1,35 @@
+name: HumanGrant task source snapshot
+on:
+  push:
+    branches: [feat/humangrant-login]
+    paths: [.github/workflows/humangrant-task-source.yml]
+permissions:
+  contents: read
+jobs:
+  source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Archive tracked target source
+        run: git archive --format=tar.gz -o "$RUNNER_TEMP/lmm-source.tar.gz" HEAD
+      - uses: actions/checkout@v4
+        with:
+          repository: LIghtJUNction/humangrant
+          path: humangrant-source
+          persist-credentials: false
+      - name: Archive tracked protocol source
+        working-directory: humangrant-source
+        run: |
+          git rev-parse HEAD > "$RUNNER_TEMP/humangrant-revision.txt"
+          git archive --format=tar.gz -o "$RUNNER_TEMP/humangrant-source.tar.gz" HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: humangrant-task-source
+          retention-days: 1
+          path: |
+            ${{ runner.temp }}/lmm-source.tar.gz
+            ${{ runner.temp }}/humangrant-source.tar.gz
+            ${{ runner.temp }}/humangrant-revision.txt
