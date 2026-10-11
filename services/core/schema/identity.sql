@@ -453,3 +453,81 @@ CREATE TRIGGER web_credential_binding BEFORE INSERT OR UPDATE OR DELETE
 CREATE TRIGGER web_credential_binding_truncate BEFORE TRUNCATE
     ON core_identity.web_session_credentials
     FOR EACH STATEMENT EXECUTE FUNCTION core_identity.check_web_session_credential();
+
+
+-- HumanGrant 0.1 (fresh installation only): agents never receive a human
+-- credential. Every grant and one-time session is separately revocable.
+CREATE TABLE core_identity.hg_config (
+    singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton),
+    enabled BOOLEAN NOT NULL DEFAULT TRUE
+);
+INSERT INTO core_identity.hg_config(singleton,enabled) VALUES (TRUE,TRUE);
+
+CREATE TABLE core_identity.hg_requests (
+    id TEXT PRIMARY KEY CHECK (id ~ '^[A-Za-z0-9_-]{1,64}$'),
+    actor_id TEXT NOT NULL CHECK (length(actor_id) = 51),
+    client_id TEXT NOT NULL CHECK (client_id ~ '^[A-Za-z0-9_-]{1,64}$'),
+    target_service TEXT NOT NULL CHECK (target_service = 'lmm'),
+    purpose TEXT NOT NULL CHECK (length(purpose) BETWEEN 1 AND 240),
+    requested JSONB NOT NULL CHECK (jsonb_typeof(requested) = 'array'),
+    expected_human_id BIGINT,
+    link_digest BYTEA NOT NULL UNIQUE CHECK (octet_length(link_digest) = 32),
+    phase TEXT NOT NULL DEFAULT 'waiting_human' CHECK (phase IN
+        ('waiting_human','authenticating_human','awaiting_consent','approved',
+         'succeeded','rejected','expired','cancelled')),
+    status_updated_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    expires_at TIMESTAMPTZ NOT NULL DEFAULT (clock_timestamp() + interval '10 minutes'),
+    requested_ttl_seconds INTEGER NOT NULL DEFAULT 3600 CHECK (requested_ttl_seconds BETWEEN 60 AND 3600),
+    last_polled_at TIMESTAMPTZ,
+    poll_after_seconds INTEGER NOT NULL DEFAULT 5 CHECK (poll_after_seconds BETWEEN 5 AND 60),
+    email_request_status TEXT NOT NULL DEFAULT 'not_requested'
+        CHECK (email_request_status IN ('not_requested','accepted','unavailable'))
+);
+CREATE INDEX hg_requests_expiration ON core_identity.hg_requests(expires_at);
+
+CREATE TABLE core_identity.hg_nonces (
+    actor_id TEXT NOT NULL,
+    nonce TEXT NOT NULL CHECK (length(nonce) = 32),
+    expires_at TIMESTAMPTZ NOT NULL,
+    PRIMARY KEY(actor_id,nonce)
+);
+CREATE INDEX hg_nonces_expiry ON core_identity.hg_nonces(expires_at);
+
+-- A review session is bound to a verified current LMM web bearer and a
+-- one-time CSRF secret, not to an AI token or a caller-supplied human ID.
+CREATE TABLE core_identity.hg_reviews (
+    csrf_digest BYTEA PRIMARY KEY CHECK (octet_length(csrf_digest) = 32),
+    access_digest BYTEA NOT NULL CHECK (octet_length(access_digest) = 32),
+    request_id TEXT NOT NULL REFERENCES core_identity.hg_requests(id),
+    user_id BIGINT NOT NULL REFERENCES core_identity.users(id),
+    expires_at TIMESTAMPTZ NOT NULL,
+    consumed_at TIMESTAMPTZ
+);
+CREATE INDEX hg_reviews_expiry ON core_identity.hg_reviews(expires_at);
+
+CREATE TABLE core_identity.hg_grants (
+    id TEXT PRIMARY KEY CHECK (id ~ '^[A-Za-z0-9_-]{1,64}$'),
+    request_id TEXT NOT NULL UNIQUE REFERENCES core_identity.hg_requests(id),
+    user_id BIGINT NOT NULL REFERENCES core_identity.users(id),
+    actor_id TEXT NOT NULL,
+    permissions JSONB NOT NULL CHECK (jsonb_typeof(permissions) = 'array'),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    expires_at TIMESTAMPTZ NOT NULL,
+    revoked_at TIMESTAMPTZ
+);
+CREATE INDEX hg_grants_user ON core_identity.hg_grants(user_id,created_at DESC);
+
+CREATE TABLE core_identity.hg_sessions (
+    grant_id TEXT PRIMARY KEY REFERENCES core_identity.hg_grants(id),
+    token_digest BYTEA NOT NULL UNIQUE CHECK (octet_length(token_digest) = 32),
+    claimed_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
+);
+
+CREATE TABLE core_identity.hg_audit (
+    id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    request_id TEXT REFERENCES core_identity.hg_requests(id),
+    user_id BIGINT REFERENCES core_identity.users(id),
+    action TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
+);
