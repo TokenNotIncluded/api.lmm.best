@@ -1,8 +1,12 @@
 # 开发与测试
 
-这是全新安装分支。不要连接现有站点数据库。服务分工见[架构与状态](core-migration.md)，创建数据库和密钥只使用 [Docker 指南](../deployment/docker/README.md)。
+这是全新安装分支。不要连接现有站点数据库。服务分工见[架构与状态](core-migration.md)，隔离数据库与密钥的要求见 [Docker 指南](../deployment/docker/README.md)。当前 Docker 的单一数据库账号流程仍待拆分，指南中的历史示例不可直接执行；本机原生验收使用独立安装账号与受限运行账号。
 
 全新核心库通过 `lmm-core init-db` 显式安装一次；已有应用对象时拒绝。
+
+安装使用独立的 owner 账号，网络服务使用受限的 runtime 账号；不要用 owner 启动服务。`init-db` 原子安装身份、账本、支付、计费、路由、事件、计费账本适配和迁移记录共 8 个组件，普通启动只校验结构和账号权限。
+
+本地控制台身份接入使用 `LMM_CORE_DATABASE_URL_FILE`、`LMM_CORE_WEB_ORIGIN` 和 `LMM_CORE_WEB_REFRESH_KEY_FILE`。私有文件须为普通文件、权限 `0600`；本地 HTTP 须显式设置 `LMM_CORE_WEB_LOCAL_HTTP=true`。同时明确配置 `LMM_CORE_WEB_USER_AGREEMENT_ENABLED` 和 `LMM_CORE_WEB_PRIVACY_POLICY_ENABLED` 为 `true` 或 `false`，与实际公布的协议一致。注册开关为 `LMM_CORE_REGISTRATION_ENABLED`。模型和支付默认关闭；核心就绪不代表这些功能已就绪。
 
 ## 工具与目录
 

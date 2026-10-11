@@ -15,7 +15,9 @@ model, payment or database migration paths are ready for production.
 
 The product has three executable programs: `lmm`, `lmm-core` and `lmm-extensions`.
 Database initialization and the first administrator are explicit `lmm-core init-db`
-and `lmm-core bootstrap-user` subcommands. They are never run during installation
+and `lmm-core bootstrap-user` subcommands. `init-db` installs all eight core
+components in one transaction; ordinary startup verifies the complete contract
+and live catalog fingerprint. These subcommands are never run during installation
 or ordinary service startup. Installing extensions does not install or restart
 core. Each package is independent; the user CLI is installed only by selecting
 `cli`. No package installs a local PostgreSQL server, Docker or a language toolchain.
@@ -89,7 +91,7 @@ On systemd systems, service files use `DynamicUser`, private runtime/state
 directories and `LoadCredential`. Create the required credential as a root-owned
 0600 file, not as a command-line argument or a value in a public example:
 
-- Core: `/etc/lmm-core/database-url`, for an explicitly selected new test database.
+- Core: `/etc/lmm-core/database-url`, containing a restricted runtime URL for an explicitly selected isolated test database, never the installation-owner URL.
 - Extensions: `/etc/lmm-extensions/service-token`, independently generated.
 
 Non-secret controls live in `/etc/<package>/service.env`. Package upgrades retain
@@ -97,7 +99,18 @@ local changes. Use `systemctl daemon-reload`, then explicitly start or restart
 only the intended service after checking the configuration and readiness.
 The default service binds loopback. Configure the edge listener separately.
 No package hook enables a unit, restarts a daemon, downloads a file, creates a
-secret, initializes/migrates a database, clears data or touches the old Go service.
+secret, initializes/migrates a database, creates database roles, grants privileges,
+clears data or touches the old Go service.
+
+Provision the installation owner and restricted runtime separately, with explicit
+offline GRANTs before starting the service. Keep owner credentials out of the
+service's credential file. The runtime must not own application objects, switch to
+an owner role or directly write immutable ledger tables; see the
+[runtime authority check](../../services/core/src/runtime_database.rs) and
+[schema contract](../../services/core/schema/README.md). The templates load the URL
+provided by the operator and do not provision these roles. The current Docker
+identity/standalone examples reuse an owner URL and are rejected by the runtime
+guard; they are not a validated substitute for this missing provisioning step.
 
 Alpine packages create only their own non-login system account. OpenRC service
 scripts load the same non-secret environment. Credential files must be owned by
@@ -109,9 +122,19 @@ configure cgroup limits separately and measure actual usage.
 Removal never deletes operator-created credential files, data, audit history or
 the remote database. Stop the intended service explicitly before final removal.
 Package upgrades replace disk files but do not prove a running process has loaded
-them. Core's 256 MiB systemd limit is a ceiling, not a measured footprint; the
-unfinished model route stays closed. A single service restart can still break a
+them. Core's 256 MiB systemd limit is a ceiling, not a measured footprint. With
+restricted privileges, complete schema and configured identity, readiness can be
+200 while models remain disabled; model readiness then stays 503. The model API
+defaults to closed, and the current optional gateway only accepts explicit local
+numeric-loopback synthetic upstreams without streaming. Payment HTTP APIs are
+not mounted. A single service restart can still break a
 stream; this package change does not claim zero-interruption deployment.
+
+Identity-only ETL was verified using an isolated restored snapshot and a separate
+local core target, covering 888 legacy users at completion. Source funds, API keys
+and sessions were not migrated, and production was not written. This does not
+prove complete business migration, current user counts, Docker deployment or
+native package installation on every supported distribution.
 
 ## Validation
 
