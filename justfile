@@ -102,3 +102,10 @@ test-docker:
 # Remove generated build output only, never database volumes.
 clean-generated:
     rm -rf .turbo apps/web/.turbo apps/lmm-extensions/out apps/lmm-core/target apps/web/dist
+
+# Local evidence only. Pass an explicit reviewed --base and a new --output directory.
+quality *args:
+    python3 -B scripts/quality-gate.py {{args}}
+
+quality-self-tests:
+    python3 -B scripts/test-quality-gate.py
