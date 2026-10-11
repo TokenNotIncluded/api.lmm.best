@@ -78,6 +78,12 @@ export function resolveLegacyRoute(rawHref: string): string | null {
   if (pathname === '/forbidden') {
     return buildTargetHref('/403', source)
   }
+  if (pathname === '/api-keys') {
+    return buildTargetHref('/keys', source)
+  }
+  if (pathname === '/settings') {
+    return buildTargetHref('/profile', source)
+  }
   if (pathname === '/developer-access') {
     return buildTargetHref('/profile', source)
   }

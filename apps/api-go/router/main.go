@@ -27,6 +27,7 @@ func SetRouter(router *gin.Engine) error {
 	if err := SetOAuthServerRouter(router); err != nil {
 		return err
 	}
+	setWaffoPancakePortalRouter(router)
 	SetApiRouter(router)
 	if err := SetWalletTransferRouter(router); err != nil {
 		return fmt.Errorf("configure wallet transfer routes: %w", err)

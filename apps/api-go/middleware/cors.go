@@ -11,7 +11,9 @@ func CORS() gin.HandlerFunc {
 	config.AllowAllOrigins = true
 	config.AllowCredentials = true
 	config.AllowMethods = []string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}
-	config.AllowHeaders = []string{"*"}
+	// Authorization is not covered by the CORS request-header wildcard.
+	// Keep explicit Bearer clients working without reflecting credentialed origins.
+	config.AllowHeaders = []string{"*", "Authorization"}
 	return cors.New(config)
 }
 

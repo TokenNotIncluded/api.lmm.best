@@ -120,7 +120,7 @@ type DialogOptions = {
   epayMethods?: Array<{ type: string; name?: string }>
   paymentMethods?: string[]
   userQuota?: number
-  onCheckoutStarted?: () => void
+  onCheckoutStarted?: (tradeNo: string, planId: number) => boolean | void
 }
 
 async function renderDialog(options: DialogOptions = {}): Promise<Rendered> {
@@ -210,12 +210,20 @@ describe('subscription purchase checkout', () => {
         data: {
           success: true,
           message: 'success',
-          data: { pay_link: 'https://pay.example.test/stripe' },
+          data: {
+            pay_link: 'https://pay.example.test/stripe',
+            order_id: 'stripe-order-7',
+          },
         },
       }
     }) as typeof api.post
 
-    const rendered = await renderDialog()
+    const checkouts: Array<[string, number]> = []
+    const rendered = await renderDialog({
+      onCheckoutStarted: (tradeNo, planId) => {
+        checkouts.push([tradeNo, planId])
+      },
+    })
     try {
       const stripeButton = [...document.querySelectorAll('button')].find(
         (button) => button.textContent?.trim() === 'Stripe'
@@ -235,6 +243,52 @@ describe('subscription purchase checkout', () => {
       assert.match(popup.name, /^payment_checkout_/)
       assert.equal(popup.location.href, 'https://pay.example.test/stripe')
       assert.equal(popup.opener, null)
+      assert.deepEqual(checkouts, [['stripe-order-7', 7]])
+    } finally {
+      await unmount(rendered)
+    }
+  })
+
+  test('rejects a Stripe redirect without a checkout order reference', async () => {
+    const popup = {
+      closed: false,
+      name: '',
+      opener: {} as Window | null,
+      close: () => {
+        popup.closed = true
+      },
+      focus: () => undefined,
+      location: { href: '' },
+    }
+    domWindow.open = (() => popup as unknown as Window) as typeof domWindow.open
+    api.post = (async (url) => {
+      assert.equal(url, '/api/subscription/stripe/pay')
+      return {
+        data: {
+          success: true,
+          message: 'success',
+          data: { pay_link: 'https://pay.example.test/stripe' },
+        },
+      }
+    }) as typeof api.post
+    let checkoutStarted = 0
+    const rendered = await renderDialog({
+      onCheckoutStarted: () => {
+        checkoutStarted += 1
+      },
+    })
+    try {
+      const stripeButton = [...document.querySelectorAll('button')].find(
+        (button) => button.textContent?.trim() === 'Stripe'
+      )
+      assert.ok(stripeButton)
+      await act(async () => {
+        stripeButton.click()
+        await flushEffects()
+      })
+      assert.equal(popup.location.href, '')
+      assert.equal(popup.closed, true)
+      assert.equal(checkoutStarted, 0)
     } finally {
       await unmount(rendered)
     }
@@ -280,15 +334,23 @@ describe('subscription purchase checkout', () => {
           success: true,
           message: 'success',
           url: 'https://pay.example.test/epay',
-          data: { pid: 'subscription-7', sign: 'signed' },
+          data: {
+            pid: 'subscription-7',
+            sign: 'signed',
+            out_trade_no: 'epay-order-7',
+          },
         },
       }
     }) as typeof api.post
 
+    const checkouts: Array<[string, number]> = []
     const rendered = await renderDialog({
       enableStripe: false,
       enableOnlineTopUp: true,
       epayMethods: [{ type: 'alipay', name: 'Alipay' }],
+      onCheckoutStarted: (tradeNo, planId) => {
+        checkouts.push([tradeNo, planId])
+      },
     })
     try {
       const payButton = [...document.querySelectorAll('button')].find(
@@ -312,9 +374,14 @@ describe('subscription purchase checkout', () => {
         {
           action: 'https://pay.example.test/epay',
           target: popup.name,
-          fields: { pid: 'subscription-7', sign: 'signed' },
+          fields: {
+            pid: 'subscription-7',
+            sign: 'signed',
+            out_trade_no: 'epay-order-7',
+          },
         },
       ])
+      assert.deepEqual(checkouts, [['epay-order-7', 7]])
     } finally {
       await unmount(rendered)
     }

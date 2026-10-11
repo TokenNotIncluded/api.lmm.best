@@ -152,7 +152,7 @@ type CachedFileData struct {
 
 	diskPath        string     // 磁盘缓存文件路径（大文件）
 	isDisk          bool       // 是否使用磁盘缓存
-	diskMu          sync.Mutex // 磁盘操作锁（保护磁盘文件的读取和删除）
+	diskMu          sync.Mutex // 保护内存与磁盘缓存的读取、写入和关闭
 	diskClosed      bool       // 是否已关闭/清理
 	statDecremented bool       // 是否已扣减统计
 
@@ -178,17 +178,14 @@ func NewDiskCachedData(diskPath string, mimeType string, size int64) *CachedFile
 }
 
 func (c *CachedFileData) GetBase64Data() (string, error) {
+	c.diskMu.Lock()
+	defer c.diskMu.Unlock()
+	if c.diskClosed {
+		return "", fmt.Errorf("file cache already closed")
+	}
 	if !c.isDisk {
 		return c.base64Data, nil
 	}
-
-	c.diskMu.Lock()
-	defer c.diskMu.Unlock()
-
-	if c.diskClosed {
-		return "", fmt.Errorf("disk cache already closed")
-	}
-
 	data, err := os.ReadFile(c.diskPath)
 	if err != nil {
 		return "", fmt.Errorf("failed to read from disk cache: %w", err)
@@ -197,7 +194,9 @@ func (c *CachedFileData) GetBase64Data() (string, error) {
 }
 
 func (c *CachedFileData) SetBase64Data(data string) {
-	if !c.isDisk {
+	c.diskMu.Lock()
+	defer c.diskMu.Unlock()
+	if !c.isDisk && !c.diskClosed {
 		c.base64Data = data
 	}
 }
@@ -207,19 +206,18 @@ func (c *CachedFileData) IsDisk() bool {
 }
 
 func (c *CachedFileData) Close() error {
+	// The mutex also protects in-memory content. Closing while a reader or
+	// another terminal cleanup is active cannot corrupt or race with reads.
+	c.diskMu.Lock()
+	defer c.diskMu.Unlock()
+	if c.diskClosed {
+		return nil
+	}
+	c.diskClosed = true
 	if !c.isDisk {
 		c.base64Data = ""
 		return nil
 	}
-
-	c.diskMu.Lock()
-	defer c.diskMu.Unlock()
-
-	if c.diskClosed {
-		return nil
-	}
-
-	c.diskClosed = true
 	if c.diskPath != "" {
 		err := os.Remove(c.diskPath)
 		if err == nil && !c.statDecremented && c.OnClose != nil {

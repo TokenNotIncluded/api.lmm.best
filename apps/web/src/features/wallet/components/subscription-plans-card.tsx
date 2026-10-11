@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { Crown, RefreshCw, Sparkles, Check } from 'lucide-react'
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
@@ -51,15 +51,11 @@ import {
 } from '@/features/subscriptions/api'
 import { SubscriptionPurchaseDialog } from '@/features/subscriptions/components/dialogs/subscription-purchase-dialog'
 import { usePublicPlans } from '@/features/subscriptions/hooks/use-public-plans'
+import { useSubscriptionCheckoutConfirmation } from '@/features/subscriptions/hooks/use-checkout-confirmation'
 import {
-  SUBSCRIPTION_CHECKOUT_POLL_INTERVAL_MS,
-  beginSubscriptionCheckoutConfirmation,
   formatDuration,
   formatResetPeriod,
   isPlanBalancePaymentAvailable,
-  shouldContinueSubscriptionCheckoutConfirmation,
-  subscriptionCheckoutFingerprint,
-  type PendingSubscriptionCheckout,
 } from '@/features/subscriptions/lib'
 import { formatPlanSourcePrice } from '@/features/subscriptions/lib/source-price'
 import type {
@@ -84,46 +80,6 @@ interface SubscriptionPlansCardProps {
   userId?: number
   userQuota?: number
   onPurchaseSuccess?: () => void | Promise<void>
-}
-
-function pendingCheckoutStorageKey(userId: number | undefined) {
-  return userId && userId > 0
-    ? `subscription-checkout-confirmation:${userId}`
-    : undefined
-}
-
-function clearPendingCheckoutStorage(storageKey: string | undefined) {
-  if (!storageKey || typeof window === 'undefined') return
-  try {
-    window.sessionStorage.removeItem(storageKey)
-  } catch {
-    // Browser storage is optional for checkout confirmation.
-  }
-}
-
-function readPendingCheckout(
-  userId: number | undefined
-): PendingSubscriptionCheckout | undefined {
-  const storageKey = pendingCheckoutStorageKey(userId)
-  if (!storageKey || typeof window === 'undefined') return undefined
-
-  try {
-    const stored = window.sessionStorage.getItem(storageKey)
-    if (!stored) return undefined
-    const pending = JSON.parse(stored) as Partial<PendingSubscriptionCheckout>
-    if (
-      typeof pending.baseline === 'string' &&
-      typeof pending.expiresAt === 'number' &&
-      pending.expiresAt > Date.now()
-    ) {
-      return { baseline: pending.baseline, expiresAt: pending.expiresAt }
-    }
-  } catch {
-    // A stale or malformed browser-only marker must never block checkout.
-  }
-
-  clearPendingCheckoutStorage(storageKey)
-  return undefined
 }
 
 function getBillingPreferenceLabel(
@@ -187,13 +143,6 @@ function ScopedSubscriptionPlansCard({
   const [selectedPlanId, setSelectedPlanId] = useState<number | null>(null)
   const selectedPlan =
     plans.find((record) => record.plan.id === selectedPlanId) ?? null
-  const [pendingCheckout, setPendingCheckout] = useState<
-    PendingSubscriptionCheckout | undefined
-  >(() => readPendingCheckout(userId))
-  const subscriptionFingerprintRef = useRef('')
-  const pendingCheckoutRef = useRef(pendingCheckout)
-  const pendingRefreshInFlightRef = useRef(false)
-
   // Plan checkout has its own product IDs. Fall back to the old top-up flags
   // for older Go servers, but do not require a global wallet product.
   const enableStripe =
@@ -210,9 +159,7 @@ function ScopedSubscriptionPlansCard({
     [topupInfo?.pay_methods]
   )
 
-  const fetchSelfSubscription = useCallback(async (): Promise<
-    string | undefined
-  > => {
+  const fetchSelfSubscription = useCallback(async () => {
     try {
       const res = await getSelfSubscriptionFull()
       if (isCurrent() && res.success && res.data) {
@@ -223,9 +170,6 @@ function ScopedSubscriptionPlansCard({
         setActiveSubscriptions(res.data.subscriptions || [])
         const subscriptions = res.data.all_subscriptions || []
         setAllSubscriptions(subscriptions)
-        const fingerprint = subscriptionCheckoutFingerprint(subscriptions)
-        subscriptionFingerprintRef.current = fingerprint
-        return fingerprint
       }
     } catch {
       // ignore
@@ -233,57 +177,11 @@ function ScopedSubscriptionPlansCard({
     return undefined
   }, [isCurrent])
 
-  const clearPendingCheckout = useCallback(() => {
-    if (!isCurrent()) return
-    clearPendingCheckoutStorage(pendingCheckoutStorageKey(userId))
-    pendingCheckoutRef.current = undefined
-    setPendingCheckout(undefined)
-  }, [isCurrent, userId])
-
-  const markCheckoutPending = useCallback(() => {
-    if (!isCurrent()) return
-    const next = beginSubscriptionCheckoutConfirmation(
-      subscriptionFingerprintRef.current
-    )
-    const storageKey = pendingCheckoutStorageKey(userId)
-    if (storageKey && typeof window !== 'undefined') {
-      try {
-        window.sessionStorage.setItem(storageKey, JSON.stringify(next))
-      } catch {
-        // Confirmation continues in memory when browser storage is disabled.
-      }
-    }
-    pendingCheckoutRef.current = next
-    setPendingCheckout(next)
-  }, [isCurrent, userId])
-
-  const refreshPendingCheckout = useCallback(async () => {
-    const pending = pendingCheckoutRef.current
-    if (!pending) return
-    if (
-      !shouldContinueSubscriptionCheckoutConfirmation(pending, pending.baseline)
-    ) {
-      clearPendingCheckout()
-      return
-    }
-    if (pendingRefreshInFlightRef.current) return
-
-    pendingRefreshInFlightRef.current = true
-    try {
-      const fingerprint = await fetchSelfSubscription()
-      if (!isCurrent()) return
-      const latest = pendingCheckoutRef.current
-      if (
-        latest &&
-        fingerprint !== undefined &&
-        !shouldContinueSubscriptionCheckoutConfirmation(latest, fingerprint)
-      ) {
-        clearPendingCheckout()
-      }
-    } finally {
-      pendingRefreshInFlightRef.current = false
-    }
-  }, [clearPendingCheckout, fetchSelfSubscription, isCurrent])
+  const { checkouts, start: markCheckoutPending, retry: retryCheckouts } =
+    useSubscriptionCheckoutConfirmation(userId, async () => {
+      await fetchSelfSubscription()
+      await onPurchaseSuccess?.()
+    })
 
   useEffect(() => {
     const init = async () => {
@@ -293,31 +191,10 @@ function ScopedSubscriptionPlansCard({
     void init()
   }, [fetchSelfSubscription, isCurrent])
 
-  useEffect(() => {
-    if (!pendingCheckout) return
-
-    const refreshWhenVisible = () => {
-      if (document.visibilityState === 'visible') {
-        void refreshPendingCheckout()
-      }
-    }
-    const interval = window.setInterval(
-      () => void refreshPendingCheckout(),
-      SUBSCRIPTION_CHECKOUT_POLL_INTERVAL_MS
-    )
-    window.addEventListener('focus', refreshWhenVisible)
-    document.addEventListener('visibilitychange', refreshWhenVisible)
-
-    return () => {
-      window.clearInterval(interval)
-      window.removeEventListener('focus', refreshWhenVisible)
-      document.removeEventListener('visibilitychange', refreshWhenVisible)
-    }
-  }, [pendingCheckout, refreshPendingCheckout])
-
   const handleRefresh = async () => {
     if (!isCurrent()) return
     setRefreshing(true)
+    retryCheckouts()
     try {
       await Promise.all([fetchPlans(), fetchSelfSubscription()])
     } finally {
@@ -349,7 +226,8 @@ function ScopedSubscriptionPlansCard({
 
   const hasActive = activeSubscriptions.length > 0
   const hasAny = allSubscriptions.length > 0
-  const isAvailable = loading || plansError || plans.length > 0 || hasAny
+  const isAvailable =
+    loading || plansError || plans.length > 0 || hasAny || checkouts.length > 0
   const disablePref = !hasActive
   const isSubPref =
     billingPreference === 'subscription_first' ||
@@ -412,7 +290,7 @@ function ScopedSubscriptionPlansCard({
     )
   }
 
-  if (plans.length === 0 && !hasAny && !plansError) {
+  if (plans.length === 0 && !hasAny && !plansError && checkouts.length === 0) {
     return null
   }
 
@@ -426,16 +304,31 @@ function ScopedSubscriptionPlansCard({
         disableHoverEffect
         contentClassName='space-y-4 sm:space-y-5'
       >
-        {pendingCheckout ? (
+        {checkouts.map((checkout) => (
           <div
+            key={checkout.tradeNo}
             role='status'
             aria-live='polite'
-            className='text-muted-foreground flex items-center gap-2 text-xs'
+            className='text-muted-foreground flex flex-wrap items-center gap-2 text-xs'
           >
-            <RefreshCw className='size-3.5 shrink-0 animate-spin' />
-            <span>{t('Confirming subscription payment…')}</span>
+            {checkout.state === 'pending' && <RefreshCw className='size-3.5 shrink-0 animate-spin' />}
+            <span className='break-all'>{checkout.tradeNo}</span>
+            <span>{checkout.state === 'confirmed'
+              ? t('Subscription purchased successfully')
+              : checkout.state === 'pending'
+                ? t('Confirming subscription payment…')
+                : checkout.state === 'cancelled'
+                  ? t('Cancelled')
+                  : checkout.state === 'failed'
+                    ? t('Failed')
+                    : t('Unknown')}</span>
+            {checkout.state !== 'pending' && checkout.state !== 'confirmed' && (
+              <Button variant='outline' size='sm' onClick={() => retryCheckouts(checkout.tradeNo)}>
+                {t('Refresh')}
+              </Button>
+            )}
           </div>
-        ) : null}
+        ))}
 
         {/* My subscriptions & billing preference */}
         <div className='rounded-none border p-3 sm:p-4'>

@@ -42,6 +42,7 @@ export async function listRatioNotifications(before = '') {
     .get<{ success: boolean; data: RatioEvent[]; next?: string }>(
       '/api/ratio-notifications',
       {
+        timeout: 10_000,
         params: before ? { before } : undefined,
         skipBusinessError: true,
         skipErrorHandler: true,

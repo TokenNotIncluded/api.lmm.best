@@ -473,6 +473,27 @@ func fulfillOrder(ctx context.Context, event stripe.Event, referenceId string, c
 		return nil
 	}
 
+	// A valid webhook signature proves who sent the payload, but we must
+	// also verify that the checkout belongs to this payment environment.
+	// Our wallet checkouts are created on the platform account itself; a
+	// Connect account event is not evidence of payment to this merchant.
+	if strings.TrimSpace(event.Account) != "" {
+		return fmt.Errorf("%w: unexpected Stripe connected account on wallet checkout", model.ErrPaymentEvidenceConflict)
+	}
+	apiKey := strings.TrimSpace(setting.StripeApiSecret)
+	switch {
+	case strings.HasPrefix(apiKey, "sk_test_"), strings.HasPrefix(apiKey, "rk_test_"):
+		if event.Livemode {
+			return fmt.Errorf("%w: live Stripe event for test-mode wallet checkout", model.ErrPaymentEvidenceConflict)
+		}
+	case strings.HasPrefix(apiKey, "sk_live_"), strings.HasPrefix(apiKey, "rk_live_"):
+		if !event.Livemode {
+			return fmt.Errorf("%w: test Stripe event for live-mode wallet checkout", model.ErrPaymentEvidenceConflict)
+		}
+	default:
+		return fmt.Errorf("%w: Stripe wallet checkout environment is unknown", model.ErrPaymentEvidenceConflict)
+	}
+
 	amountTotal, parseErr := strconv.ParseInt(event.GetObjectValue("amount_total"), 10, 64)
 	if parseErr != nil {
 		logger.LogError(ctx, fmt.Sprintf("Stripe 充值回调金额无效 trade_no=%s event_type=%s client_ip=%s error=%q", referenceId, string(event.Type), callerIp, parseErr.Error()))

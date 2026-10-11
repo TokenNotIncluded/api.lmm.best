@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAssistantDirectL1GrantFromFirstHTTPMessageWithoutConversationID(t *testing.T) {
+func TestAssistantDirectL1GrantAndMistakenReplyCannotActivateFromFirstHTTPMessage(t *testing.T) {
 	db := setupTokenControllerTestDB(t)
 	require.NoError(t, db.AutoMigrate(model.RegistrationGuardMigrationModels()...))
 	require.NoError(t, db.AutoMigrate(
@@ -38,9 +38,12 @@ func TestAssistantDirectL1GrantFromFirstHTTPMessageWithoutConversationID(t *test
 		risk := executeAssistantTool(c, assistantOpenAIToolCall{Function: assistantOpenAIToolCallFunction{Name: "get_registration_risk", Arguments: `{}`}})
 		require.Equal(t, true, risk["ok"], "%v", risk)
 		grant := executeAssistantTool(c, assistantOpenAIToolCall{Function: assistantOpenAIToolCallFunction{Name: "grant_l1_access", Arguments: `{"user_statement":"制作开源软件"}`}})
-		require.Equal(t, true, grant["ok"], "%v", grant)
-		require.Equal(t, "activated", grant["status"])
-		require.Positive(t, assistantHistoryConversationID(c))
+		require.Equal(t, false, grant["ok"], "%v", grant)
+		require.NotEmpty(t, grant["error"])
+		require.NotContains(t, grant, "access_level")
+		require.Zero(t, assistantHistoryConversationID(c), "denied grant must not create a conversation")
+		// An incorrect natural-language success claim is deliberately retained:
+		// persisting a model reply is not permission to activate the account.
 		writeAssistantHistoryResponse(c, http.StatusOK, []byte(`{"choices":[{"message":{"role":"assistant","content":"L1 is active."}}]}`))
 	})
 	request := httptest.NewRequest(http.MethodPost, "/api/assistant/chat", strings.NewReader(`{"message":"制作开源软件"}`))
@@ -52,12 +55,12 @@ func TestAssistantDirectL1GrantFromFirstHTTPMessageWithoutConversationID(t *test
 	assert.Contains(t, response.Body.String(), "L1 is active.")
 	var stored model.User
 	require.NoError(t, db.First(&stored, user.Id).Error)
-	assert.Positive(t, stored.ConsoleActivatedAt)
+	assert.Zero(t, stored.ConsoleActivatedAt)
 	var conversations, messages, grants int64
 	require.NoError(t, db.Model(&model.AssistantConversation{}).Where("user_id = ?", user.Id).Count(&conversations).Error)
 	require.NoError(t, db.Model(&model.AssistantHistoryMessage{}).Count(&messages).Error)
 	require.NoError(t, db.Model(&model.DeveloperAccessRequest{}).Where("user_id = ?", user.Id).Count(&grants).Error)
 	assert.EqualValues(t, 1, conversations)
 	assert.EqualValues(t, 2, messages)
-	assert.EqualValues(t, 1, grants)
+	assert.Zero(t, grants)
 }

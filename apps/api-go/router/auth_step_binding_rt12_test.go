@@ -12,6 +12,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -112,6 +113,7 @@ func rt12Setup(t *testing.T) *rt12Harness {
 func (h *rt12Harness) request(method, path, body, access string, cookies ...*http.Cookie) *httptest.ResponseRecorder {
 	req := httptest.NewRequest(method, path, strings.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-LMM-Credit-Unit", strconv.FormatInt(common.FixedCreditsPerUSD, 10))
 	req.Header.Set("Origin", "https://rt12.invalid")
 	if access != "" {
 		req.Header.Set("Authorization", "Bearer "+access)

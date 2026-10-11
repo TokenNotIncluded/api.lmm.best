@@ -43,6 +43,8 @@ export async function getSelf(
   config: Pick<ApiRequestConfig, 'disableDuplicate' | 'authScope'> = {}
 ) {
   const res = await api.get('/api/user/self', {
+    // A stalled read must release the account refresh lock so users can retry.
+    timeout: 10_000,
     ...config,
     skipErrorHandler: true,
   })
@@ -114,6 +116,7 @@ export async function getNotice(): Promise<{
   data?: string
 }> {
   const res = await api.get('/api/notice', {
+    timeout: 10_000,
     // Notices are optional decoration; an unavailable API should not toast.
     skipBusinessError: true,
     skipErrorHandler: true,

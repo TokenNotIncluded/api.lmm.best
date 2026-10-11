@@ -371,7 +371,7 @@ func (token *Token) Update() (err error) {
 	}
 	// 写库前失效缓存并设置 fence，防止并发读者把过期快照重新写回缓存。
 	if cacheErr := invalidateTokenCacheForMutation(token.Key); cacheErr != nil {
-		common.SysLog("failed to invalidate token cache before update: " + cacheErr.Error())
+		return fmt.Errorf("invalidate token cache before update: %w", cacheErr)
 	}
 	return DB.Model(token).Where("oauth_managed = ?", false).Select("name", "status", "expired_time", "remain_quota", "unlimited_quota",
 		"model_limits_enabled", "model_limits", "allow_ips", "group", "cross_group_retry", "auto_groups").Updates(token).Error
@@ -382,7 +382,7 @@ func (token *Token) SelectUpdate() (err error) {
 		return ErrAssistantRuntimeTokenManaged
 	}
 	if cacheErr := invalidateTokenCacheForMutation(token.Key); cacheErr != nil {
-		common.SysLog("failed to invalidate token cache before status update: " + cacheErr.Error())
+		return fmt.Errorf("invalidate token cache before status update: %w", cacheErr)
 	}
 	// This can update zero values
 	err = DB.Model(token).Where("oauth_managed = ?", false).Select("accessed_time", "status").Updates(token).Error
@@ -394,7 +394,7 @@ func (token *Token) Delete() (err error) {
 		return ErrAssistantRuntimeTokenManaged
 	}
 	if cacheErr := invalidateTokenCacheForMutation(token.Key); cacheErr != nil {
-		common.SysLog("failed to invalidate token cache before delete: " + cacheErr.Error())
+		return fmt.Errorf("invalidate token cache before delete: %w", cacheErr)
 	}
 	return DB.Where("oauth_managed = ?", false).Delete(token).Error
 }
@@ -535,7 +535,8 @@ func BatchDeleteTokens(ids []int, userId int) (int, error) {
 		}
 	}
 	if err := invalidateTokensCache(tokens); err != nil {
-		common.SysLog("failed to invalidate token cache before batch delete: " + err.Error())
+		tx.Rollback()
+		return 0, fmt.Errorf("invalidate token cache before batch delete: %w", err)
 	}
 
 	if err := tx.Where("user_id = ? AND id IN (?) AND oauth_managed = ?", userId, ids, false).Delete(&Token{}).Error; err != nil {

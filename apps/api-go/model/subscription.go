@@ -37,19 +37,6 @@ const (
 	SubscriptionResetCustom  = "custom"
 )
 
-// Waffo Pancake product types bound to subscription plans.
-const (
-	WaffoPancakeProductTypeOneTime      = "one_time"
-	WaffoPancakeProductTypeSubscription = "subscription"
-)
-
-func NormalizeWaffoPancakeProductType(value string) string {
-	if strings.EqualFold(strings.TrimSpace(value), WaffoPancakeProductTypeOneTime) {
-		return WaffoPancakeProductTypeOneTime
-	}
-	return WaffoPancakeProductTypeSubscription
-}
-
 var (
 	ErrSubscriptionOrderNotFound      = errors.New("subscription order not found")
 	ErrSubscriptionOrderStatusInvalid = errors.New("subscription order status invalid")
@@ -196,6 +183,9 @@ type SubscriptionPlan struct {
 	CreemProductId          string `json:"creem_product_id" gorm:"type:varchar(128);default:''"`
 	WaffoPancakeProductId   string `json:"waffo_pancake_product_id" gorm:"type:varchar(128);default:''"`
 	WaffoPancakeProductType string `json:"waffo_pancake_product_type" gorm:"type:varchar(16);not null;default:'subscription'"`
+
+	// nil preserves the historical single product; [] explicitly disables both.
+	WaffoPancakeProducts []WaffoPancakePlanProduct `json:"waffo_pancake_products" gorm:"serializer:json;type:text"`
 
 	// Max purchases per user (0 = unlimited)
 	MaxPurchasePerUser int `json:"max_purchase_per_user" gorm:"type:int;default:0"`

@@ -113,7 +113,7 @@ export function ConfigDrawer({
           <>
             <Settings2 className='size-4 shrink-0' aria-hidden='true' />
             <span className='truncate group-data-[collapsible=icon]:hidden'>
-              {t('Settings')}
+              {t('Appearance')}
             </span>
             <ChevronRight
               className='text-muted-foreground ms-auto size-3.5 group-data-[collapsible=icon]:hidden'

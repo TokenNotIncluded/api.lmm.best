@@ -34,13 +34,14 @@ export class AssistantStreamError extends Error {
     status: number,
     data: unknown,
     message: string,
-    retryable = isRetryableAssistantStatus(status)
+    retryable = false
   ) {
     super(message)
     this.name = 'AssistantStreamError'
     this.status = status
     this.response = { status, data }
-    this.retryable = retryable
+    // HTTP/SSE payloads are untrusted at runtime, despite their TS shape.
+    this.retryable = retryable === true
   }
 }
 
@@ -200,10 +201,7 @@ export async function consumeAssistantAISDKStream(
             status,
             payload,
             message,
-            !activitySeen &&
-              (typeof payload.retryable === 'boolean'
-                ? payload.retryable
-                : isRetryableAssistantStatus(status))
+            !activitySeen && payload.retryable === true
           )
         }
         if (event === 'done') {
@@ -253,13 +251,9 @@ export async function consumeAssistantAISDKStream(
           const { done, value } = await Promise.race([reader.read(), stopped])
           if (signal.aborted) throw assistantAbortReason(signal)
           if (done) {
-            buffer += normalizeLines(decoder.decode())
-            if (buffer) processLine(buffer)
-            dispatch()
-            if (!result) {
-              throw protocolError('Assistant stream ended before completion')
-            }
-            break
+            // Only an empty SSE line commits an event. EOF must not dispatch
+            // buffered done/error data or authorize replay of an unknown run.
+            throw protocolError('Assistant stream ended before completion')
           }
           // Heartbeats reset idle time, never the absolute request deadline.
           if (value.byteLength) resetIdle()

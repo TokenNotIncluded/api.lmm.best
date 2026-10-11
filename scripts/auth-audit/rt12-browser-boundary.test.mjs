@@ -3,7 +3,7 @@
 import assert from 'node:assert/strict'
 import { createHash } from 'node:crypto'
 import { readFileSync } from 'node:fs'
-import { createRequire } from 'node:module'
+import { createRequire, stripTypeScriptTypes } from 'node:module'
 import { test } from 'node:test'
 import { fileURLToPath } from 'node:url'
 import vm from 'node:vm'
@@ -14,7 +14,7 @@ import {
 } from '../../apps/web/src/features/auth/lib/oauth-callback-mode.ts'
 
 const require = createRequire(new URL('../../apps/web/package.json', import.meta.url))
-const ts = require('typescript')
+const { parse } = require('@babel/parser')
 const files = {
   component: '../../apps/web/src/features/profile/components/tabs/account-bindings-tab.tsx',
   constants: '../../apps/web/src/features/auth/constants.ts',
@@ -25,9 +25,9 @@ function readSource(relative) {
   const bytes = readFileSync(file)
   const blob = createHash('sha1').update(`blob ${bytes.length}\0`).update(bytes).digest('hex')
   console.log(`# source ${relative}: git-blob=${blob}`)
-  const source = ts.createSourceFile(file, bytes.toString('utf8'), ts.ScriptTarget.Latest, true)
-  assert.equal(source.parseDiagnostics.length, 0, `Source parse failed: ${file}`)
-  return source
+  const text = bytes.toString('utf8')
+  const ast = parse(text, { sourceType: 'module', plugins: ['typescript', 'jsx'] })
+  return { ast, text }
 }
 const component = readSource(files.component)
 const constants = readSource(files.constants)
@@ -35,33 +35,36 @@ readSource(files.mode)
 function declaration(source, name) {
   const matches = []
   function visit(node) {
-    if (ts.isVariableDeclaration(node) && node.name.getText(source) === name) matches.push(node)
-    ts.forEachChild(node, visit)
+    if (!node || typeof node !== 'object') return
+    if (node.type === 'VariableDeclarator' && node.id.type === 'Identifier' && node.id.name === name) matches.push(node)
+    for (const value of Object.values(node)) {
+      if (Array.isArray(value)) value.forEach(visit)
+      else if (value && typeof value === 'object') visit(value)
+    }
   }
-  visit(source)
+  visit(source.ast)
   assert.equal(matches.length, 1, `Expected exactly one production declaration: ${name}`)
-  assert.ok(matches[0].initializer, `Missing initializer: ${name}`)
-  return matches[0].initializer
+  assert.ok(matches[0].init, `Missing initializer: ${name}`)
+  return matches[0].init
 }
 function constant(name) {
   const node = declaration(constants, name)
-  assert.ok(ts.isStringLiteral(node), `${name} is no longer a string literal; review the harness`)
-  return node.text
+  assert.equal(node.type, 'StringLiteral', `${name} is no longer a string literal; review the harness`)
+  return node.value
 }
 const callbackType = constant('OAUTH_BIND_CALLBACK_MESSAGE')
 const resultType = constant('OAUTH_BIND_RESULT_MESSAGE')
 const clearCall = declaration(component, 'clearPendingOAuthBinding')
-assert.ok(ts.isCallExpression(clearCall) && clearCall.expression.getText(component) === 'useCallback')
-assert.ok(ts.isArrowFunction(clearCall.arguments[0]))
+assert.ok(clearCall.type === 'CallExpression' && clearCall.callee.type === 'Identifier' && clearCall.callee.name === 'useCallback')
+assert.equal(clearCall.arguments[0].type, 'ArrowFunctionExpression')
 const handler = declaration(component, 'handleMessage')
-assert.ok(ts.isArrowFunction(handler))
+assert.equal(handler.type, 'ArrowFunctionExpression')
 // Extract unchanged production function bodies. Fail on structure drift; never
 // substitute a copied predicate, a synthetic backend, or an automatic pass.
-const compiled = ts.transpileModule(`
-const clearPendingOAuthBinding = ${clearCall.arguments[0].getText(component)};
-globalThis.handle = ${handler.getText(component)};
-`, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.None }, reportDiagnostics: true })
-assert.equal((compiled.diagnostics ?? []).filter(d => d.category === ts.DiagnosticCategory.Error).length, 0)
+const compiled = stripTypeScriptTypes(`
+const clearPendingOAuthBinding = ${component.text.slice(clearCall.arguments[0].start, clearCall.arguments[0].end)};
+globalThis.handle = ${component.text.slice(handler.start, handler.end)};
+`)
 
 function memoryStorage() {
   const values = new Map()
@@ -84,7 +87,7 @@ function fixture(reply = async () => ({ data: { success: false, message: 'local 
     onUpdate: () => effects.refreshes++,
     fetchCustomBindings: async () => { effects.reloads++ },
   })
-  vm.runInContext(compiled.outputText, context, { timeout: 1000 })
+  vm.runInContext(compiled, context, { timeout: 1000 })
   const event = { origin: 'https://rt12.invalid', source: popup, data: { type: callbackType, provider: pending.provider, state: pending.state, code: 'local-code' } }
   return { handle: context.handle, ref, pending, effects, event }
 }

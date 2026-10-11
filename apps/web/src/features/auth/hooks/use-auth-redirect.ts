@@ -54,8 +54,14 @@ export function useAuthRedirect() {
       window.location.origin
     )
     const targetPath =
-      requestedPath ?? getAuthenticatedLandingRoute(bundle.user)
-    navigate({ href: targetPath, replace: true })
+      requestedPath ??
+      sanitizeAuthRedirect(
+        getAuthenticatedLandingRoute(bundle.user),
+        window.location.origin
+      ) ??
+      '/'
+    // Preserve the complete checked href and wait for navigation to finish.
+    await navigate({ href: targetPath, replace: true })
   }
 
   /**

@@ -49,7 +49,7 @@ func subscriptionConfiguredPaymentMethods(plan *model.SubscriptionPlan) []string
 
 	merchantID, privateKey := service.WaffoPancakeCredentials()
 	appendConfigured(model.PaymentMethodWaffoPancake,
-		strings.TrimSpace(plan.WaffoPancakeProductId) != "" &&
+		len(model.EnabledWaffoPancakeProducts(plan.WaffoPancakeBindings())) > 0 &&
 			strings.TrimSpace(merchantID) != "" && strings.TrimSpace(privateKey) != "")
 
 	// Generic ePay methods are global and need no product ID on the plan because

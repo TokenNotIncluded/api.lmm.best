@@ -47,10 +47,16 @@ export function sanitizeAuthRedirect(
   value: unknown,
   origin: string
 ): string | null {
-  if (typeof value !== 'string') return null
+  if (typeof value !== 'string' || value.includes('\\')) return null
+
+  // Check before trim/URL parsing, which can silently remove control characters.
+  for (const character of value) {
+    const code = character.charCodeAt(0)
+    if (code <= 0x1f || code === 0x7f) return null
+  }
 
   const target = value.trim()
-  if (!target || target.includes('\\') || target.startsWith('//')) return null
+  if (!target || target.startsWith('//')) return null
 
   let trustedOrigin: URL
   try {
@@ -76,7 +82,18 @@ export function sanitizeAuthRedirect(
     return null
   }
 
-  return `${redirectURL.pathname}${redirectURL.search}${redirectURL.hash}`
+  const path = `${redirectURL.pathname}${redirectURL.search}${redirectURL.hash}`
+  // Callers navigate with this serialized href, not with redirectURL. Validate
+  // that final value after normalization, without decoding query/fragment data.
+  if (!path.startsWith('/') || path.startsWith('//')) return null
+
+  try {
+    return new URL(path, trustedOrigin.origin).origin === trustedOrigin.origin
+      ? path
+      : null
+  } catch {
+    return null
+  }
 }
 
 // Keep the complete local destination. Explicit reauthentication displays the

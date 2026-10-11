@@ -20,7 +20,11 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { SectionPageLayout } from '@/components/layout'
+import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { AccountStatus } from '@/features/onboarding/account-status'
+import { isConsoleActivated } from '@/lib/console-activation'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { ApiBaseUrl } from './components/api-base-url'
 import { ApiKeysDialogs } from './components/api-keys-dialogs'
@@ -32,7 +36,24 @@ import type { ApiKeyCreationMode } from './types'
 
 export function ApiKeys() {
   const { t } = useTranslation()
+  const user = useAuthStore((state) => state.auth.user)
   const [creationMode, setCreationMode] = useState<ApiKeyCreationMode>('manual')
+  // Keep this explanation reachable without mounting key queries or actions.
+  // A balance, role or local onboarding flag must not grant API access.
+  if (!isConsoleActivated(user)) {
+    return (
+      <SectionPageLayout>
+        <SectionPageLayout.Title>{t('API Keys')}</SectionPageLayout.Title>
+        <SectionPageLayout.Content>
+          <AccountStatus showRequestDetails />
+          <Button variant='outline' render={<a href='/wallet' />}>
+            {t('Wallet')}
+          </Button>
+        </SectionPageLayout.Content>
+      </SectionPageLayout>
+    )
+  }
+
   return (
     <ApiKeysProvider>
       <SectionPageLayout>

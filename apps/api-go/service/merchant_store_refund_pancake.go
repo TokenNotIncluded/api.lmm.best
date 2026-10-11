@@ -121,9 +121,9 @@ func VerifyMerchantStorePancakeRefundNotification(order *model.MerchantStoreOrde
 	return result, nil
 }
 
-// Every selected field is present in the pinned v0.11.0 official GraphQL guide:
-// the ticket provides PAY -> original ORD linkage and requested amount; the
-// execution provides its own stable ID and actual PSP refunded amount.
+// The pinned v0.11.0 GraphQL guide supplies ticket/PAY/ORD linkage and native
+// execution amounts. The official Orders & Payments contract also supplies
+// execution paymentId; a matching ticket alone does not prove that linkage.
 const merchantStorePancakeRefundExecutionQuery = `query ($ref: String!) {
     refundTickets(limit: 2, filter: { refundTicketMerchantExternalId: { eq: $ref } }) {
         id status refundTicketMerchantExternalId
@@ -132,7 +132,7 @@ const merchantStorePancakeRefundExecutionQuery = `query ($ref: String!) {
     }
     refundTicketsCount(filter: { refundTicketMerchantExternalId: { eq: $ref } })
     refunds(limit: 2, filter: { refundTicketMerchantExternalId: { eq: $ref } }) {
-        id status orderMerchantExternalId refundTicketMerchantExternalId
+        id paymentId status orderMerchantExternalId refundTicketMerchantExternalId
         pspAmountDetails { amount currency }
     }
     refundsCount(filter: { refundTicketMerchantExternalId: { eq: $ref } })
@@ -239,6 +239,12 @@ func merchantStorePancakeRefundExecutionResult(order *model.MerchantStoreOrder, 
 		return result, nil
 	}
 	execution := data.Refunds[0]
+	// The execution must identify the original payment independently of the
+	// ticket. Both success and failure evidence can change local accounting.
+	if execution.PaymentID == "" || execution.PaymentID != request.Payment.PaymentReference {
+		result.Code = "provider_payment_mismatch"
+		return result, ErrMerchantStoreRefundProvider
+	}
 	minor, err = merchantStoreMoneyToMinor(execution.PSPAmountDetails.Amount)
 	zeroFailed := execution.Status == "failed" && merchantStoreMoneyPattern.MatchString(execution.PSPAmountDetails.Amount) && strings.Trim(execution.PSPAmountDetails.Amount, "0.") == ""
 	if (!zeroFailed && (err != nil || minor != request.AmountMinor)) || execution.PSPAmountDetails.Currency != request.Currency || !merchantStoreProviderIDPattern.MatchString(execution.ID) || execution.OrderMerchantExternalID != order.TradeNo || execution.RefundTicketMerchantExternalID != request.RefundID {

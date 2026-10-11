@@ -87,6 +87,16 @@ type ModelRates struct {
 	Fast      *TierRates `json:"fast,omitempty"`
 	Ultrafast *TierRates `json:"ultrafast,omitempty"`
 }
+
+// Catalog validation permits each tier to publish long prices independently.
+// If any tier has a long tariff, a missing long price in the selected tier is
+// unavailable. Models with no long tariffs retain their flat-price behavior.
+func (m ModelRates) hasLongContextPrices() bool {
+	return m.Standard.Long != nil ||
+		m.Fast != nil && m.Fast.Long != nil ||
+		m.Ultrafast != nil && m.Ultrafast.Long != nil
+}
+
 type Catalog struct {
 	Source            string                `json:"source"`
 	SHA256            string                `json:"sha256"`
@@ -282,7 +292,7 @@ func (q *Quote) rates(input int) (Rates, error) {
 	if tr == nil {
 		return Rates{}, errors.New("provider returned an unpriced service tier")
 	}
-	if input > q.ContextLimit && q.Prices.Standard.Long != nil {
+	if input > q.ContextLimit && q.Prices.hasLongContextPrices() {
 		if tr.Long == nil {
 			return Rates{}, errors.New("long-context service-tier price is unavailable")
 		}
@@ -324,6 +334,9 @@ func (q *Quote) CostUSD(u Usage) (*big.Rat, error) {
 	return total.Quo(total, big.NewRat(1_000_000, 1)), nil
 }
 func (q *Quote) ReserveUSD(input int) (*big.Rat, error) {
+	if input < 0 {
+		return nil, errors.New("invalid service-tier reservation input")
+	}
 	r, err := q.rates(input)
 	if err != nil {
 		return nil, err
@@ -333,11 +346,13 @@ func (q *Quote) ReserveUSD(input int) (*big.Rat, error) {
 	if r.CacheWrite != nil {
 		rate = math.Max(rate, *r.CacheWrite)
 	}
-	if r.CachedInput != nil {
-		rate += *r.CachedInput
-	}
 	total := new(big.Rat)
-	addTokens(total, max(input, 0), rate)
+	addTokens(total, input, rate)
+	// Add exact decimal amounts, not float prices: even individually finite
+	// prices can overflow or gain a fraction when added as float64 values.
+	if r.CachedInput != nil {
+		addTokens(total, input, *r.CachedInput)
+	}
 	addTokens(total, q.OutputLimit, r.Output)
 	total.Mul(total, rat(q.SalesMultiplier))
 	return total.Quo(total, big.NewRat(1_000_000, 1)), nil
