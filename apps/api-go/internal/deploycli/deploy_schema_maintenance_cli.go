@@ -115,6 +115,9 @@ func runProductionSchemaMaintenance(args []string, stdout, stderr io.Writer) int
 		if err := runtime.writeSchemaMaintenanceRawNewFile(filepath.Join(controller.origin.Workspace, "state", "daemon-binding.json"), append(raw, '\n')); err != nil {
 			return fail(errors.New("schema daemon generation already exists; reconcile original process without replacing it"))
 		}
+		if err := runtime.writeSchemaMaintenanceGuardianAdopted(controller.host, binding); err != nil {
+			return fail(err)
+		}
 		// All mutations execute in this same holder process; an RPC error returns to
 		// the caller while this daemon retains its PG session and adopted locks.
 		if err := serveSchemaMaintenanceRPC(ctx, controller.origin.Workspace, binding, controller.handle); err != nil {
