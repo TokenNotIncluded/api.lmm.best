@@ -12,11 +12,67 @@ import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCKER = ROOT / "deployment/docker"
+SECRET_NAMES = ("database-password", "database-url", "rpc-token", "extension-token")
+PREPARE_SECRETS = """
+for path in "$@"; do
+    test -f "$path"
+    test ! -L "$path"
+    chown 65532:65532 "$path"
+    chmod 0400 "$path"
+done
+"""
+VERIFY_SECRETS = """
+test "$(id -u):$(id -g)" = 65532:65532
+for path in "$@"; do
+    test -f "$path"
+    test ! -L "$path"
+    test "$(stat -c '%u:%g:%a' "$path")" = 65532:65532:400
+    test -r "$path"
+    cat "$path" > /dev/null
+done
+"""
+ROTATE_SECRET = VERIFY_SECRETS + """
+test "$#" = 1
+trap 'chmod 0400 "$1"' EXIT
+trap 'exit 1' HUP INT TERM
+chmod 0600 "$1"
+cat > "$1"
+chmod 0400 "$1"
+""" + VERIFY_SECRETS
 
 
 def run(*args, data=None, env=None):
     return subprocess.run(args, cwd=ROOT, input=data, text=True,
                           stdout=subprocess.PIPE, check=True, env=env).stdout.strip()
+
+
+def write_fixture_secrets(temp, values):
+    for name in SECRET_NAMES:
+        # Private from creation, including while the synthetic value is written.
+        fd = os.open(temp / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        with os.fdopen(fd, "w") as file:
+            file.write(values[name])
+
+
+def fixture_secrets(image, temp, names, script, *, data=None, prepare=False):
+    # Mount only these disposable files, never their parent or any host secrets.
+    # Compose file secrets retain bind-source ownership/mode, so uid/mode fields
+    # in Compose alone cannot make host-owned files private and container-readable.
+    args = ["docker", "run", "--rm", "-i", "--network", "none", "--read-only",
+            "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true"]
+    if prepare:
+        args.extend(["--user", "0:0", "--cap-add", "CHOWN", "--cap-add", "FOWNER"])
+    paths = []
+    for name in names:
+        assert name in SECRET_NAMES
+        path = "/fixture-" + name
+        mount = f"type=bind,source={temp / name},target={path}"
+        if not prepare and data is None:
+            mount += ",readonly"
+        args.extend(["--mount", mount])
+        paths.append(path)
+    return run(*args, "--entrypoint", "/bin/sh", image, "-ec", script,
+               "fixture-secrets", *paths, data=data)
 
 
 def request(url, token=None, method="GET", body=None, user=None):
@@ -44,10 +100,7 @@ def main():
         values = {"database-password": password,
                   "database-url": f"postgres://lmm_core:{password}@core-db:5432/lmm_core",
                   "rpc-token": rpc_token, "extension-token": ext_token}
-        for name, value in values.items():
-            path = temp / name
-            path.write_text(value)
-            path.chmod(0o444)  # Readable by container UID; parent directory is 0700.
+        write_fixture_secrets(temp, values)
         env = dict(os.environ,
                    LMM_CORE_DATABASE_URL_SECRET_FILE=str(temp / "database-url"),
                    LMM_CORE_DATABASE_PASSWORD_SECRET_FILE=str(temp / "database-password"),
@@ -113,14 +166,20 @@ def main():
             return data["Id"], data["State"]["StartedAt"], data["RestartCount"]
 
         def rewrite_rpc_token(value):
-            path = temp / "rpc-token"
-            path.chmod(0o600)
-            path.write_text(value)
-            path.chmod(0o444)
+            # Rewrite the same inode: running Compose secret bind mounts must
+            # observe the value, and it must stay private during both rotations.
+            fixture_secrets(core["services"]["core"]["image"], temp, ("rpc-token",),
+                            ROTATE_SECRET, data=value)
 
         try:
             compose("core", "build", "core")
+            image = core["services"]["core"]["image"]
+            fixture_secrets(image, temp, SECRET_NAMES, PREPARE_SECRETS, prepare=True)
+            fixture_secrets(image, temp, SECRET_NAMES, VERIFY_SECRETS)
             compose("core", "up", "-d", "--wait", "core-db")
+            compose("core", "run", "--rm", "-T", "--no-deps", "--entrypoint", "/bin/sh",
+                    "core-init", "-ec", VERIFY_SECRETS, "fixture-secrets",
+                    "/run/secrets/core_database_url")
             compose("core", "run", "--rm", "-T", "core-init", "init-db")
             try:
                 compose("core", "run", "--rm", "-T", "core-init", "init-db")
