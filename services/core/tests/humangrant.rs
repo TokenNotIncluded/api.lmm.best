@@ -128,7 +128,7 @@ async fn browser(
     call(app,method,path,body.to_string().as_bytes(),&h).await
 }
 
-#[sqlx::test(migrations=false)]
+#[sqlx::test(migrations = false)]
 async fn signed_human_consent_claim_replay_expiry_disable_and_revoke(pool: PgPool) {
     let store = IdentityStore::from_pool(pool.clone()).with_registration_enabled(true);
     store.init_database().await.unwrap();
