@@ -390,7 +390,9 @@ impl IdentityStore {
         tx.commit().await?;
         Ok(IssuedCredential { id, secret })
     }
-    pub(crate) fn pool(&self) -> PgPool { self.pool.clone() }
+    pub(crate) fn pool(&self) -> PgPool {
+        self.pool.clone()
+    }
     pub async fn authorize(&self, secret: &str) -> Result<Principal> {
         let mut tx = self.pool.begin().await?;
         sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
