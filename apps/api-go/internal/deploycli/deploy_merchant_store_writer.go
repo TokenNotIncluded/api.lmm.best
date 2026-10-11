@@ -362,6 +362,13 @@ ROLLBACK;`
 }
 
 func verifyMerchantStoreWriterIdentity(output []byte, expected *productionMerchantStoreWriterContract) error {
+	return verifyMerchantStoreWriterIdentityAccessMode(output, expected, "on")
+}
+
+func verifyMerchantStoreWriterIdentityAccessMode(output []byte, expected *productionMerchantStoreWriterContract, expectedReadOnly string) error {
+	if expectedReadOnly != "on" && expectedReadOnly != "off" || expected == nil {
+		return errors.New("merchant writer identity access mode is invalid")
+	}
 	var actual struct {
 		SystemIdentifier    string `json:"system_identifier"`
 		Database            string `json:"database"`
@@ -378,7 +385,7 @@ func verifyMerchantStoreWriterIdentity(output []byte, expected *productionMercha
 	if len(output) == 0 || len(output) > 4096 || decoder.Decode(&actual) != nil || decoder.Decode(&struct{}{}) != io.EOF ||
 		actual.SystemIdentifier != expected.SystemIdentifier || actual.Database != expected.Database || actual.DatabaseOID != expected.DatabaseOID ||
 		actual.Schema != expected.Schema || actual.SchemaOID != expected.SchemaOID || actual.Role != expected.Role || actual.SessionRole != expected.Role ||
-		actual.TransactionReadOnly != "on" || actual.Floor != strconv.Itoa(expected.RequiredCapability) {
+		actual.TransactionReadOnly != expectedReadOnly || actual.Floor != strconv.Itoa(expected.RequiredCapability) {
 		return errors.New("merchant writer physical database, business role, schema or active floor differs from its sealed qualification")
 	}
 	return nil

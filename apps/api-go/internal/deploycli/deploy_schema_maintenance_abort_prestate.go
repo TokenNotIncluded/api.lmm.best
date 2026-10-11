@@ -27,9 +27,18 @@ func (runtime *productionRuntime) checkSchemaMaintenanceAbortQuiescedPreState(ct
 }
 
 func (runtime *productionRuntime) schemaMaintenanceAbortPreState(ctx context.Context, plan productionSchemaMaintenancePlan, preSHA string, old productionMerchantStoreCapsule, oldSHA string, quiesced bool) error {
+	lease, err := runtime.openSchemaMaintenanceOldFence(ctx, plan, preSHA, old, oldSHA)
+	if err != nil {
+		return err
+	}
+	defer lease.Close()
+	return lease.schemaMaintenanceAbortPreState(ctx, plan.PreSchema, quiesced)
+}
+
+func (runtime *productionRuntime) openSchemaMaintenanceOldFence(ctx context.Context, plan productionSchemaMaintenancePlan, preSHA string, old productionMerchantStoreCapsule, oldSHA string) (*productionMerchantStoreFence, error) {
 	raw, err := canonicalProductionSchemaMaintenancePlan(plan, runtime.paths)
 	if err != nil || startupContentSHA256(raw) != preSHA || old.Format != 1 || old.StartupPolicy != "per-start" || old.ExistingSchemaContract == nil || old.Writer == nil {
-		return errors.New("schema abort lacks its exact pre-migration authority")
+		return nil, errors.New("schema abort lacks its exact pre-migration authority")
 	}
 	found := false
 	for _, origin := range plan.Origins {
@@ -40,38 +49,33 @@ func (runtime *productionRuntime) schemaMaintenanceAbortPreState(ctx context.Con
 	expected := *old.ExistingSchemaContract
 	expected.StartupSHA256, expected.SignedUnitSHA256 = "", ""
 	if !found || expected != plan.PreSchema || old.Writer.RequiredCapability > 7 || old.Writer.Role != plan.Role {
-		return errors.New("schema abort changed its retained provider or original catalog")
+		return nil, errors.New("schema abort changed its retained provider or original catalog")
 	}
 	loaded, err := runtime.loadMerchantStoreCapsule(filepath.Join(old.Root, "capsule.json"), oldSHA)
 	if err != nil {
-		return errors.New("schema abort original capsule is unavailable")
+		return nil, errors.New("schema abort original capsule is unavailable")
 	}
 	want, wantErr := canonicalMerchantStoreCapsule(old)
 	got, gotErr := canonicalMerchantStoreCapsule(loaded)
 	if wantErr != nil || gotErr != nil || !bytes.Equal(want, got) {
-		return errors.New("schema abort original capsule changed")
+		return nil, errors.New("schema abort original capsule changed")
 	}
 	child, err := runtime.merchantStoreCapsuleEnvironment(ctx, old, oldSHA, "")
 	if err != nil {
-		return err
+		return nil, err
 	}
 	values := map[string]string{}
 	for _, assignment := range child {
 		key, value, valid := strings.Cut(assignment, "=")
 		if !valid {
-			return errors.New("schema abort original environment is malformed")
+			return nil, errors.New("schema abort original environment is malformed")
 		}
 		if _, duplicate := values[key]; duplicate {
-			return errors.New("schema abort original environment is duplicated")
+			return nil, errors.New("schema abort original environment is duplicated")
 		}
 		values[key] = value
 	}
-	lease, err := openMerchantStoreDeploymentFence(ctx, values, old.Writer, false)
-	if err != nil {
-		return err
-	}
-	defer lease.Close()
-	return lease.schemaMaintenanceAbortPreState(ctx, plan.PreSchema, quiesced)
+	return openMerchantStoreDeploymentFence(ctx, values, old.Writer, false)
 }
 
 func (lease *productionMerchantStoreFence) checkSchemaMaintenanceAbortPreState(ctx context.Context, expected productionExistingSchemaContract) error {
