@@ -84,6 +84,7 @@ struct AuthState {
 pub fn router(store: IdentityStore, config: LegacyAuthConfig) -> Router {
     let browser = BrowserAuth::new(store.clone(), &config.refresh_key)
         .expect("validated private refresh key");
+    let hg = crate::humangrant::router(store.pool(), store.clone(), browser.clone(), config.origin.clone());
     let state = AuthState {
         browser,
         store,
@@ -102,6 +103,7 @@ pub fn router(store: IdentityStore, config: LegacyAuthConfig) -> Router {
         .layer(DefaultBodyLimit::max(16 * 1024))
         .layer(middleware::from_fn_with_state(state.clone(), security))
         .with_state(state)
+        .merge(hg)
 }
 async fn security(State(state): State<AuthState>, request: Request, next: Next) -> Response {
     let unsafe_method = !matches!(
