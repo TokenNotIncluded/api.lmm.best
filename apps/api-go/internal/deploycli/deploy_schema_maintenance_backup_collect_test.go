@@ -399,7 +399,7 @@ func TestSchemaMaintenanceBackupCollectActualReadOnlyPGDumpAgeStream(t *testing.
 	cipher := newSchemaMaintenanceBackupHashWriter(file)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	readOnlyEnvironment := append(append([]string(nil), environment...), "PGOPTIONS=-c default_transaction_read_only=on -c search_path=fixture")
+	readOnlyEnvironment := append(append([]string(nil), environment...), "PGOPTIONS=-c search_path=fixture -c default_transaction_read_only=on")
 	sha, size, err := (osProductionCommandRunner{}).StreamSchemaMaintenanceBackup(ctx, "postgresql:///postgres", readOnlyEnvironment, "fixture", recipient, cipher)
 	closeErr := file.Close()
 	if err != nil || closeErr != nil || size <= 0 || cipher.bytes <= size {
@@ -419,5 +419,31 @@ func TestSchemaMaintenanceBackupCollectActualReadOnlyPGDumpAgeStream(t *testing.
 	}
 	if string(run("psql", "-X", "-q", "-A", "-t", "-v", "ON_ERROR_STOP=1", "--dbname=schema_collect_restore", "-c", "SELECT count(*),sum(amount),bool_and(payload IS NOT NULL) FROM fixture.ledger")) != "2|3.75|t\n" {
 		t.Fatal("restored synthetic rows changed")
+	}
+}
+
+func TestSchemaMaintenanceBackupCollectDumpEnvironmentKeepsOnlySealedReadOnlyPG(t *testing.T) {
+	inspected := []string{"SQL_DSN=postgres://fixture:secret@localhost/fixture", "SESSION_SECRET=secret", "LD_PRELOAD=/unsafe/library", "PATH=/unsafe/bin", "LANG=unsafe", "PGOPTIONS=-c search_path=fixture -c default_transaction_read_only=on", "PGPASSWORD=fixture-password", "PGSSLROOTCERT=/sealed/root.crt", "PGPASSFILE=/unsafe/pgpass", "PGSERVICEFILE=/unsafe/service"}
+	child, err := schemaMaintenanceBackupDumpEnvironment(inspected, "fixture")
+	if err != nil {
+		t.Fatal(err)
+	}
+	actual := map[string]string{}
+	for _, entry := range child {
+		key, value, _ := strings.Cut(entry, "=")
+		actual[key] = value
+	}
+	if actual["PGPASSWORD"] != "fixture-password" || actual["PGSSLROOTCERT"] != "/sealed/root.crt" || actual["PATH"] != "/usr/bin:/bin" || actual["LANG"] != "C" || actual["PGPASSFILE"] != "/dev/null" || actual["PGSERVICEFILE"] != "/dev/null" {
+		t.Fatal("sealed PG authority or fixed child controls lost")
+	}
+	for _, key := range []string{"SQL_DSN", "SESSION_SECRET", "LD_PRELOAD"} {
+		if _, exists := actual[key]; exists {
+			t.Fatal("application or ambient authority leaked to dump")
+		}
+	}
+	for _, bad := range [][]string{nil, {"PGOPTIONS=-c search_path=fixture -c default_transaction_read_only=off"}, {"PGOPTIONS=-c search_path=fixture -c default_transaction_read_only=on", "PGOPTIONS="}} {
+		if _, err := schemaMaintenanceBackupDumpEnvironment(bad, "fixture"); err == nil {
+			t.Fatal("missing, writable or duplicate read-only projection accepted")
+		}
 	}
 }

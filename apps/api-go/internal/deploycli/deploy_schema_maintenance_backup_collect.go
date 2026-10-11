@@ -34,6 +34,10 @@ func (osProductionCommandRunner) StreamSchemaMaintenanceBackup(parent context.Co
 	if !isDatabaseSchema(schema) || !schemaMaintenanceBackupRecipient(recipient) || cipher == nil {
 		return "", 0, errors.New("schema backup streaming authority is invalid")
 	}
+	child, err := schemaMaintenanceBackupDumpEnvironment(environment, schema)
+	if err != nil {
+		return "", 0, err
+	}
 	for _, executable := range []string{commandPGDump, commandAge} {
 		info, err := os.Lstat(executable)
 		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0022 != 0 || info.Mode().Perm()&0100 == 0 {
@@ -47,7 +51,7 @@ func (osProductionCommandRunner) StreamSchemaMaintenanceBackup(parent context.Co
 	ctx, cancel := context.WithTimeout(parent, 10*time.Minute)
 	defer cancel()
 	dump := exec.CommandContext(ctx, commandPGDump, "--format=custom", "--no-password", "--schema="+schema, "--dbname="+databaseURL)
-	dump.Env = append([]string(nil), environment...)
+	dump.Env = child
 	age := exec.CommandContext(ctx, commandAge, "--encrypt", "--recipient", recipient)
 	age.Env = []string{"PATH=/usr/bin:/bin", "LANG=C", "LC_ALL=C"}
 	return runSchemaMaintenanceBackupPipe(ctx, dump, age, cipher)
@@ -227,6 +231,10 @@ func (c *productionSchemaMaintenanceController) collectBackup(ctx context.Contex
 		values[key] = value
 	}
 	databaseURL, environment, err := productionSealedDatabaseCommand(values)
+	if err != nil {
+		return fail()
+	}
+	environment, err = schemaMaintenanceBackupDumpEnvironment(environment, c.plan.PreSchema.Schema)
 	if err != nil {
 		return fail()
 	}
@@ -423,4 +431,30 @@ func schemaMaintenanceBackupSyncDirectory(path string) error {
 		return err
 	}
 	return errors.Join(dir.Sync(), dir.Close())
+}
+
+// pg_dump receives only the sealed PostgreSQL connection/TLS projection. App
+// secrets, loader variables and root shell settings have no purpose here.
+func schemaMaintenanceBackupDumpEnvironment(inspected []string, schema string) ([]string, error) {
+	values := map[string]string{}
+	for _, entry := range inspected {
+		key, value, ok := strings.Cut(entry, "=")
+		if !ok || !productionEnvironmentKeyPattern.MatchString(key) || strings.ContainsRune(value, '\x00') {
+			return nil, errors.New("schema backup inspected PostgreSQL environment is malformed")
+		}
+		if _, exists := values[key]; exists {
+			return nil, errors.New("schema backup inspected PostgreSQL environment is duplicated")
+		}
+		values[key] = value
+	}
+	if !isDatabaseSchema(schema) || values["PGOPTIONS"] != "-c search_path="+schema+" -c default_transaction_read_only=on" {
+		return nil, errors.New("schema backup requires the exact sealed read-only PostgreSQL options")
+	}
+	child := []string{"PATH=/usr/bin:/bin", "LANG=C", "LC_ALL=C", "PGPASSFILE=/dev/null", "PGSERVICEFILE=/dev/null"}
+	for _, key := range []string{"PGOPTIONS", "PGHOST", "PGHOSTADDR", "PGPORT", "PGDATABASE", "PGUSER", "PGPASSWORD", "PGSSLMODE", "PGSSLCERT", "PGSSLKEY", "PGSSLROOTCERT", "PGSSLCRL", "PGSSLCRLDIR", "PGSSLNEGOTIATION", "PGCHANNELBINDING", "PGTARGETSESSIONATTRS", "PGGSSENCMODE", "PGKRBSRVNAME", "PGGSSLIB"} {
+		if value, exists := values[key]; exists {
+			child = append(child, key+"="+value)
+		}
+	}
+	return child, nil
 }
