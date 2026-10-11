@@ -9,13 +9,14 @@ import (
 )
 
 const RulesVersion = 2
+const maxBoardSize = 64
 
 var ports = []int{1, 2, 4, 8}
 var shapes = []int{3, 6, 12, 9, 5, 10}
 
 func ValidSize(size int) bool {
 	switch size {
-	case 5, 8, 12, 24, 48, 64:
+	case 5, 8, 12, 24, 48, maxBoardSize:
 		return true
 	}
 	return false
@@ -60,10 +61,16 @@ func Won(tiles []int, size int) bool {
 	if !ValidSize(size) || len(tiles) != size*size {
 		return false
 	}
-	seen := make([]bool, len(tiles))
+	// A fixed bitset covers every supported board without a heap allocation
+	// for each move checked by Replay. The traversal and cycle rule are unchanged.
+	var seen [maxBoardSize * maxBoardSize / 64]uint64
 	index, incoming := size/2*size, 8
-	for !seen[index] && tiles[index]&incoming != 0 {
-		seen[index] = true
+	for tiles[index]&incoming != 0 {
+		word, bit := index/64, uint64(1)<<uint(index%64)
+		if seen[word]&bit != 0 {
+			return false
+		}
+		seen[word] |= bit
 		outgoing := 0
 		for _, p := range ports {
 			if p != incoming && tiles[index]&p != 0 {

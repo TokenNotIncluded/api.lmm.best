@@ -81,6 +81,10 @@ func FinishSignalGameAttempt(c *gin.Context) {
 		signalError(c, 404, "Challenge not found")
 		return
 	}
+	if err := row.CheckFinishTime(time.Now().UnixMilli()); err != nil {
+		signalError(c, 409, "Challenge is expired, changed, or still counting down")
+		return
+	}
 	if _, err = signalgames.Replay(row.Seed, row.Size, input.Actions, false); err != nil {
 		signalError(c, 400, "Challenge replay rejected")
 		return

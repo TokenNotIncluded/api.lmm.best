@@ -64,6 +64,9 @@ func TestSignalGameGuestCompletionThenAuthenticatedClaim(t *testing.T) {
 	require.NoError(t, db.Model(&model.SignalGameAttempt{}).Where("token_hash = ?", signalHash(token)).Update("started_at", time.Now().UnixMilli()-500).Error)
 	require.Equal(t, 400, call("POST", "/finish", map[string]any{"token": token, "actions": []int{-1}}, false).Code)
 	require.Equal(t, 200, call("POST", "/finish", map[string]any{"token": token, "actions": actions}, false).Code)
+	// Completed results stay idempotent even after the unfinished-attempt TTL.
+	require.NoError(t, db.Model(&model.SignalGameAttempt{}).Where("token_hash = ?", signalHash(token)).Update("started_at", time.Now().Add(-48*time.Hour).UnixMilli()).Error)
+	require.Equal(t, 200, call("POST", "/finish", map[string]any{"token": token, "actions": actions}, false).Code)
 	submit := map[string]any{"mode": "challenge", "rules_version": 2, "token": token, "publish": true, "email": "private@example.test", "note": "Testing", "user_id": 999, "moves": 0, "elapsed_ms": 0, "model_id": "forged-model"}
 	require.Equal(t, 401, call("POST", "/records", submit, false).Code)
 	submit["expected_user_id"] = 999
@@ -87,4 +90,35 @@ func TestSignalGameGuestCompletionThenAuthenticatedClaim(t *testing.T) {
 	require.Contains(t, ranking.Body.String(), "Test agent")
 	require.False(t, strings.Contains(ranking.Body.String(), token))
 	require.NotContains(t, ranking.Body.String(), "private@example.test")
+}
+
+func TestSignalGameUnavailableAttemptRejectsBeforeReplay(t *testing.T) {
+	db := setupManageUserTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.SignalGameAttempt{}))
+	router := gin.New()
+	router.POST("/finish", FinishSignalGameAttempt)
+	for _, tc := range []struct {
+		name    string
+		started int64
+	}{
+		{"countdown", time.Now().Add(time.Minute).UnixMilli()},
+		{"expired", time.Now().Add(-25 * time.Hour).UnixMilli()},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			token := tc.name + strings.Repeat("a", 43-len(tc.name))
+			row := model.SignalGameAttempt{TokenHash: signalHash(token), Seed: 42, Size: 64, StartedAt: tc.started}
+			require.NoError(t, db.Create(&row).Error)
+			// Replay would reject this forbidden hint with 400. A lifecycle 409
+			// establishes that replay was not reached for an unavailable attempt.
+			raw, err := json.Marshal(map[string]any{"token": token, "actions": []int{-1}})
+			require.NoError(t, err)
+			request := httptest.NewRequest("POST", "/finish", bytes.NewReader(raw))
+			request.Header.Set("Content-Type", "application/json")
+			response := httptest.NewRecorder()
+			router.ServeHTTP(response, request)
+			require.Equal(t, 409, response.Code)
+			require.NoError(t, db.First(&row, row.Id).Error)
+			require.Zero(t, row.FinishedAt)
+		})
+	}
 }

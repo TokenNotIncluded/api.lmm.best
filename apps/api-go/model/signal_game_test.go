@@ -22,6 +22,9 @@ func TestSignalGameClaimAndLeaderboardPrivacy(t *testing.T) {
 	retry, err := FinishSignalGameAttempt(attempt.TokenHash, "[1]", 1, 8000)
 	require.NoError(t, err)
 	require.Equal(t, done.ElapsedMs, retry.ElapsedMs)
+	retry, err = FinishSignalGameAttempt(attempt.TokenHash, "[1]", 1, 4000+48*60*60*1000)
+	require.NoError(t, err)
+	require.Equal(t, done.FinishedAt, retry.FinishedAt)
 	_, err = FinishSignalGameAttempt(attempt.TokenHash, "[2]", 1, 9000)
 	require.ErrorIs(t, err, ErrSignalGameConflict)
 	row := SignalGameRecord{UserId: 1, AttemptId: &attempt.Id, Mode: "challenge", Day: attempt.Day, Size: 5, Moves: 10, ElapsedMs: 1000, Actor: "ai", ModelId: attempt.ModelId, Harness: attempt.Harness, AgentName: attempt.AgentName, ParticipantKey: "agent-key", Email: "private@example.test", Note: "public note", Actions: "[1]", Digest: "result-one", CreatedAt: 5000}
@@ -57,4 +60,14 @@ func TestSignalGameClaimAndLeaderboardPrivacy(t *testing.T) {
 	require.NoError(t, err)
 	require.Len(t, ranks, 1)
 	require.Equal(t, 9, ranks[0].Moves)
+}
+
+func TestSignalGameAttemptFinishTimeBoundaries(t *testing.T) {
+	attempt := SignalGameAttempt{StartedAt: 4000}
+	require.ErrorIs(t, attempt.CheckFinishTime(3999), ErrSignalGameCountdown)
+	require.NoError(t, attempt.CheckFinishTime(4000))
+	require.NoError(t, attempt.CheckFinishTime(4000+24*60*60*1000))
+	require.ErrorIs(t, attempt.CheckFinishTime(4001+24*60*60*1000), ErrSignalGameExpired)
+	attempt.FinishedAt = 5000
+	require.NoError(t, attempt.CheckFinishTime(4000+48*60*60*1000))
 }

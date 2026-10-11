@@ -77,6 +77,22 @@ func FindSignalGameAttempt(hash string) (SignalGameAttempt, error) {
 	err := DB.Where("token_hash = ?", hash).Take(&row).Error
 	return row, err
 }
+
+// CheckFinishTime rejects unavailable unfinished attempts before replay work.
+// Finished attempts keep their existing idempotent retry behavior regardless of age.
+func (attempt SignalGameAttempt) CheckFinishTime(now int64) error {
+	if attempt.FinishedAt != 0 {
+		return nil
+	}
+	if now < attempt.StartedAt {
+		return ErrSignalGameCountdown
+	}
+	if now-attempt.StartedAt > 24*60*60*1000 {
+		return ErrSignalGameExpired
+	}
+	return nil
+}
+
 func FinishSignalGameAttempt(hash, actions string, moves int, now int64) (SignalGameAttempt, error) {
 	var result SignalGameAttempt
 	err := DB.Transaction(func(tx *gorm.DB) error {
@@ -89,11 +105,8 @@ func FinishSignalGameAttempt(hash, actions string, moves int, now int64) (Signal
 			}
 			return nil
 		}
-		if now < result.StartedAt {
-			return ErrSignalGameCountdown
-		}
-		if now-result.StartedAt > 24*60*60*1000 {
-			return ErrSignalGameExpired
+		if err := result.CheckFinishTime(now); err != nil {
+			return err
 		}
 		result.FinishedAt = now
 		result.ElapsedMs = now - result.StartedAt
