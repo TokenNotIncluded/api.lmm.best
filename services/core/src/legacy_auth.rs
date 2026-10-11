@@ -84,7 +84,12 @@ struct AuthState {
 pub fn router(store: IdentityStore, config: LegacyAuthConfig) -> Router {
     let browser = BrowserAuth::new(store.clone(), &config.refresh_key)
         .expect("validated private refresh key");
-    let hg = crate::humangrant::router(store.pool(), store.clone(), browser.clone(), config.origin.clone());
+    let hg = crate::humangrant::router(
+        store.pool(),
+        store.clone(),
+        browser.clone(),
+        config.origin.clone(),
+    );
     let state = AuthState {
         browser,
         store,
