@@ -11557,6 +11557,7 @@
     "Wallet balance": "Solde du portefeuille",
     "Wallet balance would exceed the safe range": "Le solde dépasserait la limite autorisée",
     "Wallet charge": "Débit du portefeuille",
+    "Wallet data is unavailable. Payments and transfers are disabled until it is restored.": "Les données du portefeuille sont indisponibles. Les paiements et les transferts sont désactivés en attendant leur rétablissement.",
     "Wallet deduction": "Débit du portefeuille",
     "Wallet display preference saved": "Préférence d’affichage du portefeuille enregistrée",
     "Wallet display unit: {{currency}}": "Unité d’affichage du portefeuille : {{currency}}",

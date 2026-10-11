@@ -115,10 +115,80 @@ const PAYMENT_REFRESH_DEADLINE_MS = 2 * 60 * 1_000
 
 export function Wallet(props: WalletProps) {
   const ownerKey = useCheckoutOwnerKey()
+  const financialUnavailable = useAuthStore(
+    (state) => state.auth.user?.financial_projection_available === false
+  )
+  // Unmount all checkout effects/dialogs, including in-flight callback scopes.
+  // An absent flag remains compatible with main and older servers.
+  if (financialUnavailable) {
+    return <WalletUnavailable key={ownerKey} {...props} />
+  }
   return (
     <PaymentCurrencyProvider key={ownerKey}>
       <WalletAmountDraft {...props} />
     </PaymentCurrencyProvider>
+  )
+}
+
+function WalletUnavailable({ initialShowHistory = false }: WalletProps) {
+  const { t } = useTranslation()
+  const user = useAuthStore((state) => state.auth.user) as UserWalletData | null
+  const { refreshUser } = useAuthUserRefresh()
+  const [historyOpen, setHistoryOpen] = useState(initialShowHistory)
+  const [refreshing, setRefreshing] = useState(false)
+  const [refreshFailed, setRefreshFailed] = useState(false)
+  const refresh = async () => {
+    setRefreshing(true)
+    setRefreshFailed(!(await refreshUser()))
+    setRefreshing(false)
+  }
+
+  return (
+    <>
+      <SectionPageLayout>
+        <SectionPageLayout.Title>{t('Wallet')}</SectionPageLayout.Title>
+        <SectionPageLayout.Actions>
+          <Button variant='outline' onClick={() => setHistoryOpen(true)}>
+            {t('Order History')}
+          </Button>
+          <Button
+            variant='outline'
+            disabled={refreshing}
+            onClick={() => void refresh()}
+          >
+            {t('Refresh account status')}
+          </Button>
+        </SectionPageLayout.Actions>
+        <SectionPageLayout.Content>
+          <div className='wallet-editorial mx-auto flex w-full max-w-5xl flex-col gap-4 sm:gap-5'>
+            <Alert>
+              <AlertDescription>
+                {t(
+                  'Wallet data is unavailable. Payments and transfers are disabled until it is restored.'
+                )}
+              </AlertDescription>
+            </Alert>
+            {refreshFailed ? <p role='alert'>{t('Refresh failed')}</p> : null}
+            <WalletStatsCard user={user} />
+            <div className='flex flex-wrap gap-2'>
+              <Button disabled>{t('Add funds')}</Button>
+              <Button variant='outline' disabled>
+                {t('Subscriptions')}
+              </Button>
+              <Button variant='outline' disabled>
+                {t('Transfer')}
+              </Button>
+            </div>
+            <AffiliateRewardsCard
+              user={user}
+              affiliateLink=''
+              onTransfer={() => {}}
+            />
+          </div>
+        </SectionPageLayout.Content>
+      </SectionPageLayout>
+      <BillingHistoryDialog open={historyOpen} onOpenChange={setHistoryOpen} />
+    </>
   )
 }
 

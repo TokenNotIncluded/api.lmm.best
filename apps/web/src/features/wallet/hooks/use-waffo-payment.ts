@@ -26,6 +26,7 @@ import {
   redirectToPaymentCheckout,
   reservePaymentCheckout,
 } from '../lib'
+import { useCheckoutScope } from './use-checkout-scope'
 
 function getPaymentUrl(data: unknown): string | null {
   if (!data || typeof data !== 'object') {
@@ -52,9 +53,11 @@ function getErrorMessage(message: string | undefined, data: unknown): string {
  */
 export function useWaffoPayment() {
   const [processing, setProcessing] = useState(false)
+  const { isCurrent } = useCheckoutScope()
 
   const processWaffoPayment = useCallback(
     async (topupAmount: number, payMethodIndex?: number, discountCode = '') => {
+      if (!isCurrent()) return false
       let checkout: ReturnType<typeof reservePaymentCheckout> | null = null
 
       try {
@@ -65,6 +68,11 @@ export function useWaffoPayment() {
           pay_method_index: payMethodIndex,
           ...(discountCode ? { discount_code: discountCode } : {}),
         })
+
+        if (!isCurrent()) {
+          cancelPaymentCheckout(checkout)
+          return false
+        }
 
         if (isApiSuccess(response)) {
           const paymentUrl = getPaymentUrl(response.data)
@@ -85,13 +93,14 @@ export function useWaffoPayment() {
         return false
       } catch {
         if (checkout) cancelPaymentCheckout(checkout)
+        if (!isCurrent()) return false
         toast.error(i18next.t('Payment request failed'))
         return false
       } finally {
         setProcessing(false)
       }
     },
-    []
+    [isCurrent]
   )
 
   return { processing, processWaffoPayment }

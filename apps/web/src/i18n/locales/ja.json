@@ -11557,6 +11557,7 @@
     "Wallet balance": "ウォレット残高",
     "Wallet balance would exceed the safe range": "ウォレット残高が上限を超えます",
     "Wallet charge": "ウォレット引き落とし",
+    "Wallet data is unavailable. Payments and transfers are disabled until it is restored.": "ウォレットのデータを取得できません。復旧するまで支払いと送金は利用できません。",
     "Wallet deduction": "実際の引き落とし",
     "Wallet display preference saved": "ウォレットの表示設定を保存しました",
     "Wallet display unit: {{currency}}": "ウォレットの表示単位：{{currency}}",

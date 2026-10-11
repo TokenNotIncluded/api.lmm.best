@@ -11557,6 +11557,7 @@
     "Wallet balance": "Số dư ví",
     "Wallet balance would exceed the safe range": "Số dư ví sẽ vượt giới hạn an toàn",
     "Wallet charge": "Trừ từ ví",
+    "Wallet data is unavailable. Payments and transfers are disabled until it is restored.": "Dữ liệu ví hiện không khả dụng. Thanh toán và chuyển tiền bị vô hiệu hóa cho đến khi dữ liệu được khôi phục.",
     "Wallet deduction": "Khoản trừ ví thực tế",
     "Wallet display preference saved": "Đã lưu tùy chọn hiển thị ví",
     "Wallet display unit: {{currency}}": "Đơn vị hiển thị ví: {{currency}}",

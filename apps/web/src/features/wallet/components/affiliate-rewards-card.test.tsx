@@ -84,3 +84,52 @@ test('shows reward debt and hides transfer when rewards have been clawed back', 
   assert.match(markup, /Reward debt/)
   assert.doesNotMatch(markup, /Transfer to Balance/)
 })
+
+test('unavailable financial projections never display stale rewards as money or allow transfer', () => {
+  const markup = renderToStaticMarkup(
+    <I18nextProvider i18n={i18n}>
+      <AffiliateRewardsCard
+        user={{
+          ...user,
+          financial_projection_available: false,
+          aff_quota: 500000,
+          aff_history_quota: 900000,
+          aff_count: 12,
+        }}
+        affiliateLink='https://example.test/signup?aff=x'
+        onTransfer={() => {
+          throw new Error('Unavailable transfer must not execute')
+        }}
+      />
+    </I18nextProvider>
+  )
+  assert.equal((markup.match(/Unavailable/g) ?? []).length, 3)
+  assert.doesNotMatch(markup, /500,000|900,000/)
+  assert.match(
+    markup,
+    /<button[^>]*\sdisabled(?:=""|\s|>)[^>]*>Transfer to Balance<\/button>/
+  )
+})
+
+test('unavailable usage does not disable authoritative available rewards', () => {
+  const markup = renderToStaticMarkup(
+    <I18nextProvider i18n={i18n}>
+      <AffiliateRewardsCard
+        user={{
+          ...user,
+          financial_projection_available: true,
+          usage_projection_available: false,
+          aff_quota: 500000,
+        }}
+        affiliateLink='https://example.test/signup?aff=x'
+        onTransfer={() => {}}
+      />
+    </I18nextProvider>
+  )
+  assert.doesNotMatch(markup, /Unavailable/)
+  assert.match(markup, /Transfer to Balance/)
+  assert.doesNotMatch(
+    markup,
+    /<button[^>]*\sdisabled(?:=""|\s|>)[^>]*>Transfer to Balance<\/button>/
+  )
+})

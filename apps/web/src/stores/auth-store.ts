@@ -97,6 +97,8 @@ export interface AuthUser {
   status?: number
   group?: string
   quota?: number
+  /** False means ledger projections are unavailable, not a zero balance. */
+  financial_projection_available?: boolean
   used_quota?: number
   normalized_used_quota?: number | null
   usage_projection_available?: boolean

@@ -11557,6 +11557,7 @@
     "Wallet balance": "Wallet balance",
     "Wallet balance would exceed the safe range": "Wallet balance would exceed the safe range",
     "Wallet charge": "Wallet charge",
+    "Wallet data is unavailable. Payments and transfers are disabled until it is restored.": "Wallet data is unavailable. Payments and transfers are disabled until it is restored.",
     "Wallet deduction": "Wallet deduction",
     "Wallet display preference saved": "Wallet display preference saved",
     "Wallet display unit: {{currency}}": "Wallet display unit: {{currency}}",

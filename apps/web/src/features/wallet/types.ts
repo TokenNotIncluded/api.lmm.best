@@ -448,6 +448,8 @@ export interface UserWalletData {
   username: string
   /** Current quota balance */
   quota: number
+  /** Explicit false keeps unavailable financial facts out of balances/actions. */
+  financial_projection_available?: boolean
   /** Total used quota */
   used_quota: number
   normalized_used_quota?: number | null

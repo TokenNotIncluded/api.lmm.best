@@ -97,6 +97,9 @@ const { PaymentConfirmDialog } =
 const { creditGrant, walletCatalog } =
   await import('./lib/wallet-fixtures.test-support')
 const { usePayment } = await import('./hooks/use-payment')
+const { useWaffoPayment } = await import('./hooks/use-waffo-payment')
+const { useCreemPayment } = await import('./hooks/use-creem-payment')
+const { toast } = await import('sonner')
 const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
 const { useSystemConfigStore } = await import('@/stores/system-config-store')
@@ -545,6 +548,295 @@ async function renderWallet(
   )
   return { container, queryClient }
 }
+
+test('unavailable ledger facts disable wallet writes without inventing zero amounts or starting quotes', async () => {
+  window.history.replaceState({}, '', '/wallet')
+  const posts: string[] = []
+  api.post = (async (url: string) => {
+    posts.push(url)
+    throw new Error('Unavailable wallet must not write')
+  }) as typeof api.post
+  const { container, queryClient } = await renderWallet(true, {
+    quota: 500000,
+    user: {
+      financial_projection_available: false,
+      aff_quota: 900000,
+      aff_history_quota: 800000,
+    },
+  })
+  assert.match(container.textContent ?? '', /Wallet data is unavailable/)
+  assert.equal(container.querySelector('#topup-amount'), null)
+  assert.equal(
+    container.querySelector('[data-testid^="wallet-token-cloud-"]'),
+    null
+  )
+  for (const label of [
+    'Add funds',
+    'Subscriptions',
+    'Transfer',
+    'Transfer to Balance',
+  ]) {
+    const button = [
+      ...container.querySelectorAll<HTMLButtonElement>('button'),
+    ].find((item) => item.textContent?.trim() === label)
+    assert.ok(button?.disabled, label)
+    await act(async () => button.click())
+  }
+  assert.doesNotMatch(
+    container.querySelector('#wallet-balance')?.textContent ?? '',
+    /500,000|0\.00/
+  )
+  assert.equal(posts.length, 0)
+  queryClient.clear()
+})
+
+test('restored financial facts resume checkout even when historical usage has no projection', async () => {
+  window.history.replaceState({}, '', '/wallet')
+  const posts: string[] = []
+  api.post = v2PaymentPost((async (url, body) => {
+    posts.push(url)
+    return {
+      data: {
+        success: true,
+        message: 'success',
+        data: String((body as AmountRequest).amount / 500000),
+        settlement_currency: 'CNY',
+      },
+    }
+  }) as typeof api.post)
+  const { container, queryClient } = await renderWallet(true, {
+    quota: 500000,
+    user: {
+      financial_projection_available: false,
+      usage_projection_available: false,
+      used_quota: 2491782362,
+    },
+  })
+  assert.equal(posts.length, 0)
+  const currentUser = useAuthStore.getState().auth.user
+  assert.ok(currentUser)
+  const user = {
+    ...currentUser,
+    financial_projection_available: true,
+  }
+  const previousGet = api.get
+  api.get = (async (...args: Parameters<typeof api.get>) =>
+    args[0] === '/api/user/self'
+      ? { data: { success: true, data: user } }
+      : previousGet(...args)) as typeof api.get
+  const refresh = [
+    ...container.querySelectorAll<HTMLButtonElement>('button'),
+  ].find((item) => item.textContent?.trim() === 'Refresh account status')
+  assert.ok(refresh)
+  await act(async () => {
+    refresh.click()
+    await new Promise((resolve) => setTimeout(resolve, 30))
+  })
+  assert.ok(container.querySelector('#topup-amount'))
+  assert.doesNotMatch(container.textContent ?? '', /Wallet data is unavailable/)
+  assert.ok(
+    posts.some((path) => path.endsWith('/amount')),
+    'authoritative balance permits a fresh quote'
+  )
+  queryClient.clear()
+})
+
+test('an unavailable projection discards a late quote from the unmounted checkout', async () => {
+  window.history.replaceState({}, '', '/wallet')
+  const pending = deferred<ReturnType<typeof quoteResponse>>()
+  let requests = 0
+  api.post = v2PaymentPost((async (_url, body) => {
+    requests++
+    return requests > 1
+      ? pending.promise
+      : {
+          data: {
+            message: 'success',
+            data: String((body as AmountRequest).amount / 500000),
+            settlement_currency: 'CNY',
+          },
+        }
+  }) as typeof api.post)
+  const { container, queryClient } = await renderWallet(true, {
+    user: { financial_projection_available: true },
+  })
+  const pay = container.querySelector<HTMLButtonElement>(
+    'button[aria-label="alipay"]'
+  )
+  assert.ok(pay)
+  await act(async () => pay.click())
+  const currentUser = useAuthStore.getState().auth.user
+  assert.ok(currentUser)
+  const user = {
+    ...currentUser,
+    financial_projection_available: false,
+  }
+  const previousGet = api.get
+  api.get = (async (...args: Parameters<typeof api.get>) =>
+    args[0] === '/api/user/self'
+      ? { data: { success: true, data: user } }
+      : previousGet(...args)) as typeof api.get
+  await act(async () => useAuthStore.getState().auth.setUser(user))
+  assert.match(container.textContent ?? '', /Wallet data is unavailable/)
+  await act(async () => pending.resolve(quoteResponse('10.00')))
+  assert.equal(document.querySelector('[role="alertdialog"]'), null)
+  assert.equal(container.querySelector('#topup-amount'), null)
+  queryClient.clear()
+})
+
+for (const method of ['stripe', 'waffo', 'creem'] as const) {
+  for (const outcome of ['success', 'error'] as const) {
+    test(`${method} ${outcome} response after checkout unmount cancels its popup without redirect or toast`, async () => {
+      useAuthStore.getState().auth.setUser({
+        id: 7,
+        username: 'fixture',
+        role: 1,
+        financial_projection_available: true,
+      })
+      const popup = {
+        closed: false,
+        location: { href: '' },
+        focus() {},
+        close() {
+          this.closed = true
+        },
+      }
+      const originalOpen = window.open
+      const originalSuccess = toast.success
+      const originalError = toast.error
+      const messages: string[] = []
+      let resolve!: (value: {
+        data: {
+          success: boolean
+          data: { pay_link: string; payment_url: string; checkout_url: string }
+        }
+      }) => void
+      let reject!: (error: Error) => void
+      const pending = new Promise<{
+        data: {
+          success: boolean
+          data: { pay_link: string; payment_url: string; checkout_url: string }
+        }
+      }>((accept, decline) => {
+        resolve = accept
+        reject = decline
+      })
+      api.post = v2PaymentPost((async () => pending) as typeof api.post)
+      window.open = (() => popup) as unknown as typeof window.open
+      toast.success = ((message) => {
+        messages.push(String(message))
+        return 0
+      }) as typeof toast.success
+      toast.error = ((message) => {
+        messages.push(String(message))
+        return 0
+      }) as typeof toast.error
+      let start!: () => Promise<boolean>
+      function Probe() {
+        const regular = usePayment()
+        const waffo = useWaffoPayment()
+        const creem = useCreemPayment()
+        start = () =>
+          method === 'stripe'
+            ? regular.processPayment(500000, 'stripe')
+            : method === 'waffo'
+              ? waffo.processWaffoPayment(500000, 0)
+              : creem.processCreemPayment('synthetic-product')
+        return null
+      }
+      try {
+        await render(<Probe />)
+        let result!: Promise<boolean>
+        await act(async () => {
+          result = start()
+        })
+        const mountedProbe = mounted.pop()
+        assert.ok(mountedProbe)
+        await act(async () => {
+          const { auth } = useAuthStore.getState()
+          assert.ok(auth.user)
+          auth.setUser({ ...auth.user, financial_projection_available: false })
+          mountedProbe.root.unmount()
+        })
+        mountedProbe.container.remove()
+        await act(async () => {
+          if (outcome === 'success') {
+            resolve({
+              data: {
+                success: true,
+                data: {
+                  pay_link: 'https://checkout.example.test/late',
+                  payment_url: 'https://checkout.example.test/late',
+                  checkout_url: 'https://checkout.example.test/late',
+                },
+              },
+            })
+          } else {
+            reject(new Error('Synthetic delayed provider failure'))
+          }
+          assert.equal(await result, false)
+        })
+        assert.equal(popup.closed, true)
+        assert.equal(popup.location.href, '')
+        assert.deepEqual(messages, [])
+      } finally {
+        window.open = originalOpen
+        toast.success = originalSuccess
+        toast.error = originalError
+      }
+    })
+  }
+}
+
+test('a current Creem checkout preserves its request and valid redirect', async () => {
+  useAuthStore.getState().auth.setUser({
+    id: 7,
+    username: 'fixture',
+    role: 1,
+    financial_projection_available: true,
+  })
+  const popup = {
+    closed: false,
+    location: { href: '' },
+    focus() {},
+    close() {
+      this.closed = true
+    },
+  }
+  const originalOpen = window.open
+  const requests: Array<{ path: string; body: unknown }> = []
+  window.open = (() => popup) as unknown as typeof window.open
+  api.post = (async (path: string, body: unknown) => {
+    requests.push({ path, body })
+    return {
+      data: {
+        success: true,
+        data: { checkout_url: 'https://checkout.example.test/current' },
+      },
+    }
+  }) as typeof api.post
+  let pay!: ReturnType<typeof useCreemPayment>
+  function Probe() {
+    pay = useCreemPayment()
+    return null
+  }
+  try {
+    await render(<Probe />)
+    await act(async () =>
+      assert.equal(await pay.processCreemPayment('synthetic-product'), true)
+    )
+    assert.deepEqual(requests, [
+      {
+        path: '/api/user/creem/pay',
+        body: { product_id: 'synthetic-product', payment_method: 'creem' },
+      },
+    ])
+    assert.equal(popup.location.href, 'https://checkout.example.test/current')
+    assert.equal(popup.closed, false)
+  } finally {
+    window.open = originalOpen
+  }
+})
 
 test('confirmed top-up grows the balance cloud only after the server reports success', async () => {
   window.history.replaceState({}, '', '/wallet')

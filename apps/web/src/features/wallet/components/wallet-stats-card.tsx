@@ -57,6 +57,8 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
   const { t } = useTranslation()
   const walletCurrency = useWalletCurrency()
   const { formatQuota, formatUserUsage } = walletCurrency
+  const financialAvailable =
+    props.user?.financial_projection_available !== false
   const configuredQuotaPerUnit = useSystemConfigStore(
     (state) => state.config.currency.quotaPerUnit
   )
@@ -64,7 +66,9 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
     Number.isFinite(configuredQuotaPerUnit) && configuredQuotaPerUnit > 0
       ? configuredQuotaPerUnit
       : DEFAULT_CURRENCY_CONFIG.quotaPerUnit
-  const balanceCredits = Math.max(0, (props.user?.quota ?? 0) / quotaPerUnit)
+  const balanceCredits = financialAvailable
+    ? Math.max(0, (props.user?.quota ?? 0) / quotaPerUnit)
+    : 0
   if (props.loading) {
     return (
       <div className='bg-card grid grid-cols-3 overflow-hidden rounded-xl border'>
@@ -93,24 +97,33 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
     description: string
     icon: typeof WalletCards
     tone: IconBadgeTone
+    available?: boolean
   }[] = [
     {
       label: t('Current Balance'),
-      value: formatQuota(props.user?.quota ?? 0),
+      value: financialAvailable
+        ? formatQuota(props.user?.quota ?? 0)
+        : t('Unavailable'),
       description: t('Remaining quota'),
       icon: WalletCards,
       tone: 'primary',
+      available: financialAvailable,
     },
     {
       label: t('Total Usage'),
-      value: formatUserUsage(props.user),
+      value: financialAvailable
+        ? formatUserUsage(props.user)
+        : t('Unavailable'),
       description: t('Total consumed quota'),
       icon: BarChart3,
       tone: 'neutral',
+      available: financialAvailable,
     },
     {
       label: t('API Requests'),
-      value: (props.user?.request_count ?? 0).toLocaleString(),
+      value: financialAvailable
+        ? (props.user?.request_count ?? 0).toLocaleString()
+        : t('Unavailable'),
       description: t('Total requests made'),
       icon: Activity,
       tone: 'neutral',
@@ -140,7 +153,7 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
               : 'border-e last:border-e-0'
           )}
         >
-          {index === 0 && (
+          {index === 0 && financialAvailable && (
             <WalletTokenCloud
               amount={balanceCredits}
               success={props.success}
@@ -163,7 +176,7 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
                     { value: 'CREDIT', label: t('Credits') },
                   ]}
                   value={walletCurrency.currency}
-                  disabled={walletCurrency.saving}
+                  disabled={walletCurrency.saving || !financialAvailable}
                   onValueChange={(value) => {
                     if (
                       value === 'CNY' ||
@@ -199,7 +212,7 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
               index === 0 ? 'text-3xl sm:text-4xl' : 'text-sm sm:text-xl'
             )}
           >
-            {index < 2 ? (
+            {index < 2 && item.available !== false ? (
               <PlatformCreditAmount value={item.value} />
             ) : (
               item.value
@@ -210,7 +223,7 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
               <div className='text-muted-foreground pointer-events-none text-xs'>
                 {item.description}
               </div>
-              {props.balanceAction}
+              {financialAvailable ? props.balanceAction : null}
             </div>
           ) : (
             <div className='text-muted-foreground pointer-events-none relative z-10 mt-1 hidden text-xs sm:block'>

@@ -121,6 +121,7 @@ function Harness({
     normalized_used_quota: 250000,
     usage_projection_available: true,
   },
+  financialAvailable,
 }: {
   amount?: number
   paymentDiscount?: ReturnType<typeof parsePaymentDiscount>
@@ -130,6 +131,7 @@ function Harness({
   couponApplied?: boolean
   validatedCouponCode?: string
   rawQuota?: number
+  financialAvailable?: boolean
   usage?: {
     used_quota: number
     normalized_used_quota?: number | null
@@ -145,6 +147,7 @@ function Harness({
           id: 7,
           username: 'unit-fixture',
           quota: 500000,
+          financial_projection_available: financialAvailable,
           ...usage,
           request_count: 1,
           aff_quota: 0,
@@ -350,6 +353,22 @@ test('wallet keeps unavailable and old-server historical usage in raw credits wh
     container.textContent?.includes('6.71 CNY'),
     'balance still uses the current fixed-credit conversion'
   )
+})
+
+test('unavailable financial facts show neither stale amounts nor a zero balance cloud', async () => {
+  const container = await render({ financialAvailable: false })
+  const balance = container.querySelector('#wallet-balance')
+  assert.ok(balance)
+  assert.equal((balance.textContent?.match(/Unavailable/g) ?? []).length, 3)
+  assert.doesNotMatch(balance.textContent ?? '', /500,000|250,000|0\.00/)
+  assert.equal(
+    balance.querySelector('[data-testid^="wallet-token-cloud-"]'),
+    null
+  )
+  const currency = balance.querySelector<HTMLButtonElement>(
+    'button[aria-label="Balance display currency"]'
+  )
+  assert.ok(currency?.disabled)
 })
 
 test('balance CNY/USD/Credit selector updates balance and total usage without changing 100 CNY recharge or quote', async () => {

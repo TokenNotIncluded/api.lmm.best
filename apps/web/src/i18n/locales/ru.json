@@ -11557,6 +11557,7 @@
     "Wallet balance": "Баланс кошелька",
     "Wallet balance would exceed the safe range": "Баланс превысит допустимый предел",
     "Wallet charge": "Списание с кошелька",
+    "Wallet data is unavailable. Payments and transfers are disabled until it is restored.": "Данные кошелька недоступны. Платежи и переводы отключены до их восстановления.",
     "Wallet deduction": "Списание из кошелька",
     "Wallet display preference saved": "Настройки отображения кошелька сохранены",
     "Wallet display unit: {{currency}}": "Единица отображения кошелька: {{currency}}",

@@ -61,7 +61,8 @@ export function AffiliateRewardsCard({
     )
   }
 
-  const hasRewards = (user?.aff_quota ?? 0) > 0
+  const financialAvailable = user?.financial_projection_available !== false
+  const hasRewards = financialAvailable && (user?.aff_quota ?? 0) > 0
 
   return (
     <Card data-card-hover='false' className='bg-muted/20 py-0'>
@@ -85,17 +86,29 @@ export function AffiliateRewardsCard({
         <div className='grid grid-cols-3 gap-1.5 text-center'>
           {[
             [
-              (user?.aff_debt ?? 0) > 0
+              financialAvailable && (user?.aff_debt ?? 0) > 0
                 ? t('Reward debt')
                 : t('Available Rewards'),
-              formatQuota(
-                (user?.aff_debt ?? 0) > 0
-                  ? (user?.aff_debt ?? 0)
-                  : (user?.aff_quota ?? 0)
-              ),
+              financialAvailable
+                ? formatQuota(
+                    (user?.aff_debt ?? 0) > 0
+                      ? (user?.aff_debt ?? 0)
+                      : (user?.aff_quota ?? 0)
+                  )
+                : t('Unavailable'),
             ],
-            [t('Total Earned'), formatQuota(user?.aff_history_quota ?? 0)],
-            [t('Invites'), String(user?.aff_count ?? 0)],
+            [
+              t('Total Earned'),
+              financialAvailable
+                ? formatQuota(user?.aff_history_quota ?? 0)
+                : t('Unavailable'),
+            ],
+            [
+              t('Invites'),
+              financialAvailable
+                ? String(user?.aff_count ?? 0)
+                : t('Unavailable'),
+            ],
           ].map(([label, value]) => (
             <div key={label}>
               <div className='text-muted-foreground truncate text-[10px] font-medium tracking-wider uppercase'>
@@ -109,12 +122,14 @@ export function AffiliateRewardsCard({
         </div>
 
         <div className='flex flex-wrap items-center justify-end gap-2'>
-          <AffiliateInviteDialog affiliateLink={affiliateLink} />
+          {financialAvailable ? (
+            <AffiliateInviteDialog affiliateLink={affiliateLink} />
+          ) : null}
           <ReferralHistoryDialog />
-          {hasRewards && (
+          {(hasRewards || !financialAvailable) && (
             <Button
               onClick={onTransfer}
-              disabled={!complianceConfirmed}
+              disabled={!complianceConfirmed || !financialAvailable}
               className='h-9 shrink-0 px-3'
               size='sm'
               variant='outline'

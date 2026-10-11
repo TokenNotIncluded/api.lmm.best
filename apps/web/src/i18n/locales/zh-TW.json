@@ -11557,6 +11557,7 @@
     "Wallet balance": "錢包餘額",
     "Wallet balance would exceed the safe range": "錢包餘額將超出安全範圍",
     "Wallet charge": "錢包扣費",
+    "Wallet data is unavailable. Payments and transfers are disabled until it is restored.": "錢包資料暫時無法使用，恢復前無法付款或轉帳。",
     "Wallet deduction": "實際錢包扣款",
     "Wallet display preference saved": "錢包顯示偏好已儲存",
     "Wallet display unit: {{currency}}": "錢包顯示單位：{{currency}}",

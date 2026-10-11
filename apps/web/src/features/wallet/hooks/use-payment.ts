@@ -327,6 +327,7 @@ export function usePayment() {
   // Process payment
   const processPayment = useCallback(
     async (topupAmount: number, paymentType: string, discountCode = '') => {
+      if (!isCurrent()) return false
       if (localPreview) {
         toast.info(
           i18next.t(
@@ -359,6 +360,11 @@ export function usePayment() {
               payment_method: paymentType,
               ...(discountCode ? { discount_code: discountCode } : {}),
             })
+
+        if (!isCurrent()) {
+          cancelPaymentCheckout(checkout)
+          return false
+        }
 
         if (!isApiSuccess(response)) {
           cancelPaymentCheckout(checkout)
@@ -398,13 +404,14 @@ export function usePayment() {
         if (checkout) {
           cancelPaymentCheckout(checkout)
         }
+        if (!isCurrent()) return false
         toast.error(i18next.t('Payment request failed'))
         return false
       } finally {
         setProcessing(false)
       }
     },
-    [localPreview]
+    [localPreview, isCurrent]
   )
 
   return {
