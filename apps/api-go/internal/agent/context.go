@@ -17,12 +17,13 @@ type messageGroup struct{ start, end int }
 // complete round verbatim. Older tool results are shortened first; if needed,
 // old messages are removed as complete protocol groups with a visible receipt.
 func Compact(messages []Message, maxBytes int) ([]Message, error) {
-	if Bytes(messages) <= maxBytes {
-		return messages, nil
-	}
+	// Protocol validity must not depend on whether this request needs shrinking.
 	groups, err := conversationGroups(messages)
 	if err != nil {
 		return nil, err
+	}
+	if Bytes(messages) <= maxBytes {
+		return messages, nil
 	}
 	latestUser := -1
 	for i, message := range messages {
