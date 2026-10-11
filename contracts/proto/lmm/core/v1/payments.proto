@@ -91,6 +91,9 @@ enum PaymentReceiptState {
   PAYMENT_RECEIPT_STATE_REFUND_RELEASED = 4;
   PAYMENT_RECEIPT_STATE_EXTERNAL_REFUND_APPLIED = 5;
   PAYMENT_RECEIPT_STATE_REJECTED = 6;
+  // Only the core-issued intent was durably saved. No credit/hold/transfer has
+  // occurred; clients MUST NOT interpret this as accepted or queued money.
+  PAYMENT_RECEIPT_STATE_PREPARED = 7;
 }
 message PaymentReceipt {
   string receipt_id = 1;

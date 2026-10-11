@@ -31,6 +31,9 @@ const (
 	PaymentReceiptState_PAYMENT_RECEIPT_STATE_REFUND_RELEASED         PaymentReceiptState = 4
 	PaymentReceiptState_PAYMENT_RECEIPT_STATE_EXTERNAL_REFUND_APPLIED PaymentReceiptState = 5
 	PaymentReceiptState_PAYMENT_RECEIPT_STATE_REJECTED                PaymentReceiptState = 6
+	// Only the core-issued intent was durably saved. No credit/hold/transfer has
+	// occurred; clients MUST NOT interpret this as accepted or queued money.
+	PaymentReceiptState_PAYMENT_RECEIPT_STATE_PREPARED PaymentReceiptState = 7
 )
 
 // Enum value maps for PaymentReceiptState.
@@ -43,6 +46,7 @@ var (
 		4: "PAYMENT_RECEIPT_STATE_REFUND_RELEASED",
 		5: "PAYMENT_RECEIPT_STATE_EXTERNAL_REFUND_APPLIED",
 		6: "PAYMENT_RECEIPT_STATE_REJECTED",
+		7: "PAYMENT_RECEIPT_STATE_PREPARED",
 	}
 	PaymentReceiptState_value = map[string]int32{
 		"PAYMENT_RECEIPT_STATE_UNSPECIFIED":             0,
@@ -52,6 +56,7 @@ var (
 		"PAYMENT_RECEIPT_STATE_REFUND_RELEASED":         4,
 		"PAYMENT_RECEIPT_STATE_EXTERNAL_REFUND_APPLIED": 5,
 		"PAYMENT_RECEIPT_STATE_REJECTED":                6,
+		"PAYMENT_RECEIPT_STATE_PREPARED":                7,
 	}
 )
 
@@ -956,7 +961,7 @@ const file_lmm_core_v1_payments_proto_rawDesc = "" +
 	"\x18PaymentStateChangedEvent\x125\n" +
 	"\areceipt\x18\x01 \x01(\v2\x1b.lmm.core.v1.PaymentReceiptR\areceipt\x12\x1d\n" +
 	"\n" +
-	"account_id\x18\x02 \x01(\x03R\taccountId*\xbb\x02\n" +
+	"account_id\x18\x02 \x01(\x03R\taccountId*\xdf\x02\n" +
 	"\x13PaymentReceiptState\x12%\n" +
 	"!PAYMENT_RECEIPT_STATE_UNSPECIFIED\x10\x00\x12(\n" +
 	"$PAYMENT_RECEIPT_STATE_CREDIT_APPLIED\x10\x01\x12%\n" +
@@ -964,7 +969,8 @@ const file_lmm_core_v1_payments_proto_rawDesc = "" +
 	"&PAYMENT_RECEIPT_STATE_REFUND_COMMITTED\x10\x03\x12)\n" +
 	"%PAYMENT_RECEIPT_STATE_REFUND_RELEASED\x10\x04\x121\n" +
 	"-PAYMENT_RECEIPT_STATE_EXTERNAL_REFUND_APPLIED\x10\x05\x12\"\n" +
-	"\x1ePAYMENT_RECEIPT_STATE_REJECTED\x10\x062\xc6\x04\n" +
+	"\x1ePAYMENT_RECEIPT_STATE_REJECTED\x10\x06\x12\"\n" +
+	"\x1ePAYMENT_RECEIPT_STATE_PREPARED\x10\a2\xc6\x04\n" +
 	"\fCorePayments\x12L\n" +
 	"\fPrepareTopup\x12 .lmm.core.v1.PrepareTopupRequest\x1a\x1a.lmm.core.v1.PaymentIntent\x12K\n" +
 	"\vCreditTopup\x12\x1f.lmm.core.v1.CreditTopupRequest\x1a\x1b.lmm.core.v1.PaymentReceipt\x12I\n" +

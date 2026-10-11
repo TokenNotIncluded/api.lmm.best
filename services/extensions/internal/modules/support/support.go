@@ -44,20 +44,28 @@ type Customer struct {
 	Notes     string        `json:"notes"`
 	Tags      []string      `json:"tags"`
 	CreatedAt time.Time     `json:"created_at"`
+	Revision  int64         `json:"revision,omitempty"`
 }
 type Conversation struct {
-	ID          string        `json:"id"`
-	Buyer       store.Account `json:"buyer"`
-	Seller      store.Account `json:"seller"`
-	CustomerID  string        `json:"customer_id"`
-	OrderID     string        `json:"order_id,omitempty"`
-	Subject     string        `json:"subject"`
-	Closed      bool          `json:"closed"`
-	Sequence    int64         `json:"sequence"`
-	RequestHash string        `json:"request_hash"`
-	CreatedAt   time.Time     `json:"created_at"`
+	ShopID        string        `json:"shop_id,omitempty"`
+	ProductID     string        `json:"product_id,omitempty"`
+	ID            string        `json:"id"`
+	Buyer         store.Account `json:"buyer"`
+	Seller        store.Account `json:"seller"`
+	CustomerID    string        `json:"customer_id"`
+	OrderID       string        `json:"order_id,omitempty"`
+	Subject       string        `json:"subject"`
+	Closed        bool          `json:"closed"`
+	Sequence      int64         `json:"sequence"`
+	RequestHash   string        `json:"request_hash"`
+	CreatedAt     time.Time     `json:"created_at"`
+	UpdatedAt     time.Time     `json:"updated_at,omitempty"`
+	LastMessageID int64         `json:"last_message_id,omitempty"`
+	BuyerReadID   int64         `json:"buyer_read_id,omitempty"`
+	SellerReadID  int64         `json:"seller_read_id,omitempty"`
 }
 type Message struct {
+	NumericID      int64         `json:"numeric_id,omitempty"`
 	ID             string        `json:"id"`
 	ConversationID string        `json:"conversation_id"`
 	AuthorUserID   int64         `json:"author_user_id"`
@@ -101,6 +109,9 @@ type OpenRequest struct {
 	OrderID string        `json:"order_id"`
 	Subject string        `json:"subject"`
 	Key     string        `json:"key"`
+	// StableActor is assigned only by the authenticated compatibility service.
+	// It makes an order's buyer/seller opening share one legacy conversation.
+	StableActor int64 `json:"-"`
 }
 
 func (s *Service) Open(ctx context.Context, token string, r OpenRequest) (Conversation, error) {
@@ -132,7 +143,11 @@ func (s *Service) Open(ctx context.Context, token string, r OpenRequest) (Conver
 			return Conversation{}, store.ErrForbidden
 		}
 	}
-	id := store.ID("conversation", actor, r.Buyer, r.Key)
+	identityActor := actor
+	if r.StableActor > 0 {
+		identityActor = r.StableActor
+	}
+	id := store.ID("conversation", identityActor, r.Buyer, r.Key)
 	hash := store.ID(r)
 	err = s.repo.Within(ctx, r.ShopID, func(tx Tx) error {
 		if err := tx.Get("conversations", id, &c); err == nil {
@@ -146,14 +161,14 @@ func (s *Service) Open(ctx context.Context, token string, r OpenRequest) (Conver
 		customerID := store.ID("customer", r.Buyer)
 		var customer Customer
 		if err := tx.Get("customers", customerID, &customer); errors.Is(err, store.ErrNotFound) {
-			customer = Customer{ID: customerID, Buyer: r.Buyer, Tags: []string{}, CreatedAt: time.Now().UTC()}
+			customer = Customer{ID: customerID, Buyer: r.Buyer, Tags: []string{}, CreatedAt: time.Now().UTC(), Revision: 1}
 			if err = tx.Put("customers", customerID, customer); err != nil {
 				return err
 			}
 		} else if err != nil {
 			return err
 		}
-		c = Conversation{ID: id, Buyer: r.Buyer, Seller: owner, CustomerID: customerID, OrderID: r.OrderID, Subject: r.Subject, RequestHash: hash, CreatedAt: time.Now().UTC()}
+		c = Conversation{ShopID: r.ShopID, ID: id, Buyer: r.Buyer, Seller: owner, CustomerID: customerID, OrderID: r.OrderID, Subject: r.Subject, RequestHash: hash, CreatedAt: time.Now().UTC(), UpdatedAt: time.Now().UTC()}
 		return tx.Put("conversations", id, c)
 	})
 	return c, err
@@ -199,7 +214,7 @@ func (s *Service) Change(ctx context.Context, token string, r ConversationChange
 		var value any
 		switch r.Action {
 		case "message":
-			if !store.Text(r.Body, 8192) {
+			if !store.Text(r.Body, 16000) {
 				return store.ErrInvalid
 			}
 			if c.Closed {
@@ -209,11 +224,20 @@ func (s *Service) Change(ctx context.Context, token string, r ConversationChange
 				return store.ErrConflict
 			}
 			c.Sequence++
-			message := Message{ID: fmt.Sprintf("%s:%020d", c.ID, c.Sequence), ConversationID: c.ID, AuthorUserID: actor, AuthorAccount: party, Body: r.Body, CreatedAt: time.Now().UTC()}
+			numericID := c.Sequence
+			if sequence, ok := tx.(interface{ NextMessageID() (int64, error) }); ok {
+				var err error
+				numericID, err = sequence.NextMessageID()
+				if err != nil {
+					return err
+				}
+			}
+			message := Message{NumericID: numericID, ID: fmt.Sprintf("%s:%020d", c.ID, c.Sequence), ConversationID: c.ID, AuthorUserID: actor, AuthorAccount: party, Body: r.Body, CreatedAt: time.Now().UTC()}
 			if err := tx.Put("messages", message.ID, message); err != nil {
 				return err
 			}
 			value = message
+			c.LastMessageID = numericID
 		case "close":
 			c.Closed = true
 			value = c
@@ -223,6 +247,7 @@ func (s *Service) Change(ctx context.Context, token string, r ConversationChange
 		default:
 			return store.ErrInvalid
 		}
+		c.UpdatedAt = time.Now().UTC()
 		if err := tx.Put("conversations", c.ID, c); err != nil {
 			return err
 		}

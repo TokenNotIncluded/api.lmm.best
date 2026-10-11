@@ -138,11 +138,18 @@ func (s *Stripe) checkoutMatches(v stripeObject, o Order) bool {
 }
 
 func (s *Stripe) Checkout(ctx context.Context, o Order, key string) (Checkout, error) {
+	// Only the immutable intent returned by Rust may bind provider evidence.
+	// Reject an absent intent or a different merchant before any provider I/O.
+	if o.Intent.ID <= 0 || o.Intent.Merchant != s.cfg.Channel.Merchant {
+		return Checkout{}, ErrInvalid
+	}
 	if err := s.merchant(ctx); err != nil {
 		return Checkout{}, err
 	}
 	f := url.Values{"mode": {"payment"}, "success_url": {s.cfg.SuccessURL}, "cancel_url": {s.cfg.CancelURL}, "client_reference_id": {o.ID},
 		"metadata[lmm_order_id]": {o.ID}, "payment_intent_data[metadata][lmm_order_id]": {o.ID},
+		"metadata[lmm_core_intent_id]": {strconv.FormatInt(o.Intent.ID, 10)}, "metadata[lmm_merchant]": {o.Intent.Merchant},
+		"payment_intent_data[metadata][lmm_core_intent_id]": {strconv.FormatInt(o.Intent.ID, 10)}, "payment_intent_data[metadata][lmm_merchant]": {o.Intent.Merchant},
 		"line_items[0][quantity]": {"1"}, "line_items[0][price_data][currency]": {strings.ToLower(o.Intent.Currency)},
 		"line_items[0][price_data][unit_amount]": {strconv.FormatInt(o.Intent.AmountMinor, 10)}, "line_items[0][price_data][product_data][name]": {"Account top-up"},
 		"automatic_tax[enabled]": {"false"}, "allow_promotion_codes": {"false"}, "adaptive_pricing[enabled]": {"false"}}
@@ -421,7 +428,7 @@ func apiEvidence(e *Event, id, state string) {
 	e.Evidence.Signature = nil
 }
 func (s *Stripe) Refund(ctx context.Context, o Order, r Refund, key string) (RefundResult, error) {
-	if r.HoldReceipt == "" || !validAmount(r.AmountMinor) || r.AmountMinor > o.Intent.AmountMinor || o.PaymentID == "" {
+	if o.Intent.ID <= 0 || o.Intent.Merchant != s.cfg.Channel.Merchant || r.HoldReceipt == "" || !validAmount(r.AmountMinor) || r.AmountMinor > o.Intent.AmountMinor || o.PaymentID == "" {
 		return RefundResult{}, ErrInvalid
 	}
 	if err := s.merchant(ctx); err != nil {
@@ -436,7 +443,10 @@ func (s *Stripe) Refund(ctx context.Context, o Order, r Refund, key string) (Ref
 	if payment.Status != "succeeded" || payment.Received != payment.Amount {
 		return RefundResult{}, ErrConflict
 	}
-	f := url.Values{"payment_intent": {o.PaymentID}, "amount": {strconv.FormatInt(r.AmountMinor, 10)}, "metadata[lmm_order_id]": {o.ID}, "metadata[lmm_refund_id]": {r.ID}}
+	f := url.Values{"payment_intent": {o.PaymentID}, "amount": {strconv.FormatInt(r.AmountMinor, 10)},
+		"metadata[lmm_order_id]": {o.ID}, "metadata[lmm_refund_id]": {r.ID},
+		"metadata[lmm_core_intent_id]": {strconv.FormatInt(o.Intent.ID, 10)}, "metadata[lmm_merchant]": {o.Intent.Merchant},
+		"metadata[lmm_hold_receipt_id]": {r.HoldReceipt}}
 	b, err := s.api(ctx, "POST", "refunds", key, f)
 	if err != nil {
 		return RefundResult{}, err

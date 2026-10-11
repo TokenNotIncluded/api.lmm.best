@@ -15,7 +15,7 @@ const checkoutObject = `{"id":"cs_fixture","object":"checkout.session","mode":"p
 const refundObject = `{"id":"re_fixture","object":"refund","payment_intent":"pi_top_1","amount":300,"currency":"usd","status":"succeeded","metadata":{"lmm_order_id":"top_1","lmm_refund_id":"local_refund"}}`
 
 func bindingOrder() Order {
-	return Order{ID: "top_1", PaymentID: "pi_top_1", Intent: Intent{Currency: "USD", AmountMinor: 1000}}
+	return Order{ID: "top_1", PaymentID: "pi_top_1", Intent: Intent{ID: 1, Merchant: "acct_fixture", Currency: "USD", AmountMinor: 1000}}
 }
 
 // Both creation and recovery must use the same frozen order and channel fields.

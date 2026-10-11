@@ -121,6 +121,11 @@ func receiptMatches(r Receipt, intent int64, key, state string) bool {
 	if r.State != state {
 		return false
 	}
+	// A fully refunded payment observed before credit is durably fenced without
+	// posting money. This state proves no top-up credit; no fake journal is needed.
+	if state == ExternalRefundApplied {
+		return r.JournalID >= 0
+	}
 	return r.JournalID > 0
 }
 

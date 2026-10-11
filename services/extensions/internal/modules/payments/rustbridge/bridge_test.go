@@ -6,6 +6,7 @@ import (
 	"net"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/coreclient"
@@ -23,7 +24,7 @@ func TestUnsignedEvidenceAndUnknownReceiptsFailClosed(t *testing.T) {
 			t.Fatal("unsigned evidence accepted", err)
 		}
 	}
-	for _, state := range []pb.PaymentReceiptState{pb.PaymentReceiptState_PAYMENT_RECEIPT_STATE_UNSPECIFIED, pb.PaymentReceiptState(999)} {
+	for _, state := range []pb.PaymentReceiptState{pb.PaymentReceiptState_PAYMENT_RECEIPT_STATE_UNSPECIFIED, pb.PaymentReceiptState_PAYMENT_RECEIPT_STATE_PREPARED, pb.PaymentReceiptState(999)} {
 		if _, err := convert(&pb.PaymentReceipt{State: state}, nil); !errors.Is(err, p.ErrUnavailable) {
 			t.Fatal("unknown receipt accepted", err)
 		}
@@ -39,6 +40,53 @@ func TestUnsignedEvidenceAndUnknownReceiptsFailClosed(t *testing.T) {
 	e.Payload[0] = 'X'
 	if string(v.SignedPayload) != "exact bytes" {
 		t.Fatal("proof aliases caller buffer")
+	}
+}
+
+type readServer struct {
+	pb.UnimplementedCorePaymentsServer
+	mu      sync.Mutex
+	receipt *pb.PaymentReceipt
+}
+
+func (s *readServer) GetPaymentReceipt(_ context.Context, _ *pb.GetPaymentReceiptRequest) (*pb.PaymentReceipt, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.receipt, nil
+}
+
+func TestPreparedReceiptAuthorizesReadButNeverBecomesMoneySuccess(t *testing.T) {
+	socket := filepath.Join(t.TempDir(), "core.sock")
+	listener, err := net.Listen("unix", socket)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wire := &readServer{receipt: &pb.PaymentReceipt{ReceiptId: "pay_prepared", IntentId: 1, IdempotencyKey: "prepare_fixture_0001", RequestSha256: make([]byte, 32), State: pb.PaymentReceiptState_PAYMENT_RECEIPT_STATE_PREPARED}}
+	server := grpc.NewServer()
+	pb.RegisterCorePaymentsServer(server, wire)
+	go func() { _ = server.Serve(listener) }()
+	defer server.Stop()
+	client, err := coreclient.New(socket, []byte(strings.Repeat("s", 32)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer client.Close()
+	bridge, err := New(client)
+	if err != nil {
+		t.Fatal(err)
+	}
+	intent := p.Intent{ID: 1, Key: "prepare_fixture_0001"}
+	if err = bridge.Read(context.Background(), strings.Repeat("u", 32), intent); err != nil {
+		t.Fatal("durable intent read denied", err)
+	}
+	if _, err = convert(wire.receipt, nil); !errors.Is(err, p.ErrUnavailable) {
+		t.Fatal("prepared intent became money success", err)
+	}
+	wire.mu.Lock()
+	wire.receipt = &pb.PaymentReceipt{ReceiptId: "pay_prepared", IntentId: 1, IdempotencyKey: intent.Key, RequestSha256: make([]byte, 32), State: pb.PaymentReceiptState_PAYMENT_RECEIPT_STATE_PREPARED, JournalId: 10}
+	wire.mu.Unlock()
+	if err = bridge.Read(context.Background(), strings.Repeat("u", 32), intent); !errors.Is(err, p.ErrUnavailable) {
+		t.Fatal("prepared intent invented journal", err)
 	}
 }
 

@@ -41,7 +41,19 @@ func (b *Bridge) Read(ctx context.Context, user string, intent p.Intent) error {
 	if err != nil {
 		return mapError(err)
 	}
-	if r == nil || r.IntentId != intent.ID {
+	if r == nil || r.IntentId != intent.ID || r.IdempotencyKey != intent.Key || r.ReceiptId == "" || len(r.RequestSha256) != 32 {
+		return p.ErrUnavailable
+	}
+	if r.State == pb.PaymentReceiptState_PAYMENT_RECEIPT_STATE_PREPARED && (r.JournalId != 0 || r.RejectionCode != "") {
+		return p.ErrUnavailable
+	}
+	// PREPARED proves only durable intent ownership. It never asserts money.
+	if r.State != pb.PaymentReceiptState_PAYMENT_RECEIPT_STATE_PREPARED &&
+		r.State != pb.PaymentReceiptState_PAYMENT_RECEIPT_STATE_CREDIT_APPLIED &&
+		r.State != pb.PaymentReceiptState_PAYMENT_RECEIPT_STATE_REFUND_HELD &&
+		r.State != pb.PaymentReceiptState_PAYMENT_RECEIPT_STATE_REFUND_COMMITTED &&
+		r.State != pb.PaymentReceiptState_PAYMENT_RECEIPT_STATE_REFUND_RELEASED &&
+		r.State != pb.PaymentReceiptState_PAYMENT_RECEIPT_STATE_EXTERNAL_REFUND_APPLIED {
 		return p.ErrUnavailable
 	}
 	return nil

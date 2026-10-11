@@ -16,7 +16,7 @@ CREATE TABLE lmm_support.messages (
  shop_id text NOT NULL, id text NOT NULL, body jsonb NOT NULL,
  PRIMARY KEY(shop_id,id), CHECK(jsonb_typeof(body)='object'),
  CHECK((body->>'author_user_id')::bigint>0),
- CHECK(octet_length(body->>'body') BETWEEN 1 AND 8192)
+ CHECK(octet_length(body->>'body') BETWEEN 1 AND 16000)
 );
 CREATE TABLE lmm_support.commands (
  shop_id text NOT NULL, id text NOT NULL, body jsonb NOT NULL,

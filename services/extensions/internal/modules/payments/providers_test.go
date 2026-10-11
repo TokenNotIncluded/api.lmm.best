@@ -154,7 +154,7 @@ func TestStripeExternalRefundResolvesOriginalPayment(t *testing.T) {
 }
 func TestStripeCheckoutAndRefundUseStableKeysAndIntegerAmounts(t *testing.T) {
 	s := stripeFixture(t)
-	o := Order{ID: "top_1", PaymentID: "pi_top_1", Intent: Intent{Currency: "USD", AmountMinor: 1000}}
+	o := bindingOrder()
 	r := Refund{ID: "local_refund", HoldReceipt: "held_by_core", AmountMinor: 300}
 	writes := 0
 	s.client = &http.Client{Transport: transportFunc(func(req *http.Request) (*http.Response, error) {

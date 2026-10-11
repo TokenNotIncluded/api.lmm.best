@@ -44,7 +44,7 @@ func TestMocklabStripeAdapter(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	order := Order{ID: "mock_adapter_" + c.Manifest.RunID, Intent: Intent{Currency: "USD", AmountMinor: 1000}}
+	order := Order{ID: "mock_adapter_" + c.Manifest.RunID, Intent: Intent{ID: 1, Merchant: lab.StripeMerchant, Currency: "USD", AmountMinor: 1000}}
 	key := "mock_checkout_" + c.Manifest.RunID
 	checkout, err := s.Checkout(ctx, order, key)
 	if err != nil {

@@ -22,6 +22,7 @@ var (
 	ErrPaymentUnavailable = errors.New("payments_unavailable")
 	ErrPending            = errors.New("money_result_pending")
 	ErrSoldOut            = errors.New("stock_or_quota_exhausted")
+	ErrRateLimited        = errors.New("rate_limit_exceeded")
 )
 
 type Account struct {
@@ -71,6 +72,10 @@ type Product struct {
 	ID        string `json:"id"`
 	Title     string `json:"title"`
 	Published bool   `json:"published"`
+	// LegacyPublic is an explicitly imported public catalogue DTO. Its integer
+	// credit prices are never derived from Variant.Price external minor units.
+	LegacyPublic        json.RawMessage `json:"legacy_public,omitempty"`
+	LegacyPublicVersion int             `json:"legacy_public_version,omitempty"`
 }
 type Variant struct {
 	ID         string `json:"id"`

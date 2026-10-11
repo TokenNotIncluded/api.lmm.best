@@ -15,10 +15,10 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/coreclient"
+	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/composition"
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/legal"
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules"
-	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/identity"
+	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/webcompat"
 )
 
 func Run() error {
@@ -40,31 +40,24 @@ func Run() error {
 	if socket != "" {
 		defaults = []string{"identity"}
 	}
-	selected, err := modules.Select(os.Getenv("LMM_EXTENSION_MODULES"), defaults, []string{"identity"})
+	selected, err := modules.Select(os.Getenv("LMM_EXTENSION_MODULES"), defaults, []string{"identity", "store", "support"})
 	if err != nil {
 		return err
 	}
-	var registered []modules.Module
-	for _, name := range selected {
-		switch name {
-		case "identity":
-			if socket == "" {
-				return errors.New("identity module requires core RPC configuration")
-			}
-			token, err := coreclient.ReadTokenFile(tokenFile)
-			if err != nil {
-				return err
-			}
-			client, err := coreclient.New(socket, token)
-			if err != nil {
-				return err
-			}
-			defer client.Close()
-			// Construction is lazy: a stopped Rust process cannot block Go startup.
-			registered = append(registered, identity.New(client))
-		}
+	webEnabled := os.Getenv("LMM_EXTENSION_WEB_COMPAT")
+	if webEnabled != "" && webEnabled != "false" && webEnabled != "true" {
+		return errors.New("LMM_EXTENSION_WEB_COMPAT must be true or false")
 	}
-	host, err := modules.NewHost(registered, credential)
+	runtime, err := composition.New(context.Background(), composition.Config{
+		Selected: selected, Socket: socket, TokenFile: tokenFile,
+		Store:   composition.StorageConfig{Component: "store", URLFile: os.Getenv("LMM_STORE_DATABASE_URL_FILE"), Database: os.Getenv("LMM_STORE_DATABASE_NAME")},
+		Support: composition.StorageConfig{Component: "support", URLFile: os.Getenv("LMM_SUPPORT_DATABASE_URL_FILE"), Database: os.Getenv("LMM_SUPPORT_DATABASE_NAME")},
+	})
+	if err != nil {
+		return err
+	}
+	defer runtime.Close()
+	host, err := modules.NewHost(runtime.Modules, credential)
 	if err != nil {
 		return err
 	}
@@ -72,7 +65,18 @@ func Run() error {
 	if err != nil {
 		return err
 	}
-	handler := policies.Mount(host)
+	var api http.Handler = host
+	if webEnabled == "true" {
+		if runtime.Store == nil {
+			return errors.New("Web compatibility requires the store module")
+		}
+		auth, err := webcompat.NewAuthenticator(runtime.Client, credential)
+		if err != nil {
+			return err
+		}
+		api = webcompat.Mount(host, auth, runtime.Store, runtime.Support)
+	}
+	handler := policies.Mount(api)
 	address := os.Getenv("LMM_EXTENSION_LISTEN")
 	if address == "" {
 		address = "0.0.0.0:8081"

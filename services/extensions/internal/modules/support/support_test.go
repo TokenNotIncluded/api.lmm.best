@@ -162,7 +162,7 @@ func want(t *testing.T, err, expected error) {
 }
 func open(t *testing.T, s *Service, buyer store.Account, token, key string) Conversation {
 	t.Helper()
-	c, err := s.Open(context.Background(), token, OpenRequest{"shop", buyer, "", "Question", key})
+	c, err := s.Open(context.Background(), token, OpenRequest{ShopID: "shop", Buyer: buyer, Subject: "Question", Key: key})
 	must(t, err)
 	return c
 }
@@ -284,7 +284,7 @@ func TestCloseReopenAndPermissionRevocation(t *testing.T) {
 func TestOrderLinkAndSellerInitiation(t *testing.T) {
 	s, _, dir := fixture(t, false)
 	ctx := context.Background()
-	r := OpenRequest{"shop", store.Account{Kind: "personal", ID: 2}, "", "Question", "new"}
+	r := OpenRequest{ShopID: "shop", Buyer: store.Account{Kind: "personal", ID: 2}, Subject: "Question", Key: "new"}
 	_, err := s.Open(ctx, sellerToken, r)
 	want(t, err, store.ErrForbidden)
 	r.OrderID = "missing"
@@ -308,7 +308,7 @@ func TestOrderLinkAndSellerInitiation(t *testing.T) {
 	dir.down = true
 	_, err = s.Change(ctx, buyerToken, ConversationChange{"shop", c.ID, "message", "message", "existing thread"})
 	must(t, err)
-	_, err = s.Open(ctx, buyerToken, OpenRequest{"shop", store.Account{Kind: "personal", ID: 2}, "", "New", "newer"})
+	_, err = s.Open(ctx, buyerToken, OpenRequest{ShopID: "shop", Buyer: store.Account{Kind: "personal", ID: 2}, Subject: "New", Key: "newer"})
 	want(t, err, store.ErrUnavailable)
 }
 func TestSupportHTTPRejectsForgedAuthorAndLeaksNoNotes(t *testing.T) {
