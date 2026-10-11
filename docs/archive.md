@@ -11,6 +11,11 @@
 - [bi-08-store-delivery-20261010](https://github.com/TokenNotIncluded/api.lmm.best/blob/7dc467bc50d8e78964e0cb7a8b892a171b5b4211/docs/audits/bi-08-store-delivery-20261010.md)
 - [rt-17-request-ambiguity](https://github.com/TokenNotIncluded/api.lmm.best/blob/b25293a1157782a77ad2244b4a3f4e563a0e2ed2/docs/audits/rt-17-request-ambiguity.md)
 - [rt19-async-task-state](https://github.com/TokenNotIncluded/api.lmm.best/blob/67559bc41ae15e7204396140e52fac5436d59fe4/docs/audits/rt19-async-task-state.md)
+- [BI-01 旧单体计价验证](https://github.com/TokenNotIncluded/api.lmm.best/blob/b8f775b7a2753c4e374101edf5dfe6c0b066332e/scripts/business-audit/BI-01-tier-pricing.md)
+- [RT-15 旧浏览器来源边界审计](https://github.com/TokenNotIncluded/api.lmm.best/blob/b8f775b7a2753c4e374101edf5dfe6c0b066332e/scripts/security-audit/rt15-browser-origin.md)
+- [RT-20 旧准入组件资源探针与证据](https://github.com/TokenNotIncluded/api.lmm.best/blob/b8f775b7a2753c4e374101edf5dfe6c0b066332e/scripts/resource-audit/rt20.md)
+
+上述脚本审计原文保留对应的源码基线和未完成项；已移除的旧单体探针不是当前测试入口。仍适用的前端、安全及金融回归输入继续保留在仓库中。
 
 ## 旧部署和数据维护
 
