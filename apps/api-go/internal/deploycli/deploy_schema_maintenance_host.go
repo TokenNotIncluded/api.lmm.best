@@ -174,6 +174,9 @@ func (h *productionSchemaMaintenanceHost) writeCapture(name string, capture prod
 
 func (h *productionSchemaMaintenanceHost) readCapture(name string) (productionSchemaMaintenanceHostCapture, error) {
 	var capture productionSchemaMaintenanceHostCapture
+	if filepath.Base(name) != name || name == "." || name == ".." {
+		return capture, errors.New("schema maintenance capture name is not fixed")
+	}
 	raw, err := h.runtime.readExistingSchemaSealedFile(filepath.Join(h.binding.Workspace, "state", name), true)
 	if err != nil || len(raw) > 16384 {
 		return capture, errors.New("schema maintenance actual capture is unavailable")
@@ -264,7 +267,7 @@ func (h *productionSchemaMaintenanceHost) verifyTrackedProvider(ctx context.Cont
 	if h.runtime.merchantStoreCapsuleFile(pkg, 0600) != nil || sha256MustEqual(pkg, c.Candidate.PackageSHA256) != nil {
 		return errors.New("schema maintenance tracked provider package changed")
 	}
-	data, err := h.runtime.runner.Run(ctx, productionCommand{Name: commandBsdtar, Args: []string{"-xOf", pkg, marker}, OutputLimit: 1024})
+	data, err := h.runtime.runner.Run(ctx, productionCommand{Name: commandBsdtar, Args: []string{"-xOf", pkg, marker}, Env: []string{"PATH=/usr/bin:/bin", "LANG=C", "LC_ALL=C"}, OutputLimit: 1024})
 	if err != nil || !bytes.Equal(data, []byte("v1\n")) || sha256MustEqual(pkg, c.Candidate.PackageSHA256) != nil {
 		return errors.New("schema maintenance refuses a provider without the signed refund-task drain capability")
 	}
@@ -422,7 +425,7 @@ func (h *productionSchemaMaintenanceHost) probeAdmission(ctx context.Context) er
 		return errors.New("schema maintenance admission requires the canonical production origin")
 	}
 	for _, route := range []string{"/api/status", "/api/user/self", "/v1/models"} {
-		out, err := h.runtime.runner.Run(ctx, productionCommand{Name: "/usr/bin/curl", Args: []string{"--silent", "--show-error", "--include", "--max-time", "5", "--noproxy", "*", "--connect-to", "api.lmm.best:443:127.0.0.1:443", "https://api.lmm.best" + route}, Env: []string{"PATH=/usr/bin:/bin", "LANG=C", "LC_ALL=C"}, Timeout: 7 * time.Second, OutputLimit: 32768})
+		out, err := h.runtime.runner.Run(ctx, productionCommand{Name: "/usr/bin/curl", Args: []string{"--disable", "--silent", "--show-error", "--include", "--max-time", "5", "--noproxy", "*", "--connect-to", "api.lmm.best:443:127.0.0.1:443", "https://api.lmm.best" + route}, Env: []string{"PATH=/usr/bin:/bin", "LANG=C", "LC_ALL=C"}, Timeout: 7 * time.Second, OutputLimit: 32768})
 		if err != nil || validateSchemaMaintenanceAdmissionResponse(out, h.binding.TransitionID) != nil {
 			return errors.New("schema maintenance direct-origin admission proof failed")
 		}
@@ -649,7 +652,7 @@ func (h *productionSchemaMaintenanceHost) probeRestoredAdmission(ctx context.Con
 	if err != nil {
 		return err
 	}
-	out, err := h.runtime.runner.Run(ctx, productionCommand{Name: "/usr/bin/curl", Args: []string{"--silent", "--show-error", "--include", "--max-time", "5", "--noproxy", "*", "--connect-to", "api.lmm.best:443:127.0.0.1:443", "https://api.lmm.best/api/status"}, Env: []string{"PATH=/usr/bin:/bin", "LANG=C", "LC_ALL=C"}, Timeout: 7 * time.Second, OutputLimit: 32768})
+	out, err := h.runtime.runner.Run(ctx, productionCommand{Name: "/usr/bin/curl", Args: []string{"--disable", "--silent", "--show-error", "--include", "--max-time", "5", "--noproxy", "*", "--connect-to", "api.lmm.best:443:127.0.0.1:443", "https://api.lmm.best/api/status"}, Env: []string{"PATH=/usr/bin:/bin", "LANG=C", "LC_ALL=C"}, Timeout: 7 * time.Second, OutputLimit: 32768})
 	parts := bytes.SplitN(out, []byte("\r\n\r\n"), 2)
 	if err != nil || len(parts) != 2 {
 		return errors.New("schema maintenance reopened direct-origin readiness is unavailable")
