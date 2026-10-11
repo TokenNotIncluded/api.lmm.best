@@ -23,7 +23,7 @@ func TestWaffoPancakePaymentCheckedAtMigratesExistingTopUps(t *testing.T) {
 	require.Zero(t, order.PaymentCheckedAt)
 }
 
-func TestFailExpiredWaffoPancakeTopUpPreservesSettlementAndReleasesReservation(t *testing.T) {
+func TestFailExpiredWaffoPancakeTopUpPreservesSettlementAndReservation(t *testing.T) {
 	db := setupExternalTopUpSettlementDB(t, 1)
 	require.NoError(t, db.AutoMigrate(&DiscountCodeReservation{}))
 	const cutoff int64 = 1_800_000_000
@@ -56,7 +56,7 @@ func TestFailExpiredWaffoPancakeTopUpPreservesSettlementAndReleasesReservation(t
 	require.Equal(t, cutoff+5, stored.CompleteTime)
 	var reservation DiscountCodeReservation
 	require.NoError(t, db.Where("top_up_trade_no = ?", orders[0].TradeNo).First(&reservation).Error)
-	require.Equal(t, DiscountCodeReservationStatusReleased, reservation.Status)
+	require.Equal(t, DiscountCodeReservationStatusReserved, reservation.Status)
 
 	for _, order := range orders[1:] {
 		failed, err = FailExpiredWaffoPancakeTopUp(context.Background(), order.Id, cutoff, cutoff+5)
