@@ -1,0 +1,32 @@
+{
+  "marker": "LMM-MOCK-ONLY-v1",
+  "environment": "test",
+  "seed": 7,
+  "epoch": 1791633600,
+  "listen": {"host": "127.0.0.1", "port": 0},
+  "limits": {
+    "requests": 512,
+    "concurrency": 8,
+    "body_bytes": 65536,
+    "total_input_bytes": 4194304,
+    "response_bytes": 262144,
+    "wall_seconds": 20,
+    "run_seconds": 600,
+    "records": 1024
+  },
+  "instances": [
+    {"id": "stripe", "protocol": "stripe-v1", "currency": "USD"},
+    {"id": "epay", "protocol": "epay-md5-cny", "currency": "CNY"},
+    {"id": "chat", "protocol": "openai-chat", "cached_tokens": 3},
+    {"id": "responses", "protocol": "openai-responses"},
+    {"id": "anthropic", "protocol": "anthropic-messages", "cached_tokens": 3},
+    {"id": "gemini", "protocol": "gemini-generate-content"},
+    {"id": "mcp", "protocol": "mcp-2025-11-25"},
+    {"id": "primary", "protocol": "openai-chat", "scenario": {"first_failures": 1, "recover_at_ms": 5000}},
+    {"id": "backup", "protocol": "openai-chat"},
+    {"id": "missing", "protocol": "openai-chat", "scenario": {"kind": "missing_usage"}},
+    {"id": "slow", "protocol": "openai-chat", "scenario": {"chunk_delay_ms": 1000}},
+    {"id": "stripe-timeout", "protocol": "stripe-v1", "currency": "USD", "scenario": {"kind": "timeout_after_commit", "first_byte_ms": 60000}}
+  ],
+  "callbacks": {}
+}

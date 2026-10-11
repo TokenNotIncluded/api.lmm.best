@@ -1,0 +1,7 @@
+{
+  "marker": "LMM-MOCK-ONLY-v1",
+  "targets": [
+    {"name": "main.local", "url": "http://127.0.0.1:18080", "host_header": "main.local", "declared_sha": "0000000000000000000000000000000000000000"},
+    {"name": "wip.local", "url": "http://127.0.0.1:18081", "host_header": "wip.local", "declared_sha": "0000000000000000000000000000000000000000"}
+  ]
+}
