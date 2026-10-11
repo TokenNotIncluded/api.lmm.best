@@ -31,7 +31,9 @@ jobs:
           cp scripts/pr675-rebase-maintenance.py "$RUNNER_TEMP/rebase.py"
           python3 -B "$RUNNER_TEMP/rebase.py" | tee "$RUNNER_TEMP/rebase-result.txt"
           test "$(git rev-parse HEAD^{tree})" = 30ac78002d96bf5e7339ecaacb7de97e0e3af424
-          git diff --check 1a2db5f244468932fbda8c013891e72ad91ef566 HEAD
+          # Preserve main's raw CSV bytes. CRLF terminators are not trailing spaces.
+          git diff --exit-code de2c439f26446792d4a605b2b91fa2b84777e284 HEAD -- scripts/resource-audit/rt20-process-curve.csv
+          git -c core.whitespace=blank-at-eol,blank-at-eof,space-before-tab,cr-at-eol diff --check 1a2db5f244468932fbda8c013891e72ad91ef566 HEAD
           test "$(git ls-remote origin refs/heads/wip/rust-core-go-extensions | cut -f1)" = 1a2db5f244468932fbda8c013891e72ad91ef566
           test "$(git ls-remote origin refs/heads/main | cut -f1)" = de2c439f26446792d4a605b2b91fa2b84777e284
           candidate=refs/heads/maintenance/rebased-pr675-20261011-124234
