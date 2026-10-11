@@ -16,6 +16,11 @@ import (
 )
 
 func SetHumanGrantRouter(router *gin.Engine) error {
+	// Router-only fixtures have no database. Do not change unrelated routes
+	// or expose a partial HumanGrant handler without persistent storage.
+	if model.DB == nil {
+		return nil
+	}
 	store, err := service.NewHumanGrantStore(model.DB)
 	if err != nil {
 		return fmt.Errorf("initialize HumanGrant: %w", err)
