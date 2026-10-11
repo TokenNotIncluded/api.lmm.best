@@ -509,7 +509,12 @@ func GetUser(c *gin.Context) {
 }
 
 func GenerateAccessToken(c *gin.Context) {
-	id := c.GetInt("id")
+	setAuthNoStore(c)
+	identity, ok := requireBrowserSession(c)
+	if !ok {
+		return
+	}
+	id := identity.UserID
 	// get rand int 28-32
 	randI := common.GetRandomInt(4)
 	key, err := common.GenerateRandomKey(29 + randI)
