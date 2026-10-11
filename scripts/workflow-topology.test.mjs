@@ -127,9 +127,14 @@ test('manual frontend deployment is restricted to a signed web release on both o
   assert.match(deploy, /cosign verify-blob/);
   assert.match(deploy, /certificate-oidc-issuer/);
   assert.match(deploy, /revision=\$\(tar -xzOf/);
-  assert.match(deploy, /\[\[ "\$target" == "\$revision" \]\]/);
+  assert.match(deploy, /"\$revision" == "\$target"/);
   assert.doesNotMatch(deploy, /gh release download/);
-  assert.match(deploy, /sha256sum --check/);
+  assert.match(deploy, /cmp --silent <\(sha256sum "\$archive"\) "\$archive\.sha256"/);
+  const signed = deploy.indexOf('      - name: Verify release signature\n');
+  const contract = deploy.indexOf('      - name: Validate verified release contract\n');
+  const key = deploy.indexOf('      - name: Install restricted deploy key\n');
+  assert.ok(signed >= 0 && contract > signed && key > contract,
+    'signature and exact release contract must pass before installing the key');
   assert.match(deploy, /publish "API origin" "\$API_HOST" "\$API_PORT"\n\s+publish "Public ingress" "\$INGRESS_HOST" "\$INGRESS_PORT"/);
   assert.match(deploy, /StrictHostKeyChecking=yes/);
   assert.doesNotMatch(deploy, /release-go\.yml|production-release-transaction\.py|lmm-api-deploy\s|operator\s+plan/);
