@@ -316,6 +316,10 @@ func TestSchemaMaintenanceBackupActualRestoreWithRealTools(t *testing.T) {
 	if validateSchemaMaintenanceBackupProjectedEqual(projectionBefore, project()) == nil {
 		t.Fatal("changed self owner hidden by projection")
 	}
+	sql("UPDATE app.options SET value=NULL WHERE key=" + schemaMaintenanceBackupLiteral(ownerKey) + ";")
+	if validateSchemaMaintenanceBackupProjectedEqual(projectionBefore, project()) == nil {
+		t.Fatal("NULL self owner hidden by SQL unknown predicate")
+	}
 	sql("UPDATE app.options SET value=" + schemaMaintenanceBackupLiteral(string(ownerBytes)) + " WHERE key=" + schemaMaintenanceBackupLiteral(ownerKey) + ";")
 	sql("UPDATE app.options SET value='changed' WHERE key='BusinessOption';")
 	if validateSchemaMaintenanceBackupProjectedEqual(projectionBefore, project()) == nil {
