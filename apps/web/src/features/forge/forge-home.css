@@ -1198,7 +1198,7 @@
     font-size: clamp(2.6rem, 9vw, 4.4rem);
   }
   .lmm-home[data-cinema-layout='immersive'] .lmm-poster-art {
-    inset: 4.5rem -12% 40%;
+    inset: calc(1rem + clamp(2.73rem, 9.45vw, 4.62rem) + 3.75rem) -12% 40%;
     height: auto;
   }
   .lmm-home[data-cinema-layout='immersive'] .lmm-scene-panel {
@@ -1301,8 +1301,8 @@
   .forge-surface:has(.lmm-home[data-cinema-layout='immersive'])
     > .home-directory-link {
     position: absolute;
-    top: 1rem;
-    left: 8.2rem;
+    top: calc(1rem + clamp(2.73rem, 9.45vw, 4.62rem) + 0.5rem);
+    left: clamp(1.25rem, 4vw, 4rem);
     right: 4.6rem;
     z-index: 2;
     width: auto;
@@ -1333,6 +1333,32 @@
     > svg:first-child {
     width: 1rem;
     height: 1rem;
+  }
+}
+@media (max-width: 900px) and (max-height: 600px) and (prefers-reduced-motion: no-preference) {
+  .forge-surface:has(.lmm-home[data-cinema-layout='immersive'])
+    > .home-directory-link {
+    top: 1rem;
+    left: auto;
+    right: calc(clamp(1.25rem, 4vw, 4rem) + 4.5rem);
+    width: max-content;
+  }
+  .lmm-home[data-cinema-layout='immersive'] .lmm-poster-brand {
+    right: auto;
+    font-size: clamp(1.5rem, 5vw, 2.2rem);
+  }
+}
+@media (max-width: 480px) and (max-height: 600px) and (prefers-reduced-motion: no-preference) {
+  .lmm-home[data-cinema-layout='immersive'] .lmm-scene-panel {
+    bottom: 6.5rem;
+  }
+  .lmm-home[data-cinema-layout='immersive'] .lmm-core-steps {
+    inset: auto var(--home-gutter) 3.25rem;
+    justify-content: space-between;
+    gap: 0.25rem;
+  }
+  .lmm-home[data-cinema-layout='immersive'] .lmm-core-steps button {
+    white-space: nowrap;
   }
 }
 @media (max-width: 900px) {
