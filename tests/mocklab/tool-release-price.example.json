@@ -1,0 +1,45 @@
+{
+  "version": "mock-only-1",
+  "prices": {
+    "mock_add": {
+      "kind": "fixed",
+      "amount": 1000,
+      "multiplier_bps": 10000,
+      "source": "https://mock-pricing.invalid/release/mock-only-1",
+      "valid_until": 1791637200,
+      "currency": "USD"
+    },
+    "mock_upper": {
+      "kind": "fixed",
+      "amount": 1000,
+      "multiplier_bps": 10000,
+      "source": "https://mock-pricing.invalid/release/mock-only-1",
+      "valid_until": 1791637200,
+      "currency": "USD"
+    },
+    "mock_lookup": {
+      "kind": "fixed",
+      "amount": 1000,
+      "multiplier_bps": 10000,
+      "source": "https://mock-pricing.invalid/release/mock-only-1",
+      "valid_until": 1791637200,
+      "currency": "USD"
+    },
+    "mock_delay": {
+      "kind": "fixed",
+      "amount": 1000,
+      "multiplier_bps": 10000,
+      "source": "https://mock-pricing.invalid/release/mock-only-1",
+      "valid_until": 1791637200,
+      "currency": "USD"
+    },
+    "mock_fail": {
+      "kind": "fixed",
+      "amount": 1000,
+      "multiplier_bps": 10000,
+      "source": "https://mock-pricing.invalid/release/mock-only-1",
+      "valid_until": 1791637200,
+      "currency": "USD"
+    }
+  }
+}
