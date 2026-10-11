@@ -471,6 +471,7 @@ CREATE TABLE core_identity.hg_requests (
     purpose TEXT NOT NULL CHECK (length(purpose) BETWEEN 1 AND 240),
     requested JSONB NOT NULL CHECK (jsonb_typeof(requested) = 'array'),
     expected_human_id BIGINT,
+    link_token TEXT NOT NULL UNIQUE CHECK (length(link_token) = 43),
     link_digest BYTEA NOT NULL UNIQUE CHECK (octet_length(link_digest) = 32),
     phase TEXT NOT NULL DEFAULT 'waiting_human' CHECK (phase IN
         ('waiting_human','authenticating_human','awaiting_consent','approved',
