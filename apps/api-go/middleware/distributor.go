@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unsafe"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/constant"
@@ -264,12 +265,27 @@ func getModelFromJSONBody(c *gin.Context) (*ModelRequest, error) {
 		return nil, errors.New("invalid JSON request body")
 	}
 
-	modelPath := "model"
+	modelField := "model"
 	if c.Request.URL.Path == "/v1/live/sessions" {
-		modelPath = "session.model"
+		modelField = "session"
 	}
-	values := gjson.GetManyBytes(requestBody, modelPath, "group")
-	model, err := getJSONStringValue(values[0], modelPath)
+	// The stored bytes are immutable throughout this local scan. Avoid another
+	// full-body allocation (including for disk-backed requests); no JSON view
+	// escapes, and getJSONStringValue decodes owned strings before returning.
+	rawJSON := unsafe.String(unsafe.SliceData(requestBody), len(requestBody))
+	values, err := getUniqueJSONRoutingFields(gjson.Parse(rawJSON), modelField, "group")
+	if err != nil {
+		return nil, err
+	}
+	modelValue := values[0]
+	if modelField == "session" && modelValue.Exists() && modelValue.Type != gjson.Null {
+		sessionValues, err := getUniqueJSONRoutingFields(modelValue, "model")
+		if err != nil {
+			return nil, err
+		}
+		modelValue = sessionValues[0]
+	}
+	model, err := getJSONStringValue(modelValue, "model")
 	if err != nil {
 		return nil, err
 	}
@@ -289,6 +305,36 @@ func getModelFromJSONBody(c *gin.Context) (*ModelRequest, error) {
 	}, nil
 }
 
+// Inspect only the routing envelope, leaving provider payloads and their number
+// precision untouched. gjson selects the first matching member, whereas the
+// reusable JSON DTO decoder accepts the last member and case-folded aliases.
+// Reject those ambiguous envelopes before authorization or channel selection.
+func getUniqueJSONRoutingFields(object gjson.Result, fields ...string) ([]gjson.Result, error) {
+	if !object.IsObject() {
+		return nil, errors.New("expected JSON object")
+	}
+	values := make([]gjson.Result, len(fields))
+	seen := make([]bool, len(fields))
+	var fieldErr error
+	object.ForEach(func(key, value gjson.Result) bool {
+		name := key.String() // Decode escaped names before detecting aliases.
+		for i, field := range fields {
+			if !strings.EqualFold(name, field) {
+				continue
+			}
+			if name != field || seen[i] {
+				fieldErr = fmt.Errorf("ambiguous routing field %s", field)
+				return false
+			}
+			seen[i] = true
+			values[i] = value
+			break
+		}
+		return true
+	})
+	return values, fieldErr
+}
+
 func getJSONStringValue(result gjson.Result, field string) (string, error) {
 	if !result.Exists() || result.Type == gjson.Null {
 		return "", nil
@@ -296,7 +342,13 @@ func getJSONStringValue(result gjson.Result, field string) (string, error) {
 	if result.Type != gjson.String {
 		return "", fmt.Errorf("field %s must be a string", field)
 	}
-	return result.String(), nil
+	// Match the reusable DTO decoder's string handling, including malformed
+	// Unicode replacement, without decoding unknown provider fields.
+	var value string
+	if err := common.UnmarshalJsonStr(result.Raw, &value); err != nil {
+		return "", err
+	}
+	return value, nil
 }
 
 func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
@@ -440,7 +492,12 @@ func getModelRequest(c *gin.Context) (*ModelRequest, bool, error) {
 			relayMode = relayconstant.RelayModeAudioTranslation
 		} else if strings.HasPrefix(c.Request.URL.Path, "/v1/audio/transcriptions") {
 			// 先尝试从请求读取
-			if req, err := getModelFromRequest(c); err == nil && req.Model != "" {
+			req, err := getModelFromRequest(c)
+			if err != nil && strings.HasPrefix(c.Request.Header.Get("Content-Type"), "application/json") {
+				// JSON envelope errors must not fall back to a different model.
+				return nil, false, err
+			}
+			if err == nil && req.Model != "" {
 				modelRequest.Model = req.Model
 			}
 			modelRequest.Model = common.GetStringIfEmpty(modelRequest.Model, "whisper-1")
