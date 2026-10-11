@@ -320,6 +320,8 @@ export function evalExprLocally(
     for (const field of ESTIMATOR_VARS) {
       variables[field.var] = extraTokenValues[field.stateKey] || 0
     }
+    // A generic cache rate also applies when only classified counts are supplied.
+    variables.cr = cacheReadTokens
     const evaluated = evaluateBillingExpression(exprStr, variables)
     return {
       cost: evaluated.value || 0,
