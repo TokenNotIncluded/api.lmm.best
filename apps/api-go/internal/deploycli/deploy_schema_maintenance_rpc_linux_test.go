@@ -46,7 +46,7 @@ func TestSchemaMaintenanceRPCProtocolIsClosedAndCanonical(t *testing.T) {
 			t.Fatalf("accepted noncanonical or expanded request: %s", invalid)
 		}
 	}
-	for _, action := range []string{"capture-recovery", "capture-ready", "capture-backup-source", "finish"} {
+	for _, action := range []string{"capture-backup-source", "finish"} {
 		if timeout, err := schemaMaintenanceRPCActionTimeout(action); err != nil || timeout != 30*time.Second {
 			t.Fatalf("fixed action %q did not retain its bounded timeout: %v, %v", action, timeout, err)
 		}
@@ -64,6 +64,30 @@ func TestSchemaMaintenanceRPCProtocolIsClosedAndCanonical(t *testing.T) {
 	reply.Result = json.RawMessage(`{"a":{"duplicate":1,"duplicate":2}}`)
 	if _, err := schemaMaintenanceRPCMarshal(reply); err == nil {
 		t.Fatal("nested duplicate result member accepted")
+	}
+}
+
+func TestSchemaMaintenanceRPCPhaseBudgetsCoverNativeWork(t *testing.T) {
+	for _, action := range []string{"close", "claim", "reopen", "capture-recovery", "capture-ready"} {
+		budget, err := schemaMaintenanceRPCActionTimeout(action)
+		if err != nil || budget != 5*time.Minute {
+			t.Fatalf("%s phase must allow capsule verification: %v, %v", action, budget, err)
+		}
+		if budget < 2*(2*time.Minute) {
+			t.Fatalf("%s phase cannot cover both two-minute Sigstore verifiers", action)
+		}
+	}
+	stop, err := schemaMaintenanceRPCActionTimeout("stop")
+	if err != nil || stop != 90*time.Second || stop < 45*time.Second {
+		t.Fatalf("stop phase cannot cover native TimeoutStopSec=45s: %v, %v", stop, err)
+	}
+	for _, action := range []string{"capture-closed", "capture-stopped", "capture-backup-source", "status", "release", "finish"} {
+		if budget, err := schemaMaintenanceRPCActionTimeout(action); err != nil || budget != 30*time.Second {
+			t.Fatalf("%s phase lost its short bounded budget: %v, %v", action, budget, err)
+		}
+	}
+	if budget, err := schemaMaintenanceRPCActionTimeout("worker"); err != nil || budget != 10*time.Minute {
+		t.Fatalf("worker phase lost its bounded budget: %v, %v", budget, err)
 	}
 }
 

@@ -43,8 +43,13 @@ func schemaMaintenanceRPCActionTimeout(action string) (time.Duration, error) {
 	switch action {
 	case "worker":
 		return 10 * time.Minute, nil
-	case "close", "capture-closed", "stop", "capture-stopped", "claim", "status", "release", "reopen",
-		"capture-recovery", "capture-ready", "capture-backup-source", "finish":
+	case "close", "claim", "reopen", "capture-recovery", "capture-ready":
+		// Capsule verification may run two independently bounded, two-minute
+		// Sigstore verifiers; migration verification also uses this phase budget.
+		return 5 * time.Minute, nil
+	case "stop":
+		return 90 * time.Second, nil
+	case "capture-closed", "capture-stopped", "capture-backup-source", "status", "release", "finish":
 		return 30 * time.Second, nil
 	default:
 		return 0, errors.New("unknown schema maintenance RPC action")
