@@ -305,9 +305,9 @@ CREATE TABLE core_identity.web_sessions (
     ip TEXT NOT NULL CHECK (length(ip) <= 128),
     user_agent TEXT NOT NULL CHECK (length(user_agent) <= 1024),
     weekly_logout BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
-    last_active_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
-    expires_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp() + interval '30 days',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp(),
+    last_active_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp(),
+    expires_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp() + interval '30 days',
     revoked_at TIMESTAMPTZ,
     CHECK (expires_at <= created_at + interval '30 days')
 );

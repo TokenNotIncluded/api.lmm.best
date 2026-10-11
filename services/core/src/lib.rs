@@ -5,6 +5,7 @@
 pub mod accounts;
 pub mod billing;
 pub mod config;
+pub mod core_schema;
 pub mod events;
 pub mod funding;
 pub mod http;
@@ -14,4 +15,9 @@ pub mod identity_http;
 pub mod internal_rpc;
 pub mod legacy_auth;
 pub mod lifecycle;
+pub mod model_http;
+#[cfg(unix)]
+pub mod payments;
 pub mod relay;
+pub mod routing;
+pub mod runtime_database;

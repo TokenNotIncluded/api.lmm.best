@@ -48,8 +48,9 @@ class CoreBoundaryTests(unittest.TestCase):
 
     def test_extension_has_no_core_database_or_authority_dependency(self):
         module = (ROOT / "services/extensions/go.mod").read_text()
-        for forbidden in ("gorm.io", "go-sql-driver", "lib/pq", "jackc/pgx", "sqlite"):
+        for forbidden in ("gorm.io", "go-sql-driver", "jackc/pgx", "sqlite"):
             self.assertNotIn(forbidden, module)
+        self.assertIn("github.com/lib/pq v1.10.9", module)
         for path in (ROOT / "services/extensions").rglob("*.go"):
             if path.name.endswith("_test.go"):
                 continue
@@ -68,10 +69,24 @@ class CoreBoundaryTests(unittest.TestCase):
         self.assertIn("corepb", identity)
 
     def assert_extension_storage(self, path, text):
+        if path == "services/extensions/internal/composition/storage.go":
+            self.assertEqual(text.count('sql.Open("postgres", dsn)'), 1, path)
+            self.assertNotIn("sql.OpenDB(", text, path)
+            for forbidden in ("core_identity.", "core_billing.", "core_events.",
+                              "core_meta.", "core_runtime.", "AutoMigrate("):
+                self.assertNotIn(forbidden, text, path)
+            for required in ("current_database()", "has_database_privilege", "has_table_privilege",
+                             "pg_has_role(current_user,oid,'SET')", "pg_has_role(current_user,oid,'MEMBER')",
+                             "rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication",
+                             "extension storage isolation rejected"):
+                self.assertIn(required, text, path)
+            return
         stores = {
             "services/extensions/internal/coreclient/sqlinbox.go": "extension_events.",
             "services/extensions/internal/modules/store/postgres.go": "lmm_store.",
+            "services/extensions/internal/modules/store/postgres_web.go": "lmm_store.",
             "services/extensions/internal/modules/support/postgres.go": "lmm_support.",
+            "services/extensions/internal/modules/support/postgres_web.go": "lmm_support.",
             "services/extensions/internal/modules/assistant/postgres.go": "lmm_assistant.",
             "services/extensions/internal/modules/promotions/postgres.go": "lmm_promotions.",
             "services/extensions/internal/modules/payments/postgres.go": "payment_",
@@ -130,7 +145,8 @@ class CoreBoundaryTests(unittest.TestCase):
         self.assertNotIn("MIGRATOR", runtime)
         self.assertNotIn("sqlx::migrate!", runtime)
         admin = (ROOT / "services/core/src/admin.rs").read_text()
-        self.assertIn("store.init_database()", admin)
+        self.assertIn("core_schema::init(&pool)", admin)
+        self.assertIn("core_schema::check(&pool)", admin)
         self.assertNotIn('"migrate"', admin)
         main = (ROOT / "services/core/src/main.rs").read_text()
         self.assertIn('Some("init-db")', main)
@@ -212,10 +228,26 @@ class CoreBoundaryTests(unittest.TestCase):
         self.assertNotIn("core-db:", compose)
         self.assertIn("lmm-core-standalone-runtime", compose)
         core = (ROOT / "services/core/src/main.rs").read_text()
-        self.assertIn("connect_with_max_connections", core)
+        self.assertIn("config::database_pool", core)
+        configuration = (ROOT / "services/core/src/config.rs").read_text()
+        self.assertIn(".max_connections(database_connections()?)", configuration)
         self.assertIn("Lifecycle::with_capacity", core)
         self.assertIn("with_password_slots", core)
         self.assertNotIn("lmm_extensions", core)
+
+    def test_core_runtime_privileges_are_checked_without_writes(self):
+        main = (ROOT / "services/core/src/main.rs").read_text()
+        guard = (ROOT / "services/core/src/runtime_database.rs").read_text()
+        self.assertIn("runtime_database::check", main)
+        for required in ("REPEATABLE READ READ ONLY", "rolsuper", "rolbypassrls",
+                         "rolcreaterole", "rolcreatedb", "rolreplication",
+                         "has_any_column_privilege", "MEMBER WITH ADMIN OPTION",
+                         "pg_has_role(current_user,r.oid,'SET')",
+                         "core_migration", "balance_state", "open_ledger_wallet"):
+            self.assertIn(required, guard)
+        for mutation in ("GRANT ", "ALTER ROLE ", "CREATE TABLE ", "INSERT INTO ",
+                         "UPDATE core_", "DELETE FROM "):
+            self.assertNotIn(mutation, guard)
 
     def test_core_owns_the_funding_contract(self):
         cases = json.loads((ROOT / "contracts/core/v1/funding-cases.json").read_text())

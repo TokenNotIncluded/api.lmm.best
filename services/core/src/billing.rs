@@ -1,7 +1,9 @@
 //! Exact credit values and immutable request ownership. Durable wallet operations
 //! live in `ledger`; forwarding still requires integrated authorization and budgets.
 //! No extension may perform these transitions directly.
+pub mod charging;
 pub mod ledger;
+pub mod transactional_ledger;
 
 use serde::{Deserialize, Serialize};
 

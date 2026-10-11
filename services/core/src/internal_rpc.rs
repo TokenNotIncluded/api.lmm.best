@@ -10,7 +10,7 @@ use sqlx::postgres::PgPoolOptions;
 use std::{
     fs::{self, File, OpenOptions},
     future::Future,
-    io::{self, Read},
+    io,
     os::unix::fs::{FileTypeExt, MetadataExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
     pin::Pin,
@@ -47,11 +47,7 @@ fn valid_service_token(value: &[u8]) -> bool {
     (32..=256).contains(&value.len()) && value.iter().all(u8::is_ascii_graphic)
 }
 pub fn read_service_token(path: &Path) -> io::Result<Vec<u8>> {
-    let mut bytes = Vec::new();
-    File::open(path)?.take(4097).read_to_end(&mut bytes)?;
-    if bytes.len() > 4096 {
-        return Err(invalid("RPC credential file is too large"));
-    }
+    let bytes = crate::config::private_file(path, 4096)?;
     let value = std::str::from_utf8(&bytes)
         .map_err(|_| invalid("RPC credential is not UTF-8"))?
         .trim()
@@ -303,6 +299,7 @@ pub struct RpcServer {
     listener: UnixListener,
     guard: SocketGuard,
     control: Control,
+    payments: Option<crate::payments::rpc::PaymentsRpc>,
 }
 impl RpcServer {
     pub fn bind(path: &Path, token: &[u8], store: Option<IdentityStore>) -> io::Result<Self> {
@@ -351,6 +348,7 @@ impl RpcServer {
             listener,
             guard,
             control,
+            payments: None,
         })
     }
     /// Explicit integration hook. Provisioned subscriptions bind to this
@@ -367,6 +365,13 @@ impl RpcServer {
         self.control.service_id = service_id.into();
         Ok(self)
     }
+    /// Optional test-provider integration. The host must construct the store,
+    /// verification keys and permissions; a service token never grants funds
+    /// authority by itself. Default servers do not mount or advertise payments.
+    pub fn with_payments(mut self, payments: crate::payments::rpc::PaymentsRpc) -> Self {
+        self.payments = Some(payments);
+        self
+    }
     pub async fn serve(
         self,
         mut shutdown: watch::Receiver<bool>,
@@ -375,6 +380,7 @@ impl RpcServer {
             listener,
             guard: _guard,
             control,
+            payments,
         } = self;
         let connections = Arc::new(Semaphore::new(MAX_CONNECTIONS));
         let incoming = UnixListenerStream::new(listener).filter_map(move |item| match item {
@@ -404,6 +410,11 @@ impl RpcServer {
                     .max_decoding_message_size(MAX_MESSAGE)
                     .max_encoding_message_size(MAX_MESSAGE),
             )
+            .add_optional_service(payments.map(|payments| {
+                pb::core_payments_server::CorePaymentsServer::new(payments)
+                    .max_decoding_message_size(MAX_MESSAGE)
+                    .max_encoding_message_size(MAX_MESSAGE)
+            }))
             .serve_with_incoming_shutdown(incoming, async move {
                 if !*shutdown.borrow() {
                     let _ = shutdown.changed().await;

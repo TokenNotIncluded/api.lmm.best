@@ -1,5 +1,5 @@
 //! Relay-local contracts. Routing and money implementations live outside this module.
-use std::{fmt, future::Future, pin::Pin, time::Duration};
+use std::{fmt, future::Future, pin::Pin, sync::Arc, time::Duration};
 
 use reqwest::{Url, header::HeaderValue};
 use serde::Serialize;
@@ -49,6 +49,10 @@ pub enum RelayError {
     Busy,
     RouteUnavailable,
     BillingUnavailable,
+    Unauthorized,
+    Forbidden,
+    NoFunds,
+    Conflict,
     UpstreamStatus(u16),
     UpstreamConnection,
     Truncated,
@@ -68,6 +72,10 @@ impl RelayError {
             Self::Busy => "relay_busy",
             Self::RouteUnavailable => "route_unavailable",
             Self::BillingUnavailable => "billing_unavailable",
+            Self::Unauthorized => "unauthorized",
+            Self::Forbidden => "forbidden",
+            Self::NoFunds => "insufficient_funds",
+            Self::Conflict => "request_conflict",
             Self::UpstreamStatus(_) => "upstream_error",
             Self::UpstreamConnection => "upstream_connection_error",
             Self::SettlementPending => "settlement_pending",
@@ -75,6 +83,10 @@ impl RelayError {
     }
     pub fn status(&self) -> u16 {
         match self {
+            Self::Unauthorized => 401,
+            Self::Forbidden => 403,
+            Self::NoFunds => 402,
+            Self::Conflict => 409,
             Self::Invalid(_) | Self::Unsupported(_) => 400,
             Self::Busy => 429,
             Self::Limit(_) => 413,
@@ -233,6 +245,7 @@ pub struct Route {
     pub price_version: u64,
     pub(crate) endpoint: Url,
     pub(crate) credential: HeaderValue,
+    availability: Option<Arc<dyn Fn() -> bool + Send + Sync>>,
 }
 impl fmt::Debug for Route {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -294,7 +307,19 @@ impl Route {
             model,
             credential,
             price_version,
+            availability: None,
         })
+    }
+
+    /// Server-owned snapshot guard, checked immediately before sending bytes.
+    /// HTTP callers cannot construct or deserialize a route or this guard.
+    pub fn with_availability_guard(mut self, guard: Arc<dyn Fn() -> bool + Send + Sync>) -> Self {
+        self.availability = Some(guard);
+        self
+    }
+
+    pub(crate) fn is_available(&self) -> bool {
+        self.availability.as_ref().is_none_or(|guard| guard())
     }
 }
 

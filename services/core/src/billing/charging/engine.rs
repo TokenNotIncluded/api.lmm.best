@@ -150,6 +150,7 @@ impl Charging {
         let mut tx = self.pool.begin().await?;
         for statement in [
             "SET TRANSACTION ISOLATION LEVEL SERIALIZABLE",
+            "SET LOCAL synchronous_commit=on",
             "SET LOCAL lock_timeout='2s'",
             "SET LOCAL statement_timeout='5s'",
             "SET LOCAL idle_in_transaction_session_timeout='10s'",
@@ -215,7 +216,21 @@ impl Charging {
                 .bind(&request.id).bind(actor.user).bind(actor.key).bind(actor.owner).bind(payer.id)
                 .bind(request.fingerprint.to_vec()).bind(&worker_digest).bind(&spec).bind(json(&request.price)?)
                 .bind(sub).bind(start).bind(end).bind(at).bind(at + request.lease_seconds)
-                .bind(at + request.maximum_seconds).bind(request.reserve).execute(&mut *tx).await?;
+                .bind(at + request.maximum_seconds).bind(request.reserve).execute(&mut *tx).await
+                .map_err(|error| {
+                    // Waiting for the request advisory lock does not refresh a
+                    // SERIALIZABLE snapshot. A concurrent identical ID may have
+                    // committed after our snapshot, so this one prechecked PK
+                    // collision needs a fresh whole transaction. The replay
+                    // path then checks the complete specification and worker.
+                    let database = error.as_database_error();
+                    if database.is_some_and(|e| e.code().as_deref() == Some("23505")
+                        && e.constraint() == Some("requests_pkey")) {
+                        Error::Retry
+                    } else {
+                        Error::from(error)
+                    }
+                })?;
                 let charge = load(&mut tx, &request.id).await?.charge;
                 let attempt = self.hold(&mut tx, &charge, at).await;
                 match attempt {

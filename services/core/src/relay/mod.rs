@@ -454,6 +454,9 @@ impl Worker {
             if Instant::now() >= self.gate.deadline {
                 return Err(RelayError::Timeout(Phase::Total));
             }
+            if !route.is_available() {
+                return Err(RelayError::RouteUnavailable);
+            }
             self.report.attempts += 1;
             self.report.upstream_attempted = true;
             let request = self

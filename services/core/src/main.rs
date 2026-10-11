@@ -3,7 +3,18 @@ use lmm_core::{
     identity::IdentityStore,
     lifecycle::{Admission, Lifecycle, ingress::IngressAcks},
 };
-use std::{env, error::Error, ffi::OsString, io, net::SocketAddr};
+use std::{
+    env,
+    error::Error,
+    ffi::OsString,
+    io,
+    net::SocketAddr,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 
 mod admin;
 
@@ -84,18 +95,66 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
     let database_url = config::database_url()?;
     let lifecycle = Lifecycle::with_capacity(config::max_inflight()?);
     let ingress = IngressAcks::from_env()?;
-    let mut identity_keepalive = None;
+    let legacy_config = config::legacy_auth()?;
+    let mut capabilities = lmm_core::http::Capabilities::default();
+    let mut public_status = lmm_core::http::PublicStatus::default();
+    let mut database_pool = None;
+    let mut model_gateway = None;
     let mut app = lmm_core::http::router();
     if let Some(url) = database_url.as_deref() {
-        let store =
-            IdentityStore::connect_with_max_connections(url, config::database_connections()?)
-                .await?
-                .with_auth_from_env()?
-                .with_password_slots(config::password_slots()?)?;
-        store.check_schema().await?;
-        identity_keepalive = Some(store.clone());
-        app = app.merge(lmm_core::identity_http::router(store));
-        eprintln!("native identity is enabled; billing and model forwarding remain disabled");
+        let pool = config::database_pool(url).await?;
+        lmm_core::runtime_database::check(
+            &pool,
+            lmm_core::runtime_database::RequiredCapabilities {
+                models: env::var_os("LMM_CORE_MODEL_CONFIG_FILE").is_some(),
+                events: env::var_os("LMM_CORE_RPC_SOCKET").is_some(),
+                payments: false,
+            },
+        )
+        .await?;
+        // Installation belongs solely to the explicit init-db command. Even a
+        // valid identity-only installation cannot stand in for the whole core.
+        lmm_core::core_schema::check(&pool).await?;
+        let store = IdentityStore::from_pool(pool.clone())
+            .with_auth_from_env()?
+            .with_password_slots(config::password_slots()?)?;
+        capabilities.identity = true;
+        model_gateway = config::models(pool.clone())?;
+        if let Some(gateway) = &model_gateway {
+            // Trusted recovery keeps indeterminate upstream holds reserved.
+            // A failed recovery prevents listener binding/readiness.
+            gateway.recover_expired(64).await?;
+            capabilities.models = true;
+        }
+        // A Web deployment must not offer a second registration path that
+        // bypasses the Web legal-consent contract.
+        let native_store = if legacy_config.is_some() {
+            store.clone().with_registration_enabled(false)
+        } else {
+            store.clone()
+        };
+        let mut routes = lmm_core::identity_http::router(native_store);
+        if let Some(config) = legacy_config {
+            public_status = lmm_core::http::PublicStatus {
+                password_login_enabled: true,
+                password_register_enabled: config.registration_enabled,
+                user_agreement_enabled: config.user_agreement_enabled,
+                privacy_policy_enabled: config.privacy_policy_enabled,
+            };
+            routes = routes.merge(lmm_core::legacy_auth::router(store, config.auth));
+            capabilities.legacy_web_auth = true;
+        }
+        if let Some(gateway) = &model_gateway {
+            routes = routes.merge(gateway.router());
+        }
+        // The final readiness router is assembled after the optional RPC checks.
+        app = routes;
+        database_pool = Some(pool);
+    } else if legacy_config.is_some()
+        || env::var_os("LMM_CORE_MODEL_CONFIG_FILE").is_some()
+        || env::var_os("LMM_CORE_MODEL_LOCAL_HTTP").is_some()
+    {
+        return Err("Web authentication and model configuration require a core database".into());
     }
     let (stop, stopped) = tokio::sync::watch::channel(false);
     // RPC remains usable while accepted public requests and completions drain.
@@ -114,11 +173,17 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
                 Some(url) => Some(lmm_core::internal_rpc::readonly_store(url).await?),
                 None => None,
             };
-            Some(lmm_core::internal_rpc::RpcServer::bind(
+            let mut server = lmm_core::internal_rpc::RpcServer::bind(
                 std::path::Path::new(&socket),
                 &token,
                 store,
-            )?)
+            )?;
+            if let Some(url) = database_url.as_deref() {
+                let events = lmm_core::events::EventStore::connect(url).await?;
+                server = server.with_events(events, "extensions")?;
+                capabilities.events = true;
+            }
+            Some(server)
         }
         _ => return Err("configure both RPC socket and service credential file".into()),
     };
@@ -128,27 +193,45 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
     {
         return Err("internal RPC requires a Unix socket on this release".into());
     }
+    let rpc_running = Arc::new(AtomicBool::new(false));
+    if let Some(pool) = &database_pool {
+        let rpc_status = capabilities.events.then(|| rpc_running.clone());
+        app = lmm_core::http::configured_router_with_rpc(
+            pool.clone(),
+            capabilities,
+            rpc_status,
+            public_status,
+        )
+        .merge(app);
+    }
     let listener = tokio::net::TcpListener::bind(address).await?;
     #[cfg(unix)]
     let rpc_task = rpc.map(|server| {
         let stopped = rpc_stopped;
+        let rpc_running = rpc_running.clone();
+        rpc_running.store(true, Ordering::Release);
         tokio::spawn(async move {
             if server.serve(stopped).await.is_err() {
                 eprintln!("internal RPC stopped; public core remains independent");
             }
+            rpc_running.store(false, Ordering::Release);
         })
     });
     #[cfg(unix)]
     let mut terminate = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::terminate())?;
+    app = app.layer(axum::middleware::from_fn(
+        lmm_core::http::request_body_deadline,
+    ));
     app = app.layer(axum::middleware::from_fn_with_state(
         Admission::new(lifecycle.clone(), ingress),
         lmm_core::lifecycle::admit,
     ));
-    // All currently enabled route checks and listener binds have succeeded.
-    // The model-readiness endpoint intentionally remains unavailable.
+    // All enabled components and listener binds have succeeded. The health body
+    // lists capabilities; model readiness has its own explicit endpoint.
     assert!(lifecycle.mark_ready());
     let signal_lifecycle = lifecycle.clone();
     let signal_stop = stop.clone();
+    let signal_gateway = model_gateway.clone();
     let signal = tokio::spawn(async move {
         #[cfg(unix)]
         tokio::select! {
@@ -159,11 +242,20 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
         let _ = tokio::signal::ctrl_c().await;
         signal_lifecycle.begin_drain();
         let _ = signal_stop.send(true);
+        if let Some(gateway) = signal_gateway {
+            // Stop admission and cancel an overlong upstream after the grace
+            // period. Never abort an accepted financial finalizer.
+            gateway.drain(Duration::from_secs(30)).await;
+        }
     });
     eprintln!(
-        "lmm-core {} listening on {}; model traffic is disabled",
+        "lmm-core {} listening on {}; identity={}, legacy_web_auth={}, synthetic_models={}, events={}, payments=false",
         env!("CARGO_PKG_VERSION"),
-        address
+        address,
+        capabilities.identity,
+        capabilities.legacy_web_auth,
+        capabilities.models,
+        capabilities.events,
     );
     let mut public_stop = stopped;
     // Deliberately no total timeout on a future model/SSE stream here.
@@ -179,6 +271,11 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
     .await;
     lifecycle.begin_drain();
     let _ = stop.send(true);
+    if let Some(gateway) = &model_gateway {
+        while gateway.drain(Duration::from_secs(5)).await.remaining != 0 {
+            eprintln!("waiting for durable model finalizers");
+        }
+    }
     // HTTP EOF/cancellation is not proof that asynchronous completion is done.
     // Completion tasks must own a WorkLease and write their durable outcome.
     lifecycle.wait_idle().await;
@@ -189,7 +286,9 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
             task.await?;
         }
     }
-    drop(identity_keepalive);
+    if let Some(pool) = database_pool {
+        pool.close().await;
+    }
     signal.abort();
     result?;
     Ok(())

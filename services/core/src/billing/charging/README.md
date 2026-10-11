@@ -5,15 +5,18 @@ Work branch: `wip/mk-03-billing`. Integration PR: #675. Fresh PostgreSQL only.
 
 ## Boundaries and readiness
 
-This directory implements the charging transaction and its PostgreSQL contract
-tests. It does **not** implement a wallet, balance table, or production ledger.
-There is no Go mutation endpoint, HTTP forwarding hook, schema auto-installer,
-legacy migration, production deployment, or change to shared Protobuf files.
+This directory implements charging transactions and their PostgreSQL contract
+tests. The sibling `transactional_ledger` module supplies the actual wallet
+adapter; `tests/assembled_billing.rs` exercises both against disposable PostgreSQL.
+`tests/charging.rs` separately exercises the engine with a transactional recording
+adapter, which provides no wallet evidence.
 
-The test entry `tests/charging.rs` compiles this directory without editing the
-parallel agent's `src/billing.rs`. Final integration must add `pub mod charging;`
-to that file, install `schema/charging.sql` after `schema/identity.sql`, and supply
-the task 02 adapter. Do not enable real upstream requests before joint acceptance.
+`core_schema::init` installs identity, ledger, payments, charging, routing, events
+and charging-ledger definitions plus offline migration receipts in one explicit
+fresh-database transaction.
+Startup checks their fingerprints and catalog definitions without applying DDL.
+This integration does not itself prove public model traffic, migrated data,
+restricted database-role provisioning or a production deployment.
 
 ## Transaction and ledger contract
 
@@ -108,6 +111,18 @@ payload, and worker token, with a bounded retry/backoff policy. Budget and ledge
 writes commit or roll back together. Only a definitive insufficient-funds/budget
 error permits trying another candidate; ledger/storage errors fail closed.
 
+The complete installer adds database triggers that reject non-SERIALIZABLE writes
+to requests, budgets, subscriptions and their financial/audit links. Provisioners,
+seeders and importers must use the same isolation. The independent controlled
+ledger supports READ COMMITTED as well as composed SERIALIZABLE calls, and refuses
+REPEATABLE READ. Charging explicitly enables synchronous commit.
+
+An advisory-lock wait does not refresh a SERIALIZABLE snapshot. Known operation
+identity constraints can therefore report a uniqueness conflict for a concurrent
+receipt that is not yet visible. Those precise conflicts become `Retry`; a fresh
+transaction checks the saved full payload. Other unique conflicts keep their
+normal conflict/business semantics. Never retry just the failed SQL statement.
+
 `CommitUnknown` is not a failure confirmation. `resolve(id)` uses READ COMMITTED
 and the same request advisory lock so its read snapshot occurs after the original
 transaction finishes. Repeat the original operation after resolution, not a new
@@ -123,7 +138,9 @@ Go-callable authorization endpoints. Final integration must enforce that boundar
 
 ## Validation and joint acceptance
 
-Run from `services/core`, against disposable PostgreSQL with database-create rights:
+Run from `services/core`, against an owned disposable PostgreSQL instance. The
+assembled installer-fault and role tests require its test superuser; application
+runtime roles are tested separately with restricted grants.
 
 ```sh
 DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/postgres \
@@ -140,18 +157,23 @@ rollback, refunds, lease expiry, and in-flight commit resolution have test cases
 The commit-resolution case tests lock/snapshot behavior; it does not simulate a
 real network dropping a COMMIT acknowledgement.
 
+The assembled suite additionally drops actual PostgreSQL COMMIT acknowledgements
+with a local TCP proxy after reserve, start, capture and refund. It verifies
+`CommitUnknown`, lock-aware resolution and unchanged money/dispatch behavior on
+replay. Other actual-ledger cases cover different-wallet shared-budget SSI,
+snapshot races for successful and rejected idempotent operations, subscription
+receipts without wallet debits, injected money/event rollback, retained holds
+after recovery, and atomic installer rollback/catalog drift.
+
 Before production acceptance with task 02:
 
-- Implement/review the same-transaction adapter and the original-source refund map.
-- Repeat concurrent personal/team wallet tests against actual ledger funds and
-  assert conserved balances, no overdraft, balanced entries, and exactly one hold.
-- Kill the process before/after reserve, capture, refund and COMMIT; restart with
-  the same request IDs. Drop commit acknowledgements using a database proxy.
-- Prove that subscription-funded requests do not debit wallet cash, including
-  expired-cycle settlement/refund and purchase/grant activation.
+- Kill the formal process before/after reserve, capture, refund and COMMIT;
+  restart with the same IDs. Component recreation and TCP faults are not this
+  process-level acceptance.
+- Prove purchase/grant activation and expired-cycle settlement/refund together
+  with the actual payment provisioner and ledger.
 - Wire the Rust price resolver, model permissions, bounded upstream output,
   durable dispatch/provider IDs, background recovery, and schema installer.
 - Verify database roles block every Go balance, entitlement and budget write.
 
-Until those checks pass, this Draft is an integration component, not real-funds
-acceptance and not authorization to merge #675 or deploy.
+Component acceptance is not authorization to merge, move real funds or deploy.

@@ -42,6 +42,29 @@ impl Endpoint {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// Explicit server-owned opt-in for an isolated, numeric loopback upstream.
+    /// Normal configuration deserialization remains HTTPS-only.
+    pub fn local_loopback(value: String) -> Result<Self, RoutingError> {
+        let uri = value
+            .parse::<Uri>()
+            .map_err(|_| RoutingError::InvalidConfig("endpoint"))?;
+        let local = uri
+            .host()
+            .and_then(|h| h.trim_matches(['[', ']']).parse::<std::net::IpAddr>().ok())
+            .is_some_and(|ip| ip.is_loopback());
+        if value.len() > 2048
+            || value
+                .bytes()
+                .any(|b| b.is_ascii_whitespace() || b.is_ascii_control())
+            || value.contains(['@', '?', '#', '\\'])
+            || uri.scheme_str() != Some("http")
+            || !local
+        {
+            return Err(RoutingError::InvalidConfig("endpoint"));
+        }
+        Ok(Self(value))
+    }
 }
 
 impl TryFrom<String> for Endpoint {

@@ -170,7 +170,12 @@ BEGIN
 END $$;
 
 -- Only Rust gets EXECUTE. There is no arbitrary-entry or set-balance interface.
--- One call per READ COMMITTED transaction. Lock order:
+-- Standalone calls use READ COMMITTED. Charging composes several calls in its
+-- SERIALIZABLE transaction so wallet writes and aggregate budget checks commit
+-- together. Serialization/deadlock failures must escape this function and the
+-- caller must retry the ENTIRE transaction, never just one ledger statement.
+-- REPEATABLE READ is deliberately unsupported: it has a fixed snapshot without
+-- the SSI predicate-conflict checks used by charging. Lock order:
 -- operation key -> original journal (if any) -> balance IDs ascending.
 CREATE FUNCTION core_billing.post_ledger(p_request JSONB) RETURNS JSONB
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog AS $$
@@ -185,8 +190,8 @@ DECLARE
     amount BIGINT; parent_id BIGINT; posted_id BIGINT; refunded NUMERIC;
     payment_ref TEXT; legs JSONB; leg JSONB; result JSONB; err TEXT; violated TEXT;
 BEGIN
-    IF current_setting('transaction_isolation') <> 'read committed' THEN
-        RAISE EXCEPTION 'ledger requires read committed' USING ERRCODE = 'P1000';
+    IF current_setting('transaction_isolation') NOT IN ('read committed', 'serializable') THEN
+        RAISE EXCEPTION 'ledger requires read committed or serializable' USING ERRCODE = 'P1000';
     END IF;
     IF NOT COALESCE(jsonb_typeof(p_request) = 'object'
         AND octet_length(p_request::TEXT) <= 8192
@@ -332,6 +337,19 @@ BEGIN
     INSERT INTO core_billing.ledger_operations(scope, operation_key, request, result)
         VALUES (op_scope, op_key, p_request, result);
     RETURN result;
+EXCEPTION WHEN unique_violation THEN
+    GET STACKED DIAGNOSTICS violated = CONSTRAINT_NAME;
+    -- An advisory-lock wait does not refresh a SERIALIZABLE snapshot. If the
+    -- permanent operation receipt was committed after that snapshot, its two
+    -- identity constraints can conflict before SSI reports 40001. Retry the
+    -- whole transaction so the normal replay/payload check sees the receipt.
+    -- Payment, reservation-terminal and every other uniqueness error retain
+    -- their existing business/error semantics.
+    IF current_setting('transaction_isolation') = 'serializable'
+        AND violated IN ('ledger_operations_pkey', 'ledger_journals_scope_operation_key_key') THEN
+        RAISE EXCEPTION 'retry complete ledger transaction' USING ERRCODE = '40001';
+    END IF;
+    RAISE;
 END $$;
 
 -- Never grant table/sequence writes to the runtime or to Go extensions.

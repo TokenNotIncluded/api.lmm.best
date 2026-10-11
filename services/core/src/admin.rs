@@ -44,15 +44,16 @@ pub async fn run(operation: Operation) -> Result<(), Box<dyn Error>> {
             "a core database URL is required",
         )
     })?;
-    let store = IdentityStore::connect(&url).await?;
+    let pool = config::database_pool(&url).await?;
+    let store = IdentityStore::from_pool(pool.clone());
     match operation {
         Operation::InitDb => {
-            store.init_database().await?;
-            store.check_schema().await?;
+            lmm_core::core_schema::init(&pool).await?;
+            lmm_core::core_schema::check(&pool).await?;
             println!("Fresh core database initialized. No existing data was changed.");
         }
         Operation::BootstrapUser(request) => {
-            store.check_schema().await?;
+            lmm_core::core_schema::check(&pool).await?;
             let issued = store
                 .bootstrap_user(request.user_id, request.platform_level)
                 .await?;

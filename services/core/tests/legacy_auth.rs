@@ -94,6 +94,62 @@ async fn login(app: &Router, name: &str) -> (HeaderMap, Value) {
     assert_eq!(status, StatusCode::OK, "{body:?}");
     (headers, body["data"].clone())
 }
+
+#[sqlx::test(migrations = false)]
+async fn web_session_defaults_share_one_clock_and_enforce_thirty_day_limit(pool: PgPool) {
+    let (store, _) = setup(pool.clone()).await;
+    let credential = store.bootstrap_user(1, 0).await.unwrap();
+    sqlx::query("UPDATE core_identity.credentials SET expires_at=statement_timestamp()+interval '15 minutes' WHERE id=$1")
+        .bind(credential.id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let sid = "e".repeat(64);
+    // Delay row creation inside this statement: a wall-clock default cannot
+    // accidentally pass the equality check just because evaluation was fast.
+    let (created_at_statement_start, same_activity_clock, exact_lifetime): (bool, bool, bool) =
+        sqlx::query_as(
+            "WITH delay AS MATERIALIZED (SELECT pg_sleep(0.01))
+             INSERT INTO core_identity.web_sessions
+                 (sid,user_id,user_version,current_credential_id,refresh_digest,ip,user_agent)
+             SELECT $1,c.user_id,c.user_version,c.id,$2,'',''
+             FROM core_identity.credentials c CROSS JOIN delay WHERE c.id=$3
+             RETURNING created_at=statement_timestamp(),last_active_at=created_at,
+                       expires_at=created_at+interval '30 days'",
+        )
+        .bind(&sid)
+        .bind(vec![7_u8; 32])
+        .bind(credential.id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(created_at_statement_start);
+    assert!(same_activity_clock);
+    assert!(exact_lifetime);
+
+    let error = sqlx::query(
+        "UPDATE core_identity.web_sessions
+         SET expires_at=created_at+interval '30 days 1 microsecond' WHERE sid=$1",
+    )
+    .bind(&sid)
+    .execute(&pool)
+    .await
+    .unwrap_err();
+    assert_eq!(
+        error.as_database_error().unwrap().code().as_deref(),
+        Some("23514")
+    );
+    let still_exact: bool = sqlx::query_scalar(
+        "SELECT expires_at=created_at+interval '30 days'
+         FROM core_identity.web_sessions WHERE sid=$1",
+    )
+    .bind(&sid)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(still_exact);
+}
+
 #[sqlx::test(migrations = false)]
 async fn browser_password_cookie_refresh_and_logout_flow(pool: PgPool) {
     let (store, app) = setup(pool.clone()).await;

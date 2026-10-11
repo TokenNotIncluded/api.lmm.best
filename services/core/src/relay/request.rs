@@ -1,5 +1,9 @@
 //! Bounded, text/function-call request conversion. Unsupported inputs fail closed.
 use super::{ClientProtocol, Limits, RelayError, Route, UpstreamProtocol};
+use serde::{
+    Deserialize,
+    de::{MapAccess, Visitor},
+};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -90,6 +94,33 @@ pub struct Request {
 fn object(v: &Value) -> Result<&Map<String, Value>, RelayError> {
     v.as_object()
         .ok_or(RelayError::Invalid("expected an object"))
+}
+
+/// Reject ambiguous top-level routing/control keys before Value can overwrite
+/// a duplicate. Keys remain case-sensitive; case variants are never normalized.
+struct RequestObject(Map<String, Value>);
+impl<'de> Deserialize<'de> for RequestObject {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        struct ObjectVisitor;
+        impl<'de> Visitor<'de> for ObjectVisitor {
+            type Value = RequestObject;
+            fn expecting(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                f.write_str("an unambiguous request object")
+            }
+            fn visit_map<A: MapAccess<'de>>(self, mut map: A) -> Result<Self::Value, A::Error> {
+                let mut seen = BTreeSet::new();
+                let mut values = Map::new();
+                while let Some(key) = map.next_key::<String>()? {
+                    if !seen.insert(key.to_ascii_lowercase()) {
+                        return Err(serde::de::Error::custom("duplicate request key"));
+                    }
+                    values.insert(key, map.next_value()?);
+                }
+                Ok(RequestObject(values))
+            }
+        }
+        d.deserialize_map(ObjectVisitor)
+    }
 }
 fn keys(v: &Value, allowed: &[&str]) -> Result<(), RelayError> {
     if object(v)?.keys().any(|k| !allowed.contains(&k.as_str())) {
@@ -198,8 +229,11 @@ impl Request {
         if body.len() > limits.request_bytes {
             return Err(RelayError::Limit("request body"));
         }
-        let v: Value =
-            serde_json::from_slice(body).map_err(|_| RelayError::Invalid("invalid JSON body"))?;
+        let v = Value::Object(
+            serde_json::from_slice::<RequestObject>(body)
+                .map_err(|_| RelayError::Invalid("invalid or ambiguous JSON body"))?
+                .0,
+        );
         match client {
             ClientProtocol::Chat => keys(
                 &v,
