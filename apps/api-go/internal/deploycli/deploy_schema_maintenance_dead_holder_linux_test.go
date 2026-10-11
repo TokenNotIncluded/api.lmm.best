@@ -195,3 +195,127 @@ func TestSchemaMaintenanceDeadHolderSchedulerBindsExactCompletionAndRoutes(t *te
 		t.Fatal("tampered completed evidence admitted a mutation")
 	}
 }
+
+func TestSchemaMaintenanceDeadHolderOwnerDiagnosticCreatesNoFiles(t *testing.T) {
+	runtime, _, _ := newSchemaMaintenancePlanFixture(t)
+	root := t.TempDir()
+	state := filepath.Join(root, "state")
+	if err := os.Mkdir(state, 0700); err != nil {
+		t.Fatal(err)
+	}
+	raw := []byte(`{"actual":"canonical-native-owner-fixture"}`)
+	sha := startupContentSHA256(raw)
+	calls := 0
+	reader := func() ([]byte, error) { calls++; return append([]byte(nil), raw...), nil }
+	for attempt := 0; attempt < 2; attempt++ {
+		actual, err := runtime.schemaMaintenanceDeadHolderOriginalOwner(root, sha, false, reader)
+		if err != nil || string(actual) != string(raw) {
+			t.Fatalf("read-only actual owner capture failed: %v", err)
+		}
+		entries, err := os.ReadDir(state)
+		if err != nil || len(entries) != 0 {
+			t.Fatal("diagnostic authority created a receipt/owner capture")
+		}
+	}
+	if calls != 2 {
+		t.Fatal("diagnostic unexpectedly cached its actual owner read")
+	}
+	actual, err := runtime.schemaMaintenanceDeadHolderOriginalOwner(root, sha, true, reader)
+	if err != nil || string(actual) != string(raw) {
+		t.Fatalf("CAS original owner capture failed: %v", err)
+	}
+	path := filepath.Join(state, "dead-holder-original-owner.json")
+	info, err := os.Stat(path)
+	if err != nil || info.Mode().Perm() != 0600 {
+		t.Fatal("CAS did not create its exact private owner capture")
+	}
+	stored, err := os.ReadFile(path)
+	if err != nil || string(stored) != string(raw) {
+		t.Fatal("CAS owner capture bytes differ")
+	}
+	priorCalls := calls
+	if _, err := runtime.schemaMaintenanceDeadHolderOriginalOwner(root, sha, false, reader); err != nil || calls != priorCalls {
+		t.Fatal("read-only authority did not reuse the unchanged native capture")
+	}
+	if _, err := runtime.schemaMaintenanceDeadHolderOriginalOwner(root, strings.Repeat("e", 64), false, reader); err == nil || calls != priorCalls {
+		t.Fatal("changed reviewed digest admitted or performed a replacement read")
+	}
+	if stored, err := os.ReadFile(path); err != nil || string(stored) != string(raw) {
+		t.Fatal("rejected diagnostic changed existing owner bytes")
+	}
+}
+func TestSchemaMaintenanceDeadHolderOwnerReaderRejectsUnsafeCacheWithoutWrites(t *testing.T) {
+	for _, kind := range []string{"dangling-symlink", "empty", "directory"} {
+		t.Run(kind, func(t *testing.T) {
+			runtime, _, _ := newSchemaMaintenancePlanFixture(t)
+			root := t.TempDir()
+			state := filepath.Join(root, "state")
+			if err := os.Mkdir(state, 0700); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(state, "dead-holder-original-owner.json")
+			var err error
+			switch kind {
+			case "dangling-symlink":
+				err = os.Symlink("absent", path)
+			case "empty":
+				err = os.WriteFile(path, nil, 0600)
+			case "directory":
+				err = os.Mkdir(path, 0700)
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			calls := 0
+			reader := func() ([]byte, error) { calls++; return []byte("replacement"), nil }
+			if _, err := runtime.schemaMaintenanceDeadHolderOriginalOwner(root, strings.Repeat("a", 64), false, reader); err == nil || calls != 0 {
+				t.Fatal("unsafe original cache admitted or triggered replacement I/O")
+			}
+			if _, err := os.Lstat(path); err != nil {
+				t.Fatal("unsafe cache was erased")
+			}
+		})
+	}
+}
+func TestSchemaMaintenanceDeadHolderResultReaderPreservesIndependentReconciliation(t *testing.T) {
+	runtime, _, _ := newSchemaMaintenancePlanFixture(t)
+	root := t.TempDir()
+	state := filepath.Join(root, "state")
+	if err := os.Mkdir(state, 0700); err != nil {
+		t.Fatal(err)
+	}
+	normal := filepath.Join(state, "dead-preworker-cas-result.json")
+	reconciled := filepath.Join(state, "dead-preworker-cas-reconciled.json")
+	normalRaw := []byte(`{"normal":"native-result"}`)
+	if err := os.WriteFile(normal, normalRaw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if raw, err := runtime.readSchemaMaintenanceDeadHolderResult(root); err != nil || string(raw) != string(normalRaw) {
+		t.Fatalf("normal native result absent reconciliation rejected: %v", err)
+	}
+	if err := os.WriteFile(normal, []byte("partial"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	reconciledRaw := []byte(`{"independent":"actual-native-reconciliation"}`)
+	if err := os.WriteFile(reconciled, reconciledRaw, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if raw, err := runtime.readSchemaMaintenanceDeadHolderResult(root); err != nil || string(raw) != string(reconciledRaw) {
+		t.Fatalf("independent native reconciliation rejected: %v", err)
+	}
+	if raw, err := os.ReadFile(normal); err != nil || string(raw) != "partial" {
+		t.Fatal("reconciliation rewrote partial original result")
+	}
+	if err := os.Remove(reconciled); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("absent", reconciled); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runtime.readSchemaMaintenanceDeadHolderResult(root); err == nil {
+		t.Fatal("unsafe reconciliation silently fell back to an ambiguous normal result")
+	}
+	if raw, err := os.ReadFile(normal); err != nil || string(raw) != "partial" {
+		t.Fatal("unsafe refusal changed original partial result")
+	}
+}

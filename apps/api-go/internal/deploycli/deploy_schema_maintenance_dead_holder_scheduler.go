@@ -109,9 +109,6 @@ func (runtime *productionReleaseRuntime) dispatchDeadHolderPhase(ctx context.Con
 		for _, entry := range entries {
 			if strings.HasPrefix(entry.Name(), "dead-dispatch-") && strings.HasSuffix(entry.Name(), ".json") && !strings.HasSuffix(entry.Name(), ".complete.json") {
 				previous := strings.TrimSuffix(strings.TrimPrefix(entry.Name(), "dead-dispatch-"), ".json")
-				if strings.Contains(previous, "-") && !schemaMaintenanceDeadHolderAction(previous) {
-					continue
-				} // Per-origin replies are qualified by the completion below.
 				if err := schemaMaintenanceDeadHolderCompleted(plan, sha, previous); err != nil {
 					return nil, err
 				}

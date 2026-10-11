@@ -9,7 +9,7 @@ import (
 	"path/filepath"
 )
 
-func (d *productionSchemaMaintenanceDeadHolderController) casAuthority(ctx context.Context) (productionSchemaMaintenanceDeadPreWorkerCASAuthority, error) {
+func (d *productionSchemaMaintenanceDeadHolderController) casAuthority(ctx context.Context, persistOriginalOwner bool) (productionSchemaMaintenanceDeadPreWorkerCASAuthority, error) {
 	c := d.base
 	a := productionSchemaMaintenanceDeadPreWorkerCASAuthority{Plan: c.plan, PrePlanSHA256: c.planSHA, OldCapsuleSHA256: c.origin.OldCapsule.SHA256, OriginalDaemon: d.original, OwnerMode: d.ownerMode, CheckLocalDeadAuthority: d.checkLeasedLocal}
 	if c.origin.Host != c.plan.PrimaryHost {
@@ -21,21 +21,11 @@ func (d *productionSchemaMaintenanceDeadHolderController) casAuthority(ctx conte
 	}
 	a.OldCapsule = old
 	if d.ownerMode == "EXACT_ORIGINAL_OWNER" {
-		ownerPath := filepath.Join(c.origin.Workspace, "state", "dead-holder-original-owner.json")
-		raw, err := c.runtime.readExistingSchemaSealedFile(ownerPath, true)
-		if errors.Is(err, os.ErrNotExist) {
-			raw, err = c.runtime.readSchemaMaintenanceDeadPreWorkerOwner(ctx, c.plan, c.planSHA, old, c.origin.OldCapsule.SHA256, d.original, d.ownerSHA)
-			if err != nil {
-				return a, err
-			}
-			if err := c.runtime.writeSchemaMaintenanceRawNewFile(ownerPath, raw); err != nil {
-				return a, errors.New("dead holder original owner capture is unknown; preserve it and inspect")
-			}
-		} else if err != nil {
+		raw, err := c.runtime.schemaMaintenanceDeadHolderOriginalOwner(c.origin.Workspace, d.ownerSHA, persistOriginalOwner, func() ([]byte, error) {
+			return c.runtime.readSchemaMaintenanceDeadPreWorkerOwner(ctx, c.plan, c.planSHA, old, c.origin.OldCapsule.SHA256, d.original, d.ownerSHA)
+		})
+		if err != nil {
 			return a, err
-		}
-		if startupContentSHA256(raw) != d.ownerSHA {
-			return a, errors.New("dead holder original owner bytes changed")
 		}
 		a.OriginalOwnerRaw = raw
 	} else if d.ownerMode != "ZERO_OWNER" || d.ownerSHA != "" {
@@ -53,10 +43,7 @@ func (d *productionSchemaMaintenanceDeadHolderController) recoveredResult(ctx co
 	// An independent native reconciliation can close a lost/partial normal
 	// result without replacing it. Its exact old intent and actual PG proof
 	// are still mandatory; an unreadable reconciliation never falls back.
-	raw, err := c.runtime.readExistingSchemaSealedFile(filepath.Join(c.origin.Workspace, "state", "dead-preworker-cas-reconciled.json"), true)
-	if errors.Is(err, os.ErrNotExist) {
-		raw, err = c.runtime.readExistingSchemaSealedFile(filepath.Join(c.origin.Workspace, "state", "dead-preworker-cas-result.json"), true)
-	}
+	raw, err := c.runtime.readSchemaMaintenanceDeadHolderResult(c.origin.Workspace)
 	if err != nil {
 		return result, err
 	}
@@ -104,7 +91,7 @@ func (d *productionSchemaMaintenanceDeadHolderController) recoverOwner(ctx conte
 	if err := d.checkStoppedOrigins(ctx); err != nil {
 		return result, err
 	}
-	a, err := d.casAuthority(ctx)
+	a, err := d.casAuthority(ctx, true)
 	if err != nil {
 		return result, err
 	}
@@ -189,7 +176,7 @@ func (d *productionSchemaMaintenanceDeadHolderController) handle(ctx context.Con
 		if err := d.checkStoppedOrigins(ctx); err != nil {
 			return schemaMaintenanceRPCReply{}, err
 		}
-		a, err := d.casAuthority(ctx)
+		a, err := d.casAuthority(ctx, false)
 		if err != nil {
 			return schemaMaintenanceRPCReply{}, err
 		}
@@ -226,4 +213,50 @@ func (d *productionSchemaMaintenanceDeadHolderController) handle(ctx context.Con
 	default:
 		return schemaMaintenanceRPCReply{}, errors.New("dedicated dead holder RPC action is not permitted")
 	}
+}
+
+// Only the CAS action persists actual original bytes. Diagnostic and readonly
+// reconciliation actions must never create an owner capture on cache miss.
+func (runtime *productionRuntime) schemaMaintenanceDeadHolderOriginalOwner(workspace, sha string, persist bool, readActual func() ([]byte, error)) ([]byte, error) {
+	if !productionSHA256Pattern.MatchString(sha) || readActual == nil {
+		return nil, errors.New("dead holder original owner reader lacks its reviewed digest")
+	}
+	path := filepath.Join(workspace, "state", "dead-holder-original-owner.json")
+	var raw []byte
+	if _, err := os.Lstat(path); err == nil {
+		var err error
+		raw, err = runtime.readExistingSchemaSealedFile(path, true)
+		if err != nil {
+			return nil, err
+		}
+	} else if errors.Is(err, os.ErrNotExist) {
+		var err error
+		raw, err = readActual()
+		if err != nil {
+			return nil, err
+		}
+		if startupContentSHA256(raw) != sha {
+			return nil, errors.New("dead holder actual original owner differs from its reviewed digest")
+		}
+		if persist {
+			if err := runtime.writeSchemaMaintenanceRawNewFile(path, raw); err != nil {
+				return nil, errors.New("dead holder original owner capture is unknown; preserve it and inspect")
+			}
+		}
+	} else {
+		return nil, err
+	}
+	if startupContentSHA256(raw) != sha {
+		return nil, errors.New("dead holder original owner bytes changed")
+	}
+	return raw, nil
+}
+func (runtime *productionRuntime) readSchemaMaintenanceDeadHolderResult(workspace string) ([]byte, error) {
+	path := filepath.Join(workspace, "state", "dead-preworker-cas-reconciled.json")
+	if _, err := os.Lstat(path); errors.Is(err, os.ErrNotExist) {
+		path = filepath.Join(workspace, "state", "dead-preworker-cas-result.json")
+	} else if err != nil {
+		return nil, err
+	}
+	return runtime.readExistingSchemaSealedFile(path, true)
 }
