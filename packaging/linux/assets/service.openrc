@@ -1,0 +1,23 @@
+#!/sbin/openrc-run
+name="@PACKAGE@"
+description="@PACKAGE@ (preview)"
+command="/usr/bin/@PACKAGE@"
+command_user="@PACKAGE@:@PACKAGE@"
+command_background=true
+pidfile="/run/@PACKAGE@/service.pid"
+directory="/var/lib/@PACKAGE@"
+retry="TERM/1800"
+umask=0077
+
+depend() {
+    need net
+}
+
+start_pre() {
+    set -a
+    . /etc/@PACKAGE@/service.env || return 1
+    @CREDENTIAL_ENV@="/etc/@PACKAGE@/@CREDENTIAL@"
+    set +a
+    checkpath --directory --mode 0700 --owner @PACKAGE@:@PACKAGE@ \
+        /run/@PACKAGE@ /var/lib/@PACKAGE@
+}
