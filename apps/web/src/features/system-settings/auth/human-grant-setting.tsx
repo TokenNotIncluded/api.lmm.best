@@ -23,7 +23,10 @@ import { toast } from 'sonner'
 import { Switch } from '@/components/ui/switch'
 import { api } from '@/lib/api'
 
-import { SettingsSwitchContent, SettingsSwitchItem } from '../components/settings-form-layout'
+import {
+  SettingsSwitchContent,
+  SettingsSwitchItem,
+} from '../components/settings-form-layout'
 
 /** HumanGrant is a separate Rust-owned setting, not an unguarded Go option. */
 export function HumanGrantSetting() {
@@ -34,17 +37,23 @@ export function HumanGrantSetting() {
 
   useEffect(() => {
     let active = true
-    api.get<{ enabled: boolean }>('/api/humangrant/settings', {
-      skipErrorHandler: true,
-      skipBusinessError: true,
-    }).then(({ data }) => {
-      if (active) setEnabled(data.enabled === true)
-    }).catch(() => {
-      if (active) toast.error(t('Unable to load HumanGrant setting'))
-    }).finally(() => {
-      if (active) setLoading(false)
-    })
-    return () => { active = false }
+    api
+      .get<{ enabled: boolean }>('/api/humangrant/settings', {
+        skipErrorHandler: true,
+        skipBusinessError: true,
+      })
+      .then(({ data }) => {
+        if (active) setEnabled(data.enabled === true)
+      })
+      .catch(() => {
+        if (active) toast.error(t('Unable to load HumanGrant setting'))
+      })
+      .finally(() => {
+        if (active) setLoading(false)
+      })
+    return () => {
+      active = false
+    }
   }, [t])
 
   const update = async (next: boolean) => {
@@ -67,16 +76,22 @@ export function HumanGrantSetting() {
   return (
     <SettingsSwitchItem>
       <SettingsSwitchContent>
-        <div className='text-sm font-medium'>{t('HumanGrant remote authorization')}</div>
+        <div className='text-sm font-medium'>
+          {t('HumanGrant remote authorization')}
+        </div>
         <p className='text-muted-foreground text-sm'>
-          {t('Allow AI clients to request limited access with explicit human approval. Existing login methods stay available.')}
+          {t(
+            'Allow AI clients to request limited access with explicit human approval. Existing login methods stay available.'
+          )}
         </p>
       </SettingsSwitchContent>
       <Switch
         aria-label={t('HumanGrant remote authorization')}
         checked={enabled}
         disabled={loading || saving}
-        onCheckedChange={(value) => { void update(value) }}
+        onCheckedChange={(value) => {
+          void update(value)
+        }}
       />
     </SettingsSwitchItem>
   )
