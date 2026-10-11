@@ -19,6 +19,7 @@ import (
 // HumanGrant uses the existing database and login sessions. There is no second
 // human account database and no new credential accepted by UserAuth or TokenAuth.
 type HumanGrantStore struct{ DB *gorm.DB }
+
 // Use the same table definitions as the controlled migration phase.
 type humanGrantRecord = model.HumanGrantRecord
 type humanGrantGate = model.HumanGrantGate

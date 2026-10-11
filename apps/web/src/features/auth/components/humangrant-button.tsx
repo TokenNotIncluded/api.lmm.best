@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useEffect, useState } from 'react'
+
 import { Button } from '@/components/ui/button'
 
 export function HumanGrantButton({ disabled = false }: { disabled?: boolean }) {
@@ -24,20 +25,36 @@ export function HumanGrantButton({ disabled = false }: { disabled?: boolean }) {
   useEffect(() => {
     const controller = new AbortController()
     const refresh = () => {
-      fetch('/humangrant/config', { credentials: 'omit', cache: 'no-store', signal: controller.signal })
-        .then(async response => response.ok ? response.json() : null)
-        .then(data => { if (!controller.signal.aborted) setAvailable(data?.enabled === true && data?.ready === true) })
-        .catch(() => { if (!controller.signal.aborted) setAvailable(false) })
+      fetch('/humangrant/config', {
+        credentials: 'omit',
+        cache: 'no-store',
+        signal: controller.signal,
+      })
+        .then(async (response) => (response.ok ? response.json() : null))
+        .then((data) => {
+          if (!controller.signal.aborted)
+            setAvailable(data?.enabled === true && data?.ready === true)
+        })
+        .catch(() => {
+          if (!controller.signal.aborted) setAvailable(false)
+        })
     }
     refresh()
     window.addEventListener('focus', refresh)
-    return () => { controller.abort(); window.removeEventListener('focus', refresh) }
+    return () => {
+      controller.abort()
+      window.removeEventListener('focus', refresh)
+    }
   }, [])
   if (!available) return null
   return (
-    <Button type='button' variant='outline' disabled={disabled}
+    <Button
+      type='button'
+      variant='outline'
+      disabled={disabled}
       className='h-auto min-h-11 w-full justify-center rounded-xl px-3 py-2 whitespace-normal'
-      onClick={() => window.location.assign('/humangrant')}>
+      onClick={() => window.location.assign('/humangrant')}
+    >
       Continue with human beings
     </Button>
   )

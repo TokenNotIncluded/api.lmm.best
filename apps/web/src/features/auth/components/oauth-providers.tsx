@@ -36,8 +36,8 @@ import {
   isOAuthProviderConfigured,
 } from '../lib/registration'
 import type { SystemStatus } from '../types'
-import { TelegramLoginDialog } from './telegram-login-dialog'
 import { HumanGrantButton } from './humangrant-button'
+import { TelegramLoginDialog } from './telegram-login-dialog'
 
 type OAuthProvidersProps = {
   status: SystemStatus | null
@@ -248,7 +248,9 @@ export function OAuthProviders({
   return (
     <>
       <div className={cn('space-y-3', className)}>
-        {!registrationOnly && <HumanGrantButton disabled={disabled || isLoading} />}
+        {!registrationOnly && (
+          <HumanGrantButton disabled={disabled || isLoading} />
+        )}
         {featuredProvider
           ? renderProviderButton(featuredProvider, false)
           : null}
