@@ -14,7 +14,7 @@
 | 参与开源悬赏 | [流程、证据与结算](open-source-bounties.md) |
 | 本地开发与测试 | [开发指南](development.md) · [贡献要求](../CONTRIBUTING.md) |
 | 用 Agent 修改仓库 | [工作指南](agent-workflows.md) · [技能目录](../.agents/skills/README.md) · [仓库规则](../AGENTS.md) |
-| 更新已有服务 | 先读[部署流程](deployment-workflow.md)，再选择[独立 systemd](manual-systemd-deployment.md)或[软件包签名升级](seamless-upgrades.md) |
+| 更新已有服务 | 先读[只升级部署规则](deployment-workflow.md#forward-only-production-policy)，再选择[独立 systemd](manual-systemd-deployment.md)或[软件包签名升级](seamless-upgrades.md) |
 | 查接口 | [管理 API](openapi/api.json) · [模型转发 API](openapi/relay.json) |
 
 ## 使用与产品 · Product

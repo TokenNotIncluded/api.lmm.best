@@ -107,6 +107,11 @@ exact names are recorded in the staged plan and cannot be changed at apply.
 
 ## Failure and recovery
 
+Follow the [forward-only production policy](deployment-workflow.md#forward-only-production-policy).
+Preserve data backups and transaction evidence, reconcile status, and publish a
+higher patch repair. The legacy rollback example below remains supported by the
+tool, but must not be executed under the current policy.
+
 Transactions and private logs remain in
 `/var/lib/lmm-api-deploy-systemd/ID`. A failed preparation is shown as
 `PREPARATION_INCOMPLETE`. Existing IDs are never overwritten or automatically
@@ -114,13 +119,13 @@ resumed by `upgrade`; use the printed status and next-action commands.
 
 ```sh
 sudo bash scripts/lmm-api-deploy.sh systemd status --release deployment-001 --human
-# After inspecting the transaction logs and service journal:
+# Legacy reference only; not an authorized production downgrade:
 sudo bash scripts/lmm-api-deploy.sh systemd rollback \
   --release deployment-001 --confirm api.lmm.best
 ```
 
-Rollback is allowed for a pending activation, not a confirmed transaction. It
-restores the previous binary and frontend, **not the database**. Migrations must
+The legacy tool allows rollback for a pending activation, not a confirmed
+transaction. It restores the previous binary and frontend, **not the database**. Migrations must
 remain compatible with the old binary; destructive migrations or authorization
 baseline incompatibilities require a separate, rehearsed database recovery plan.
 Do not repeat `upgrade`/`apply` after an ambiguous interruption.

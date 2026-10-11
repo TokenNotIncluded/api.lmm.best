@@ -67,10 +67,11 @@ bun run --filter @lmm/web dev --port 5173 --host 127.0.0.1 --strict-port
 ## 部署与升级
 
 Go 和 Web 分别以 `go-vX.Y.Z`、`web-vX.Y.Z` 发布。**合并代码或发布版本不会自动部署到生产。** 先读[部署流程](docs/deployment-workflow.md)，按已有安装方式选择路径。
+生产版本只增不减，故障通过更高补丁版本修复；数据备份和完整性检查必须保留。详见[只升级规则](docs/deployment-workflow.md#forward-only-production-policy)。
 
 | 已有安装方式 | 从这里开始 |
 | --- | --- |
-| 独立 systemd 服务 | [检查、升级、确认与回退](docs/manual-systemd-deployment.md) |
+| 独立 systemd 服务 | [检查、升级与确认](docs/manual-systemd-deployment.md) |
 | 软件包管理的 Go / Web | [签名发布与升级事务](docs/seamless-upgrades.md) |
 | 只更新前端 | [部署流程与安装方式](docs/deployment-workflow.md) · [组件发布边界](docs/release-architecture.md) |
 | 数据库与缓存 | [PostgreSQL 迁移](docs/postgresql-migration.md) · [生产切换](docs/postgresql-cutover.md) · [Valkey 运维](docs/valkey-lmm-api.md) |

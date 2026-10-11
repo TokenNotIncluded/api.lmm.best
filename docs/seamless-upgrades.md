@@ -1,5 +1,10 @@
 # Frontend and backend upgrades
 
+Follow the [forward-only production policy](deployment-workflow.md#forward-only-production-policy):
+retain data backups and integrity, never lower Go/Web versions, and fix failures
+in a higher patch. The rollback fields and operations documented here remain
+legacy tool contracts; they do not authorize restoring older running software.
+
 ## Choose the installation path
 
 This guide describes the **signed package transaction** path. For an existing
@@ -47,6 +52,8 @@ pairs candidate and rollback Go/Web packages, their signed release archives
 and Sigstore bundles, and the candidate `lmm-api` probe binary. The controller
 verifies tags, ancestry, signatures, checksums, package payloads, and route
 contract revisions before writing canonical immutable JSON.
+The rollback slots remain legacy metadata requirements; they do not authorize
+activating older code or require a new old-version failure drill.
 
 Production uses resumable controller phases:
 
@@ -56,15 +63,16 @@ Production uses resumable controller phases:
   --plan <release-plan.json> --plan-sha256 <sha256> --confirm api.lmm.best
 /usr/bin/lmm-api-deploy production promote \
   --plan <release-plan.json> --plan-sha256 <sha256> --confirm api.lmm.best
-/usr/bin/lmm-api-deploy production status|confirm|rollback \
+/usr/bin/lmm-api-deploy production status|confirm \
   --plan <release-plan.json> --plan-sha256 <sha256> --confirm api.lmm.best
 ```
 
 `stage` only creates the marker-owned target workspace and transfers exact
 verified artifacts. `promote` performs the guarded package transaction and
 health observation, then stops at `AWAITING_CONFIRMATION`. The operator must
-explicitly confirm or roll back the exact transaction; there is no scheduled
-or automatic rollback. Release plans select `disabled` or `controller-only`
+explicitly confirm the exact accepted transaction; otherwise reconcile its
+state and repair forward. The native CLI still exposes legacy `rollback`; do not
+invoke it. This path has no scheduled rollback. Release plans select `disabled` or `controller-only`
 backup mode, as defined by the
 [controller-only backup evidence contract](controller-only-backup-format.md).
 Remote mutations require operator authorization and exact host identity.
@@ -80,8 +88,9 @@ publishers and retention always includes the current release. Static assets
 are not garbage-collected in this phase; any future GC must preserve assets
 referenced by every retained release.
 
-Rollback is performed by the same guarded transaction and restores the exact
-verified prior frontend release. Do not invoke a source-tree publisher or
+Legacy rollback uses the same guarded transaction to restore the exact verified
+prior frontend release; do not execute that legacy command.
+Do not invoke a source-tree publisher or
 construct a parallel public helper command for package-owned installations.
 
 The site uses its own `/etc/nginx/lmm-api-mime.types`; it never creates or

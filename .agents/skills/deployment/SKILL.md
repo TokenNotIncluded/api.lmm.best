@@ -13,6 +13,12 @@ release number, a stale local binary, or an assumed automatic deployment trigger
 
 ## Establish the boundary
 
+Apply the [forward-only production policy](../../../docs/deployment-workflow.md#forward-only-production-policy):
+preserve data backups and integrity, never lower a running component version,
+and repair failures in a higher patch release. Do not add old-version restore
+qualification work to delay an upgrade. Legacy rollback fields and handlers
+remain in the tool; their presence is not permission to activate older code.
+
 Identify the repository, requested component, immutable source revision, target
 installation type, release tag, and whether the user authorized production writes.
 Use connected repository/server reads when available. Do not ask for facts those
@@ -151,9 +157,12 @@ Never disable signatures, revision checks, host-key verification, deployment
 locks, backups or explicit transaction confirmation.
 
 After a partial rollout, inspect each host and the recorded transaction. Existing
-release IDs are not safe to overwrite. Use the documented explicit recovery or
-rollback path; do not delete state to get past an error. Schema changes may
-require database recovery, not just a binary rollback.
+release IDs are not safe to overwrite. Reconcile the exact state, preserve data
+and transaction evidence, and repair forward with a higher patch. Do not invoke
+legacy rollback commands or delete state to get past an error. Use direct native
+phases or a reviewed granular caller, not the automatic rollback wrapper.
+Data recovery and non-downgrading transaction closure remain separate
+from activating older code; required native gates still apply.
 
 ## Completion evidence
 
