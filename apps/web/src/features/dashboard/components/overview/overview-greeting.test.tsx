@@ -1,4 +1,5 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
+
 import assert from 'node:assert/strict'
 import { after, afterEach, test } from 'node:test'
 
@@ -46,6 +47,9 @@ const { createInstance } = await import('i18next')
 const { I18nextProvider, initReactI18next } = await import('react-i18next')
 const { api } = await import('@/lib/api')
 const { useAuthStore } = await import('@/stores/auth-store')
+const { DEFAULT_CURRENCY_CONFIG, useSystemConfigStore } =
+  await import('@/stores/system-config-store')
+const originalConfig = useSystemConfigStore.getState().config
 const { OverviewGreeting } = await import('./overview-greeting')
 const originalAdapter = api.defaults.adapter
 const originalToast = toast.error
@@ -70,6 +74,7 @@ afterEach(async () => {
   api.defaults.adapter = originalAdapter
   toast.error = originalToast
   useAuthStore.getState().auth.setUser(originalUser)
+  useSystemConfigStore.setState({ config: originalConfig })
   document.body.replaceChildren()
 })
 after(() => dom.close())
@@ -92,8 +97,19 @@ function respond(
   }
   return response
 }
-async function mount() {
-  useAuthStore.getState().auth.setUser(user)
+async function mount(overrides: Partial<typeof user> = {}) {
+  useSystemConfigStore.setState({
+    config: {
+      ...originalConfig,
+      currency: {
+        ...DEFAULT_CURRENCY_CONFIG,
+        currencyUnit: 'credit',
+        creditsPerUsd: 500000,
+        creditsPerUsdExact: '500000',
+      },
+    },
+  })
+  useAuthStore.getState().auth.setUser({ ...user, ...overrides })
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   })
@@ -238,5 +254,50 @@ for (const [label, status, payload] of [
     )
     assert.equal(editButton(container).disabled, true)
     assert.match(container.textContent ?? '', /HI,Ada, it is/)
+  })
+}
+
+for (const quota of [0, 5_000_000]) {
+  test(`financial projection false substitutes unavailable for a ${quota} greeting balance`, async () => {
+    api.defaults.adapter = async (config) =>
+      respond(config, 200, {
+        success: true,
+        data: {
+          ...emptyPreference,
+          templates: { en: 'Balance: $balance' },
+        },
+      })
+    const { container } = await mount({
+      quota,
+      financial_projection_available: false,
+    })
+    await until(
+      () =>
+        container.querySelector('.overview-greeting-message')?.textContent ===
+        'Balance: Unavailable'
+    )
+  })
+}
+
+for (const projection of [undefined, true]) {
+  test(`financial projection ${projection === undefined ? 'legacy undefined' : 'true'} keeps the genuine greeting balance when usage is unavailable`, async () => {
+    api.defaults.adapter = async (config) =>
+      respond(config, 200, {
+        success: true,
+        data: {
+          ...emptyPreference,
+          templates: { en: 'Balance: $balance' },
+        },
+      })
+    const { container } = await mount({
+      quota: 5_000_000,
+      financial_projection_available: projection,
+      usage_projection_available: false,
+    })
+    await until(
+      () =>
+        container.querySelector('.overview-greeting-message')?.textContent ===
+        'Balance: 10 USD'
+    )
   })
 }

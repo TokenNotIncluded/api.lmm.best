@@ -6,6 +6,7 @@ it under the terms of the GNU Affero General Public License as
 published by the Free Software Foundation, either version 3 of the
 License, or (at your option) any later version.
 */
+
 import { Link } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
@@ -28,8 +29,11 @@ export function AccountBalanceBadge({
 }) {
   const { t } = useTranslation()
   const { formatQuota } = useWalletCurrency()
-  const quota = useAuthStore((state) => state.auth.user?.quota ?? 0)
-  const balance = formatQuota(quota)
+  const user = useAuthStore((state) => state.auth.user)
+  const balance =
+    user?.financial_projection_available === false
+      ? t('Unavailable')
+      : formatQuota(user?.quota ?? 0)
 
   return (
     <>

@@ -15,6 +15,7 @@ You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 */
+
 import { Link, useLocation } from '@tanstack/react-router'
 import {
   ChevronRight,
@@ -163,8 +164,11 @@ export function ConsoleNavSection({ group }: { group: NavGroupProps }) {
 export function ConsoleBalanceEntry() {
   const { t } = useTranslation()
   const { setOpenMobile } = useSidebar()
-  const quota = useAuthStore((state) => state.auth.user?.quota ?? 0)
-  const balance = formatQuota(Math.max(0, quota))
+  const user = useAuthStore((state) => state.auth.user)
+  const balance =
+    user?.financial_projection_available === false
+      ? t('Unavailable')
+      : formatQuota(Math.max(0, user?.quota ?? 0))
 
   return (
     <SidebarMenu>

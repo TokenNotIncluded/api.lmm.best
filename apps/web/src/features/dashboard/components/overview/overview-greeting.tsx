@@ -1,4 +1,5 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
+
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Loader2, Pencil, RotateCcw } from 'lucide-react'
 import { useEffect, useState } from 'react'
@@ -110,7 +111,11 @@ function OverviewGreetingSession({ user }: { user: AuthUser }) {
     $level: level,
     $site: site,
     $balance:
-      typeof user.quota === 'number' ? wallet.formatQuota(user.quota) : '—',
+      user.financial_projection_available === false
+        ? t('Unavailable')
+        : typeof user.quota === 'number'
+          ? wallet.formatQuota(user.quota)
+          : '—',
   })
   const defaultTemplate = (locale: string) =>
     t('HI,$name, it is $time', { lng: normalizeInterfaceLanguage(locale) })

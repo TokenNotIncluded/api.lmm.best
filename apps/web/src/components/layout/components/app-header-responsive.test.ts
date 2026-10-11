@@ -14,6 +14,7 @@ GNU Affero General Public License for more details.
 You should have received a copy of the GNU Affero General Public License
 along with this program. If not, see <https://www.gnu.org/licenses/>.
 */
+
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { describe, test } from 'node:test'
@@ -64,7 +65,8 @@ describe('authenticated header responsive navigation', () => {
       balanceBadgeSource,
       /const \{ formatQuota \} = useWalletCurrency\(\)/
     )
-    assert.match(balanceBadgeSource, /const balance = formatQuota\(quota\)/)
+    assert.match(balanceBadgeSource, /financial_projection_available === false/)
+    assert.match(balanceBadgeSource, /t\('Unavailable'\)/)
     assert.match(balanceBadgeSource, /aria-label=\{t\('Wallet balance'\)\}/)
     assert.match(balanceBadgeSource, /<sup aria-hidden='true'>\?<\/sup>/)
     assert.match(
