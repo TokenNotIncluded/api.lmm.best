@@ -17,7 +17,9 @@ pub(super) struct Signed {
 fn only<'a>(headers: &'a HeaderMap, name: &str) -> Result<&'a str, ()> {
     let mut values = headers.get_all(name).iter();
     let first = values.next().ok_or(())?;
-    if values.next().is_some() { return Err(()); }
+    if values.next().is_some() {
+        return Err(());
+    }
     let text = first.to_str().map_err(|_| ())?;
     if text.is_empty() || text.trim() != text || text.contains('\n') || text.contains('\r') {
         return Err(());
@@ -26,13 +28,17 @@ fn only<'a>(headers: &'a HeaderMap, name: &str) -> Result<&'a str, ()> {
 }
 
 pub(super) fn now() -> i64 {
-    SystemTime::now().duration_since(UNIX_EPOCH)
-        .unwrap_or_default().as_secs() as i64
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs() as i64
 }
 
 fn canonical_b64(engine: &impl Engine, input: &str, size: usize) -> Result<Vec<u8>, ()> {
     let value = engine.decode(input).map_err(|_| ())?;
-    if value.len() != size || engine.encode(&value) != input { return Err(()); }
+    if value.len() != size || engine.encode(&value) != input {
+        return Err(());
+    }
     Ok(value)
 }
 
@@ -48,7 +54,9 @@ pub(super) fn verify(
         return Err(());
     }
     let content_type = only(headers, "content-type")?;
-    if content_type != "application/json" { return Err(()); }
+    if content_type != "application/json" {
+        return Err(());
+    }
     let public_b64 = only(headers, "x-hg-key")?;
     let key = canonical_b64(&URL_SAFE_NO_PAD, public_b64, 32)?;
     let actor_id = format!("ed25519:{}", URL_SAFE_NO_PAD.encode(Sha256::digest(&key)));
@@ -60,7 +68,9 @@ pub(super) fn verify(
         return Err(());
     }
     let expected_digest = format!("sha-256=:{}:", STANDARD.encode(Sha256::digest(bytes)));
-    if only(headers, "content-digest")? != expected_digest { return Err(()); }
+    if only(headers, "content-digest")? != expected_digest {
+        return Err(());
+    }
 
     let input = only(headers, "signature-input")?;
     const PREFIX: &str = "hg=(\"@method\" \"@target-uri\" \"content-digest\" \"content-type\" \"x-hg-key\" \"authorization\");created=";
@@ -70,33 +80,51 @@ pub(super) fn verify(
     let (nonce, body) = body.split_once("\";keyid=\"").ok_or(())?;
     let (key_id, suffix) = body.split_once('"').ok_or(())?;
     if suffix != ";alg=\"ed25519\";tag=\"humangrant-0.1\""
-        || key_id != actor_id || nonce.len() != 32
+        || key_id != actor_id
+        || nonce.len() != 32
         || canonical_b64(&URL_SAFE_NO_PAD, nonce, 24).is_err()
-        || created.starts_with('0') || expires.starts_with('0')
+        || created.starts_with('0')
+        || expires.starts_with('0')
     {
         return Err(());
     }
     let created: i64 = created.parse().map_err(|_| ())?;
     let expires: i64 = expires.parse().map_err(|_| ())?;
-    if created > clock + 30 || created < clock - 60
-        || expires <= clock || expires <= created || expires > created + 60
+    if created > clock + 30
+        || created < clock - 60
+        || expires <= clock
+        || expires <= created
+        || expires > created + 60
     {
         return Err(());
     }
     let signature_header = only(headers, "signature")?;
-    let signature = signature_header.strip_prefix("hg=:")
-        .and_then(|s| s.strip_suffix(':')).ok_or(())?;
+    let signature = signature_header
+        .strip_prefix("hg=:")
+        .and_then(|s| s.strip_suffix(':'))
+        .ok_or(())?;
     let signature = canonical_b64(&STANDARD, signature, 64)?;
     let params = input.strip_prefix("hg=").ok_or(())?;
     let base = format!(
         "\"@method\": {}\n\"@target-uri\": {}{}\n\"content-digest\": {}\n\"content-type\": {}\n\"x-hg-key\": {}\n\"authorization\": {}\n\"@signature-params\": {}",
-        method.as_str(), origin, uri.path(), expected_digest, content_type,
-        public_b64, authorization, params
+        method.as_str(),
+        origin,
+        uri.path(),
+        expected_digest,
+        content_type,
+        public_b64,
+        authorization,
+        params
     );
     UnparsedPublicKey::new(&ED25519, &key)
         .verify(base.as_bytes(), &signature)
         .map_err(|_| ())?;
-    Ok(Signed { actor_id, authorization: credential.to_owned(), nonce: nonce.to_owned(), expires })
+    Ok(Signed {
+        actor_id,
+        authorization: credential.to_owned(),
+        nonce: nonce.to_owned(),
+        expires,
+    })
 }
 
 #[cfg(test)]
