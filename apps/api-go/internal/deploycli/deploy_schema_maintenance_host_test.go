@@ -188,13 +188,16 @@ func TestSchemaMaintenanceFailedReopenCleanupCannotMutateAfterLeaseLoss(t *testi
 				}
 				return nil
 			}
-			runner := &schemaMaintenanceJournalRunner{}
-			h.runtime.runner = runner
+			commands := 0
+			h.runtime.runner = existingSchemaTestRunner{run: func(productionCommand) ([]byte, error) {
+				commands++
+				return nil, errors.New("cleanup must not run commands without authority")
+			}}
 			if err := h.restoreAdmissionBarrierAfterFailedReopen(context.Background(), original, barrier, &capture); err == nil {
 				t.Fatal("cleanup accepted missing authority or another admission owner")
 			}
 			after, err := os.ReadFile(path)
-			if err != nil || !bytes.Equal(after, current) || runner.calls != 0 {
+			if err != nil || !bytes.Equal(after, current) || commands != 0 {
 				t.Fatal("failed cleanup changed admission or invoked a service command")
 			}
 		})
