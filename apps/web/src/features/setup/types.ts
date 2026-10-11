@@ -22,6 +22,8 @@ export interface SetupStatus {
   status: boolean
   root_init: boolean
   database_type: string
+  /** Installation policy, independent of the persisted completion facts. */
+  initialization_method?: 'cli'
   // Some backends also echo mode flags; they are optional here.
   SelfUseModeEnabled?: boolean
   DemoSiteEnabled?: boolean
@@ -36,6 +38,7 @@ export interface SetupFormValues {
 
 export interface SetupResponse {
   success: boolean
+  code?: string
   message?: string
   data?: SetupStatus
 }

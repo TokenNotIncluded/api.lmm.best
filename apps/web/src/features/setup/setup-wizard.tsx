@@ -27,6 +27,7 @@ import { BrandLogo } from '@/components/brand-logo'
 import { ErrorState } from '@/components/error-state'
 import { LanguageSwitcher } from '@/components/language-switcher'
 import { LoadingState } from '@/components/loading-state'
+import { Button } from '@/components/ui/button'
 import {
   Card,
   CardContent,
@@ -40,7 +41,12 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import { cn } from '@/lib/utils'
 
-import { buildSetupPayload, getSetupStatus, submitSetup } from './api'
+import {
+  buildSetupPayload,
+  getSetupStatus,
+  isCliOnlySetupError,
+  submitSetup,
+} from './api'
 import { AdminStep } from './components/admin-step'
 import { CompleteStep } from './components/complete-step'
 import { DatabaseStep } from './components/database-step'
@@ -82,6 +88,8 @@ export function SetupWizard() {
 
   const [currentStep, setCurrentStep] = useState(0)
   const [setupStatus, setSetupStatus] = useState<SetupStatus | undefined>()
+  const [cliRequired, setCliRequired] = useState(false)
+  const cliOnly = cliRequired || setupStatus?.initialization_method === 'cli'
 
   const form = useForm<SetupFormValues>({
     defaultValues: DEFAULT_FORM_VALUES,
@@ -94,6 +102,7 @@ export function SetupWizard() {
     data: statusResponse,
     isLoading,
     isError,
+    isFetching,
     refetch,
   } = useQuery({
     queryKey: ['setup-status'],
@@ -105,6 +114,10 @@ export function SetupWizard() {
     mutationKey: ['setup-submit'],
     mutationFn: submitSetup,
     onSuccess: async (response) => {
+      if (!response.success && response.code === 'SETUP_CLI_ONLY') {
+        setCliRequired(true)
+        return
+      }
       if (response.success) {
         toast.success(t('System initialized successfully! Redirecting…'))
         await queryClient.invalidateQueries({ queryKey: ['setup-status'] })
@@ -117,7 +130,11 @@ export function SetupWizard() {
         )
       }
     },
-    onError: () => {
+    onError: (error) => {
+      if (isCliOnlySetupError(error)) {
+        setCliRequired(true)
+        return
+      }
       toast.error(t('Failed to initialize system'))
     },
   })
@@ -278,7 +295,7 @@ export function SetupWizard() {
   }
 
   let setupBody: ReactNode
-  if (isLoading) {
+  if (isLoading || statusResponse?.data?.status) {
     setupBody = <LoadingState message={t('Loading setup status…')} />
   } else if (isError) {
     setupBody = (
@@ -287,7 +304,23 @@ export function SetupWizard() {
         onRetry={() => refetch()}
       />
     )
-  } else {
+  } else if (cliOnly) {
+    setupBody = (
+      <div className='space-y-4'>
+        <pre className='bg-muted overflow-x-auto rounded-md p-4 text-sm'>
+          <code>lmm-core complete-setup</code>
+        </pre>
+        <Button
+          type='button'
+          className='min-h-11'
+          disabled={isFetching}
+          onClick={() => void refetch()}
+        >
+          {t('Check setup status')}
+        </Button>
+      </div>
+    )
+  } else if (setupStatus) {
     setupBody = (
       <Form {...form}>
         <form
@@ -298,6 +331,8 @@ export function SetupWizard() {
         </form>
       </Form>
     )
+  } else {
+    setupBody = <LoadingState message={t('Loading setup status…')} />
   }
 
   return (
@@ -331,88 +366,106 @@ export function SetupWizard() {
           </div>
           <p className='setup-editorial-lede max-w-md text-sm sm:text-right sm:text-base'>
             {t(
-              'Follow the guided steps to prepare your workspace before the first login.'
+              cliOnly
+                ? 'Ask the server operator to complete initialization using the offline database owner.'
+                : 'Follow the guided steps to prepare your workspace before the first login.'
             )}
           </p>
         </header>
 
-        <div className='setup-editorial-index flex items-center justify-between border-y py-2 text-xs'>
-          <span>SETUP / {String(currentStep + 1).padStart(2, '0')}</span>
-          <span>{String(STEPS.length).padStart(2, '0')} STEPS</span>
-        </div>
+        {!cliOnly && (
+          <div className='setup-editorial-index flex items-center justify-between border-y py-2 text-xs'>
+            <span>SETUP / {String(currentStep + 1).padStart(2, '0')}</span>
+            <span>{String(STEPS.length).padStart(2, '0')} STEPS</span>
+          </div>
+        )}
 
         <Card className='setup-editorial-frame'>
           <CardHeader className='setup-editorial-frame-header space-y-2'>
             <p className='setup-editorial-kicker'>SYSTEM / SETUP</p>
             <CardTitle className='font-serif text-2xl font-normal tracking-tight sm:text-3xl'>
-              {t('System setup wizard')}
+              {t(
+                cliOnly
+                  ? 'Operator initialization required'
+                  : 'System setup wizard'
+              )}
             </CardTitle>
             <CardDescription className='max-w-xl'>
-              {t('Complete these steps to finish the initial installation.')}
+              {t(
+                cliOnly
+                  ? 'After initialization, check the setup status again.'
+                  : 'Complete these steps to finish the initial installation.'
+              )}
             </CardDescription>
           </CardHeader>
 
           <CardContent className='setup-editorial-frame-content space-y-8'>
-            <ol className='setup-editorial-step-list grid sm:grid-cols-4'>
-              {STEPS.map((step, index) => {
-                const isActive = currentStep === index
-                const isCompleted = currentStep > index
-                let stepState: 'active' | 'complete' | 'idle' = 'idle'
-                if (isActive) {
-                  stepState = 'active'
-                } else if (isCompleted) {
-                  stepState = 'complete'
-                }
-                return (
-                  <li
-                    key={step.titleKey}
-                    className={cn(
-                      'setup-editorial-step border-b p-4 sm:border-r sm:border-b-0',
-                      index === STEPS.length - 1 && 'sm:border-r-0',
-                      isActive && 'is-active',
-                      isCompleted && 'is-complete'
-                    )}
-                    data-state={stepState}
-                  >
-                    <div className='flex items-start gap-3'>
-                      <span
-                        className={cn(
-                          'setup-editorial-step-number flex size-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold',
-                          isActive && 'is-active',
-                          isCompleted && 'is-complete'
-                        )}
-                      >
-                        {index + 1}
-                      </span>
-                      <div className='space-y-1'>
-                        <p className='text-sm font-semibold'>
-                          {t(step.titleKey)}
-                        </p>
-                        <p className='text-muted-foreground text-xs'>
-                          {t(step.descriptionKey)}
-                        </p>
+            {!cliOnly && setupStatus && (
+              <ol className='setup-editorial-step-list grid sm:grid-cols-4'>
+                {STEPS.map((step, index) => {
+                  const isActive = currentStep === index
+                  const isCompleted = currentStep > index
+                  let stepState: 'active' | 'complete' | 'idle' = 'idle'
+                  if (isActive) {
+                    stepState = 'active'
+                  } else if (isCompleted) {
+                    stepState = 'complete'
+                  }
+                  return (
+                    <li
+                      key={step.titleKey}
+                      className={cn(
+                        'setup-editorial-step border-b p-4 sm:border-r sm:border-b-0',
+                        index === STEPS.length - 1 && 'sm:border-r-0',
+                        isActive && 'is-active',
+                        isCompleted && 'is-complete'
+                      )}
+                      data-state={stepState}
+                    >
+                      <div className='flex items-start gap-3'>
+                        <span
+                          className={cn(
+                            'setup-editorial-step-number flex size-7 shrink-0 items-center justify-center rounded-full border text-xs font-semibold',
+                            isActive && 'is-active',
+                            isCompleted && 'is-complete'
+                          )}
+                        >
+                          {index + 1}
+                        </span>
+                        <div className='space-y-1'>
+                          <p className='text-sm font-semibold'>
+                            {t(step.titleKey)}
+                          </p>
+                          <p className='text-muted-foreground text-xs'>
+                            {t(step.descriptionKey)}
+                          </p>
+                        </div>
                       </div>
-                    </div>
-                  </li>
-                )
-              })}
-            </ol>
+                    </li>
+                  )
+                })}
+              </ol>
+            )}
 
             {setupBody}
           </CardContent>
 
-          {!isLoading && !isError && (
-            <CardFooter className='setup-editorial-frame-footer w-full justify-end border-t'>
-              <StepNavigation
-                currentStep={currentStep}
-                totalSteps={STEPS.length}
-                onBack={handlePreviousStep}
-                onNext={handleNextStep}
-                onSubmit={handleSubmit}
-                isSubmitting={mutation.isPending}
-              />
-            </CardFooter>
-          )}
+          {!isLoading &&
+            !isError &&
+            setupStatus &&
+            !cliOnly &&
+            !statusResponse?.data?.status && (
+              <CardFooter className='setup-editorial-frame-footer w-full justify-end border-t'>
+                <StepNavigation
+                  currentStep={currentStep}
+                  totalSteps={STEPS.length}
+                  onBack={handlePreviousStep}
+                  onNext={handleNextStep}
+                  onSubmit={handleSubmit}
+                  isSubmitting={mutation.isPending}
+                />
+              </CardFooter>
+            )}
         </Card>
       </div>
     </div>

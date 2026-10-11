@@ -16,6 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { isAxiosError } from 'axios'
+
 import { api } from '@/lib/api'
 
 import type { SetupFormValues, SetupResponse } from './types'
@@ -30,14 +32,38 @@ export async function getSetupStatus(): Promise<SetupResponse> {
     skipBusinessError: true,
     skipErrorHandler: true,
   })
+  const status = res.data?.data
+  if (
+    res.data?.success !== true ||
+    typeof status?.status !== 'boolean' ||
+    typeof status?.root_init !== 'boolean' ||
+    typeof status?.database_type !== 'string' ||
+    !status.database_type.trim() ||
+    (status.status && !status.root_init) ||
+    (status.initialization_method !== undefined &&
+      status.initialization_method !== 'cli')
+  ) {
+    throw new Error('Invalid setup status response')
+  }
   return res.data
 }
 
 export async function submitSetup(
   payload: Record<string, unknown>
 ): Promise<SetupResponse> {
-  const res = await api.post('/api/setup', payload)
+  const res = await api.post('/api/setup', payload, {
+    skipBusinessError: true,
+    skipErrorHandler: true,
+  })
   return res.data
+}
+
+export function isCliOnlySetupError(error: unknown): boolean {
+  return (
+    isAxiosError(error) &&
+    error.response?.status === 403 &&
+    error.response.data?.code === 'SETUP_CLI_ONLY'
+  )
 }
 
 export function buildSetupPayload(
