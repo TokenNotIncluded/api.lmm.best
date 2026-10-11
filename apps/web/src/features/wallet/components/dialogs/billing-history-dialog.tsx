@@ -317,7 +317,7 @@ export function BillingHistoryDialog({
                             {t('Credited balance')}
                           </Label>
                           <div className='text-sm font-semibold'>
-                            {/* Prefer immutable credited quota; bridge old batch snapshots when absent. */}
+                            {/* Missing historical credit evidence remains unavailable. */}
                             {formatQuota(getTopupRecordQuota(record))}
                           </div>
                         </div>

@@ -271,7 +271,7 @@ function BillingBreakdown(props: {
     formatLogAddonPrice(amount, other, currency)
   const structuredTools = other.tool_surcharges ?? []
   const fmtTokenPrice = (multiplier: number) =>
-    formatLogTokenPrice(other.model_ratio ?? 0, multiplier, currency)
+    formatLogTokenPrice(other.model_ratio ?? 0, multiplier, other, currency)
 
   if (isTieredExpr) {
     rows.push({
@@ -402,6 +402,7 @@ function BillingBreakdown(props: {
           pricing_schema_version: other.pricing_schema_version,
           pricing_currency_basis: item.price_currency_basis,
           pricing_unit_credits_per_unit: item.pricing_unit_credits_per_unit,
+          pricing_credits_per_usd: other.pricing_credits_per_usd,
         },
         currency
       )}/1K)`,
@@ -1174,7 +1175,7 @@ export function DetailsDialog(props: DetailsDialogProps) {
           <DetailSection label={t('Tiered pricing')}>
             <DynamicPricingBreakdown
               compact
-              {...logExpressionCurrency(other, currency.config.creditsPerUsd)}
+              {...logExpressionCurrency(other)}
               displayCurrency={currency.currency}
               billingExpr={decodeBillingExprB64(other.expr_b64)}
               matchedTierLabel={other.matched_tier}

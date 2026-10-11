@@ -486,8 +486,10 @@ export interface TopupRecord {
   credited_quota?: number
   /** Immutable gateway settlement currency. */
   settlement_currency?: string
-  /** Deprecated integer projection of the legacy recharge batch amount. */
+  /** Historical amount; its denomination is declared by amount_unit. */
   amount: number
+  /** Go's self DTO uses CREDIT for historical Creem raw ledger quota. */
+  amount_unit?: 'LEGACY' | 'CREDIT' | 'LEDGER_QUOTA'
   /** Exact legacy recharge batch snapshot in millionths for fractional top-ups. */
   platform_amount_micros?: number
   /** Payment amount (actual fiat money paid) */
