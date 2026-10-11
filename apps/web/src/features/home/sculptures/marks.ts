@@ -1,4 +1,14 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
+import {
+  DEEPSEEK_OUTLINES,
+  GEMINI_OUTLINES,
+  GLM_OUTLINES,
+  GROK_OUTLINES,
+  KIMI_OUTLINES,
+  MISTRAL_OUTLINES,
+  OLLAMA_OUTLINES,
+  QWEN_OUTLINES,
+} from './ai-brand-outlines'
 import { CLAUDE_OUTLINES, OPENAI_OUTLINES } from './brand-outlines'
 import { Shape, rotate, tint, type Sculpture, type Vec3 } from './geometry'
 
@@ -59,3 +69,36 @@ export function openaiMark(): Sculpture {
     [0.16, -0.14]
   )
 }
+
+/** Small 3D turns show the thickness without turning word-like marks upside down. */
+function floatingMark(outlines: readonly Outline[], color: Vec3): Sculpture {
+  return mark(outlines, color).model(
+    (t) => {
+      const yaw = rotate(1, Math.sin(t * 0.65) * 0.22)
+      const roll = rotate(2, Math.sin(t * 0.45) * 0.055)
+      return (p, v) => {
+        yaw(p, v)
+        roll(p, v)
+        v[1] += Math.sin(t * 0.8) * 0.035
+      }
+    },
+    [0.08, -0.08]
+  )
+}
+
+export const grokMark = (): Sculpture =>
+  floatingMark(GROK_OUTLINES, [226, 231, 237])
+export const glmMark = (): Sculpture =>
+  floatingMark(GLM_OUTLINES, [104, 143, 245])
+export const kimiMark = (): Sculpture =>
+  floatingMark(KIMI_OUTLINES, [190, 228, 210])
+export const deepseekMark = (): Sculpture =>
+  floatingMark(DEEPSEEK_OUTLINES, [92, 139, 243])
+export const qwenMark = (): Sculpture =>
+  floatingMark(QWEN_OUTLINES, [164, 139, 238])
+export const geminiMark = (): Sculpture =>
+  floatingMark(GEMINI_OUTLINES, [114, 160, 244])
+export const mistralMark = (): Sculpture =>
+  floatingMark(MISTRAL_OUTLINES, [247, 157, 79])
+export const ollamaMark = (): Sculpture =>
+  floatingMark(OLLAMA_OUTLINES, [230, 230, 224])
