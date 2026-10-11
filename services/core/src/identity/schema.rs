@@ -2,7 +2,7 @@
 use super::*;
 
 const SCHEMA: &str = include_str!("../../schema/identity.sql");
-const VERSION: i32 = 1;
+const VERSION: i32 = 2;
 // Serialize concurrent installers. Ordinary requests do not take this lock.
 const INSTALL_LOCK: i64 = 741_803_120;
 const HAS_APPLICATION_OBJECTS: &str = r#"
@@ -18,6 +18,16 @@ SELECT EXISTS (
 "#;
 
 impl IdentityStore {
+    /// Shared by the explicit complete installer after all owned DDL succeeds.
+    pub(crate) async fn record_schema_contract(connection: &mut PgConnection) -> Result<()> {
+        sqlx::query("INSERT INTO core_meta.schema_contract(version,fingerprint) VALUES ($1,$2)")
+            .bind(VERSION)
+            .bind(Sha256::digest(SCHEMA.as_bytes()).to_vec())
+            .execute(connection)
+            .await?;
+        Ok(())
+    }
+
     /// Explicit offline initialization. Never imports, upgrades, drops, repairs,
     /// or resets a database. Even a second installation on the same DB fails.
     pub async fn init_database(&self) -> Result<()> {
@@ -36,11 +46,7 @@ impl IdentityStore {
             return Err(IdentityError::Conflict);
         }
         sqlx::raw_sql(SCHEMA).execute(&mut *tx).await?;
-        sqlx::query("INSERT INTO core_meta.schema_contract(version,fingerprint) VALUES ($1,$2)")
-            .bind(VERSION)
-            .bind(Sha256::digest(SCHEMA.as_bytes()).to_vec())
-            .execute(&mut *tx)
-            .await?;
+        Self::record_schema_contract(&mut tx).await?;
         tx.commit().await?;
         Ok(())
     }

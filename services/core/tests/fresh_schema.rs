@@ -36,6 +36,11 @@ async fn concurrent_initialization_has_one_winner_and_startup_does_not_repair(po
     assert!(matches!(a, Err(E::Conflict)) || matches!(b, Err(E::Conflict)));
     store.check_schema().await.unwrap();
     assert!(matches!(store.init_database().await, Err(E::Conflict)));
+    let installed_version: i32 =
+        sqlx::query_scalar("SELECT version FROM core_meta.schema_contract")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     sqlx::query("UPDATE core_meta.schema_contract SET version=version+1")
         .execute(&pool)
         .await
@@ -45,7 +50,7 @@ async fn concurrent_initialization_has_one_winner_and_startup_does_not_repair(po
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(version, 2);
+    assert_eq!(version, installed_version + 1);
 }
 
 #[sqlx::test(migrations = false)]

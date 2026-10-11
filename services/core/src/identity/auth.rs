@@ -52,9 +52,16 @@ pub(super) async fn issue_session(
     user_id: i64,
     action: &str,
 ) -> Result<IssuedCredential> {
+    issue_session_with_secret(c, user_id, action, new_secret("lmms_")?).await
+}
+pub(super) async fn issue_session_with_secret(
+    c: &mut PgConnection,
+    user_id: i64,
+    action: &str,
+    secret: String,
+) -> Result<IssuedCredential> {
     let user = sqlx::query("SELECT u.personal_account_id,u.auth_version FROM core_identity.users u JOIN core_identity.accounts a ON a.id=u.personal_account_id WHERE u.id=$1 AND u.active AND a.active FOR SHARE OF u,a")
         .bind(user_id).fetch_optional(&mut *c).await?.ok_or(IdentityError::Unauthorized)?;
-    let secret = new_secret("lmms_")?;
     let id = sqlx::query_scalar("INSERT INTO core_identity.credentials(digest,kind,user_id,user_version,owner_account_id,expires_at) VALUES ($1,'session',$2,$3,$4,clock_timestamp()+interval '7 days') RETURNING id")
         .bind(digest(&secret)?).bind(user_id).bind(user.try_get::<i64,_>("auth_version")?)
         .bind(user.try_get::<i64,_>("personal_account_id")?).fetch_one(&mut *c).await?;
@@ -68,7 +75,7 @@ pub(super) async fn issue_session(
     .await?;
     Ok(IssuedCredential { id, secret })
 }
-fn normalize_login(input: &str) -> Result<String> {
+pub(super) fn normalize_login(input: &str) -> Result<String> {
     let name = input.to_ascii_lowercase();
     if !(3..=64).contains(&name.len())
         || !name.as_bytes()[0].is_ascii_alphanumeric()
@@ -147,7 +154,7 @@ impl IdentityStore {
             .bind(bucket).fetch_one(&self.pool).await?;
         Ok(attempts <= limit)
     }
-    async fn hash_password(&self, password: String) -> Result<String> {
+    pub(super) async fn hash_password(&self, password: String) -> Result<String> {
         let permit = self
             .password_slots
             .clone()
@@ -191,37 +198,107 @@ impl IdentityStore {
         let user_id = create_user(&mut tx).await?;
         sqlx::query("INSERT INTO core_identity.password_logins(login_name,user_id,password_hash) VALUES ($1,$2,$3)")
             .bind(name).bind(user_id).bind(hash).execute(&mut *tx).await?;
+        sqlx::query("INSERT INTO core_identity.user_profiles(user_id,username,display_name) SELECT user_id,login_name,login_name FROM core_identity.password_logins WHERE user_id=$1")
+            .bind(user_id).execute(&mut *tx).await?;
         let issued = issue_session(&mut tx, user_id, "user.register").await?;
         tx.commit().await?;
         Ok(issued)
     }
-    pub async fn login(&self, request: &LoginRequest) -> Result<IssuedCredential> {
-        let name = normalize_login(&request.login_name).map_err(|_| IdentityError::Unauthorized)?;
-        if request.password.is_empty()
-            || request.password.len() > 1024
-            || !self.auth_rate_limit("password", &name, 10).await?
+    pub(super) async fn verified_password(
+        &self,
+        name: &str,
+        password: &str,
+    ) -> Result<(String, Option<String>)> {
+        if password.is_empty()
+            || password.len() > 1024
+            || !self.auth_rate_limit("password", name, 10).await?
         {
             return Err(IdentityError::Unauthorized);
         }
-        let hash: Option<String> = sqlx::query_scalar(
-            "SELECT password_hash FROM core_identity.password_logins WHERE login_name=$1",
-        )
-        .bind(&name)
-        .fetch_optional(&self.pool)
-        .await?;
-        let valid = self
-            .verify_password(
-                request.password.clone(),
-                hash.clone().unwrap_or_else(|| DUMMY_HASH.to_owned()),
-            )
-            .await?;
-        if !valid || hash.is_none() {
+        let row = sqlx::query("SELECT p.password_hash,COALESCE(pr.password_login_allowed,TRUE) AS allowed,COALESCE(pr.second_factor_required,FALSE) AS second_factor,COALESCE(pr.legacy_bcrypt_allowed,FALSE) AS bcrypt FROM core_identity.password_logins p LEFT JOIN core_identity.user_profiles pr ON pr.user_id=p.user_id WHERE p.login_name=$1")
+            .bind(name).fetch_optional(&self.pool).await?;
+        let hash = row
+            .as_ref()
+            .map(|r| r.try_get::<String, _>("password_hash"))
+            .transpose()?
+            .unwrap_or_else(|| DUMMY_HASH.to_owned());
+        let legacy =
+            hash.starts_with("$2a$") || hash.starts_with("$2b$") || hash.starts_with("$2y$");
+        let allowed_bcrypt = row
+            .as_ref()
+            .map(|r| r.try_get::<bool, _>("bcrypt"))
+            .transpose()?
+            .unwrap_or(false);
+        let valid = if legacy && allowed_bcrypt {
+            // Imported bcrypt costs are bounded before starting expensive work.
+            let cost = hash
+                .get(4..6)
+                .and_then(|v| v.parse::<u32>().ok())
+                .filter(|cost| (4..=16).contains(cost))
+                .ok_or(IdentityError::Unauthorized)?;
+            let _ = cost;
+            let permit = self
+                .password_slots
+                .clone()
+                .try_acquire_owned()
+                .map_err(|_| IdentityError::Storage)?;
+            let password = password.to_owned();
+            let hash = hash.clone();
+            tokio::task::spawn_blocking(move || {
+                let _permit = permit;
+                bcrypt::verify(password, &hash).unwrap_or(false)
+            })
+            .await
+            .map_err(|_| IdentityError::Storage)?
+        } else if legacy {
+            false
+        } else {
+            self.verify_password(password.to_owned(), hash.clone())
+                .await?
+        };
+        if !valid
+            || row.is_none()
+            || !row.as_ref().unwrap().try_get::<bool, _>("allowed")?
+            || row.as_ref().unwrap().try_get::<bool, _>("second_factor")?
+        {
             return Err(IdentityError::Unauthorized);
         }
+        let upgraded = if legacy {
+            Some(self.hash_password(password.to_owned()).await?)
+        } else {
+            None
+        };
+        Ok((hash, upgraded))
+    }
+    pub(super) async fn lock_password_user(
+        &self,
+        c: &mut PgConnection,
+        name: &str,
+        verified: &(String, Option<String>),
+    ) -> Result<i64> {
+        let user_id: i64 = sqlx::query_scalar("SELECT p.user_id FROM core_identity.password_logins p JOIN core_identity.users u ON u.id=p.user_id JOIN core_identity.accounts a ON a.id=u.personal_account_id WHERE p.login_name=$1 AND p.password_hash=$2 AND u.active AND a.active FOR UPDATE OF p FOR SHARE OF u,a")
+            .bind(name).bind(&verified.0).fetch_optional(&mut *c).await?.ok_or(IdentityError::Unauthorized)?;
+        if let Some(policy) = sqlx::query("SELECT password_login_allowed,second_factor_required,legacy_bcrypt_allowed FROM core_identity.user_profiles WHERE user_id=$1 FOR UPDATE")
+            .bind(user_id).fetch_optional(&mut *c).await? {
+            if !policy.try_get::<bool,_>("password_login_allowed")? || policy.try_get::<bool,_>("second_factor_required")? || (verified.1.is_some() && !policy.try_get::<bool,_>("legacy_bcrypt_allowed")?) { return Err(IdentityError::Unauthorized); }
+        } else if verified.1.is_some() { return Err(IdentityError::Unauthorized); }
+        if let Some(upgraded) = &verified.1 {
+            sqlx::query(
+                "UPDATE core_identity.password_logins SET password_hash=$2 WHERE login_name=$1",
+            )
+            .bind(name)
+            .bind(upgraded)
+            .execute(&mut *c)
+            .await?;
+            sqlx::query("UPDATE core_identity.user_profiles SET legacy_bcrypt_allowed=FALSE WHERE user_id=$1").bind(user_id).execute(&mut *c).await?;
+        }
+        Ok(user_id)
+    }
+    pub async fn login(&self, request: &LoginRequest) -> Result<IssuedCredential> {
+        let name = normalize_login(&request.login_name).map_err(|_| IdentityError::Unauthorized)?;
+        let verified = self.verified_password(&name, &request.password).await?;
         let mut tx = self.pool.begin().await?;
-        // Recheck the exact hash under a lock after expensive verification.
-        let user_id: i64 = sqlx::query_scalar("SELECT p.user_id FROM core_identity.password_logins p JOIN core_identity.users u ON u.id=p.user_id JOIN core_identity.accounts a ON a.id=u.personal_account_id WHERE p.login_name=$1 AND p.password_hash=$2 AND u.active AND a.active FOR SHARE OF p,u,a")
-            .bind(name).bind(hash).fetch_optional(&mut *tx).await?.ok_or(IdentityError::Unauthorized)?;
+        let user_id = self.lock_password_user(&mut tx, &name, &verified).await?;
         let issued = issue_session(&mut tx, user_id, "session.login").await?;
         tx.commit().await?;
         Ok(issued)
@@ -231,6 +308,10 @@ impl IdentityStore {
     pub async fn refresh_session(&self, secret: &str) -> Result<IssuedCredential> {
         let mut tx = self.pool.begin().await?;
         let actor = session(&mut tx, secret).await?;
+        let browser: bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM core_identity.web_sessions WHERE current_credential_id=$1)").bind(actor.credential_id).fetch_one(&mut *tx).await?;
+        if browser {
+            return Err(IdentityError::Forbidden);
+        }
         let changed = sqlx::query("UPDATE core_identity.credentials SET revoked_at=clock_timestamp() WHERE id=$1 AND revoked_at IS NULL AND expires_at>clock_timestamp() AND session_started_at+interval '30 days'>clock_timestamp()")
             .bind(actor.credential_id).execute(&mut *tx).await?.rows_affected();
         if changed != 1 {

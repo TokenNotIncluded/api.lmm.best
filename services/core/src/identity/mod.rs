@@ -2,6 +2,10 @@
 //! Identity checks are not reservations: billing must recheck authority in its
 //! own transaction before taking funds. Model routes remain unavailable.
 mod auth;
+mod browser;
+pub use browser::{
+    BrowserAuth, BrowserAuthError, BrowserBundle, BrowserRegistration, BrowserSessionMetadata,
+};
 mod credentials;
 mod lifecycle;
 mod oauth;
@@ -28,7 +32,7 @@ use std::{fmt, time::Duration};
 
 const MAX_TTL: i64 = 31_536_000;
 const SESSION_TTL: i64 = 604_800;
-const AUTH: &str = "SELECT c.id,c.kind,c.user_id,c.user_version,c.owner_account_id,c.personal_billing_preference,u.personal_account_id,t.id AS team_id,CASE u.platform_role WHEN 'superadmin' THEN 6::smallint WHEN 'admin' THEN 5::smallint ELSE pa.service_level END AS platform_level FROM core_identity.credentials c JOIN core_identity.users u ON u.id=c.user_id JOIN core_identity.accounts pa ON pa.id=u.personal_account_id JOIN core_identity.accounts own ON own.id=c.owner_account_id LEFT JOIN core_identity.teams t ON t.account_id=c.owner_account_id WHERE c.revoked_at IS NULL AND c.expires_at>clock_timestamp() AND u.active AND pa.active AND own.active AND c.user_version=u.auth_version";
+const AUTH: &str = "SELECT c.id,c.kind,c.user_id,c.user_version,c.owner_account_id,c.personal_billing_preference,u.personal_account_id,t.id AS team_id,CASE u.platform_role WHEN 'superadmin' THEN 6::smallint WHEN 'admin' THEN 5::smallint ELSE pa.service_level END AS platform_level FROM core_identity.credentials c JOIN core_identity.users u ON u.id=c.user_id JOIN core_identity.accounts pa ON pa.id=u.personal_account_id JOIN core_identity.accounts own ON own.id=c.owner_account_id LEFT JOIN core_identity.teams t ON t.account_id=c.owner_account_id WHERE c.revoked_at IS NULL AND c.expires_at>clock_timestamp() AND u.active AND pa.active AND own.active AND c.user_version=u.auth_version AND NOT EXISTS (SELECT 1 FROM core_identity.web_sessions ws WHERE ws.current_credential_id=c.id AND (ws.revoked_at IS NOT NULL OR ws.expires_at<=clock_timestamp() OR ws.user_version<>u.auth_version OR (ws.weekly_logout AND ws.created_at<=clock_timestamp()-interval '7 days')))";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum IdentityError {
@@ -264,8 +268,16 @@ async fn authenticate(c: &mut PgConnection, secret: &str, write: bool) -> Result
         .ok_or(IdentityError::Unauthorized)?;
     principal(c, row).await
 }
+/// Authenticate and hold current credential, user and account authority locks
+/// in the caller's transaction. Financial writes must use this same transaction.
+pub(crate) async fn authorize_in_transaction(
+    c: &mut PgConnection,
+    secret: &str,
+) -> Result<Principal> {
+    authenticate(c, secret, true).await
+}
 async fn session(c: &mut PgConnection, secret: &str) -> Result<Principal> {
-    let actor = authenticate(c, secret, true).await?;
+    let actor = authorize_in_transaction(c, secret).await?;
     if actor.credential_kind != CredentialKind::Session {
         return Err(IdentityError::Forbidden);
     }

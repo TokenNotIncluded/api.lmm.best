@@ -275,3 +275,54 @@ BEGIN
 END $$;
 CREATE TRIGGER user_identity BEFORE UPDATE ON core_identity.users
     FOR EACH ROW EXECUTE FUNCTION core_identity.protect_user();
+
+
+-- Dashboard compatibility metadata is not a financial projection or authority.
+-- Imported credentials must explicitly opt in to legacy bcrypt verification.
+CREATE TABLE core_identity.user_profiles (
+    user_id BIGINT PRIMARY KEY REFERENCES core_identity.users(id),
+    username TEXT NOT NULL UNIQUE CHECK (length(username) BETWEEN 1 AND 128),
+    display_name TEXT NOT NULL DEFAULT '' CHECK (length(display_name) <= 256),
+    email TEXT NOT NULL DEFAULT '' CHECK (length(email) <= 320),
+    email_login_allowed BOOLEAN NOT NULL DEFAULT FALSE,
+    setting TEXT NOT NULL DEFAULT '{}' CHECK (length(setting) <= 65536),
+    password_login_allowed BOOLEAN NOT NULL DEFAULT TRUE,
+    second_factor_required BOOLEAN NOT NULL DEFAULT FALSE,
+    legacy_bcrypt_allowed BOOLEAN NOT NULL DEFAULT FALSE
+);
+CREATE INDEX user_profiles_email ON core_identity.user_profiles(email) WHERE email <> '';
+
+-- Stable browser family and rotating refresh credentials remain separate from
+-- the 15-minute bearer. Only hashes are stored; no production sessions import.
+CREATE TABLE core_identity.web_sessions (
+    sid TEXT PRIMARY KEY CHECK (sid ~ '^[a-f0-9]{64}$'),
+    user_id BIGINT NOT NULL REFERENCES core_identity.users(id),
+    user_version BIGINT NOT NULL CHECK (user_version > 0),
+    current_credential_id BIGINT NOT NULL UNIQUE REFERENCES core_identity.credentials(id),
+    refresh_digest BYTEA NOT NULL CHECK (octet_length(refresh_digest) = 32),
+    previous_refresh_digest BYTEA CHECK (octet_length(previous_refresh_digest) = 32),
+    previous_valid_until TIMESTAMPTZ,
+    ip TEXT NOT NULL CHECK (length(ip) <= 128),
+    user_agent TEXT NOT NULL CHECK (length(user_agent) <= 1024),
+    weekly_logout BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    last_active_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+    expires_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp() + interval '30 days',
+    revoked_at TIMESTAMPTZ,
+    CHECK (expires_at <= created_at + interval '30 days')
+);
+CREATE INDEX web_sessions_user ON core_identity.web_sessions(user_id);
+
+-- Account security-policy changes invalidate every previously issued bearer
+-- and browser family, including native endpoints, in the same transaction.
+CREATE FUNCTION core_identity.profile_policy_changed() RETURNS TRIGGER
+LANGUAGE plpgsql SET search_path = pg_catalog AS $$
+BEGIN
+    IF (NEW.password_login_allowed,NEW.second_factor_required) IS DISTINCT FROM
+       (OLD.password_login_allowed,OLD.second_factor_required) THEN
+        UPDATE core_identity.users SET auth_version=auth_version+1 WHERE id=NEW.user_id;
+    END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER profile_policy_generation AFTER UPDATE ON core_identity.user_profiles
+    FOR EACH ROW EXECUTE FUNCTION core_identity.profile_policy_changed();
