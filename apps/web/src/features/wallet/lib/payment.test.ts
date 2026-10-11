@@ -711,6 +711,7 @@ test('billing history uses the immutable raw credit snapshot over legacy project
     getTopupRecordQuota({
       credited_quota: 1,
       amount: 10,
+      amount_unit: 'CREDIT',
       platform_amount_micros: 10000000,
     }),
     1
@@ -719,4 +720,45 @@ test('billing history uses the immutable raw credit snapshot over legacy project
     getTopupRecordQuota({ credited_quota: 500001, amount: 10 }),
     500001
   )
+})
+
+test('historical Creem amounts explicitly labeled CREDIT are already raw ledger quota', () => {
+  for (const amount_unit of ['CREDIT', 'LEDGER_QUOTA'] as const) {
+    assert.equal(
+      getTopupRecordQuota({
+        amount: 500_000,
+        amount_unit,
+        credited_quota: 0,
+        platform_amount_micros: 7_000_000,
+      }),
+      500_000
+    )
+  }
+})
+
+test('legacy or missing record units cannot derive historical quota from current settings', () => {
+  for (const amount_unit of ['LEGACY', undefined] as const) {
+    assert.ok(
+      Number.isNaN(
+        getTopupRecordQuota({
+          amount: 500_000,
+          amount_unit,
+          credited_quota: 0,
+          platform_amount_micros: 7_000_000,
+        })
+      )
+    )
+  }
+  for (const amount of [
+    0,
+    -1,
+    0.5,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    Number.MAX_SAFE_INTEGER + 1,
+  ]) {
+    assert.ok(
+      Number.isNaN(getTopupRecordQuota({ amount, amount_unit: 'CREDIT' }))
+    )
+  }
 })
