@@ -251,14 +251,24 @@ class DownloadTests(unittest.TestCase):
         self.assertEqual(1, self.counts[ARCHIVE])
         self.assertEqual(1, self.counts[ARCHIVE + '.sigstore.json'])
 
-    def test_checksum_mismatch_is_not_retried(self):
-        self.assets[ARCHIVE + '.sha256'] = ('0' * 64 + '  ' + ARCHIVE + '\n').encode()
-        self.assertNotEqual(0, self.download().returncode)
-        self.assertEqual(1, self.counts[ARCHIVE])
+    def test_download_defers_unsigned_checksum_and_archive_parsing(self):
+        # The signature gate must run before parsing either downloaded file.
+        # Their rejection is exercised by test-web-deploy-contract.py.
+        self.assets[ARCHIVE] = b'not an archive'
+        self.assets[ARCHIVE + '.sha256'] = b'not a checksum record'
+        result = self.download()
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertEqual({name: 1 for name in self.assets}, dict(self.counts))
+        for name, content in self.assets.items():
+            self.assertEqual(content, (self.root / 'deploy' / name).read_bytes())
 
-    def test_wrong_release_revision_fails(self):
-        self.env['EXPECTED_REVISION'] = 'b' * 40
-        self.assertNotEqual(0, self.download().returncode)
+    def test_download_does_not_fetch_unsigned_release_metadata(self):
+        gh = self.root / 'tools' / 'gh'
+        marker = self.root / 'metadata-read'
+        gh.write_text('#!/bin/sh\nprintf reached > "' + str(marker) + '"\nexit 99\n')
+        result = self.download()
+        self.assertEqual(0, result.returncode, result.stderr)
+        self.assertFalse(marker.exists())
 
 
 class WorkflowTests(unittest.TestCase):
