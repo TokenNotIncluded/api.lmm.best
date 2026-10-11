@@ -10,3 +10,7 @@ import (
 func receiveSchemaMaintenanceHostLocks(context.Context, productionSchemaMaintenanceHostBinding, uint32) (productionSchemaMaintenanceHostLease, error) {
 	return nil, errors.New("schema maintenance lock adoption requires Linux SCM_RIGHTS")
 }
+
+func finishSchemaMaintenanceHostLocks(context.Context, productionSchemaMaintenanceHostLease) error {
+	return errors.New("schema maintenance lock termination requires Linux SCM_RIGHTS")
+}

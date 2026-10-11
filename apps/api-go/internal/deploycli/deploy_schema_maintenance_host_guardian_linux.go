@@ -51,19 +51,40 @@ type schemaMaintenanceGuardianReply struct {
 	Locks            []schemaMaintenanceGuardianLock `json:"locks"`
 }
 
+type schemaMaintenanceGuardianFinishReply struct {
+	Protocol      string   `json:"protocol"`
+	Operation     string   `json:"operation"`
+	BindingPath   string   `json:"binding_path"`
+	BindingSHA256 string   `json:"binding_sha256"`
+	TransitionID  string   `json:"transition_id"`
+	PlanSHA256    string   `json:"plan_sha256"`
+	GuardianPID   int      `json:"guardian_pid"`
+	Accepted      bool     `json:"accepted"`
+	ClosingPaths  []string `json:"closing_paths"`
+}
+
+// An uncertain terminal exchange must retain its adopted descriptors even if
+// a caller drops the lease after its deferred Close is refused. Otherwise the
+// os.File/net.Conn finalizers could silently release the last lock copies.
+var schemaMaintenanceUncertainHostLeases = struct {
+	sync.Mutex
+	leases map[*schemaMaintenanceHostLockLease]struct{}
+}{leases: make(map[*schemaMaintenanceHostLockLease]struct{})}
+
 type schemaMaintenanceHostLockLease struct {
-	mu          sync.Mutex
-	connection  *net.UnixConn
-	files       []*os.File
-	binding     productionSchemaMaintenanceHostBinding
-	bindingInfo os.FileInfo
-	socketInfo  os.FileInfo
-	owner       uint32
-	pid         int
-	startTicks  uint64
-	nativePath  string
-	locks       []schemaMaintenanceGuardianLock
-	closed      bool
+	mu              sync.Mutex
+	connection      *net.UnixConn
+	files           []*os.File
+	binding         productionSchemaMaintenanceHostBinding
+	bindingInfo     os.FileInfo
+	socketInfo      os.FileInfo
+	owner           uint32
+	pid             int
+	startTicks      uint64
+	nativePath      string
+	locks           []schemaMaintenanceGuardianLock
+	closed          bool
+	finishUncertain bool
 }
 
 func receiveSchemaMaintenanceHostLocks(ctx context.Context, binding productionSchemaMaintenanceHostBinding, ownerUID uint32) (productionSchemaMaintenanceHostLease, error) {
@@ -139,7 +160,7 @@ func receiveSchemaMaintenanceHostLocksForPaths(ctx context.Context, binding prod
 	if _, err := stream.Write(append(request, '\n')); err != nil {
 		return nil, err
 	}
-	body, files, err := schemaMaintenanceReceiveRights(stream, paths)
+	body, files, err := schemaMaintenanceReceiveGuardianMessage(stream, 3)
 	lease.files = files
 	if err != nil {
 		return nil, err
@@ -317,7 +338,7 @@ func schemaMaintenanceGuardianProcess(pid int) (uint64, error) {
 	return start, nil
 }
 
-func schemaMaintenanceReceiveRights(stream *net.UnixConn, paths []string) ([]byte, []*os.File, error) {
+func schemaMaintenanceReceiveGuardianMessage(stream *net.UnixConn, expectedCount int) ([]byte, []*os.File, error) {
 	raw, err := stream.SyscallConn()
 	if err != nil {
 		return nil, nil, err
@@ -356,7 +377,7 @@ func schemaMaintenanceReceiveRights(stream *net.UnixConn, paths []string) ([]byt
 				files = append(files, os.NewFile(uintptr(fd), "schema-maintenance-adopted-lock"))
 			}
 		}
-		if flags&(unix.MSG_TRUNC|unix.MSG_CTRUNC) != 0 || unexpectedControl || len(files) > 3 {
+		if flags&(unix.MSG_TRUNC|unix.MSG_CTRUNC) != 0 || unexpectedControl || len(files) > expectedCount {
 			return fail(errors.New("schema guardian must transfer the exact complete lock descriptor set"))
 		}
 		if n == 0 {
@@ -364,7 +385,7 @@ func schemaMaintenanceReceiveRights(stream *net.UnixConn, paths []string) ([]byt
 		}
 		body = append(body, data[:n]...)
 		if end := bytes.IndexByte(body, '\n'); end >= 0 {
-			if len(files) != 3 || len(bytes.TrimSpace(body[end+1:])) != 0 {
+			if len(files) != expectedCount || len(bytes.TrimSpace(body[end+1:])) != 0 {
 				return fail(errors.New("schema guardian receipt has incomplete descriptors or trailing data"))
 			}
 			return body[:end], files, nil
@@ -376,11 +397,18 @@ func schemaMaintenanceReceiveRights(stream *net.UnixConn, paths []string) ([]byt
 func (lease *schemaMaintenanceHostLockLease) Check(ctx context.Context) error {
 	lease.mu.Lock()
 	defer lease.mu.Unlock()
+	return lease.checkLocked(ctx)
+}
+
+func (lease *schemaMaintenanceHostLockLease) checkLocked(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if lease.closed || lease.connection == nil || len(lease.files) != 3 || len(lease.locks) != 3 {
 		return errors.New("schema guardian adopted lock lease is closed or incomplete")
+	}
+	if lease.finishUncertain {
+		return errors.New("schema guardian terminal exchange is uncertain; adopted locks remain held")
 	}
 	if _, err := schemaMaintenanceGuardianPeer(lease.connection, lease.owner, lease.pid); err != nil {
 		return err
@@ -506,6 +534,13 @@ func schemaMaintenanceCheckAdoptedLock(file *os.File, lock schemaMaintenanceGuar
 func (lease *schemaMaintenanceHostLockLease) Close() error {
 	lease.mu.Lock()
 	defer lease.mu.Unlock()
+	if lease.finishUncertain {
+		return errors.New("schema guardian terminal exchange is uncertain; refusing to close adopted locks")
+	}
+	return lease.closeLocked()
+}
+
+func (lease *schemaMaintenanceHostLockLease) closeLocked() error {
 	if lease.closed {
 		return nil
 	}
@@ -522,4 +557,102 @@ func (lease *schemaMaintenanceHostLockLease) Close() error {
 	// Never LOCK_UN: SCM_RIGHTS duplicates the guardian's open file
 	// description, and unlocking it would also release the guardian's lock.
 	return result
+}
+
+// Finish is the optional terminal operation on the already adopted Unix
+// session. It is never a reconnect/re-adopt or a normal Close. A valid terminal
+// ACK commits the guardian to close its originals; only then may these copies
+// close. The controller must still read back actual guardian exit/free locks.
+func (lease *schemaMaintenanceHostLockLease) Finish(ctx context.Context) error {
+	lease.mu.Lock()
+	defer lease.mu.Unlock()
+	if err := lease.checkLocked(ctx); err != nil {
+		if !lease.closed && len(lease.files) != 0 {
+			lease.pinUncertainLocked()
+		}
+		return err
+	}
+	request, err := json.Marshal(struct {
+		Protocol      string `json:"protocol"`
+		Operation     string `json:"operation"`
+		BindingPath   string `json:"binding_path"`
+		BindingSHA256 string `json:"binding_sha256"`
+		TransitionID  string `json:"transition_id"`
+		PlanSHA256    string `json:"plan_sha256"`
+	}{schemaMaintenanceGuardianProtocol, "finish-all", lease.binding.GuardianBindingPath, lease.binding.GuardianBindingSHA256, lease.binding.TransitionID, lease.binding.PlanSHA256})
+	if err != nil {
+		return err
+	}
+	deadline := time.Now().Add(125 * time.Second)
+	if limit, ok := ctx.Deadline(); ok && limit.Before(deadline) {
+		deadline = limit
+	}
+	// Once a terminal operation has been attempted, a concurrent guardian
+	// loss (including a failed deadline update) must not release our copies.
+	lease.pinUncertainLocked()
+	if err := lease.connection.SetDeadline(deadline); err != nil {
+		return err
+	}
+	stopCancellation := context.AfterFunc(ctx, func() { _ = lease.connection.SetDeadline(time.Now()) })
+	defer stopCancellation()
+	// Mark before the first write: even a failed write can have delivered an
+	// accepted request. There is deliberately no error cleanup or retry below.
+	payload := append(request, '\n')
+	if written, err := lease.connection.Write(payload); err != nil || written != len(payload) {
+		if err == nil {
+			err = io.ErrShortWrite
+		}
+		return fmt.Errorf("schema guardian finish request outcome is uncertain; locks retained: %w", err)
+	}
+	body, unexpectedFiles, err := schemaMaintenanceReceiveGuardianMessage(lease.connection, 0)
+	for _, file := range unexpectedFiles {
+		_ = file.Close()
+	}
+	if err != nil {
+		return fmt.Errorf("schema guardian terminal receipt is uncertain; locks retained: %w", err)
+	}
+	var reply schemaMaintenanceGuardianFinishReply
+	if err := schemaMaintenanceDecodeGuardianJSON(body, &reply); err != nil {
+		return fmt.Errorf("schema guardian terminal receipt is invalid; locks retained: %w", err)
+	}
+	if reply.Protocol != schemaMaintenanceGuardianProtocol || reply.Operation != "finish-all" || reply.BindingPath != lease.binding.GuardianBindingPath || reply.BindingSHA256 != lease.binding.GuardianBindingSHA256 || reply.TransitionID != lease.binding.TransitionID || reply.PlanSHA256 != lease.binding.PlanSHA256 || reply.GuardianPID != lease.pid || !reply.Accepted || len(reply.ClosingPaths) != len(lease.locks) {
+		return errors.New("schema guardian terminal receipt differs from the frozen authority; locks retained")
+	}
+	for index, lock := range lease.locks {
+		if reply.ClosingPaths[index] != lock.Path {
+			return errors.New("schema guardian terminal receipt omitted or reordered an owner lock; locks retained")
+		}
+	}
+	// SO_PEERCRED remains the authenticated original peer after its legitimate
+	// terminal exit. Do not require that original process to remain alive now.
+	if _, err := schemaMaintenanceGuardianPeer(lease.connection, lease.owner, lease.pid); err != nil {
+		return fmt.Errorf("schema guardian terminal peer differs; locks retained: %w", err)
+	}
+	info, err := schemaMaintenanceCheckGuardianBinding(lease.binding, lease.owner)
+	if err != nil || !os.SameFile(info, lease.bindingInfo) {
+		return errors.New("schema guardian immutable binding changed before terminal acknowledgement; locks retained")
+	}
+	if err := ctx.Err(); err != nil {
+		return fmt.Errorf("schema guardian terminal observation was cancelled; locks retained: %w", err)
+	}
+	lease.finishUncertain = false
+	schemaMaintenanceUncertainHostLeases.Lock()
+	delete(schemaMaintenanceUncertainHostLeases.leases, lease)
+	schemaMaintenanceUncertainHostLeases.Unlock()
+	return lease.closeLocked()
+}
+
+func (lease *schemaMaintenanceHostLockLease) pinUncertainLocked() {
+	lease.finishUncertain = true
+	schemaMaintenanceUncertainHostLeases.Lock()
+	schemaMaintenanceUncertainHostLeases.leases[lease] = struct{}{}
+	schemaMaintenanceUncertainHostLeases.Unlock()
+}
+
+func finishSchemaMaintenanceHostLocks(ctx context.Context, lease productionSchemaMaintenanceHostLease) error {
+	terminal, ok := lease.(interface{ Finish(context.Context) error })
+	if !ok {
+		return errors.New("schema maintenance lease has no dedicated terminal guardian protocol")
+	}
+	return terminal.Finish(ctx)
 }

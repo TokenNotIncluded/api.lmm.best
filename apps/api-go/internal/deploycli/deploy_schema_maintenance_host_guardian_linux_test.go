@@ -105,6 +105,10 @@ func newSchemaGuardianFixture(t *testing.T) *schemaGuardianFixture {
 }
 
 func (f *schemaGuardianFixture) serve(t *testing.T, descriptors []*os.File, fragment bool) {
+	f.serveWithFinish(t, descriptors, fragment, nil)
+}
+
+func (f *schemaGuardianFixture) serveWithFinish(t *testing.T, descriptors []*os.File, fragment bool, finish func(*net.UnixConn) error) {
 	t.Helper()
 	go func() {
 		connection, err := f.listener.AcceptUnix()
@@ -152,6 +156,10 @@ func (f *schemaGuardianFixture) serve(t *testing.T, descriptors []*os.File, frag
 				f.done <- err
 				return
 			}
+		}
+		if finish != nil {
+			f.done <- finish(connection)
+			return
 		}
 		_, err = connection.Read(make([]byte, 1))
 		if errors.Is(err, io.EOF) || errors.Is(err, net.ErrClosed) {
@@ -465,4 +473,201 @@ func TestSchemaMaintenanceGuardianProcessGenerationIsRequired(t *testing.T) {
 	if _, err := schemaMaintenanceGuardianProcess(1 << 30); err == nil {
 		t.Fatal("absent original guardian process accepted")
 	}
+}
+
+func (f *schemaGuardianFixture) readFinish(connection *net.UnixConn) (schemaMaintenanceGuardianFinishReply, error) {
+	body, err := bufio.NewReader(connection).ReadBytes('\n')
+	if err != nil {
+		return schemaMaintenanceGuardianFinishReply{}, err
+	}
+	var actual map[string]any
+	expected := map[string]any{"protocol": schemaMaintenanceGuardianProtocol, "operation": "finish-all", "binding_path": f.binding.GuardianBindingPath, "binding_sha256": f.binding.GuardianBindingSHA256, "transition_id": f.binding.TransitionID, "plan_sha256": f.binding.PlanSHA256}
+	if json.Unmarshal(body, &actual) != nil || !reflect.DeepEqual(actual, expected) {
+		return schemaMaintenanceGuardianFinishReply{}, fmt.Errorf("unexpected same-session finish request: %s", body)
+	}
+	return schemaMaintenanceGuardianFinishReply{
+		Protocol: schemaMaintenanceGuardianProtocol, Operation: "finish-all", BindingPath: f.binding.GuardianBindingPath,
+		BindingSHA256: f.binding.GuardianBindingSHA256, TransitionID: f.binding.TransitionID, PlanSHA256: f.binding.PlanSHA256,
+		GuardianPID: os.Getpid(), Accepted: true, ClosingPaths: append([]string(nil), f.paths...),
+	}, nil
+}
+
+func TestSchemaMaintenanceGuardianFinishClosesOnlyAfterExactTerminalAck(t *testing.T) {
+	f := newSchemaGuardianFixture(t)
+	f.serveWithFinish(t, f.files, false, func(connection *net.UnixConn) error {
+		ack, err := f.readFinish(connection)
+		if err != nil {
+			return err
+		}
+		// Close the fixture guardian's originals before its ACK to demonstrate
+		// that the Go copies retain every lock until the validated terminal reply.
+		for _, file := range f.files {
+			if err := file.Close(); err != nil {
+				return err
+			}
+		}
+		for _, path := range f.paths {
+			fd, err := unix.Open(path, unix.O_RDWR|unix.O_CLOEXEC, 0)
+			if err != nil {
+				return err
+			}
+			err = unix.Flock(fd, unix.LOCK_EX|unix.LOCK_NB)
+			_ = unix.Close(fd)
+			if err != unix.EAGAIN && err != unix.EWOULDBLOCK {
+				return fmt.Errorf("client clone released before terminal ACK: %s: %v", path, err)
+			}
+		}
+		body, err := json.Marshal(ack)
+		if err != nil {
+			return err
+		}
+		_, err = connection.Write(append(body, '\n'))
+		return err
+	})
+	lease, err := f.receive(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer lease.Close()
+	if err := finishSchemaMaintenanceHostLocks(context.Background(), lease); err != nil {
+		t.Fatal(err)
+	}
+	if err := <-f.done; err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range f.paths {
+		fd, err := unix.Open(path, unix.O_RDWR|unix.O_CLOEXEC, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		err = unix.Flock(fd, unix.LOCK_EX|unix.LOCK_NB)
+		_ = unix.Close(fd)
+		if err != nil {
+			t.Fatalf("terminal ACK left an adopted lock held: %s: %v", path, err)
+		}
+	}
+	if err := lease.Check(context.Background()); err == nil {
+		t.Fatal("completed terminal lease still passed Check")
+	}
+}
+
+func TestSchemaMaintenanceGuardianFinishUnknownRetainsLocksAndRejectsCleanup(t *testing.T) {
+	for _, name := range []string{"wrong-binding", "wrong-path", "wrong-pid", "wrong-plan", "wrong-operation", "unknown-ack", "disconnect", "unexpected-rights", "binding-changed"} {
+		t.Run(name, func(t *testing.T) {
+			f := newSchemaGuardianFixture(t)
+			f.serveWithFinish(t, f.files, false, func(connection *net.UnixConn) error {
+				ack, err := f.readFinish(connection)
+				if err != nil {
+					return err
+				}
+				// After this point only the adopted client FDs keep these locks.
+				// Even a disconnected guardian must not trigger client cleanup.
+				for _, file := range f.files {
+					if err := file.Close(); err != nil {
+						return err
+					}
+				}
+				switch name {
+				case "wrong-binding":
+					ack.BindingSHA256 = f.binding.PlanSHA256
+				case "wrong-path":
+					ack.ClosingPaths[0], ack.ClosingPaths[1] = ack.ClosingPaths[1], ack.ClosingPaths[0]
+				case "wrong-pid":
+					ack.GuardianPID++
+				case "wrong-plan":
+					ack.PlanSHA256 = f.binding.GuardianBindingSHA256
+				case "wrong-operation":
+					ack.Operation = "adopt-all"
+				case "unknown-ack":
+					_, err := connection.Write([]byte("{}\n"))
+					return err
+				case "disconnect":
+					return nil
+				case "binding-changed":
+					if err := os.Chmod(f.binding.GuardianBindingPath, 0o644); err != nil {
+						return err
+					}
+				}
+				body, err := json.Marshal(ack)
+				if err != nil {
+					return err
+				}
+				if name == "unexpected-rights" {
+					other, err := os.Open(f.paths[0])
+					if err != nil {
+						return err
+					}
+					defer other.Close()
+					_, _, err = connection.WriteMsgUnix(append(body, '\n'), unix.UnixRights(int(other.Fd())), nil)
+					return err
+				}
+				_, err = connection.Write(append(body, '\n'))
+				return err
+			})
+			lease, err := f.receive(context.Background())
+			if err != nil {
+				t.Fatal(err)
+			}
+			concrete := lease.(*schemaMaintenanceHostLockLease)
+			// This is an explicit fixture-only cleanup after the retained locks
+			// have been inspected. Production has no uncertain-close authority.
+			t.Cleanup(func() {
+				concrete.mu.Lock()
+				defer concrete.mu.Unlock()
+				concrete.finishUncertain = false
+				schemaMaintenanceUncertainHostLeases.Lock()
+				delete(schemaMaintenanceUncertainHostLeases.leases, concrete)
+				schemaMaintenanceUncertainHostLeases.Unlock()
+				_ = concrete.closeLocked()
+			})
+			if err := finishSchemaMaintenanceHostLocks(context.Background(), lease); err == nil {
+				t.Fatal("unknown or mismatched terminal ACK accepted")
+			}
+			if err := <-f.done; err != nil {
+				t.Fatal(err)
+			}
+			f.assertIndependentlyLocked(t)
+			if err := lease.Close(); err == nil {
+				t.Fatal("uncertain terminal exchange allowed deferred Close")
+			}
+			if err := finishSchemaMaintenanceHostLocks(context.Background(), lease); err == nil {
+				t.Fatal("uncertain terminal exchange allowed a repeated Finish")
+			}
+			f.assertIndependentlyLocked(t)
+			schemaMaintenanceUncertainHostLeases.Lock()
+			_, pinned := schemaMaintenanceUncertainHostLeases.leases[concrete]
+			schemaMaintenanceUncertainHostLeases.Unlock()
+			if !pinned {
+				t.Fatal("uncertain adopted FDs were not retained against garbage collection")
+			}
+		})
+	}
+}
+
+func TestSchemaMaintenanceGuardianFinishPrecheckFailureRetainsLocks(t *testing.T) {
+	f := newSchemaGuardianFixture(t)
+	f.serve(t, f.files, false)
+	lease, err := f.receive(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	concrete := lease.(*schemaMaintenanceHostLockLease)
+	t.Cleanup(func() {
+		concrete.mu.Lock()
+		defer concrete.mu.Unlock()
+		concrete.finishUncertain = false
+		schemaMaintenanceUncertainHostLeases.Lock()
+		delete(schemaMaintenanceUncertainHostLeases.leases, concrete)
+		schemaMaintenanceUncertainHostLeases.Unlock()
+		_ = concrete.closeLocked()
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if err := finishSchemaMaintenanceHostLocks(ctx, lease); err == nil {
+		t.Fatal("cancelled precheck sent a terminal request")
+	}
+	if err := lease.Close(); err == nil {
+		t.Fatal("failed terminal precheck allowed deferred Close")
+	}
+	f.assertIndependentlyLocked(t)
 }
