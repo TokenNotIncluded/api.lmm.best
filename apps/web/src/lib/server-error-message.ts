@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { getRequestErrorToastId } from './request-error-toast'
 import { isRateLimitedError } from './request-rate-limit'
 
 const serverErrorMessageKeys = {
@@ -93,5 +94,5 @@ export function getServerErrorToastId(value: unknown): string | undefined {
   return getServerErrorMessageKey(value) ===
     serverErrorMessageKeys.service_temporarily_unavailable
     ? 'service-temporarily-unavailable'
-    : undefined
+    : getRequestErrorToastId(value)
 }

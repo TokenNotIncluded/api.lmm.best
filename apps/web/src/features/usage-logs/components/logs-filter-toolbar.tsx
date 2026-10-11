@@ -17,7 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { Table } from '@tanstack/react-table'
-import { ChevronDown, Loader2 } from 'lucide-react'
+import { ChevronDown, Loader2, X } from 'lucide-react'
 import { useId, useState, type ComponentProps, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 
@@ -26,6 +26,7 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
   Drawer,
+  DrawerClose,
   DrawerContent,
   DrawerDescription,
   DrawerFooter,
@@ -80,6 +81,10 @@ export function LogsFilterInput(props: ComponentProps<typeof Input>) {
     <Input
       {...props}
       className={cn('h-8 min-w-0 text-sm leading-5', props.className)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' && event.nativeEvent.isComposing) return
+        props.onKeyDown?.(event)
+      }}
     />
   )
 }
@@ -162,7 +167,7 @@ export function LogsFilterToolbar<TData>(props: LogsFilterToolbarProps<TData>) {
             )}
           >
             {!mobilePanelCollapsed && props.stats}
-            <div className='flex flex-wrap items-center justify-end gap-1.5'>
+            <div className='flex flex-wrap items-center justify-end gap-1.5 [&_button]:min-w-11'>
               <Button
                 type='button'
                 variant='ghost'
@@ -217,14 +222,29 @@ export function LogsFilterToolbar<TData>(props: LogsFilterToolbarProps<TData>) {
         </div>
 
         <DrawerContent className='console-log-filter-drawer max-h-[85dvh] p-0'>
-          <div className='mx-auto flex w-full max-w-md flex-1 flex-col overflow-hidden'>
+          <div className='mx-auto flex min-h-0 w-full max-w-md flex-1 flex-col overflow-hidden'>
             <DrawerHeader className='border-border/70 border-b px-4 py-3 text-left'>
-              <DrawerTitle>{t('Filter')}</DrawerTitle>
+              <div className='flex items-center justify-between gap-3'>
+                <DrawerTitle>{t('Filter')}</DrawerTitle>
+                <DrawerClose
+                  render={
+                    <Button
+                      type='button'
+                      variant='ghost'
+                      size='icon'
+                      className='size-11 shrink-0'
+                      aria-label={t('Close')}
+                    />
+                  }
+                >
+                  <X aria-hidden='true' />
+                </DrawerClose>
+              </div>
               <DrawerDescription>
                 {t('Adjust filters, then search to refresh the logs.')}
               </DrawerDescription>
             </DrawerHeader>
-            <div className='flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-4 py-3'>
+            <div className='flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain px-4 py-3'>
               {props.mobileFilters ?? (
                 <>
                   {props.primaryFilters}

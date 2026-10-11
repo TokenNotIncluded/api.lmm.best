@@ -23,6 +23,7 @@ import {
   ChevronsLeft as DoubleArrowLeftIcon,
   ChevronsRight as DoubleArrowRightIcon,
 } from 'lucide-react'
+import { useEffect, useRef } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
@@ -36,11 +37,16 @@ import {
 } from '@/components/ui/select'
 import { cn, getPageNumbers } from '@/lib/utils'
 
+import {
+  PAGE_SIZE_OPTIONS,
+  parsePageSize,
+  resetInlinePaginationScroll,
+} from './pagination-state'
+
 type DataTablePaginationProps<TData> = {
   table: Table<TData>
 }
 
-const PAGE_SIZE_OPTIONS = [10, 20, 30, 40, 50, 100] as const
 const PAGE_SIZE_SELECT_ITEMS = PAGE_SIZE_OPTIONS.map((pageSize) => ({
   value: `${pageSize}`,
   label: pageSize,
@@ -51,6 +57,21 @@ export function DataTablePagination<TData>({
 }: DataTablePaginationProps<TData>) {
   const { t } = useTranslation()
   const pagination = table.getState().pagination
+  const containerRef = useRef<HTMLDivElement>(null)
+  const previousPageRef = useRef({ ...pagination })
+
+  useEffect(() => {
+    const nextPage = {
+      pageIndex: pagination.pageIndex,
+      pageSize: pagination.pageSize,
+    }
+    resetInlinePaginationScroll(
+      containerRef.current,
+      previousPageRef.current,
+      nextPage
+    )
+    previousPageRef.current = nextPage
+  }, [pagination.pageIndex, pagination.pageSize])
   const currentPage = pagination.pageIndex + 1
   const pageSize = pagination.pageSize
   const totalPages = table.getPageCount()
@@ -59,6 +80,7 @@ export function DataTablePagination<TData>({
 
   return (
     <div
+      ref={containerRef}
       className={cn('@container/pagination flex min-w-0 justify-end')}
       role='navigation'
       aria-label={t('Pagination')}
@@ -80,12 +102,13 @@ export function DataTablePagination<TData>({
               items={PAGE_SIZE_SELECT_ITEMS}
               value={`${pageSize}`}
               onValueChange={(value) => {
-                table.setPageSize(Number(value))
+                const size = parsePageSize(value)
+                if (size !== null) table.setPageSize(size)
               }}
             >
               <SelectTrigger
                 aria-label={t('Rows per page')}
-                className='text-foreground h-11 w-[64px] font-medium tabular-nums sm:w-[70px] @lg/pagination:h-8'
+                className='text-foreground h-11 w-22 shrink-0 font-medium tabular-nums sm:w-20 @lg/pagination:h-8'
               >
                 <SelectValue placeholder={pageSize} />
               </SelectTrigger>
