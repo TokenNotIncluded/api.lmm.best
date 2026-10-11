@@ -30,7 +30,12 @@ struct HgState {
 }
 
 pub fn router(pool: PgPool, store: IdentityStore, browser: BrowserAuth, origin: String) -> Router {
-    let state = HgState { pool, store, browser, origin };
+    let state = HgState {
+        pool,
+        store,
+        browser,
+        origin,
+    };
     Router::new()
         .route("/v1/requests", post(agent::create))
         .route("/v1/requests/{id}", get(agent::status_json))
@@ -49,7 +54,10 @@ pub fn router(pool: PgPool, store: IdentityStore, browser: BrowserAuth, origin: 
         .route("/human/grants", get(human::grants_page))
         .route("/human-grant/review.js", get(human::script))
         .route("/human-grant/review.css", get(human::css))
-        .route("/api/humangrant/settings", get(human::settings).put(human::set_settings))
+        .route(
+            "/api/humangrant/settings",
+            get(human::settings).put(human::set_settings),
+        )
         .route("/api/humangrant/grants", get(human::grants))
         .route("/api/humangrant/grants/{id}/revoke", post(human::revoke))
         .layer(axum::extract::DefaultBodyLimit::max(16 * 1024))
@@ -65,7 +73,9 @@ async fn no_store(request: Request, next: Next) -> Response {
         (header::REFERRER_POLICY, "no-referrer"),
         (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
     ] {
-        response.headers_mut().insert(name, HeaderValue::from_static(value));
+        response
+            .headers_mut()
+            .insert(name, HeaderValue::from_static(value));
     }
     response
 }
@@ -76,16 +86,53 @@ struct Error {
     code: &'static str,
 }
 impl Error {
-    fn invalid() -> Self { Self {status:StatusCode::BAD_REQUEST, code:"invalid_request"} }
-    fn unauthorized() -> Self { Self {status:StatusCode::UNAUTHORIZED, code:"invalid_signature"} }
-    fn forbidden() -> Self { Self {status:StatusCode::FORBIDDEN, code:"forbidden"} }
-    fn not_found() -> Self { Self {status:StatusCode::NOT_FOUND, code:"not_found"} }
-    fn state() -> Self { Self {status:StatusCode::CONFLICT, code:"invalid_state"} }
-    fn expired() -> Self { Self {status:StatusCode::GONE, code:"expired"} }
-    fn internal() -> Self { Self {status:StatusCode::SERVICE_UNAVAILABLE, code:"service_unavailable"} }
+    fn invalid() -> Self {
+        Self {
+            status: StatusCode::BAD_REQUEST,
+            code: "invalid_request",
+        }
+    }
+    fn unauthorized() -> Self {
+        Self {
+            status: StatusCode::UNAUTHORIZED,
+            code: "invalid_signature",
+        }
+    }
+    fn forbidden() -> Self {
+        Self {
+            status: StatusCode::FORBIDDEN,
+            code: "forbidden",
+        }
+    }
+    fn not_found() -> Self {
+        Self {
+            status: StatusCode::NOT_FOUND,
+            code: "not_found",
+        }
+    }
+    fn state() -> Self {
+        Self {
+            status: StatusCode::CONFLICT,
+            code: "invalid_state",
+        }
+    }
+    fn expired() -> Self {
+        Self {
+            status: StatusCode::GONE,
+            code: "expired",
+        }
+    }
+    fn internal() -> Self {
+        Self {
+            status: StatusCode::SERVICE_UNAVAILABLE,
+            code: "service_unavailable",
+        }
+    }
 }
 impl From<sqlx::Error> for Error {
-    fn from(_: sqlx::Error) -> Self { Self::internal() }
+    fn from(_: sqlx::Error) -> Self {
+        Self::internal()
+    }
 }
 impl IntoResponse for Error {
     fn into_response(self) -> Response {
@@ -101,32 +148,52 @@ struct Permission {
     resource: String,
 }
 fn permissions(input: &[Permission]) -> Result<()> {
-    if input.is_empty() || input.len() > 16 || input.iter().any(|p|
-        p.action != "lmm.profile.read" || p.resource != "self") { return Err(Error::invalid()); }
+    if input.is_empty()
+        || input.len() > 16
+        || input
+            .iter()
+            .any(|p| p.action != "lmm.profile.read" || p.resource != "self")
+    {
+        return Err(Error::invalid());
+    }
     for (i, permission) in input.iter().enumerate() {
-        if input[..i].contains(permission) { return Err(Error::invalid()); }
+        if input[..i].contains(permission) {
+            return Err(Error::invalid());
+        }
     }
     Ok(())
 }
 fn token(size: usize) -> String {
-    let mut bytes = vec![0;size];
+    let mut bytes = vec![0; size];
     OsRng.fill_bytes(&mut bytes);
     URL_SAFE_NO_PAD.encode(bytes)
 }
-fn digest(bytes: &[u8]) -> Vec<u8> { Sha256::digest(bytes).to_vec() }
+fn digest(bytes: &[u8]) -> Vec<u8> {
+    Sha256::digest(bytes).to_vec()
+}
 fn exact_header<'a>(headers: &'a HeaderMap, name: &str) -> Result<&'a str> {
     let mut values = headers.get_all(name).iter();
     let first = values.next().ok_or_else(Error::unauthorized)?;
-    if values.next().is_some() { return Err(Error::unauthorized()); }
+    if values.next().is_some() {
+        return Err(Error::unauthorized());
+    }
     first.to_str().map_err(|_| Error::unauthorized())
 }
 fn human_bearer(headers: &HeaderMap, origin: &str, write: bool) -> Result<String> {
     if write && exact_header(headers, "origin")? != origin {
         return Err(Error::forbidden());
     }
-    let value = exact_header(headers,"authorization")?;
-    let bearer = value.strip_prefix("Bearer ").ok_or_else(Error::unauthorized)?;
-    if bearer.len() < 32 || bearer.len() > 256 || !bearer.bytes().all(|b| b.is_ascii_alphanumeric() || b"_-. ".contains(&b)) || bearer.contains(' ') {
+    let value = exact_header(headers, "authorization")?;
+    let bearer = value
+        .strip_prefix("Bearer ")
+        .ok_or_else(Error::unauthorized)?;
+    if bearer.len() < 32
+        || bearer.len() > 256
+        || !bearer
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b"_-. ".contains(&b))
+        || bearer.contains(' ')
+    {
         return Err(Error::unauthorized());
     }
     Ok(bearer.to_owned())
@@ -134,11 +201,16 @@ fn human_bearer(headers: &HeaderMap, origin: &str, write: bool) -> Result<String
 
 impl HgState {
     async fn enabled(&self) -> Result<bool> {
-        Ok(sqlx::query_scalar::<_,bool>("SELECT enabled FROM core_identity.hg_config WHERE singleton=TRUE")
-            .fetch_one(&self.pool).await?)
+        Ok(sqlx::query_scalar::<_, bool>(
+            "SELECT enabled FROM core_identity.hg_config WHERE singleton=TRUE",
+        )
+        .fetch_one(&self.pool)
+        .await?)
     }
     async fn require_enabled(&self) -> Result<()> {
-        if !self.enabled().await? { return Err(Error::forbidden()); }
+        if !self.enabled().await? {
+            return Err(Error::forbidden());
+        }
         Ok(())
     }
     async fn signed(&self, request: Request) -> Result<(crypto::Signed, Vec<u8>)> {
@@ -162,23 +234,42 @@ impl HgState {
             "INSERT INTO core_identity.hg_nonces(actor_id,nonce,expires_at) VALUES ($1,$2,to_timestamp($3)) ON CONFLICT DO NOTHING RETURNING nonce")
             .bind(&proof.actor_id).bind(&proof.nonce).bind(proof.expires)
             .fetch_optional(&self.pool).await?;
-        if inserted.is_none() { return Err(Error {status:StatusCode::UNAUTHORIZED,code:"signature_replay"}); }
-        Ok((proof,body.to_vec()))
+        if inserted.is_none() {
+            return Err(Error {
+                status: StatusCode::UNAUTHORIZED,
+                code: "signature_replay",
+            });
+        }
+        Ok((proof, body.to_vec()))
     }
     async fn browser_user(&self, headers: &HeaderMap, write: bool) -> Result<(i64, String, i64)> {
-        let bearer = human_bearer(headers,&self.origin,write)?;
-        let user = self.browser.current_user(&bearer).await.map_err(|_| Error::unauthorized())?;
-        let user_id = user.get("id").and_then(|v|v.as_i64()).ok_or_else(Error::unauthorized)?;
-        let role = user.get("role").and_then(|v|v.as_i64()).unwrap_or(0);
-        Ok((user_id,bearer,role))
+        let bearer = human_bearer(headers, &self.origin, write)?;
+        let user = self
+            .browser
+            .current_user(&bearer)
+            .await
+            .map_err(|_| Error::unauthorized())?;
+        let user_id = user
+            .get("id")
+            .and_then(|v| v.as_i64())
+            .ok_or_else(Error::unauthorized)?;
+        let role = user.get("role").and_then(|v| v.as_i64()).unwrap_or(0);
+        Ok((user_id, bearer, role))
     }
     async fn request_by_link(&self, link: &str) -> Result<sqlx::postgres::PgRow> {
-        if link.len()!=43 || URL_SAFE_NO_PAD.decode(link).ok().is_none_or(|v|v.len()!=32) {
+        if link.len() != 43
+            || URL_SAFE_NO_PAD
+                .decode(link)
+                .ok()
+                .is_none_or(|v| v.len() != 32)
+        {
             return Err(Error::not_found());
         }
         sqlx::query("SELECT r.* FROM core_identity.hg_requests r WHERE r.link_digest=$1")
-            .bind(digest(link.as_bytes())).fetch_optional(&self.pool)
-            .await?.ok_or_else(Error::not_found)
+            .bind(digest(link.as_bytes()))
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(Error::not_found)
     }
 }
 
