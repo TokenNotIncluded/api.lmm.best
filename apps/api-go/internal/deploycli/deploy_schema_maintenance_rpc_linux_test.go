@@ -68,7 +68,7 @@ func TestSchemaMaintenanceRPCProtocolIsClosedAndCanonical(t *testing.T) {
 }
 
 func TestSchemaMaintenanceRPCPhaseBudgetsCoverNativeWork(t *testing.T) {
-	for _, action := range []string{"close", "claim", "reopen", "capture-recovery", "capture-ready"} {
+	for _, action := range []string{"close", "claim", "capture-recovery", "capture-ready", "capture-backup-source"} {
 		budget, err := schemaMaintenanceRPCActionTimeout(action)
 		if err != nil || budget != 5*time.Minute {
 			t.Fatalf("%s phase must allow capsule verification: %v, %v", action, budget, err)
@@ -81,9 +81,14 @@ func TestSchemaMaintenanceRPCPhaseBudgetsCoverNativeWork(t *testing.T) {
 	if err != nil || stop != 90*time.Second || stop < 45*time.Second {
 		t.Fatalf("stop phase cannot cover native TimeoutStopSec=45s: %v, %v", stop, err)
 	}
-	for _, action := range []string{"capture-closed", "capture-stopped", "capture-backup-source", "status", "release", "finish"} {
+	for _, action := range []string{"capture-closed", "capture-stopped", "status"} {
 		if budget, err := schemaMaintenanceRPCActionTimeout(action); err != nil || budget != 30*time.Second {
 			t.Fatalf("%s phase lost its short bounded budget: %v, %v", action, budget, err)
+		}
+	}
+	for _, action := range []string{"release", "finish", "reopen"} {
+		if budget, err := schemaMaintenanceRPCActionTimeout(action); err != nil || budget != 15*time.Minute || budget < 2*(5*time.Minute) {
+			t.Fatalf("%s phase cannot cover ordered native observations of both origins: %v, %v", action, budget, err)
 		}
 	}
 	if budget, err := schemaMaintenanceRPCActionTimeout("worker"); err != nil || budget != 10*time.Minute {
