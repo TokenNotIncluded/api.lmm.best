@@ -5,6 +5,8 @@ import { test } from 'node:test'
 import type { Vec3 } from './geometry'
 import * as marks from './marks'
 
+const factories = { ...marks }
+
 const expected = [
   'claudeMark',
   'openaiMark',
@@ -24,10 +26,10 @@ test('the brand registry contains only the ten requested AI mark factories', () 
 
 for (const id of expected) {
   test(`${id}: bounded 3D samples are repeatable and need no browser or network`, () => {
-    const model = marks[id]()
+    const model = factories[id]()
     assert.ok(model.points.length >= 1000)
     assert.ok(model.points.length <= 20000)
-    assert.deepEqual(model.points, marks[id]().points)
+    assert.deepEqual(model.points, factories[id]().points)
     let front = 0
     let back = 0
     for (const p of model.points) {
@@ -42,7 +44,7 @@ for (const id of expected) {
   })
 
   test(`${id}: object motion preserves the cached geometry`, () => {
-    const model = marks[id]()
+    const model = factories[id]()
     const before = model.points.map((p) => [p.x, p.y, p.z, ...p.color])
     const initial = model.animate(0)
     let moved = 0
@@ -66,7 +68,7 @@ for (const id of expected) {
   })
 
   test(`${id}: all sampled animation frames fit phone and desktop viewports`, () => {
-    const model = marks[id]()
+    const model = factories[id]()
     const [yaw, pitch] = model.view ?? [0, 0]
     for (const [width, height] of [
       [320, 400],
