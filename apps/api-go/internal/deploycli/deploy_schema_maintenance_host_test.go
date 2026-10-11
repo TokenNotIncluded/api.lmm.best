@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -157,5 +158,116 @@ func TestSchemaMaintenanceHostEvidenceIsPrivateImmutableAndBound(t *testing.T) {
 	}
 	if _, err := h.readCapture("close-intent.json"); err == nil {
 		t.Fatal("accepted noncanonical capture")
+	}
+}
+
+type schemaMaintenanceJournalRunner struct {
+	body  []byte
+	calls int
+	args  []string
+}
+
+func (r *schemaMaintenanceJournalRunner) Run(_ context.Context, command productionCommand) ([]byte, error) {
+	if command.Name != commandJournalctl {
+		return nil, errors.New("unexpected fixture command")
+	}
+	r.calls++
+	r.args = append([]string(nil), command.Args...)
+	return r.body, nil
+}
+
+func TestSchemaMaintenanceStopIntentCannotChangeClosedGeneration(t *testing.T) {
+	_, good := newSchemaMaintenanceHostEvidenceFixture(t)
+	for _, mutate := range []func(*productionSchemaMaintenanceHostCapture){
+		func(c *productionSchemaMaintenanceHostCapture) { c.PID++ },
+		func(c *productionSchemaMaintenanceHostCapture) { c.InvocationID = strings.Repeat("1", 32) },
+		func(c *productionSchemaMaintenanceHostCapture) { c.ProviderSHA256 = strings.Repeat("1", 64) },
+		func(c *productionSchemaMaintenanceHostCapture) { c.OriginalAdmissionSHA256 = strings.Repeat("1", 64) },
+		func(c *productionSchemaMaintenanceHostCapture) { c.ClosedAdmissionSHA256 = strings.Repeat("1", 64) },
+	} {
+		changed := good
+		mutate(&changed)
+		if sameSchemaMaintenanceWriterCapture(good, changed) {
+			t.Fatal("stop intent adopted a different closed writer generation")
+		}
+	}
+	stopped := good
+	stopped.Phase, stopped.StopStartedUTC = "STOP_INTENT", good.StopStartedUTC.Add(time.Second)
+	if !sameSchemaMaintenanceWriterCapture(good, stopped) {
+		t.Fatal("legitimate later stop intent changed its original closed writer identity")
+	}
+}
+
+func TestSchemaMaintenanceUnsealedJournalNeedsOriginalInvocationReobservation(t *testing.T) {
+	for _, sealed := range []bool{false, true} {
+		for _, matching := range []bool{false, true} {
+			t.Run(fmt.Sprintf("sealed=%v/matching=%v", sealed, matching), func(t *testing.T) {
+				h, capture := newSchemaMaintenanceHostEvidenceFixture(t)
+				capture.Phase = "STOP_INTENT"
+				stored := []byte("original shutdown journal fixture")
+				actual := stored
+				if !matching {
+					actual = []byte("another invocation or truncated journal")
+				}
+				runner := &schemaMaintenanceJournalRunner{body: actual}
+				h.runtime.runner, h.runtime.paths.Service = runner, "lmm-api.service"
+				if err := h.writeNew("shutdown.log", stored); err != nil {
+					t.Fatal(err)
+				}
+				if sealed {
+					receipt := capture
+					receipt.Phase, receipt.ShutdownJournalSHA256 = "WRITER_STOPPED", startupContentSHA256(stored)
+					if err := h.writeCapture("writer-stopped.json", receipt); err != nil {
+						t.Fatal(err)
+					}
+				}
+				got, err := h.shutdownJournal(context.Background(), capture)
+				if !sealed && !matching {
+					if err == nil {
+						t.Fatal("unsealed leftover log skipped exact invocation comparison")
+					}
+				} else if err != nil || !bytes.Equal(got, stored) {
+					t.Fatalf("bound journal: %q %v", got, err)
+				}
+				if sealed {
+					if runner.calls != 0 {
+						t.Fatal("sealed original evidence depended on retained journald logs")
+					}
+				} else if runner.calls != 1 || !strings.Contains(strings.Join(runner.args, " "), "_PID=12345 _SYSTEMD_INVOCATION_ID="+capture.InvocationID) || !strings.Contains(strings.Join(runner.args, " "), "--since @1000.000000") {
+					t.Fatal("unsealed log did not reobserve its original PID/invocation/time range")
+				}
+			})
+		}
+	}
+}
+
+func TestSchemaMaintenanceSealedJournalRefusesMissingOrCrossGenerationEvidence(t *testing.T) {
+	for _, kind := range []string{"missing raw", "different raw", "different generation"} {
+		t.Run(kind, func(t *testing.T) {
+			h, capture := newSchemaMaintenanceHostEvidenceFixture(t)
+			capture.Phase = "STOP_INTENT"
+			receipt := capture
+			receipt.Phase, receipt.ShutdownJournalSHA256 = "WRITER_STOPPED", startupContentSHA256([]byte("original"))
+			if kind == "different generation" {
+				receipt.PID++
+			}
+			if err := h.writeCapture("writer-stopped.json", receipt); err != nil {
+				t.Fatal(err)
+			}
+			if kind != "missing raw" {
+				body := []byte("original")
+				if kind == "different raw" {
+					body = []byte("other")
+				}
+				if err := h.writeNew("shutdown.log", body); err != nil {
+					t.Fatal(err)
+				}
+			}
+			runner := &schemaMaintenanceJournalRunner{body: []byte("unrelated fresh log")}
+			h.runtime.runner = runner
+			if _, err := h.shutdownJournal(context.Background(), capture); err == nil || runner.calls != 0 {
+				t.Fatal("sealed original stop evidence fell back to another journal")
+			}
+		})
 	}
 }

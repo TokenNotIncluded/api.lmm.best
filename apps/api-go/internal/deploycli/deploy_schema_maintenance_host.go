@@ -334,6 +334,10 @@ func (h *productionSchemaMaintenanceHost) captureStopped(ctx context.Context) (p
 	if capture.Phase != "STOP_INTENT" || capture.StopStartedUTC.IsZero() {
 		return capture, errors.New("schema maintenance has no original writer stop intent")
 	}
+	closeIntent, err := h.readCapture("close-intent.json")
+	if err != nil || closeIntent.Phase != "CLOSE_INTENT" || !sameSchemaMaintenanceWriterCapture(closeIntent, capture) {
+		return capture, errors.New("schema maintenance stop intent differs from its original closed writer generation")
+	}
 	if err := h.check(ctx); err != nil {
 		return capture, err
 	}
@@ -360,7 +364,7 @@ func (h *productionSchemaMaintenanceHost) captureStopped(ctx context.Context) (p
 	capture.Phase, capture.ShutdownJournalSHA256 = "WRITER_STOPPED_UNSEALED", startupContentSHA256(journal)
 	if _, err := os.Lstat(filepath.Join(h.binding.Workspace, "state", "writer-stopped.json")); err == nil {
 		stored, err := h.readCapture("writer-stopped.json")
-		if err != nil || stored.Phase != "WRITER_STOPPED" || stored.PID != capture.PID || stored.InvocationID != capture.InvocationID || stored.ProviderSHA256 != capture.ProviderSHA256 || !stored.StopStartedUTC.Equal(capture.StopStartedUTC) || stored.ShutdownJournalSHA256 != capture.ShutdownJournalSHA256 {
+		if err != nil || stored.Phase != "WRITER_STOPPED" || !sameSchemaMaintenanceWriterCapture(stored, capture) || !stored.StopStartedUTC.Equal(capture.StopStartedUTC) || stored.ShutdownJournalSHA256 != capture.ShutdownJournalSHA256 {
 			return capture, errors.New("schema maintenance stopped receipt differs from its original intent/journal")
 		}
 		capture.Phase = "WRITER_STOPPED"
@@ -375,11 +379,53 @@ func (h *productionSchemaMaintenanceHost) captureStopped(ctx context.Context) (p
 
 func (h *productionSchemaMaintenanceHost) shutdownJournal(ctx context.Context, capture productionSchemaMaintenanceHostCapture) ([]byte, error) {
 	path := filepath.Join(h.binding.Workspace, "state", "shutdown.log")
-	if _, err := os.Lstat(path); err == nil {
-		return h.runtime.readExistingSchemaSealedFile(path, true)
-	} else if !errors.Is(err, os.ErrNotExist) {
+	_, savedErr := os.Lstat(path)
+	if savedErr != nil && !errors.Is(savedErr, os.ErrNotExist) {
+		return nil, savedErr
+	}
+	_, receiptErr := os.Lstat(filepath.Join(h.binding.Workspace, "state", "writer-stopped.json"))
+	if receiptErr != nil && !errors.Is(receiptErr, os.ErrNotExist) {
+		return nil, receiptErr
+	}
+	if savedErr != nil && receiptErr == nil {
+		return nil, errors.New("schema maintenance sealed stop receipt lost its original shutdown journal")
+	}
+	var saved []byte
+	if savedErr == nil {
+		var err error
+		saved, err = h.runtime.readExistingSchemaSealedFile(path, true)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if receiptErr == nil {
+		stored, err := h.readCapture("writer-stopped.json")
+		if err != nil || stored.Phase != "WRITER_STOPPED" || !sameSchemaMaintenanceWriterCapture(stored, capture) || !stored.StopStartedUTC.Equal(capture.StopStartedUTC) || stored.ShutdownJournalSHA256 != startupContentSHA256(saved) {
+			return nil, errors.New("schema maintenance stored shutdown journal is not bound to the original stop generation")
+		}
+		return saved, nil
+	}
+	// A crash may leave shutdown.log before writer-stopped.json. Cat-only log
+	// bytes cannot prove which invocation produced them: re-read that exact
+	// original PID/invocation/time range before sealing the leftover file.
+	actual, err := h.actualShutdownJournal(ctx, capture)
+	if err != nil {
 		return nil, err
 	}
+	if savedErr == nil && !bytes.Equal(saved, actual) {
+		return nil, errors.New("schema maintenance unsealed shutdown journal differs from the original writer invocation")
+	}
+	return actual, nil
+}
+
+func sameSchemaMaintenanceWriterCapture(left, right productionSchemaMaintenanceHostCapture) bool {
+	return left.Format == right.Format && left.TransitionID == right.TransitionID && left.PlanSHA256 == right.PlanSHA256 &&
+		left.Host == right.Host && left.CapsuleSHA256 == right.CapsuleSHA256 && left.ProviderSHA256 == right.ProviderSHA256 &&
+		left.PID == right.PID && left.InvocationID == right.InvocationID && left.OriginalAdmissionSHA256 == right.OriginalAdmissionSHA256 &&
+		left.ClosedAdmissionSHA256 == right.ClosedAdmissionSHA256
+}
+
+func (h *productionSchemaMaintenanceHost) actualShutdownJournal(ctx context.Context, capture productionSchemaMaintenanceHostCapture) ([]byte, error) {
 	return h.runtime.runner.Run(ctx, productionCommand{Name: commandJournalctl, Args: []string{"--no-pager", "--output=cat", "--since", fmt.Sprintf("@%d.%06d", capture.StopStartedUTC.Unix(), capture.StopStartedUTC.Nanosecond()/1000), "-u", h.runtime.paths.Service, "_PID=" + strconv.Itoa(capture.PID), "_SYSTEMD_INVOCATION_ID=" + capture.InvocationID}, Sensitive: true, OutputLimit: 1 << 20})
 }
 
