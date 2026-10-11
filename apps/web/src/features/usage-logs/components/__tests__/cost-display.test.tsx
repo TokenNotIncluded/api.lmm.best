@@ -288,4 +288,29 @@ describe('log cost display', () => {
       await unmountCost(rendered)
     }
   })
+  test('absent stored quota is not displayed as a real zero charge', async () => {
+    for (const subscription of [false, true]) {
+      for (const basis of ['invalid_stored_quota', 'missing_credit_basis']) {
+        const rendered = await renderCost({
+          type: 2,
+          quota: 0,
+          other: subscription ? { billing_source: 'subscription' } : null,
+          projection: {
+            quota_money_available: false,
+            quota_money_basis: basis,
+          },
+        })
+        try {
+          const amount =
+            basis === 'invalid_stored_quota' ? '—' : '0 Raw credits'
+          assert.equal(
+            normalizedText(rendered.container.textContent),
+            normalizedText(subscription ? `Subscription (${amount})` : amount)
+          )
+        } finally {
+          await unmountCost(rendered)
+        }
+      }
+    }
+  })
 })

@@ -233,6 +233,74 @@ test('explicit unavailable projections override a captured metadata anchor', asy
   assert.doesNotMatch(dialog.textContent ?? '', /USD|CNY/)
 })
 
+test('a NULL stored charge is unknown without hiding independent subscription snapshots', async () => {
+  const dialog = await mount(
+    usageLog(
+      {
+        billing_source: 'subscription',
+        subscription_remain: 0,
+        subscription_total: 500,
+      },
+      {
+        quota: 0,
+        quota_money_available: false,
+        quota_money_basis: 'invalid_stored_quota',
+      }
+    )
+  )
+  assert.equal(detailValue(dialog, 'Total Cost'), '—')
+  assert.equal(summaryValue(dialog, 'Plan quota used in this entry'), '—')
+  assert.equal(
+    detailValue(dialog, 'Remaining'),
+    '0 Raw credits / 500 Raw credits'
+  )
+})
+
+test('a genuine zero charge with missing money basis remains zero raw credits', async () => {
+  const dialog = await mount(
+    usageLog(
+      {
+        billing_source: 'subscription',
+        subscription_remain: 0,
+        subscription_total: 500,
+      },
+      {
+        quota: 0,
+        quota_money_available: false,
+        quota_money_basis: 'missing_credit_basis',
+      }
+    )
+  )
+  assert.equal(detailValue(dialog, 'Total Cost'), '0 Raw credits')
+  assert.equal(
+    summaryValue(dialog, 'Plan quota used in this entry'),
+    '0 Raw credits'
+  )
+  assert.equal(
+    detailValue(dialog, 'Remaining'),
+    '0 Raw credits / 500 Raw credits'
+  )
+})
+
+test('a NULL stored charge does not hide independently stored audit quota', async () => {
+  const dialog = await mount(
+    usageLog(
+      { op: { action: 'user.quota_add', params: { quota: '500 Credits' } } },
+      {
+        type: 3,
+        quota: 0,
+        quota_money_available: false,
+        quota_money_basis: 'invalid_stored_quota',
+      }
+    ),
+    true
+  )
+  assert.equal(
+    detailValue(dialog, 'Operation'),
+    'Increased user quota by 500 Raw credits'
+  )
+})
+
 test('management audit quota changes remain raw even with a charge anchor and typed projection', async () => {
   const dialog = await mount(
     usageLog(

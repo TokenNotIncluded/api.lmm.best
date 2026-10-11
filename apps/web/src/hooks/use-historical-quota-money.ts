@@ -6,6 +6,7 @@ import { useTranslation } from 'react-i18next'
 import { getCurrencyFormattingLocale } from '@/lib/currency'
 import {
   formatHistoricalRawQuota,
+  formatHistoricalQuotaFallback,
   historicalLogQuotaUSD,
   historicalQuotaUSD,
   type HistoricalQuotaProjection,
@@ -30,14 +31,26 @@ export function useHistoricalQuotaMoney() {
       projection: HistoricalQuotaProjection | undefined
     ) => {
       const usd = historicalQuotaUSD(projection)
-      return usd === null ? formatRawQuota(quota) : formatUSDValue(usd)
+      return usd === null
+        ? formatHistoricalQuotaFallback(
+            quota,
+            projection,
+            t('Raw credits'),
+            locale
+          )
+        : formatUSDValue(usd)
     },
     formatHistoricalLogQuota: (
       input: Parameters<typeof historicalLogQuotaUSD>[0]
     ) => {
       const usd = historicalLogQuotaUSD(input)
       return usd === null
-        ? formatRawQuota(input.consumedQuota ?? input.quota)
+        ? formatHistoricalQuotaFallback(
+            input.consumedQuota ?? input.quota,
+            input.projection,
+            t('Raw credits'),
+            locale
+          )
         : formatUSDValue(usd)
     },
   }

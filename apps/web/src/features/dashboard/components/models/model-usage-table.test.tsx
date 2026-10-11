@@ -86,4 +86,24 @@ test('model table preserves exact aggregate integers and leaves unsafe sources u
     { created_at: 0, model_name: 'unsafe', quota: Number.MAX_SAFE_INTEGER + 1 },
   ])
   assert.equal(unknown.cells[2], '—')
+  assert.equal(unknown.cells[3], '—')
+})
+
+test('unknown raw quota does not become zero percent or give another model one hundred percent', () => {
+  for (const quota of [Number.NaN, null as unknown as number, undefined]) {
+    const unknown = tableText([
+      { created_at: 0, model_name: 'unknown', quota },
+      { created_at: 0, model_name: 'known', quota: 1 },
+    ])
+    assert.equal(unknown.cells[3], '—')
+    assert.equal(unknown.cells[7], '—')
+    assert.doesNotMatch(unknown.text, /0%|100%/)
+  }
+  const realZero = tableText([
+    { created_at: 0, model_name: 'zero', quota: 0 },
+    { created_at: 0, model_name: 'known', quota: 1 },
+  ])
+  assert.match(realZero.text, /0 Raw credits/)
+  assert.match(realZero.text, /0%/)
+  assert.match(realZero.text, /100%/)
 })

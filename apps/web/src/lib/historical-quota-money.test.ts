@@ -6,6 +6,7 @@ import { test } from 'node:test'
 
 import {
   formatHistoricalRawQuota,
+  formatHistoricalQuotaFallback,
   historicalLogQuotaUSD,
   historicalQuotaUSD,
 } from './historical-quota-money'
@@ -113,4 +114,39 @@ test('subscription subamounts need their own captured anchor and unknown amounts
     '9,007,199,254,740,993 Raw credits'
   )
   assert.equal(formatHistoricalRawQuota(0.5, 'Raw credits'), '—')
+})
+
+test('invalid stored amounts remain absent while true raw zero and independent pools remain recorded', () => {
+  const invalid = {
+    quota_money_available: false,
+    quota_money_basis: 'invalid_stored_quota',
+  }
+  assert.equal(
+    formatHistoricalQuotaFallback(0, invalid, 'Raw credits', 'en'),
+    '—'
+  )
+  assert.equal(
+    formatHistoricalQuotaFallback(500, invalid, 'Raw credits', 'en'),
+    '—'
+  )
+  assert.equal(
+    formatHistoricalQuotaFallback(
+      0,
+      {
+        quota_money_available: false,
+        quota_money_basis: 'missing_credit_basis',
+      },
+      'Raw credits',
+      'en'
+    ),
+    '0 Raw credits'
+  )
+  assert.equal(
+    formatHistoricalQuotaFallback(0, undefined, 'Raw credits', 'en'),
+    '0 Raw credits'
+  )
+  assert.equal(
+    formatHistoricalRawQuota(0, 'Raw credits', 'en'),
+    '0 Raw credits'
+  )
 })

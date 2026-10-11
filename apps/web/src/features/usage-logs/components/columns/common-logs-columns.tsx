@@ -778,7 +778,8 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
         const log = row.original
         const other = parseLogOther(log.other)
 
-        const { formatHistoricalLogQuota } = useHistoricalQuotaMoney()
+        const { formatHistoricalLogQuota, formatRawQuota } =
+          useHistoricalQuotaMoney()
         const segments = buildDetailSegments(
           log,
           other,
@@ -786,13 +787,15 @@ export function useCommonLogsColumns(isAdmin: boolean): ColumnDef<UsageLog>[] {
           isAdmin,
           currency,
           (quota) =>
-            formatHistoricalLogQuota({
-              quota: log.quota,
-              other,
-              type: log.type,
-              projection: log,
-              consumedQuota: quota,
-            })
+            log.type === 3 || log.type === 7
+              ? formatRawQuota(quota)
+              : formatHistoricalLogQuota({
+                  quota: log.quota,
+                  other,
+                  type: log.type,
+                  projection: log,
+                  consumedQuota: quota,
+                })
         )
         const primary = segments[0]
         const hasMore = segments.length > 1

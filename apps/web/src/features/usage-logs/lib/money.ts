@@ -4,6 +4,7 @@ Copyright (C) 2026 LIghtJUNction
 import type { CurrencyFormatOptions } from '@/lib/currency'
 import {
   formatHistoricalRawQuota,
+  formatHistoricalQuotaFallback,
   historicalLogQuotaUSD,
 } from '@/lib/historical-quota-money'
 
@@ -142,11 +143,11 @@ export function buildLogCopyText(
       consumedQuota: quota,
     })
     return usd === null
-      ? formatRaw(quota)
+      ? formatHistoricalQuotaFallback(quota, log, t('Raw credits'))
       : currency.formatUSD(usd, PRICE_OPTIONS)
   }
   if (log.type === 3) {
-    const audit = renderAuditContent(other, t, format)
+    const audit = renderAuditContent(other, t, formatRaw)
     return audit
       ? `${audit}\n\n${t('Original log content')}:\n${original}`
       : original

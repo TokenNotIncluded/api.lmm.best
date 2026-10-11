@@ -33,6 +33,18 @@ export function formatHistoricalRawQuota(
   return `${new Intl.NumberFormat(locale, { maximumFractionDigits: 0 }).format(exact)} ${unit}`
 }
 
+/** An absent stored amount is not evidence of a real zero-credit entry. */
+export function formatHistoricalQuotaFallback(
+  quota: number,
+  projection: HistoricalQuotaProjection | null | undefined,
+  unit: string,
+  locale?: ConstructorParameters<typeof Intl.NumberFormat>[0]
+): string {
+  return projection?.quota_money_basis === 'invalid_stored_quota'
+    ? '—'
+    : formatHistoricalRawQuota(quota, unit, locale)
+}
+
 /** The API supplies a complete projection, never an incomplete priced subtotal. */
 export function historicalQuotaUSD(
   projection: HistoricalQuotaProjection | null | undefined

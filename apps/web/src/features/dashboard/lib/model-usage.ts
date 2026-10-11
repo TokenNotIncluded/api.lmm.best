@@ -29,7 +29,8 @@ const finite = (value: number | undefined) =>
 /** Keep model identity intact; translate an empty name only when displaying it. */
 export function summarizeModelUsage(data: readonly QuotaDataItem[]) {
   const models = new Map<string, ModelUsageRow>()
-  let totalQuota = 0
+  let totalQuota = 0n
+  let completeRawQuota = true
   for (const item of data) {
     const model = item.model_name ?? ''
     let row = models.get(model)
@@ -47,17 +48,30 @@ export function summarizeModelUsage(data: readonly QuotaDataItem[]) {
     row.count += finite(item.count)
     row.tokens += finite(item.token_used)
     row.quota += finite(item.quota)
-    const raw = item.quota === undefined ? 0 : item.quota
-    row.quota_raw =
-      row.quota_raw !== null && Number.isSafeInteger(raw)
-        ? (BigInt(row.quota_raw) + BigInt(raw)).toString()
+    const raw =
+      item.quota_money_basis !== 'invalid_stored_quota' &&
+      typeof item.quota === 'number' &&
+      Number.isSafeInteger(item.quota)
+        ? BigInt(item.quota)
         : null
-    totalQuota += finite(item.quota)
+    row.quota_raw =
+      row.quota_raw !== null && raw !== null
+        ? (BigInt(row.quota_raw) + raw).toString()
+        : null
+    if (raw === null) {
+      completeRawQuota = false
+    } else {
+      totalQuota += raw
+    }
   }
   return Array.from(models.values(), (row) => ({
     ...row,
-    // Shares always use the whole selected period, not the searched subset.
-    share: totalQuota > 0 ? row.quota / totalQuota : null,
+    // Unknown input makes the entire period's denominator unknown. A known
+    // row must not acquire 100% by silently treating another row as zero.
+    share:
+      completeRawQuota && totalQuota > 0n && row.quota_raw !== null
+        ? Number(BigInt(row.quota_raw)) / Number(totalQuota)
+        : null,
   }))
 }
 

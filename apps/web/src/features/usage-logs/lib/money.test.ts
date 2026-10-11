@@ -177,6 +177,50 @@ describe('log monetary snapshots', () => {
     assert.match(refund, /Total Cost: 3,500,000 Raw credits/)
   })
 
+  test('copies absent stored charges as unavailable and preserves real zero and independent subscription remaining', () => {
+    const log = {
+      type: 2,
+      quota: 0,
+      quota_money_available: false,
+      quota_money_basis: 'invalid_stored_quota',
+    } as UsageLog
+    const other = { billing_source: 'subscription', subscription_remain: 0 }
+    const copy = buildLogCopyText(
+      'Original trace',
+      log,
+      other,
+      formatter(),
+      (key) => key
+    )
+    assert.match(copy, /Total Cost: —/)
+    assert.match(copy, /Final Consumed: —/)
+    assert.match(copy, /Remaining: 0 Raw credits/)
+    assert.doesNotMatch(copy, /Total Cost: 0/)
+    assert.ok(copy.endsWith('Original trace'))
+    const zero = buildLogCopyText(
+      '',
+      { ...log, quota_money_basis: 'missing_credit_basis' },
+      other,
+      formatter(),
+      (key) => key
+    )
+    assert.match(zero, /Total Cost: 0 Raw credits/)
+    assert.match(zero, /Final Consumed: 0 Raw credits/)
+    const auditCopy = buildLogCopyText(
+      '',
+      { ...log, type: 3 },
+      {
+        op: { action: 'user.quota_add', params: { quota: '500 Credits' } },
+      },
+      formatter(),
+      (key: string, params?: Record<string, unknown>) =>
+        key.replaceAll(/\{\{(\w+)\}\}/g, (_, name: string) =>
+          String(params?.[name])
+        )
+    )
+    assert.match(auditCopy, /Increased user quota by 500 Raw credits/)
+  })
+
   test('copies matched expression prices and each tool surcharge with its own frozen unit', () => {
     const other = {
       billing_mode: 'tiered_expr',

@@ -84,7 +84,7 @@ test('supports every numeric sort direction and deterministic ties', () => {
 test('empty data and zero cost do not invent a percentage', () => {
   assert.deepEqual(summarizeModelUsage([]), [])
   const rows = summarizeModelUsage([
-    { created_at: 0, model_name: 'free', count: 3 },
+    { created_at: 0, model_name: 'free', count: 3, quota: 0 },
   ])
   assert.deepEqual(rows, [
     {
@@ -190,6 +190,7 @@ test('an inexact source leaves raw quota unknown without discarding usage counts
     Number.NaN,
     Number.POSITIVE_INFINITY,
     null as unknown as number,
+    undefined,
   ]) {
     const rows = summarizeModelUsage([
       { created_at: 0, model_name: 'invalid', count: 2, token_used: 20, quota },
@@ -198,6 +199,7 @@ test('an inexact source leaves raw quota unknown without discarding usage counts
     assert.equal(rows[0].quota_raw, null)
     assert.equal(rows[0].count, 2)
     assert.equal(rows[0].tokens, 20)
+    assert.equal(rows[0].share, null)
     assert.match(
       modelUsageCsv(rows, [], '').split('\r\n')[1],
       /^"invalid","2","20","","raw_quota","false","raw_quota_not_exact",/
@@ -210,6 +212,61 @@ test('an inexact source leaves raw quota unknown without discarding usage counts
   assert.equal(
     modelUsageCsv(signed, [], '').split('\r\n')[1],
     '"adjustment","0","0","-2","raw_quota","false","bucket_without_credit_basis",""'
+  )
+})
+
+test('any unknown raw amount leaves every period share unknown, while real zero stays known', () => {
+  for (const quota of [
+    Number.MAX_SAFE_INTEGER + 1,
+    0.5,
+    Number.NaN,
+    Number.POSITIVE_INFINITY,
+    null as unknown as number,
+    undefined,
+  ]) {
+    const rows = summarizeModelUsage([
+      { created_at: 0, model_name: 'unknown', quota },
+      { created_at: 0, model_name: 'known', quota: 1 },
+    ])
+    assert.equal(rows[0].quota_raw, null)
+    assert.equal(rows[1].quota_raw, '1')
+    assert.deepEqual(
+      rows.map((row) => row.share),
+      [null, null]
+    )
+    const exported = modelUsageCsv(rows, [], '').split('\r\n')
+    assert.ok(exported[1].endsWith(',""'))
+    assert.ok(exported[2].endsWith(',""'))
+  }
+  const rows = summarizeModelUsage([
+    { created_at: 0, model_name: 'zero', quota: 0 },
+    { created_at: 0, model_name: 'known', quota: 1 },
+  ])
+  assert.deepEqual(
+    rows.map((row) => row.quota_raw),
+    ['0', '1']
+  )
+  assert.deepEqual(
+    rows.map((row) => row.share),
+    [0, 1]
+  )
+  const invalidStored = summarizeModelUsage([
+    {
+      created_at: 0,
+      model_name: 'null-sentinel',
+      quota: 0,
+      quota_money_available: false,
+      quota_money_basis: 'invalid_stored_quota',
+    },
+    { created_at: 0, model_name: 'known', quota: 1 },
+  ])
+  assert.deepEqual(
+    invalidStored.map((row) => row.quota_raw),
+    [null, '1']
+  )
+  assert.deepEqual(
+    invalidStored.map((row) => row.share),
+    [null, null]
   )
 })
 
