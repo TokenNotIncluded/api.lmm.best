@@ -32,6 +32,18 @@ async fn restricted_role_checks_without_disabled_module_grants(pool: PgPool) {
             payments: true,
             ..RequiredCapabilities::default()
         },
+        RequiredCapabilities {
+            console: true,
+            ..RequiredCapabilities::default()
+        },
+        RequiredCapabilities {
+            commerce: true,
+            ..RequiredCapabilities::default()
+        },
+        RequiredCapabilities {
+            web_identity: true,
+            ..RequiredCapabilities::default()
+        },
     ] {
         assert!(
             runtime_database::check(&role.pool, requirements)
@@ -39,7 +51,33 @@ async fn restricted_role_checks_without_disabled_module_grants(pool: PgPool) {
                 .is_err()
         );
     }
-    for schema in ["core_charging", "core_events", "core_payments"] {
+    role.optional("web_identity").await;
+    runtime_database::check(
+        &role.pool,
+        RequiredCapabilities {
+            web_identity: true,
+            ..RequiredCapabilities::default()
+        },
+    )
+    .await
+    .unwrap();
+    let model_writes: bool =
+        sqlx::query_scalar("SELECT has_table_privilege('core_charging.requests','INSERT,UPDATE')")
+            .fetch_one(&role.pool)
+            .await
+            .unwrap();
+    assert!(
+        !model_writes,
+        "Web key management must not require model request write authority"
+    );
+    for schema in [
+        "core_charging",
+        "core_events",
+        "core_payments",
+        "core_console",
+        "core_model",
+        "core_commerce",
+    ] {
         role.optional(schema).await;
     }
     runtime_database::check(
@@ -48,6 +86,9 @@ async fn restricted_role_checks_without_disabled_module_grants(pool: PgPool) {
             models: true,
             events: true,
             payments: true,
+            console: true,
+            commerce: true,
+            web_identity: true,
         },
     )
     .await
@@ -196,5 +237,117 @@ async fn noinherit_set_role_cannot_hide_a_nonowner_groups_ledger_authority(pool:
     .execute(&pool)
     .await
     .unwrap();
+    role.cleanup().await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn new_evidence_and_import_tables_reject_table_and_column_write_grants(pool: PgPool) {
+    core_schema::init(&pool).await.unwrap();
+    let role = runtime::RuntimeRole::create(&pool).await;
+    for (grant, revoke) in [
+        (
+            "UPDATE ON core_console.initialization",
+            "UPDATE ON core_console.initialization",
+        ),
+        (
+            "UPDATE(revision) ON core_console.announcement_reads",
+            "UPDATE(revision) ON core_console.announcement_reads",
+        ),
+        (
+            "INSERT ON core_model.output_checkpoints",
+            "INSERT ON core_model.output_checkpoints",
+        ),
+        (
+            "UPDATE ON core_payments.accepted_proofs",
+            "UPDATE ON core_payments.accepted_proofs",
+        ),
+        (
+            "DELETE ON core_payments.refund_holds",
+            "DELETE ON core_payments.refund_holds",
+        ),
+        (
+            "TRUNCATE ON core_payments.intents",
+            "TRUNCATE ON core_payments.intents",
+        ),
+        (
+            "INSERT ON core_billing.opening_imports",
+            "INSERT ON core_billing.opening_imports",
+        ),
+        (
+            "UPDATE ON core_billing.account_opening_counters",
+            "UPDATE ON core_billing.account_opening_counters",
+        ),
+        (
+            "INSERT ON core_charging.budget_opening_consumption",
+            "INSERT ON core_charging.budget_opening_consumption",
+        ),
+        (
+            "UPDATE ON core_commerce.orders",
+            "UPDATE ON core_commerce.orders",
+        ),
+        (
+            "UPDATE ON core_charging.external_consumption",
+            "UPDATE ON core_charging.external_consumption",
+        ),
+        (
+            "INSERT ON core_identity.developer_access",
+            "INSERT ON core_identity.developer_access",
+        ),
+        (
+            "EXECUTE ON FUNCTION core_billing.import_opening_balance(jsonb)",
+            "EXECUTE ON FUNCTION core_billing.import_opening_balance(jsonb)",
+        ),
+        (
+            "EXECUTE ON FUNCTION core_billing.import_account_opening_counters(jsonb)",
+            "EXECUTE ON FUNCTION core_billing.import_account_opening_counters(jsonb)",
+        ),
+    ] {
+        sqlx::raw_sql(&format!("GRANT {grant} TO {}", role.name))
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            runtime_database::check(&role.pool, RequiredCapabilities::default()).await,
+            Err(Error::UnsafePrivileges),
+            "unexpected grant accepted: {grant}"
+        );
+        sqlx::raw_sql(&format!("REVOKE {revoke} FROM {}", role.name))
+            .execute(&pool)
+            .await
+            .unwrap();
+        runtime_database::check(&role.pool, RequiredCapabilities::default())
+            .await
+            .unwrap();
+    }
+    role.cleanup().await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn security_definer_public_execute_and_search_path_are_rejected(pool: PgPool) {
+    core_schema::init(&pool).await.unwrap();
+    let role = runtime::RuntimeRole::create(&pool).await;
+    sqlx::query("GRANT EXECUTE ON FUNCTION core_billing.post_ledger(jsonb) TO PUBLIC")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        runtime_database::check(&role.pool, RequiredCapabilities::default()).await,
+        Err(Error::UnsafePrivileges)
+    );
+    sqlx::query("REVOKE EXECUTE ON FUNCTION core_billing.post_ledger(jsonb) FROM PUBLIC")
+        .execute(&pool)
+        .await
+        .unwrap();
+    runtime_database::check(&role.pool, RequiredCapabilities::default())
+        .await
+        .unwrap();
+    sqlx::query("ALTER FUNCTION core_billing.post_ledger(jsonb) SET search_path=public,pg_catalog")
+        .execute(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        runtime_database::check(&role.pool, RequiredCapabilities::default()).await,
+        Err(Error::UnsafePrivileges)
+    );
     role.cleanup().await;
 }

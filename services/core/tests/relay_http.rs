@@ -230,6 +230,8 @@ struct Money {
     fail_finalize: bool,
     reserve_wait: Option<Arc<Semaphore>>,
     finalize_wait: Option<Arc<Semaphore>>,
+    checkpoints: Mutex<Vec<OutputCheckpoint>>,
+    fail_checkpoint: bool,
 }
 impl Billing for Money {
     fn reserve<'a>(
@@ -254,6 +256,22 @@ impl Billing for Money {
             Ok(Reservation {
                 id: format!("reservation_{}", c.request_id),
             })
+        })
+    }
+    // Explicit protocol-test adapter only. model_http tests below the real
+    // gateway separately require PostgreSQL checkpoints and ledger settlement.
+    fn checkpoint<'a>(
+        &'a self,
+        _: &'a Reservation,
+        checkpoint: &'a OutputCheckpoint,
+    ) -> RelayFuture<'a, ()> {
+        Box::pin(async move {
+            self.checkpoints.lock().unwrap().push(checkpoint.clone());
+            if self.fail_checkpoint {
+                Err(RelayError::SettlementPending)
+            } else {
+                Ok(())
+            }
         })
     }
     fn finalize<'a>(&'a self, r: &'a Reservation, report: &'a Report) -> RelayFuture<'a, ()> {
@@ -1414,31 +1432,41 @@ async fn stopping_the_actual_go_extension_does_not_cut_a_rust_http_stream() {
         std::process::id(),
         IDS.fetch_add(1, Ordering::Relaxed)
     ));
-    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::create_dir(&dir).unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
     let token = dir.join("extension-token");
-    std::fs::write(&token, b"relay-test-only-credential-0123456789abcdef").unwrap();
+    let mut token_options = std::fs::OpenOptions::new();
+    token_options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        token_options.mode(0o600);
+    }
+    let mut token_file = token_options.open(&token).unwrap();
+    std::io::Write::write_all(
+        &mut token_file,
+        b"relay-test-only-credential-0123456789abcdef",
+    )
+    .unwrap();
+    drop(token_file);
     let port = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let address = port.local_addr().unwrap();
     drop(port);
     let mut command = Command::new(binary);
+    // This isolated fault test intentionally exercises the explicit legacy
+    // environment fixture. TOML startup is accepted separately by Go tests.
     command
+        .arg("--legacy-env")
+        .env_clear()
         .env("LMM_EXTENSION_TOKEN_FILE", &token)
         .env("LMM_EXTENSION_LISTEN", address.to_string())
-        .env_remove("LMM_CORE_RPC_SOCKET")
-        .env_remove("LMM_CORE_RPC_TOKEN_FILE")
-        .env_remove("LMM_EXTENSION_MODULES")
+        .env("LMM_EXTENSION_MODULES", "none")
         .stdout(Stdio::null())
         .stderr(Stdio::inherit());
-    for name in [
-        "SQL_DSN",
-        "LOG_SQL_DSN",
-        "DATABASE_URL",
-        "LMM_CORE_DATABASE_URL",
-        "LMM_CORE_DATABASE_URL_FILE",
-        "LMM_DB_MIGRATION_MODE",
-    ] {
-        command.env_remove(name);
-    }
     let mut process = Process(command.spawn().unwrap());
     let client = reqwest::Client::builder()
         .timeout(Duration::from_secs(2))
@@ -1451,10 +1479,10 @@ async fn stopping_the_actual_go_extension_does_not_cut_a_rust_http_stream() {
                 "the real Go extension exited before the test"
             );
             if client
-                .get(format!("http://{address}/healthz"))
+                .get(format!("http://{address}/health/live"))
                 .send()
                 .await
-                .is_ok()
+                .is_ok_and(|response| response.status().is_success())
             {
                 break;
             }

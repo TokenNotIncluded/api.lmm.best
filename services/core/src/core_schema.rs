@@ -16,7 +16,17 @@ const COMPONENTS: &[(&str, &str)] = &[
         include_str!("../schema/charging_ledger.sql"),
     ),
     ("migration", include_str!("../schema/migration.sql")),
+    ("console", include_str!("../schema/console.sql")),
+    ("model-gateway", include_str!("../schema/model_gateway.sql")),
+    ("commerce", include_str!("../schema/commerce.sql")),
 ];
+
+/// The compiled fresh-install contract, including explicitly disabled modules.
+/// Operators cannot change its size with runtime configuration.
+pub fn component_count() -> usize {
+    COMPONENTS.len()
+}
+
 const CONTRACT: &str = "CREATE TABLE core_meta.component_contract (name TEXT PRIMARY KEY, fingerprint BYTEA NOT NULL CHECK (octet_length(fingerprint)=32)); CREATE TABLE core_meta.runtime_contract (singleton BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (singleton), catalog_fingerprint BYTEA NOT NULL CHECK (octet_length(catalog_fingerprint)=32));";
 
 // Include application relations, columns/defaults, constraints, indexes,

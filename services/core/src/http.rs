@@ -89,9 +89,12 @@ impl HttpBody for DeadlineBody {
 pub struct Capabilities {
     pub identity: bool,
     pub legacy_web_auth: bool,
+    pub console: bool,
     pub models: bool,
+    pub models_streaming: bool,
     pub events: bool,
     pub payments: bool,
+    pub commerce: bool,
 }
 
 #[derive(Clone, Copy, Default)]
@@ -107,6 +110,7 @@ struct Readiness {
     pool: PgPool,
     capabilities: Capabilities,
     rpc_running: Option<Arc<AtomicBool>>,
+    models_healthy: Option<Arc<AtomicBool>>,
     public_status: PublicStatus,
 }
 
@@ -122,6 +126,16 @@ pub fn configured_router_with_rpc(
     rpc_running: Option<Arc<AtomicBool>>,
     public_status: PublicStatus,
 ) -> Router {
+    configured_router_with_runtime_status(pool, capabilities, rpc_running, None, public_status)
+}
+
+pub fn configured_router_with_runtime_status(
+    pool: PgPool,
+    capabilities: Capabilities,
+    rpc_running: Option<Arc<AtomicBool>>,
+    models_healthy: Option<Arc<AtomicBool>>,
+    public_status: PublicStatus,
+) -> Router {
     Router::new()
         .route("/health/live", get(live))
         .route("/health/ready", get(ready))
@@ -132,6 +146,7 @@ pub fn configured_router_with_rpc(
             pool,
             capabilities,
             rpc_running,
+            models_healthy,
             public_status,
         })
 }
@@ -153,11 +168,16 @@ async fn public_status_response(
             "oidc_enabled":false,"linuxdo_oauth":false,"telegram_oauth":false,
             "wechat_login":false,"passkey_login":false,"email_verification":false,
             "turnstile_check":false,"two_factor_enabled":false,"payments_enabled":false,
+            "payments_test_rpc_enabled":state.capabilities.payments,
+            "commerce_rpc_enabled":state.capabilities.commerce,
             "assistant":{"enabled":false},"custom_oauth_providers":[],
             "backend_capabilities":{"bounty_notifications":false,"bounty_challenge_cancel":false,
                 "bounty_public_read":false,"self_oauth_unbind":false,"responses_websocket":false},
             "configured_components":state.capabilities,
-            "capability_scope":"configured_components_only"
+            "capability_scope":"configured_components_only",
+            "models_local_synthetic":state.capabilities.models,
+            "models_streaming":state.capabilities.models_streaming,
+            "external_model_providers_enabled":false
         }})),
     )
 }
@@ -183,8 +203,16 @@ async fn readiness(
         .is_none_or(|running| running.load(Ordering::Acquire));
     capabilities.events &= rpc_healthy;
     capabilities.payments &= rpc_healthy;
+    capabilities.commerce &= rpc_healthy;
+    let models_healthy = state
+        .models_healthy
+        .as_ref()
+        .is_none_or(|healthy| healthy.load(Ordering::Acquire));
+    capabilities.models &= models_healthy;
+    capabilities.models_streaming &= models_healthy;
     let ready = database
         && rpc_healthy
+        && models_healthy
         && capabilities.identity
         && (!require_models || capabilities.models);
     (

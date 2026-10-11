@@ -338,6 +338,18 @@ pub struct Reservation {
     pub id: String,
 }
 
+/// Evidence prepared before exposing a streaming packet. A digest is an audit
+/// commitment, not a token estimate or proof that the client received bytes.
+/// Missing provider usage remains missing; partial usage is never final usage.
+#[derive(Clone, Debug)]
+pub struct OutputCheckpoint {
+    pub sequence: u64,
+    pub packet_sha256: [u8; 32],
+    pub packet_bytes: usize,
+    pub usage: Usage,
+    pub terminal_observed: bool,
+}
+
 pub trait Billing: Send + Sync + 'static {
     /// Idempotent by context.request_id. Commit before returning. A timeout may
     /// mean the commit succeeded: durable recovery must resolve that ambiguity.
@@ -347,6 +359,15 @@ pub trait Billing: Send + Sync + 'static {
         route: &'a Route,
         request: &'a super::Request,
     ) -> RelayFuture<'a, Reservation>;
+    /// Commit output/usage evidence before output is queued. The default rejects
+    /// streaming: integrations must explicitly provide their durability policy.
+    fn checkpoint<'a>(
+        &'a self,
+        _: &'a Reservation,
+        _: &'a OutputCheckpoint,
+    ) -> RelayFuture<'a, ()> {
+        Box::pin(async { Err(RelayError::SettlementPending) })
+    }
     /// Persist settlement or a reconciliation obligation, idempotently. Missing
     /// usage or a disconnected upstream must NEVER be interpreted as zero cost.
     /// This hook runs even after the client drops its body. Do not wait for Go.
@@ -357,7 +378,7 @@ pub trait Billing: Send + Sync + 'static {
     ) -> RelayFuture<'a, ()>;
 }
 
-#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Deserialize, Serialize)]
 pub struct Usage {
     pub input_tokens: Option<u64>,
     pub output_tokens: Option<u64>,
@@ -499,6 +520,9 @@ pub struct Report {
     pub outcome: Outcome,
     pub usage: Usage,
     pub finish_reason: Option<FinishReason>,
+    /// A validated protocol terminal boundary was decoded, independently of
+    /// whether the downstream still accepts output.
+    pub provider_complete: bool,
     /// True as soon as send starts. A connection error is not proof of no cost.
     pub upstream_attempted: bool,
     pub attempts: u8,

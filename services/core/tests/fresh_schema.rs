@@ -6,6 +6,34 @@ use lmm_core::{
 use sqlx::PgPool;
 
 #[sqlx::test(migrations = false)]
+async fn full_core_contract_includes_new_components_and_does_not_repair_missing_ones(pool: PgPool) {
+    lmm_core::core_schema::init(&pool).await.unwrap();
+    lmm_core::core_schema::check(&pool).await.unwrap();
+    let components: Vec<String> =
+        sqlx::query_scalar("SELECT name FROM core_meta.component_contract ORDER BY name")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+    assert_eq!(components.len(), lmm_core::core_schema::component_count());
+    for name in ["console", "model-gateway", "commerce"] {
+        assert!(components.iter().any(|entry| entry == name));
+    }
+    sqlx::raw_sql("DROP SCHEMA core_model CASCADE; DELETE FROM core_meta.component_contract WHERE name='model-gateway'")
+        .execute(&pool).await.unwrap();
+    assert!(lmm_core::core_schema::check(&pool).await.is_err());
+    assert!(lmm_core::core_schema::init(&pool).await.is_err());
+    let repaired: bool =
+        sqlx::query_scalar("SELECT EXISTS(SELECT FROM pg_namespace WHERE nspname='core_model')")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(
+        !repaired,
+        "checking or reinstalling an occupied database must not patch a missing new component"
+    );
+}
+
+#[sqlx::test(migrations = false)]
 async fn nonempty_database_is_rejected_without_touching_its_data(pool: PgPool) {
     sqlx::raw_sql(
         "CREATE TABLE public.sentinel(value TEXT); INSERT INTO public.sentinel VALUES ('keep');",

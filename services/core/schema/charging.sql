@@ -14,6 +14,9 @@ BEGIN
     WHEN 'day' THEN s := date_trunc('day', t); e := s + interval '1 day';
     WHEN 'week' THEN s := date_trunc('week', t); e := s + interval '1 week';
     WHEN 'month' THEN s := date_trunc('month', t); e := s + interval '1 month';
+    WHEN 'lifetime' THEN
+        start_at := -62135596800; end_at := 253402300800;
+        RETURN NEXT; RETURN;
     WHEN 'anniversary_month' THEN
         a := to_timestamp(p_anchor) AT TIME ZONE 'UTC';
         n := (extract(year FROM t)::integer - extract(year FROM a)::integer) * 12
@@ -41,13 +44,21 @@ CREATE TABLE core_charging.budgets (
     user_id BIGINT REFERENCES core_identity.users(id),
     key_id BIGINT REFERENCES core_identity.credentials(id),
     issuer_user_id BIGINT NOT NULL REFERENCES core_identity.users(id),
-    period TEXT NOT NULL CHECK (period IN ('day', 'week', 'month', 'custom')),
+    period TEXT NOT NULL CHECK (period IN ('day', 'week', 'month', 'custom', 'lifetime')),
+    -- Calendar imports with another source timezone must be rejected, not moved
+    -- to a different reset boundary. Non-UTC calendar support is not implemented.
+    timezone TEXT NOT NULL DEFAULT 'UTC' CHECK (timezone = 'UTC'),
     anchor BIGINT NOT NULL DEFAULT 0 CHECK (anchor BETWEEN -62135596800 AND 253402300799),
     seconds BIGINT NOT NULL DEFAULT 0,
-    limit_credits BIGINT NOT NULL CHECK (limit_credits >= 0),
+    limit_credits BIGINT NOT NULL CHECK (limit_credits >= 0 OR (scope = 'key' AND period = 'lifetime')),
+    unlimited BOOLEAN NOT NULL DEFAULT FALSE,
+    -- Legacy keys retain signed displayed remaining quota even while unlimited.
+    -- Their display basis is independent of the disabled admission cap.
+    display_limit_credits BIGINT,
     revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
     CHECK ((period = 'custom' AND seconds BETWEEN 1 AND 315576000)
         OR (period <> 'custom' AND anchor = 0 AND seconds = 0)),
+    CHECK (period <> 'lifetime' OR scope = 'key'),
     CHECK ((scope = 'account' AND account_id IS NOT NULL AND user_id IS NULL AND key_id IS NULL)
         OR (scope = 'member' AND account_id IS NOT NULL AND user_id IS NOT NULL AND key_id IS NULL)
         OR (scope = 'self' AND account_id IS NULL AND user_id IS NOT NULL AND key_id IS NULL)
@@ -60,18 +71,117 @@ CREATE TABLE core_charging.subscriptions (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     account_id BIGINT NOT NULL REFERENCES core_identity.accounts(id),
     grant_reference TEXT NOT NULL UNIQUE CHECK (length(grant_reference) BETWEEN 1 AND 200),
-    period TEXT NOT NULL CHECK (period IN ('custom', 'anniversary_month')),
+    period TEXT NOT NULL CHECK (period IN ('day', 'week', 'month', 'custom', 'anniversary_month', 'grant')),
+    timezone TEXT NOT NULL DEFAULT 'UTC' CHECK (timezone = 'UTC'),
     anchor BIGINT NOT NULL CHECK (anchor BETWEEN 0 AND 253402300799),
     seconds BIGINT NOT NULL DEFAULT 0,
     ends_at BIGINT NOT NULL CHECK (ends_at <= 253402300799 AND ends_at > anchor),
     limit_credits BIGINT NOT NULL CHECK (limit_credits >= 0),
+    unlimited BOOLEAN NOT NULL DEFAULT FALSE,
+    -- A historical current period can have a different basis from later resets.
+    -- Renewal after ends_at is a separate grant, never an implicit credit here.
+    reset_basis TEXT NOT NULL DEFAULT 'same' CHECK (reset_basis IN ('same', 'explicit')),
+    reset_limit_credits BIGINT NOT NULL DEFAULT 0 CHECK (reset_limit_credits >= 0),
+    reset_unlimited BOOLEAN NOT NULL DEFAULT FALSE,
     models TEXT[] NOT NULL CHECK (cardinality(models) > 0),
     groups TEXT[] NOT NULL CHECK (cardinality(groups) > 0),
     active BOOLEAN NOT NULL DEFAULT TRUE,
+    CHECK (reset_basis = 'explicit' OR (reset_limit_credits = 0 AND NOT reset_unlimited)),
+    CHECK (period <> 'grant' OR reset_basis = 'same'),
     CHECK ((period = 'custom' AND seconds BETWEEN 1 AND 315576000)
-        OR (period = 'anniversary_month' AND seconds = 0))
+        OR (period <> 'custom' AND seconds = 0))
 );
 CREATE INDEX subscriptions_account ON core_charging.subscriptions(account_id, id);
+
+-- Opening consumption is an imported historical fact, not a fabricated model
+-- request or a mutable balance. Stable scope identity deliberately excludes
+-- issuer, budget id/revision, key digest, and membership version.
+CREATE TABLE core_charging.budget_opening_consumption (
+    scope TEXT NOT NULL CHECK (scope IN ('account', 'member', 'self', 'key')),
+    account_id BIGINT REFERENCES core_identity.accounts(id),
+    user_id BIGINT REFERENCES core_identity.users(id),
+    key_id BIGINT REFERENCES core_identity.credentials(id),
+    period TEXT NOT NULL CHECK (period IN ('day', 'week', 'month', 'custom', 'lifetime')),
+    anchor BIGINT NOT NULL DEFAULT 0 CHECK (anchor BETWEEN -62135596800 AND 253402300799),
+    seconds BIGINT NOT NULL DEFAULT 0,
+    timezone TEXT NOT NULL DEFAULT 'UTC' CHECK (timezone = 'UTC'),
+    start_at BIGINT NOT NULL CHECK (start_at BETWEEN -62135596800 AND 253402300799),
+    end_at BIGINT NOT NULL CHECK (end_at > start_at AND end_at <= 253402300800),
+    consumed_credits BIGINT NOT NULL CHECK (consumed_credits >= 0),
+    import_reference TEXT NOT NULL UNIQUE CHECK (length(import_reference) BETWEEN 1 AND 200),
+    CHECK ((period = 'custom' AND seconds BETWEEN 1 AND 315576000)
+        OR (period <> 'custom' AND anchor = 0 AND seconds = 0)),
+    CHECK (period <> 'lifetime' OR scope = 'key'),
+    CHECK ((scope = 'account' AND account_id IS NOT NULL AND user_id IS NULL AND key_id IS NULL)
+        OR (scope = 'member' AND account_id IS NOT NULL AND user_id IS NOT NULL AND key_id IS NULL)
+        OR (scope = 'self' AND account_id IS NULL AND user_id IS NOT NULL AND key_id IS NULL)
+        OR (scope = 'key' AND account_id IS NULL AND user_id IS NULL AND key_id IS NOT NULL)),
+    UNIQUE NULLS NOT DISTINCT (scope, account_id, user_id, key_id, period, anchor, seconds, start_at)
+);
+CREATE TABLE core_charging.subscription_opening_consumption (
+    subscription_id BIGINT PRIMARY KEY REFERENCES core_charging.subscriptions(id),
+    start_at BIGINT NOT NULL CHECK (start_at BETWEEN 0 AND 253402300799),
+    end_at BIGINT NOT NULL CHECK (end_at > start_at AND end_at <= 253402300799),
+    consumed_credits BIGINT NOT NULL CHECK (consumed_credits >= 0),
+    import_reference TEXT NOT NULL UNIQUE CHECK (length(import_reference) BETWEEN 1 AND 200)
+);
+
+CREATE FUNCTION core_charging.guard_opening_consumption() RETURNS TRIGGER
+LANGUAGE plpgsql SET search_path = pg_catalog AS $$
+DECLARE w RECORD; s core_charging.subscriptions%ROWTYPE;
+BEGIN
+    IF TG_TABLE_NAME = 'budget_opening_consumption' THEN
+        SELECT * INTO w FROM core_charging.period_window(NEW.period,NEW.anchor,NEW.seconds,NEW.start_at);
+        IF w.start_at <> NEW.start_at OR w.end_at <> NEW.end_at THEN
+            RAISE EXCEPTION 'opening budget window mismatch' USING ERRCODE = '23514';
+        END IF;
+    ELSE
+        SELECT * INTO STRICT s FROM core_charging.subscriptions WHERE id=NEW.subscription_id FOR SHARE;
+        IF NEW.start_at < s.anchor OR NEW.end_at > s.ends_at THEN
+            RAISE EXCEPTION 'opening subscription window outside grant' USING ERRCODE = '23514';
+        END IF;
+        -- Preserve the exact first next_reset. A calendar/anniversary reset must
+        -- still be a boundary of that policy, unless clipped by grant expiry.
+        IF s.period = 'grant' THEN
+            IF NEW.start_at <> s.anchor OR NEW.end_at <> s.ends_at THEN
+                RAISE EXCEPTION 'non-resetting opening must cover the whole grant' USING ERRCODE = '23514';
+            END IF;
+        ELSIF s.period <> 'custom' AND NEW.end_at <> s.ends_at THEN
+            SELECT * INTO w FROM core_charging.period_window(s.period,s.anchor,s.seconds,NEW.end_at);
+            IF w.start_at <> NEW.end_at THEN
+                RAISE EXCEPTION 'opening subscription reset mismatch' USING ERRCODE = '23514';
+            END IF;
+        END IF;
+    END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER budget_opening_window BEFORE INSERT ON core_charging.budget_opening_consumption
+    FOR EACH ROW EXECUTE FUNCTION core_charging.guard_opening_consumption();
+CREATE TRIGGER subscription_opening_window BEFORE INSERT ON core_charging.subscription_opening_consumption
+    FOR EACH ROW EXECUTE FUNCTION core_charging.guard_opening_consumption();
+
+CREATE FUNCTION core_charging.subscription_window(p_id BIGINT,p_at BIGINT)
+RETURNS TABLE(start_at BIGINT,end_at BIGINT,limit_credits BIGINT,unlimited BOOLEAN)
+LANGUAGE sql STABLE STRICT SET search_path = pg_catalog AS $$
+    SELECT CASE WHEN o.subscription_id IS NOT NULL AND p_at < o.end_at THEN o.start_at ELSE w.start_at END,
+           least(CASE WHEN o.subscription_id IS NOT NULL AND p_at < o.end_at THEN o.end_at ELSE w.end_at END,s.ends_at),
+           CASE WHEN o.subscription_id IS NOT NULL AND p_at >= o.end_at AND s.reset_basis='explicit'
+                THEN s.reset_limit_credits ELSE s.limit_credits END,
+           CASE WHEN o.subscription_id IS NOT NULL AND p_at >= o.end_at AND s.reset_basis='explicit'
+                THEN s.reset_unlimited ELSE s.unlimited END
+    FROM core_charging.subscriptions s
+    LEFT JOIN core_charging.subscription_opening_consumption o ON o.subscription_id=s.id
+    -- A never-reset grant has one window for its entire lifetime, even when
+    -- longer than the maximum duration allowed for a repeating custom period.
+    CROSS JOIN LATERAL core_charging.period_window(
+        CASE WHEN s.period='grant' THEN 'custom' ELSE s.period END,
+        CASE WHEN s.period='custom' AND o.subscription_id IS NOT NULL AND p_at >= o.end_at
+             THEN o.end_at ELSE s.anchor END,
+        CASE WHEN s.period='grant' THEN s.ends_at-s.anchor ELSE s.seconds END,p_at) w
+    WHERE s.id=p_id AND p_at>=s.anchor AND p_at<s.ends_at
+      AND (o.subscription_id IS NULL OR p_at>=o.start_at)
+      AND (s.reset_basis='same' OR o.subscription_id IS NOT NULL)
+$$;
 
 CREATE TABLE core_charging.requests (
     id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 128),
@@ -112,6 +222,22 @@ CREATE INDEX requests_entitlement ON core_charging.requests(source_subscription_
 CREATE INDEX requests_expired ON core_charging.requests(lease_until, id)
     WHERE state IN ('reserved', 'streaming');
 
+-- Non-model spending participates in the same caps without pretending to be a
+-- model request. Only Rust's same-transaction commerce writer may add a row.
+CREATE TABLE core_charging.external_consumption (
+    id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 128),
+    domain TEXT NOT NULL CHECK (domain = 'commerce'),
+    actor_user_id BIGINT NOT NULL REFERENCES core_identity.users(id),
+    key_id BIGINT NOT NULL REFERENCES core_identity.credentials(id),
+    payer_account_id BIGINT NOT NULL REFERENCES core_identity.accounts(id),
+    authorized_at BIGINT NOT NULL CHECK (authorized_at BETWEEN -62135596800 AND 253402300799),
+    amount_credits BIGINT NOT NULL CHECK (amount_credits > 0),
+    refunded BIGINT NOT NULL DEFAULT 0 CHECK (refunded BETWEEN 0 AND amount_credits)
+);
+CREATE INDEX external_consumption_payer ON core_charging.external_consumption(payer_account_id,authorized_at);
+CREATE INDEX external_consumption_actor ON core_charging.external_consumption(actor_user_id,authorized_at);
+CREATE INDEX external_consumption_key ON core_charging.external_consumption(key_id,authorized_at);
+
 -- These are audit snapshots, not mutable counters or monetary balances.
 CREATE TABLE core_charging.budget_checks (
     request_id TEXT NOT NULL REFERENCES core_charging.requests(id),
@@ -121,6 +247,7 @@ CREATE TABLE core_charging.budget_checks (
     start_at BIGINT NOT NULL,
     end_at BIGINT NOT NULL CHECK (end_at > start_at),
     limit_credits BIGINT NOT NULL,
+    unlimited BOOLEAN NOT NULL DEFAULT FALSE,
     requested_credits BIGINT NOT NULL,
     PRIMARY KEY (request_id, request_revision, budget_id)
 );
@@ -163,6 +290,29 @@ CREATE TRIGGER budgets_no_delete BEFORE DELETE ON core_charging.budgets
     FOR EACH ROW EXECUTE FUNCTION core_charging.no_delete();
 CREATE TRIGGER subscriptions_no_delete BEFORE DELETE ON core_charging.subscriptions
     FOR EACH ROW EXECUTE FUNCTION core_charging.no_delete();
+CREATE TRIGGER budget_opening_immutable BEFORE UPDATE OR DELETE ON core_charging.budget_opening_consumption
+    FOR EACH ROW EXECUTE FUNCTION core_charging.no_delete();
+CREATE TRIGGER subscription_opening_immutable BEFORE UPDATE OR DELETE ON core_charging.subscription_opening_consumption
+    FOR EACH ROW EXECUTE FUNCTION core_charging.no_delete();
+CREATE TRIGGER budget_opening_no_truncate BEFORE TRUNCATE ON core_charging.budget_opening_consumption
+    FOR EACH STATEMENT EXECUTE FUNCTION core_charging.no_delete();
+CREATE TRIGGER subscription_opening_no_truncate BEFORE TRUNCATE ON core_charging.subscription_opening_consumption
+    FOR EACH STATEMENT EXECUTE FUNCTION core_charging.no_delete();
+CREATE TRIGGER external_consumption_no_delete BEFORE DELETE ON core_charging.external_consumption
+    FOR EACH ROW EXECUTE FUNCTION core_charging.no_delete();
+CREATE TRIGGER external_consumption_no_truncate BEFORE TRUNCATE ON core_charging.external_consumption
+    FOR EACH STATEMENT EXECUTE FUNCTION core_charging.no_delete();
+CREATE FUNCTION core_charging.guard_external_consumption() RETURNS TRIGGER
+LANGUAGE plpgsql SET search_path = pg_catalog AS $$
+BEGIN
+    IF (to_jsonb(NEW) - 'refunded') IS DISTINCT FROM (to_jsonb(OLD) - 'refunded')
+       OR NEW.refunded < OLD.refunded THEN
+        RAISE EXCEPTION 'external consumption identity is immutable' USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER external_consumption_identity BEFORE UPDATE ON core_charging.external_consumption
+    FOR EACH ROW EXECUTE FUNCTION core_charging.guard_external_consumption();
 CREATE TRIGGER checks_immutable BEFORE UPDATE OR DELETE ON core_charging.budget_checks
     FOR EACH ROW EXECUTE FUNCTION core_charging.no_delete();
 CREATE TRIGGER usage_immutable BEFORE UPDATE OR DELETE ON core_charging.usage_events
@@ -173,8 +323,8 @@ CREATE TRIGGER policies_immutable BEFORE UPDATE OR DELETE ON core_charging.polic
     FOR EACH ROW EXECUTE FUNCTION core_charging.no_delete();
 CREATE FUNCTION core_charging.guard_budget() RETURNS TRIGGER LANGUAGE plpgsql AS $$
 BEGIN
-    IF (to_jsonb(NEW) - 'limit_credits' - 'revision') IS DISTINCT FROM
-       (to_jsonb(OLD) - 'limit_credits' - 'revision') OR NEW.revision <> OLD.revision + 1 THEN
+    IF (to_jsonb(NEW) - 'limit_credits' - 'unlimited' - 'display_limit_credits' - 'revision') IS DISTINCT FROM
+       (to_jsonb(OLD) - 'limit_credits' - 'unlimited' - 'display_limit_credits' - 'revision') OR NEW.revision <> OLD.revision + 1 THEN
         RAISE EXCEPTION 'budget identity is immutable' USING ERRCODE = '23514';
     END IF;
     RETURN NEW;

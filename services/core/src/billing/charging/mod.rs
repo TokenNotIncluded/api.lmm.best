@@ -6,6 +6,7 @@ mod limits;
 mod types;
 
 pub use engine::Charging;
+pub use limits::{external_budgets, key_quota_snapshot, key_quota_snapshot_for_issuer};
 pub use types::*;
 
 pub const SCHEMA: &str = include_str!("../../../schema/charging.sql");

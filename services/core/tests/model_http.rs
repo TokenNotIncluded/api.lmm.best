@@ -2,25 +2,32 @@
 //! provider. These are protocol/ledger tests, not live supplier compatibility.
 use axum::{
     Json, Router,
-    body::{Body, to_bytes},
+    body::{Body, Bytes, to_bytes},
     extract::State,
     http::{Request, StatusCode},
+    response::{IntoResponse, Response},
     routing::post,
 };
 use lmm_core::{
     accounts::{Account, AccountKind},
     billing::{
         Credits,
+        charging::{
+            Charging, Outcome as ChargingOutcome, Price as ChargingPrice,
+            Request as ChargingRequest, Usage as ChargingUsage,
+        },
         ledger::{Action, Ledger, Request as LedgerRequest},
+        transactional_ledger::TransactionalLedger,
     },
     core_schema,
     funding::FundingPolicy,
-    identity::IdentityStore,
+    identity::{DashboardKeyInput, IdentityStore},
     model_http::{ChargePolicy, ModelGateway, UpstreamCredential},
     relay::{ClientProtocol, Limits, Request as RelayRequest},
     routing::*,
 };
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use std::{
     collections::BTreeMap,
@@ -30,7 +37,12 @@ use std::{
     },
     time::Duration,
 };
-use tokio::{net::TcpListener, task::JoinHandle};
+use tokio::{
+    net::TcpListener,
+    sync::{Semaphore, mpsc},
+    task::JoinHandle,
+};
+use tokio_stream::{StreamExt, wrappers::ReceiverStream};
 use tower::ServiceExt;
 
 struct Provider {
@@ -38,6 +50,7 @@ struct Provider {
     hits: Arc<AtomicUsize>,
     auth: Arc<Mutex<Vec<String>>>,
     task: JoinHandle<()>,
+    stream_gate: Arc<Semaphore>,
 }
 impl Drop for Provider {
     fn drop(&mut self) {
@@ -50,12 +63,13 @@ struct ProviderState {
     hits: Arc<AtomicUsize>,
     auth: Arc<Mutex<Vec<String>>>,
     usage: bool,
+    stream_gate: Arc<Semaphore>,
 }
 async fn provider(
     State(state): State<ProviderState>,
     headers: axum::http::HeaderMap,
     Json(request): Json<Value>,
-) -> Json<Value> {
+) -> Response {
     state.hits.fetch_add(1, Ordering::SeqCst);
     state
         .auth
@@ -66,12 +80,68 @@ async fn provider(
     if request["messages"][0]["content"] == "pause" {
         tokio::time::sleep(Duration::from_secs(30)).await;
     }
+    if request["messages"][0]["content"] == "rate-limit" {
+        return (StatusCode::TOO_MANY_REQUESTS, "synthetic supplier refusal").into_response();
+    }
+    if request["stream"] == true {
+        let malformed_tool = request["messages"][0]["content"] == "malformed-tool";
+        let content = if malformed_tool {
+            format!(
+                "data: {}\n\n",
+                json!({"id":"synthetic-stream","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"weather","arguments":"{"}}]},"finish_reason":null}]})
+            )
+        } else {
+            format!(
+                "data: {}\n\n",
+                json!({"id":"synthetic-stream","choices":[{"index":0,"delta":{"role":"assistant","content":"local stream answer"},"finish_reason":null}]})
+            )
+        };
+        let finish = format!(
+            "data: {}\n\n",
+            json!({"id":"synthetic-stream","choices":[{"index":0,"delta":{},"finish_reason":if malformed_tool {"tool_calls"} else {"stop"}}]})
+        );
+        let usage = format!(
+            "data: {}\n\n",
+            json!({"id":"synthetic-stream","choices":[],"usage":{"prompt_tokens":10,"completion_tokens":20,"prompt_tokens_details":{"cached_tokens":2}}})
+        );
+        let prompt = request["messages"][0]["content"]
+            .as_str()
+            .unwrap()
+            .to_owned();
+        let (tx, rx) = mpsc::channel::<Result<Bytes, std::io::Error>>(8);
+        tokio::spawn(async move {
+            if tx.send(Ok(Bytes::from(content))).await.is_err() {
+                return;
+            }
+            if prompt == "stream-pause" {
+                state.stream_gate.acquire().await.unwrap().forget();
+            }
+            if prompt == "malformed" {
+                let _ = tx
+                    .send(Ok(Bytes::from_static(b"data: {invalid json\n\n")))
+                    .await;
+                return;
+            }
+            let _ = tx.send(Ok(Bytes::from(finish))).await;
+            if state.usage {
+                let _ = tx.send(Ok(Bytes::from(usage))).await;
+            }
+            if prompt != "truncate" {
+                let _ = tx.send(Ok(Bytes::from_static(b"data: [DONE]\n\n"))).await;
+            }
+        });
+        return (
+            [("content-type", "text/event-stream")],
+            Body::from_stream(ReceiverStream::new(rx)),
+        )
+            .into_response();
+    }
     let mut value = json!({"id":"synthetic-completion","object":"chat.completion","created":0,"model":"provider-model",
         "choices":[{"index":0,"message":{"role":"assistant","content":"local synthetic answer"},"finish_reason":"stop"}]});
     if state.usage {
         value["usage"] = json!({"prompt_tokens":10,"completion_tokens":20,"prompt_tokens_details":{"cached_tokens":2}});
     }
-    Json(value)
+    Json(value).into_response()
 }
 impl Provider {
     async fn start(usage: bool) -> Self {
@@ -79,12 +149,14 @@ impl Provider {
         let endpoint = format!("http://{}/custom/v1", listener.local_addr().unwrap());
         let hits = Arc::new(AtomicUsize::new(0));
         let auth = Arc::new(Mutex::new(Vec::new()));
+        let stream_gate = Arc::new(Semaphore::new(0));
         let app = Router::new()
             .route("/custom/v1/chat/completions", post(provider))
             .with_state(ProviderState {
                 hits: hits.clone(),
                 auth: auth.clone(),
                 usage,
+                stream_gate: stream_gate.clone(),
             });
         let task = tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
@@ -94,6 +166,7 @@ impl Provider {
             hits,
             auth,
             task,
+            stream_gate,
         }
     }
 }
@@ -311,6 +384,639 @@ async fn balanced(pool: &PgPool) {
     let count:i64=sqlx::query_scalar("SELECT count(*) FROM (SELECT journal_id FROM core_billing.ledger_entries GROUP BY journal_id HAVING sum(delta_units)<>0) e")
         .fetch_one(pool).await.unwrap();
     assert_eq!(count, 0);
+}
+
+async fn stream_response(
+    gateway: &ModelGateway,
+    key: &str,
+    path: &str,
+    prompt: &str,
+    id: &str,
+) -> Response {
+    let body = if path.ends_with("responses") {
+        json!({"model":"local-model","input":prompt,"stream":true,"max_output_tokens":20})
+    } else {
+        json!({"model":"local-model","messages":[{"role":"user","content":prompt}],"stream":true,"stream_options":{"include_usage":true},"max_tokens":20})
+    };
+    gateway
+        .router()
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri(path)
+                .header("authorization", format!("Bearer {key}"))
+                .header("content-type", "application/json")
+                .header("idempotency-key", id)
+                .body(Body::from(serde_json::to_vec(&body).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap()
+}
+
+#[sqlx::test(migrations = false)]
+async fn streaming_chat_and_responses_commit_real_evidence_then_settle_once(pool: PgPool) {
+    let (_, ledger, _, key, key_id, account) = fixture(&pool, 1000).await;
+    let provider = Provider::start(true).await;
+    let gateway =
+        gateway(&pool, &provider, key_id, 0, 0, PayloadPolicy::Adapt).with_local_streaming();
+    assert!(gateway.streaming_enabled());
+    for (path, id) in [
+        ("/v1/chat/completions", "stream-chat"),
+        ("/v1/responses", "stream-responses"),
+    ] {
+        let response = stream_response(&gateway, &key, path, "hello", id).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        assert_eq!(response.headers()["x-accel-buffering"], "no");
+        let request_id = response.headers()["x-request-id"]
+            .to_str()
+            .unwrap()
+            .to_owned();
+        let text = String::from_utf8(
+            to_bytes(response.into_body(), 1_000_000)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(text.contains("local stream answer"));
+        if path.ends_with("responses") {
+            assert!(text.contains("response.completed"));
+        } else {
+            assert!(text.ends_with("data: [DONE]\n\n"));
+            assert!(text.contains("\"completion_tokens\":20"));
+        }
+        let charge:(String,i64,i64,i64)=sqlx::query_as("SELECT state,settled,input_tokens,output_tokens FROM core_charging.requests WHERE id=$1")
+            .bind(&request_id).fetch_one(&pool).await.unwrap();
+        assert_eq!(charge, ("settled".into(), 49, 10, 20));
+        let checkpoints:Vec<(i64,i64,Value,bool)>=sqlx::query_as("SELECT sequence,packet_bytes,provider_usage,terminal_observed FROM core_model.output_checkpoints WHERE request_id=$1 ORDER BY sequence")
+            .bind(&request_id).fetch_all(&pool).await.unwrap();
+        assert!(checkpoints.len() >= 4);
+        for (index, row) in checkpoints.iter().enumerate() {
+            assert_eq!(row.0, index as i64 + 1);
+        }
+        assert!(
+            checkpoints
+                .iter()
+                .any(|row| row.1 == 0 && row.2["output_tokens"] == 20)
+        );
+        assert!(checkpoints.last().unwrap().3);
+        let duplicate = stream_response(&gateway, &key, path, "hello", id).await;
+        assert_eq!(duplicate.status(), StatusCode::CONFLICT);
+    }
+    assert_eq!(provider.hits.load(Ordering::SeqCst), 2);
+    let balance = ledger.balance(account).await.unwrap();
+    assert_eq!((balance.available_units, balance.reserved_units), (902, 0));
+    balanced(&pool).await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn streaming_output_has_committed_checkpoint_before_provider_finishes(pool: PgPool) {
+    let (_, ledger, _, key, key_id, account) = fixture(&pool, 1000).await;
+    let provider = Provider::start(true).await;
+    let gateway =
+        gateway(&pool, &provider, key_id, 0, 0, PayloadPolicy::Adapt).with_local_streaming();
+    let response = stream_response(
+        &gateway,
+        &key,
+        "/v1/chat/completions",
+        "stream-pause",
+        "incremental",
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let mut body = response.into_body().into_data_stream();
+    let first = tokio::time::timeout(Duration::from_secs(2), body.next())
+        .await
+        .unwrap()
+        .unwrap()
+        .unwrap();
+    assert!(!String::from_utf8_lossy(&first).contains("[DONE]"));
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM core_model.output_checkpoints")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(count >= 1);
+    assert_eq!(ledger.balance(account).await.unwrap().reserved_units, 140);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT settled FROM core_charging.requests")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+    provider.stream_gate.add_permits(1);
+    let mut text = first.to_vec();
+    while let Some(chunk) = body.next().await {
+        text.extend(chunk.unwrap());
+    }
+    assert!(
+        String::from_utf8(text)
+            .unwrap()
+            .ends_with("data: [DONE]\n\n")
+    );
+    assert_eq!(ledger.balance(account).await.unwrap().available_units, 951);
+    balanced(&pool).await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn incomplete_streams_keep_holds_and_restart_never_redispatches(pool: PgPool) {
+    let (_, ledger, _, key, key_id, account) = fixture(&pool, 1000).await;
+    for (prompt, usage, id) in [
+        ("hello", false, "stream-no-usage"),
+        ("truncate", true, "stream-truncated"),
+        ("malformed", true, "stream-malformed"),
+    ] {
+        let provider = Provider::start(usage).await;
+        let running_gateway =
+            gateway(&pool, &provider, key_id, 0, 0, PayloadPolicy::Adapt).with_local_streaming();
+        let response =
+            stream_response(&running_gateway, &key, "/v1/chat/completions", prompt, id).await;
+        assert_eq!(response.status(), StatusCode::OK);
+        let text = String::from_utf8(
+            to_bytes(response.into_body(), 1_000_000)
+                .await
+                .unwrap()
+                .to_vec(),
+        )
+        .unwrap();
+        assert!(text.contains("error"));
+        assert!(!text.contains("[DONE]"));
+        assert!(!text.contains("\"finish_reason\":\"stop\""));
+        let mut tx = pool.begin().await.unwrap();
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE core_charging.requests SET lease_until=0,revision=revision+1 WHERE state='streaming'").execute(&mut *tx).await.unwrap();
+        tx.commit().await.unwrap();
+        let restarted =
+            gateway(&pool, &provider, key_id, 0, 0, PayloadPolicy::Adapt).with_local_streaming();
+        assert_eq!(restarted.recover_expired(10).await.unwrap(), 1);
+        assert_eq!(restarted.recover_expired(10).await.unwrap(), 0);
+        assert_eq!(restarted.reconcile_completed_streams(10).await.unwrap(), 0);
+        let duplicate = stream_response(&restarted, &key, "/v1/chat/completions", prompt, id).await;
+        assert_eq!(duplicate.status(), StatusCode::CONFLICT);
+        assert_eq!(provider.hits.load(Ordering::SeqCst), 1);
+    }
+    let balance = ledger.balance(account).await.unwrap();
+    assert_eq!(
+        (balance.available_units, balance.reserved_units),
+        (580, 420)
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM core_charging.requests WHERE state='reconcile' AND settled=0"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        3
+    );
+    balanced(&pool).await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn downstream_drop_keeps_partial_stream_evidence_and_hold(pool: PgPool) {
+    let (_, ledger, _, key, key_id, account) = fixture(&pool, 1000).await;
+    let provider = Provider::start(true).await;
+    let gateway =
+        gateway(&pool, &provider, key_id, 0, 0, PayloadPolicy::Adapt).with_local_streaming();
+    let response = stream_response(
+        &gateway,
+        &key,
+        "/v1/chat/completions",
+        "stream-pause",
+        "disconnect",
+    )
+    .await;
+    let mut body = response.into_body().into_data_stream();
+    assert!(body.next().await.unwrap().is_ok());
+    drop(body);
+    assert_eq!(gateway.drain(Duration::from_secs(2)).await.remaining, 0);
+    let balance = ledger.balance(account).await.unwrap();
+    assert_eq!(
+        (balance.available_units, balance.reserved_units),
+        (860, 140)
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM core_model.output_checkpoints WHERE terminal_observed"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        0
+    );
+    assert_eq!(gateway.reconcile_completed_streams(10).await.unwrap(), 0);
+    assert_eq!(provider.hits.load(Ordering::SeqCst), 1);
+    provider.stream_gate.add_permits(1);
+    balanced(&pool).await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn checkpoint_failure_never_exposes_corresponding_output(pool: PgPool) {
+    let (_, ledger, _, key, key_id, account) = fixture(&pool, 1000).await;
+    sqlx::raw_sql("CREATE FUNCTION public.reject_model_checkpoint() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic evidence write failure'; END $$; CREATE TRIGGER reject_model_checkpoint BEFORE INSERT ON core_model.output_checkpoints FOR EACH ROW EXECUTE FUNCTION public.reject_model_checkpoint()")
+        .execute(&pool).await.unwrap();
+    let provider = Provider::start(true).await;
+    let gateway =
+        gateway(&pool, &provider, key_id, 0, 0, PayloadPolicy::Adapt).with_local_streaming();
+    let response = stream_response(
+        &gateway,
+        &key,
+        "/v1/chat/completions",
+        "hello",
+        "checkpoint-rejected",
+    )
+    .await;
+    let text = String::from_utf8(
+        to_bytes(response.into_body(), 1_000_000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(!text.contains("local stream answer"));
+    assert!(!text.contains("\"role\":\"assistant\""));
+    assert!(!text.contains("[DONE]"));
+    assert!(text.contains("settlement_pending"));
+    assert_eq!(ledger.balance(account).await.unwrap().reserved_units, 140);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM core_model.output_checkpoints")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+    balanced(&pool).await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn malformed_tool_json_with_usage_and_done_remains_frozen(pool: PgPool) {
+    let (_, ledger, _, key, key_id, account) = fixture(&pool, 1000).await;
+    let provider = Provider::start(true).await;
+    let gateway =
+        gateway(&pool, &provider, key_id, 0, 0, PayloadPolicy::Adapt).with_local_streaming();
+    let response = stream_response(
+        &gateway,
+        &key,
+        "/v1/chat/completions",
+        "malformed-tool",
+        "bad-tool-json",
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::OK);
+    let text = String::from_utf8(
+        to_bytes(response.into_body(), 1_000_000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(text.contains("invalid_upstream_response"));
+    assert!(!text.contains("[DONE]"));
+    assert!(!text.contains("\"finish_reason\":\"tool_calls\""));
+    assert_eq!(ledger.balance(account).await.unwrap().reserved_units, 140);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT settled FROM core_charging.requests")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        0
+    );
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>(
+            "SELECT count(*) FROM core_model.output_checkpoints WHERE terminal_observed"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap(),
+        0
+    );
+    assert_eq!(gateway.reconcile_completed_streams(10).await.unwrap(), 0);
+    balanced(&pool).await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn completed_stream_recovers_after_final_transaction_failure_without_second_dispatch(
+    pool: PgPool,
+) {
+    let (_, ledger, _, key, key_id, account) = fixture(&pool, 1000).await;
+    sqlx::raw_sql("CREATE FUNCTION public.reject_stream_final() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF NEW.event_id='final' THEN RAISE EXCEPTION 'synthetic final commit failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_stream_final BEFORE INSERT ON core_charging.usage_events FOR EACH ROW EXECUTE FUNCTION public.reject_stream_final()")
+        .execute(&pool).await.unwrap();
+    let provider = Provider::start(true).await;
+    let running_gateway =
+        gateway(&pool, &provider, key_id, 0, 0, PayloadPolicy::Adapt).with_local_streaming();
+    let response = stream_response(
+        &running_gateway,
+        &key,
+        "/v1/chat/completions",
+        "hello",
+        "completed-recovery",
+    )
+    .await;
+    let text = String::from_utf8(
+        to_bytes(response.into_body(), 1_000_000)
+            .await
+            .unwrap()
+            .to_vec(),
+    )
+    .unwrap();
+    assert!(text.contains("local stream answer"));
+    assert!(!text.contains("[DONE]"));
+    assert_eq!(ledger.balance(account).await.unwrap().reserved_units, 140);
+    assert!(
+        sqlx::query_scalar::<_, bool>(
+            "SELECT bool_or(terminal_observed) FROM core_model.output_checkpoints"
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap()
+    );
+    sqlx::query("DROP TRIGGER reject_stream_final ON core_charging.usage_events")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    sqlx::query("UPDATE core_charging.requests SET lease_until=0,revision=revision+1 WHERE state='streaming'").execute(&mut *tx).await.unwrap();
+    tx.commit().await.unwrap();
+    let restarted =
+        gateway(&pool, &provider, key_id, 0, 0, PayloadPolicy::Adapt).with_local_streaming();
+    assert_eq!(restarted.recover_expired(10).await.unwrap(), 1);
+    let (one, two) = tokio::join!(
+        restarted.reconcile_completed_streams(10),
+        restarted.reconcile_completed_streams(10)
+    );
+    assert!(one.unwrap() + two.unwrap() >= 1);
+    assert_eq!(restarted.reconcile_completed_streams(10).await.unwrap(), 0);
+    assert_eq!(ledger.balance(account).await.unwrap().available_units, 951);
+    assert_eq!(ledger.balance(account).await.unwrap().reserved_units, 0);
+    let duplicate = stream_response(
+        &restarted,
+        &key,
+        "/v1/chat/completions",
+        "hello",
+        "completed-recovery",
+    )
+    .await;
+    assert_eq!(duplicate.status(), StatusCode::CONFLICT);
+    assert_eq!(provider.hits.load(Ordering::SeqCst), 1);
+    balanced(&pool).await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn output_checkpoint_exact_replay_conflict_worker_binding_and_immutability(pool: PgPool) {
+    let (_, _, _, key, _, _) = fixture(&pool, 1000).await;
+    let worker = [42_u8; 32];
+    let request_id = "model-checkpoint-capability-test";
+    let charging = Charging::new(pool.clone(), Arc::new(TransactionalLedger));
+    let spec = ChargingRequest {
+        id: request_id.into(),
+        fingerprint: [17; 32],
+        price: ChargingPrice {
+            version: "synthetic-checkpoint-v1".into(),
+            model: "local-model".into(),
+            group: "allowed".into(),
+            input_per_million: 1_000_000,
+            cached_per_million: 250_000,
+            output_per_million: 2_000_000,
+        },
+        reserve: 140,
+        lease_seconds: 30,
+        maximum_seconds: 30,
+    };
+    charging.reserve(&key, &spec, &worker).await.unwrap();
+    assert!(charging.start(request_id, &worker).await.unwrap());
+    let provider_usage = json!({"input_tokens":10,"cached_input_tokens":2,"output_tokens":20});
+    let packet_digest = Sha256::digest(b"synthetic prepared packet").to_vec();
+    let mut prepare = pool.begin().await.unwrap();
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+        .execute(&mut *prepare)
+        .await
+        .unwrap();
+    sqlx::query("SELECT core_model.checkpoint_output($1,$2,1,$3,25,$4,true)")
+        .bind(request_id)
+        .bind(worker.as_slice())
+        .bind(&packet_digest)
+        .bind(&provider_usage)
+        .execute(&mut *prepare)
+        .await
+        .unwrap();
+    prepare.commit().await.unwrap();
+    charging
+        .settle(
+            request_id,
+            &worker,
+            ChargingUsage {
+                input: 10,
+                cached: 2,
+                output: 20,
+            },
+            ChargingOutcome::Completed,
+        )
+        .await
+        .unwrap();
+    let stored_digest: Vec<u8> =
+        sqlx::query_scalar("SELECT worker_digest FROM core_charging.requests WHERE id=$1")
+            .bind(request_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let row:(Vec<u8>,i64,Value,bool)=sqlx::query_as("SELECT packet_sha256,packet_bytes,provider_usage,terminal_observed FROM core_model.output_checkpoints WHERE request_id=$1 AND sequence=1")
+        .bind(request_id).fetch_one(&pool).await.unwrap();
+    let before: i64 = sqlx::query_scalar("SELECT count(*) FROM core_model.output_checkpoints")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    for mode in 0..4 {
+        let mut tx = pool.begin().await.unwrap();
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        let mut digest = row.0.clone();
+        if mode == 1 {
+            digest[0] ^= 1;
+        }
+        let capability = match mode {
+            2 => stored_digest.clone(),
+            3 => vec![0u8; 32],
+            _ => worker.to_vec(),
+        };
+        let result = sqlx::query("SELECT core_model.checkpoint_output($1,$2,1,$3,$4,$5,$6)")
+            .bind(request_id)
+            .bind(capability)
+            .bind(digest)
+            .bind(row.1)
+            .bind(&row.2)
+            .bind(row.3)
+            .execute(&mut *tx)
+            .await;
+        if mode == 0 {
+            result.unwrap();
+            tx.commit().await.unwrap();
+        } else {
+            let error = result.unwrap_err();
+            assert_eq!(
+                error.as_database_error().unwrap().code().as_deref(),
+                Some(if mode == 1 { "23505" } else { "42501" })
+            );
+            tx.rollback().await.unwrap();
+        }
+    }
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT count(*) FROM core_model.output_checkpoints")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        before
+    );
+    for query in [
+        "DELETE FROM core_model.output_checkpoints",
+        "UPDATE core_model.output_checkpoints SET packet_bytes=0",
+        "TRUNCATE core_model.output_checkpoints",
+    ] {
+        assert!(sqlx::query(query).execute(&pool).await.is_err());
+    }
+    let public_exec:bool=sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace CROSS JOIN LATERAL aclexplode(p.proacl) a WHERE n.nspname='core_model' AND a.grantee=0 AND a.privilege_type='EXECUTE')")
+        .fetch_one(&pool).await.unwrap();
+    assert!(!public_exec);
+    balanced(&pool).await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn input_budget_refuses_before_reserve_and_supplier_429_keeps_unknown_hold(pool: PgPool) {
+    let (_, ledger, _, key, key_id, account) = fixture(&pool, 1000).await;
+    let provider = Provider::start(true).await;
+    let gateway =
+        gateway(&pool, &provider, key_id, 0, 0, PayloadPolicy::Adapt).with_local_streaming();
+    let response = stream_response(
+        &gateway,
+        &key,
+        "/v1/chat/completions",
+        &"x".repeat(101),
+        "large-prompt",
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::PAYLOAD_TOO_LARGE);
+    assert_eq!(provider.hits.load(Ordering::SeqCst), 0);
+    assert_eq!(ledger.balance(account).await.unwrap().reserved_units, 0);
+    let response = stream_response(
+        &gateway,
+        &key,
+        "/v1/chat/completions",
+        "rate-limit",
+        "upstream-429",
+    )
+    .await;
+    assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
+    assert_eq!(provider.hits.load(Ordering::SeqCst), 1);
+    assert_eq!(ledger.balance(account).await.unwrap().reserved_units, 140);
+    balanced(&pool).await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn dashboard_key_without_host_mapping_obeys_real_peer_policy_and_ledger(pool: PgPool) {
+    let (identity, ledger, session, _, native_key_id, account) = fixture(&pool, 1000).await;
+    // The explicit offline bootstrap already installs this synthetic grant.
+    // Assert the prerequisite instead of duplicating its primary key.
+    let developer: bool =
+        sqlx::query_scalar("SELECT granted FROM core_identity.developer_access WHERE user_id=7")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(developer);
+    sqlx::query("INSERT INTO core_identity.user_routing_groups(user_id,group_name,enabled,source_reference) VALUES (7,'allowed',true,'synthetic:model-key-test')").execute(&pool).await.unwrap();
+    let provider = Provider::start(true).await;
+    let router = routes(&provider.endpoint, 0, 0, PayloadPolicy::Adapt);
+    let identity = identity.with_dashboard_routing(router.clone());
+    let input:DashboardKeyInput=serde_json::from_value(json!({"name":"synthetic dashboard model key","expired_time":-1,"remain_quota":1000,"unlimited_quota":false,"group":"allowed","one_time_reveal":true,"model_limits_enabled":true,"model_limits":"local-model","allow_ips":"127.0.0.1/32"})).unwrap();
+    let issued = identity
+        .dashboard_create_key(&session, &input)
+        .await
+        .unwrap();
+    let key = issued["key"].as_str().unwrap();
+    let key_id = issued["id"].as_i64().unwrap();
+    assert_ne!(key_id, native_key_id);
+    let gateway = gateway_with_routes(&pool, router, native_key_id);
+    let request = || {
+        Request::builder()
+            .method("POST")
+            .uri("/v1/chat/completions")
+            .header("authorization", format!("Bearer {key}"))
+            .header("content-type", "application/json")
+            .header("x-forwarded-for", "127.0.0.1")
+    };
+    let refused = gateway
+        .router()
+        .oneshot(
+            request()
+                .body(Body::from(serde_json::to_vec(&chat()).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(refused.status(), StatusCode::FORBIDDEN);
+    assert_eq!(provider.hits.load(Ordering::SeqCst), 0);
+    let response = gateway
+        .router()
+        .oneshot(
+            request()
+                .extension(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+                    [127, 0, 0, 1],
+                    45678,
+                ))))
+                .body(Body::from(serde_json::to_vec(&chat()).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let value: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 1_000_000).await.unwrap()).unwrap();
+    assert_eq!(
+        value["choices"][0]["message"]["content"],
+        "local synthetic answer"
+    );
+    assert_eq!(ledger.balance(account).await.unwrap().available_units, 951);
+    let used: i64 = sqlx::query_scalar(
+        "SELECT sum(settled)::bigint FROM core_charging.requests WHERE key_id=$1",
+    )
+    .bind(key_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(used, 49);
+    let disable: DashboardKeyInput =
+        serde_json::from_value(json!({"id":key_id,"status":2})).unwrap();
+    identity
+        .dashboard_update_key(&session, &disable, true)
+        .await
+        .unwrap();
+    let disabled = gateway
+        .router()
+        .oneshot(
+            request()
+                .extension(axum::extract::ConnectInfo(std::net::SocketAddr::from((
+                    [127, 0, 0, 1],
+                    45678,
+                ))))
+                .body(Body::from(serde_json::to_vec(&chat()).unwrap()))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert!(matches!(
+        disabled.status(),
+        StatusCode::FORBIDDEN | StatusCode::UNAUTHORIZED
+    ));
+    assert_eq!(provider.hits.load(Ordering::SeqCst), 1);
+    balanced(&pool).await;
 }
 
 #[sqlx::test(migrations = false)]

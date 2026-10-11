@@ -1,0 +1,53 @@
+syntax = "proto3";
+package lmm.core.v1;
+option go_package = "github.com/TokenNotIncluded/api.lmm.best/extensions/internal/corepb;corepb";
+
+// Narrow store port. The independently configured commerce service credential
+// AND x-lmm-user-credential are required on Execute/Query, including replay.
+// This service cannot mint credit, select arbitrary ledger entries or borrow.
+service CoreCommerce {
+  rpc ExecuteCommerce(ExecuteCommerceRequest) returns (CommerceReceipt);
+  rpc QueryCommerce(QueryCommerceRequest) returns (QueryCommerceResponse);
+  // Uses only the original buyer-authorized, fixed-order capture grant. No new
+  // spend, reserve, payer, amount or recipient can be selected. This separate
+  // service permission is disabled by default; no user bearer is retained.
+  rpc CompleteDelivery(CompleteDeliveryRequest) returns (CommerceReceipt);
+  // Separate service-only READ permission for lost-ACK recovery. Exact original
+  // command bytes must match the stored operation, under the same trusted
+  // merchant principal. Missing receipt is UNKNOWN. Never creates anything.
+  rpc ReconcileCommerce(ExecuteCommerceRequest) returns (QueryCommerceResponse);
+}
+message ExecuteCommerceRequest {
+  uint32 protocol_major = 1;
+  // Exact json.Marshal([]any{store.MoneyCommand}) bytes; one command only.
+  // Core validates the complete typed command and computes SHA256 of these
+  // bytes, matching store.ID(command). Caller-supplied hashes are not trusted.
+  bytes command_json = 2;
+}
+message QueryCommerceRequest {
+  uint32 protocol_major = 1;
+  string shop_id = 2;
+  string order_id = 3;
+  string operation_key = 4;
+}
+message CommerceReceipt {
+  string key = 1;
+  string command_hash = 2;
+  string reference = 3;
+  string outcome = 4; // Exactly succeeded or permanently rejected.
+  string rejection_code = 5;
+}
+message QueryCommerceResponse {
+  // Missing receipt means UNKNOWN, never rejection or permission to compensate.
+  optional CommerceReceipt receipt = 1;
+}
+message CompleteDeliveryRequest {
+  uint32 protocol_major = 1;
+  // The original order's frozen MoneyCommand with kind="settle" and exact
+  // original payment_ref. Command key/hash match ExecuteCommerce semantics.
+  bytes command_json = 2;
+  string payment_command_hash = 3;
+  // Stable bounded ID of the Go-owned, already committed delivery fact. This
+  // is audit evidence from the merchant service, not independent Core inspection.
+  string delivery_reference = 4;
+}

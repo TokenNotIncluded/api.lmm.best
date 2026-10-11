@@ -1,11 +1,12 @@
 //! Rust-owned model HTTP entry. No Go proxy and no simulated money adapter.
 //!
 //! The first integration supports isolated numeric-loopback synthetic providers
-//! only, with non-streaming OpenAI text/tool requests. External providers remain
+//! only, with bounded OpenAI text/tool requests. External providers remain
 //! disabled until versioned model context/input bounds are integrated and tested.
-//! Streaming stays disabled until durable pre-output checkpoints are
-//! wired into the relay. Unknown provider usage retains its durable hold.
+//! Streaming requires explicit host opt-in and durable pre-output checkpoints.
+//! Unknown provider usage retains its durable hold.
 mod billing;
+mod checkpoints;
 mod routing;
 
 use crate::{
@@ -16,7 +17,7 @@ use crate::{
 use axum::{
     Json, Router,
     body::{Body, Bytes},
-    extract::{DefaultBodyLimit, State},
+    extract::{ConnectInfo, DefaultBodyLimit, State, rejection::ExtensionRejection},
     http::{HeaderMap, HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post},
@@ -27,11 +28,13 @@ use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use std::{
     collections::BTreeMap,
+    net::{IpAddr, SocketAddr},
     sync::{Arc, Mutex},
     time::Duration,
 };
 
 pub use routing::UpstreamCredential;
+pub const SCHEMA: &str = include_str!("../schema/model_gateway.sql");
 
 /// Conservative, server-owned limits. The input ceiling must cover the
 /// configured provider/model context, including tool and message framing.
@@ -47,9 +50,12 @@ struct Operation {
     worker: [u8; 32],
     fingerprint: [u8; 32],
     selected: Option<routing::Selected>,
+    output_token_ceiling: u32,
+    peer: Option<IpAddr>,
 }
 
 struct Bridge {
+    pool: PgPool,
     charging: Charging,
     routing: Arc<crate::routing::Router>,
     credentials: BTreeMap<(u64, u64), String>,
@@ -65,6 +71,7 @@ pub struct ModelGateway {
     bridge: Arc<Bridge>,
     relay: Relay,
     limits: Limits,
+    local_streaming: bool,
 }
 
 impl ModelGateway {
@@ -99,6 +106,7 @@ impl ModelGateway {
                 .map_err(|_| RelayError::RouteUnavailable)?;
         }
         let bridge = Arc::new(Bridge {
+            pool: pool.clone(),
             charging: Charging::new(pool.clone(), Arc::new(TransactionalLedger)),
             routing,
             credentials,
@@ -108,12 +116,30 @@ impl ModelGateway {
         });
         let relay = Relay::new(bridge.clone(), bridge.clone(), limits.clone())?;
         Ok(Self {
-            identity: IdentityStore::from_pool(pool),
+            identity: IdentityStore::from_pool(pool).with_dashboard_routing(bridge.routing.clone()),
             access: Arc::new(key_groups),
             bridge,
             relay,
             limits,
+            local_streaming: false,
         })
+    }
+
+    /// Explicit host opt-in for the numeric-loopback synthetic provider mode.
+    /// This does not enable external suppliers or certify their token bounds.
+    pub fn with_local_streaming(mut self) -> Self {
+        self.local_streaming = true;
+        self
+    }
+
+    pub fn streaming_enabled(&self) -> bool {
+        self.local_streaming
+    }
+
+    /// Share the same published router with the authenticated dashboard catalog.
+    /// This exposes configuration, never upstream credential material.
+    pub fn dashboard_routing(&self) -> Arc<crate::routing::Router> {
+        self.bridge.routing.clone()
     }
 
     pub fn router(&self) -> Router {
@@ -140,10 +166,18 @@ impl ModelGateway {
             .map_err(billing::error)
     }
 
+    /// Trusted host-only recovery. A process restart can settle a previously
+    /// completed local stream from its durable terminal observation, through
+    /// the original charging CAS and immutable payer/price. Partial streams
+    /// remain frozen. Call recover_expired first; never expose this as an API.
+    pub async fn reconcile_completed_streams(&self, limit: i32) -> Result<usize, RelayError> {
+        self.bridge.reconcile_completed_streams(limit).await
+    }
+
     async fn authenticate(
         &self,
         headers: &HeaderMap,
-    ) -> Result<(Principal, String, String), RelayError> {
+    ) -> Result<(Principal, String, Vec<String>), RelayError> {
         let raw =
             one_header(headers, header::AUTHORIZATION.as_str())?.ok_or(RelayError::Unauthorized)?;
         let (scheme, secret) = raw.split_once(' ').ok_or(RelayError::Unauthorized)?;
@@ -158,12 +192,24 @@ impl ModelGateway {
         if principal.credential_kind != CredentialKind::ApiKey {
             return Err(RelayError::Forbidden);
         }
-        let group = self
-            .access
-            .get(&principal.credential_id)
-            .ok_or(RelayError::Forbidden)?
-            .clone();
-        Ok((principal, secret.to_owned(), group))
+        let groups = if let Some(group) = self.access.get(&principal.credential_id) {
+            vec![group.clone()]
+        } else {
+            self.identity
+                .api_key_routing_groups(secret)
+                .await
+                .map_err(|error| match error {
+                    IdentityError::Unauthorized | IdentityError::Invalid => {
+                        RelayError::Unauthorized
+                    }
+                    IdentityError::Forbidden => RelayError::Forbidden,
+                    _ => RelayError::BillingUnavailable,
+                })?
+        };
+        if groups.is_empty() {
+            return Err(RelayError::Forbidden);
+        }
+        Ok((principal, secret.to_owned(), groups))
     }
 }
 
@@ -202,39 +248,82 @@ fn with_request_id(mut response: Response, id: &str) -> Response {
     response
 }
 
-async fn models(State(gateway): State<ModelGateway>, headers: HeaderMap) -> Response {
-    let (_, _, group) = match gateway.authenticate(&headers).await {
+async fn models(
+    State(gateway): State<ModelGateway>,
+    headers: HeaderMap,
+    peer: Result<ConnectInfo<SocketAddr>, ExtensionRejection>,
+) -> Response {
+    let (_, secret, groups) = match gateway.authenticate(&headers).await {
         Ok(v) => v,
         Err(e) => return public_error(e),
     };
-    match gateway.bridge.routing.catalog(&group) {
-        Ok(models) => {
-            let data: Vec<_> = models
-                .into_iter()
-                .map(|m| {
-                    json!({
-                        "id":m.name,"object":"model","created":0,"owned_by":"lmm",
-                    })
-                })
-                .collect();
-            let mut response = Json(json!({"object":"list","data":data})).into_response();
-            response
-                .headers_mut()
-                .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
-            response
+    let peer = peer.ok().map(|peer| peer.0.ip());
+    let mut available = BTreeMap::new();
+    for group in groups {
+        let models = match gateway.bridge.routing.catalog(&group) {
+            Ok(models) => models,
+            Err(_) => return public_error(RelayError::RouteUnavailable),
+        };
+        for model in models {
+            match gateway
+                .identity
+                .authorize_model_request(&secret, &model.name, peer, &group)
+                .await
+            {
+                Ok(_) => {
+                    available.insert(model.name, ());
+                }
+                Err(IdentityError::Forbidden) => (),
+                Err(IdentityError::Unauthorized | IdentityError::Invalid) => {
+                    return public_error(RelayError::Unauthorized);
+                }
+                Err(_) => return public_error(RelayError::BillingUnavailable),
+            }
         }
-        Err(_) => public_error(RelayError::RouteUnavailable),
     }
+    let data: Vec<_> = available
+        .into_keys()
+        .map(|name| {
+            json!({
+                "id":name,"object":"model","created":0,"owned_by":"lmm",
+            })
+        })
+        .collect();
+    let mut response = Json(json!({"object":"list","data":data})).into_response();
+    response
+        .headers_mut()
+        .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+    response
 }
-async fn chat(State(gateway): State<ModelGateway>, headers: HeaderMap, body: Bytes) -> Response {
-    dispatch(gateway, headers, body, ClientProtocol::Chat).await
+async fn chat(
+    State(gateway): State<ModelGateway>,
+    headers: HeaderMap,
+    peer: Result<ConnectInfo<SocketAddr>, ExtensionRejection>,
+    body: Bytes,
+) -> Response {
+    dispatch(
+        gateway,
+        headers,
+        body,
+        ClientProtocol::Chat,
+        peer.ok().map(|p| p.0.ip()),
+    )
+    .await
 }
 async fn responses(
     State(gateway): State<ModelGateway>,
     headers: HeaderMap,
+    peer: Result<ConnectInfo<SocketAddr>, ExtensionRejection>,
     body: Bytes,
 ) -> Response {
-    dispatch(gateway, headers, body, ClientProtocol::Responses).await
+    dispatch(
+        gateway,
+        headers,
+        body,
+        ClientProtocol::Responses,
+        peer.ok().map(|p| p.0.ip()),
+    )
+    .await
 }
 
 fn request_id(key_id: i64, headers: &HeaderMap) -> Result<String, RelayError> {
@@ -259,8 +348,9 @@ async fn dispatch(
     headers: HeaderMap,
     body: Bytes,
     client: ClientProtocol,
+    peer: Option<IpAddr>,
 ) -> Response {
-    let (principal, secret, group) = match gateway.authenticate(&headers).await {
+    let (principal, secret, groups) = match gateway.authenticate(&headers).await {
         Ok(v) => v,
         Err(e) => return public_error(e),
     };
@@ -268,7 +358,38 @@ async fn dispatch(
         Ok(v) => v,
         Err(e) => return public_error(e),
     };
-    if request.stream {
+    let selected = groups.into_iter().find_map(|group| {
+        let plan = gateway
+            .bridge
+            .routing
+            .route(crate::routing::RouteRequest {
+                model: &request.model,
+                group: &group,
+                speed: None,
+                protocol: match client {
+                    ClientProtocol::Chat => crate::routing::Protocol::OpenAiChat,
+                    ClientProtocol::Responses => crate::routing::Protocol::OpenAiResponses,
+                },
+                replay: crate::routing::ReplayPermission::Denied,
+            })
+            .ok()?;
+        Some((group, plan.canonical_model().to_owned()))
+    });
+    let Some((group, canonical)) = selected else {
+        return public_error(RelayError::RouteUnavailable);
+    };
+    if let Err(error) = gateway
+        .identity
+        .authorize_model_request(&secret, &canonical, peer, &group)
+        .await
+    {
+        return public_error(match error {
+            IdentityError::Unauthorized | IdentityError::Invalid => RelayError::Unauthorized,
+            IdentityError::Forbidden => RelayError::Forbidden,
+            _ => RelayError::BillingUnavailable,
+        });
+    }
+    if request.stream && !gateway.local_streaming {
         return public_error(RelayError::Unsupported(
             "streaming requires durable output checkpoints",
         ));
@@ -315,6 +436,8 @@ async fn dispatch(
                 worker,
                 fingerprint: hash.finalize().into(),
                 selected: None,
+                output_token_ceiling: request.max_output_tokens,
+                peer,
             },
         );
     }
@@ -356,6 +479,9 @@ async fn dispatch(
                 response
                     .headers_mut()
                     .insert(header::CACHE_CONTROL, HeaderValue::from_static("no-store"));
+                response
+                    .headers_mut()
+                    .insert("x-accel-buffering", HeaderValue::from_static("no"));
                 response.headers_mut().insert(
                     "x-request-id",
                     HeaderValue::from_str(&id).expect("hex request id"),

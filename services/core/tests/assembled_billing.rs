@@ -88,6 +88,59 @@ async fn fixture(
     )
 }
 
+#[sqlx::test(migrations = false)]
+async fn managed_key_model_ip_and_enable_policy_is_checked_inside_wallet_transaction(pool: PgPool) {
+    let (identity, ledger, charging, _, key, account) = fixture(&pool, 1000).await;
+    let principal = identity.authorize(&key).await.unwrap();
+    sqlx::query("INSERT INTO core_identity.api_key_settings(credential_id,name,group_name,model_limits_enabled,model_limits,allow_ips) VALUES ($1,'Synthetic managed key','default',TRUE,ARRAY['local-model'],ARRAY['127.0.0.1/32']::inet[])")
+        .bind(principal.credential_id).execute(&pool).await.unwrap();
+    sqlx::query("INSERT INTO core_identity.user_routing_groups(user_id,group_name,enabled,source_reference) VALUES (7,'default',TRUE,'synthetic-finance-policy-test') ON CONFLICT(user_id,group_name) DO NOTHING").execute(&pool).await.unwrap();
+    let spec = request("managed-key-reserve", 100);
+    assert!(matches!(
+        charging.reserve(&key, &spec, &WORKER).await,
+        Err(Error::Forbidden)
+    ));
+    assert!(matches!(
+        charging
+            .reserve_with_context(&key, &spec, &WORKER, Some("192.0.2.1".parse().unwrap()))
+            .await,
+        Err(Error::Forbidden)
+    ));
+    let mut wrong_model = spec.clone();
+    wrong_model.price.model = "other-model".into();
+    assert!(matches!(
+        charging
+            .reserve_with_context(
+                &key,
+                &wrong_model,
+                &WORKER,
+                Some("127.0.0.1".parse().unwrap())
+            )
+            .await,
+        Err(Error::Forbidden)
+    ));
+    assert_eq!(ledger.balance(account).await.unwrap().available_units, 1000);
+    charging
+        .reserve_with_context(&key, &spec, &WORKER, Some("127.0.0.1".parse().unwrap()))
+        .await
+        .unwrap();
+    assert_eq!(ledger.balance(account).await.unwrap().available_units, 900);
+    sqlx::query("UPDATE core_identity.api_key_settings SET enabled=FALSE WHERE credential_id=$1")
+        .bind(principal.credential_id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let another = request("disabled-managed-key", 1);
+    assert!(matches!(
+        charging
+            .reserve_with_context(&key, &another, &WORKER, Some("127.0.0.1".parse().unwrap()))
+            .await,
+        Err(Error::Unauthorized) | Err(Error::Forbidden)
+    ));
+    assert_eq!(ledger.balance(account).await.unwrap().available_units, 900);
+    assert_balanced(&pool).await;
+}
+
 async fn credit(ledger: &Ledger, account: i64, amount: i64, id: &str) {
     let result = ledger
         .execute(&Request {
@@ -124,7 +177,7 @@ async fn complete_installation_is_atomic_and_drift_is_rejected(pool: PgPool) {
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(components, 8);
+    assert_eq!(components as usize, core_schema::component_count());
     assert!(matches!(
         core_schema::init(&pool).await,
         Err(IdentityError::Conflict)

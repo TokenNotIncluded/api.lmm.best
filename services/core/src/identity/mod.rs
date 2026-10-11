@@ -6,7 +6,12 @@ mod browser;
 pub use browser::{
     BrowserAuth, BrowserAuthError, BrowserBundle, BrowserRegistration, BrowserSessionMetadata,
 };
+mod company;
+mod compat;
 mod credentials;
+pub use company::CompanyBillingProfileInput;
+pub use compat::authorize_model_request_in_transaction;
+pub use compat::{DashboardKeyInput, DashboardKeyQuery, ProfileUpdate};
 mod lifecycle;
 mod oauth;
 pub use auth::{CredentialSummary, LoginRequest};
@@ -32,7 +37,7 @@ use std::{fmt, time::Duration};
 
 const MAX_TTL: i64 = 31_536_000;
 const SESSION_TTL: i64 = 604_800;
-const AUTH: &str = "SELECT c.id,c.kind,c.user_id,c.user_version,c.owner_account_id,c.personal_billing_preference,u.personal_account_id,t.id AS team_id,CASE u.platform_role WHEN 'superadmin' THEN 6::smallint WHEN 'admin' THEN 5::smallint ELSE pa.service_level END AS platform_level FROM core_identity.credentials c JOIN core_identity.users u ON u.id=c.user_id JOIN core_identity.accounts pa ON pa.id=u.personal_account_id JOIN core_identity.accounts own ON own.id=c.owner_account_id LEFT JOIN core_identity.teams t ON t.account_id=c.owner_account_id WHERE c.revoked_at IS NULL AND c.expires_at>clock_timestamp() AND u.active AND pa.active AND own.active AND c.user_version=u.auth_version AND NOT EXISTS (SELECT 1 FROM core_identity.web_sessions ws WHERE ws.current_credential_id=c.id AND (ws.revoked_at IS NOT NULL OR ws.expires_at<=clock_timestamp() OR ws.user_version<>u.auth_version OR (ws.weekly_logout AND ws.created_at<=clock_timestamp()-interval '7 days')))";
+const AUTH: &str = "SELECT c.id,c.kind,c.user_id,c.user_version,c.owner_account_id,c.personal_billing_preference,u.personal_account_id,t.id AS team_id,CASE u.platform_role WHEN 'superadmin' THEN 6::smallint WHEN 'admin' THEN 5::smallint ELSE pa.service_level END AS platform_level FROM core_identity.credentials c JOIN core_identity.users u ON u.id=c.user_id JOIN core_identity.accounts pa ON pa.id=u.personal_account_id JOIN core_identity.accounts own ON own.id=c.owner_account_id LEFT JOIN core_identity.teams t ON t.account_id=c.owner_account_id WHERE c.revoked_at IS NULL AND c.expires_at>clock_timestamp() AND u.active AND pa.active AND own.active AND c.user_version=u.auth_version AND NOT EXISTS (SELECT 1 FROM core_identity.api_key_settings ks WHERE ks.credential_id=c.id AND NOT ks.enabled) AND NOT EXISTS (SELECT 1 FROM core_identity.web_sessions ws WHERE ws.current_credential_id=c.id AND (ws.revoked_at IS NOT NULL OR ws.expires_at<=clock_timestamp() OR ws.user_version<>u.auth_version OR (ws.weekly_logout AND ws.created_at<=clock_timestamp()-interval '7 days')))";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum IdentityError {
@@ -67,6 +72,10 @@ pub struct IdentityStore {
     registration_enabled: bool,
     password_slots: std::sync::Arc<tokio::sync::Semaphore>,
     google: Option<std::sync::Arc<GoogleOAuth>>,
+    dashboard_routing: Option<std::sync::Arc<crate::routing::Router>>,
+    commerce_scope_enabled: bool,
+    financial_profile_enabled: bool,
+    api_key_encryption_key: Option<std::sync::Arc<[u8]>>,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -311,6 +320,10 @@ impl IdentityStore {
             registration_enabled: false,
             password_slots: std::sync::Arc::new(tokio::sync::Semaphore::new(2)),
             google: None,
+            dashboard_routing: None,
+            commerce_scope_enabled: false,
+            financial_profile_enabled: false,
+            api_key_encryption_key: None,
         }
     }
     pub async fn connect(url: &str) -> Result<Self> {
@@ -358,6 +371,10 @@ impl IdentityStore {
         let account_id = new_account(&mut tx, "personal", service_level).await?;
         sqlx::query("INSERT INTO core_identity.users(id,personal_account_id,platform_role) VALUES ($1,$2,$3)")
             .bind(user_id).bind(account_id).bind(role).execute(&mut *tx).await?;
+        // This explicit offline development bootstrap grants synthetic users
+        // access; ordinary self-registration never receives this grant.
+        sqlx::query("INSERT INTO core_identity.developer_access(user_id,granted,source_reference) VALUES ($1,TRUE,'offline-development-bootstrap')")
+            .bind(user_id).execute(&mut *tx).await?;
         sqlx::query("SELECT setval('core_identity.users_id_seq', GREATEST((SELECT last_value FROM core_identity.users_id_seq), $1))")
             .bind(user_id).execute(&mut *tx).await?;
         let id: i64 = sqlx::query_scalar("INSERT INTO core_identity.credentials(digest,kind,user_id,user_version,owner_account_id,expires_at) VALUES ($1,'session',$2,1,$3,clock_timestamp()+$4::bigint*interval '1 second') RETURNING id")

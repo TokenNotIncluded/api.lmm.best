@@ -258,6 +258,7 @@ impl Budget {
         };
         let cycle = match self.period.as_str() {
             "day" | "week" | "month" => self.anchor == 0 && self.seconds == 0,
+            "lifetime" => self.scope == "key" && self.anchor == 0 && self.seconds == 0,
             "custom" => {
                 (-62_135_596_800..=253_402_300_799).contains(&self.anchor)
                     && (1..=315_576_000).contains(&self.seconds)
@@ -266,7 +267,7 @@ impl Budget {
         };
         if !target
             || !cycle
-            || self.limit < 0
+            || (self.limit < 0 && !(self.scope == "key" && self.period == "lifetime"))
             || [self.account_id, self.user_id, self.key_id]
                 .into_iter()
                 .flatten()

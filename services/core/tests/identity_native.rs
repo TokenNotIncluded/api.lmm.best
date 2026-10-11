@@ -96,6 +96,8 @@ async fn native_registration_login_rotation_and_logout_preserve_personal_identit
         Err(E::Unauthorized)
     ));
     let second = store.login(&login("aLiCe")).await.unwrap();
+    sqlx::query("INSERT INTO core_identity.developer_access(user_id,granted,source_reference) VALUES ($1,TRUE,'synthetic-test-grant')")
+        .bind(actor.user_id).execute(&pool).await.unwrap();
     let key = store
         .issue_key(
             &second.secret,

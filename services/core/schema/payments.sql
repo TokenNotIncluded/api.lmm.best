@@ -85,6 +85,26 @@ CREATE TABLE core_payments.blocked_refunds (
     UNIQUE (channel_id,event_id)
 );
 
+-- Independent webhook ingress is committed before an extension may ACK. These
+-- rows certify authentic input only; application receipts/ledger remain separate.
+-- Proofs remain valid after queue delays and endpoint-secret rotation because
+-- settlement reuses Rust's immutable verified facts, not a caller's timestamp.
+CREATE TABLE core_payments.accepted_proofs (
+    id TEXT PRIMARY KEY CHECK (id ~ '^proof_[a-f0-9]{64}$'),
+    channel_id BIGINT NOT NULL,
+    event_id TEXT NOT NULL CHECK (length(event_id) BETWEEN 1 AND 128),
+    intent_id BIGINT NOT NULL REFERENCES core_payments.intents(id),
+    payload_hash BYTEA NOT NULL CHECK (octet_length(payload_hash)=32),
+    signed_payload BYTEA NOT NULL CHECK (octet_length(signed_payload) BETWEEN 1 AND 32768),
+    signature BYTEA NOT NULL CHECK (octet_length(signature) BETWEEN 1 AND 2048),
+    verified_facts JSONB NOT NULL,
+    receipt_wire BYTEA NOT NULL,
+    accepted_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp(),
+    UNIQUE (channel_id,event_id)
+);
+CREATE TRIGGER proofs_immutable BEFORE UPDATE OR DELETE ON core_payments.accepted_proofs
+    FOR EACH ROW EXECUTE FUNCTION core_billing.ledger_immutable();
+
 CREATE FUNCTION core_payments.protect_intent() RETURNS TRIGGER
 LANGUAGE plpgsql SET search_path=pg_catalog AS $$
 BEGIN

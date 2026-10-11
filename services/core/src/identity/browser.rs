@@ -160,7 +160,14 @@ impl BrowserAuth {
         .bind(&sid)
         .execute(&mut *tx)
         .await?;
-        let bundle = make_bundle(&mut tx, &sid, &access, format!("{sid}.{refresh}")).await?;
+        let bundle = make_bundle(
+            &mut tx,
+            &sid,
+            &access,
+            format!("{sid}.{refresh}"),
+            self.store.financial_profile_enabled,
+        )
+        .await?;
         tx.commit().await?;
         Ok(bundle)
     }
@@ -200,7 +207,14 @@ impl BrowserAuth {
             sqlx::query("UPDATE core_identity.web_sessions SET previous_refresh_digest=refresh_digest,previous_valid_until=clock_timestamp()+interval '30 seconds',refresh_digest=$2,current_credential_id=$3,last_active_at=clock_timestamp() WHERE sid=$1").bind(sid).bind(digest(&next)?).bind(issued.id).execute(&mut *tx).await?;
             sqlx::query("INSERT INTO core_identity.web_session_credentials(credential_id,sid) VALUES ($1,$2)")
                 .bind(issued.id).bind(sid).execute(&mut *tx).await?;
-            let bundle = make_bundle(&mut tx, sid, &access, format!("{sid}.{next}")).await?;
+            let bundle = make_bundle(
+                &mut tx,
+                sid,
+                &access,
+                format!("{sid}.{next}"),
+                self.store.financial_profile_enabled,
+            )
+            .await?;
             tx.commit().await?;
             Ok(bundle)
         } else if previous
@@ -216,7 +230,14 @@ impl BrowserAuth {
                 return Err(BrowserAuthError::RefreshRace);
             }
             let access = self.derived_secret(b"browser-access-v1", sid, &next, "lmms_")?;
-            let bundle = make_bundle(&mut tx, sid, &access, format!("{sid}.{next}")).await?;
+            let bundle = make_bundle(
+                &mut tx,
+                sid,
+                &access,
+                format!("{sid}.{next}"),
+                self.store.financial_profile_enabled,
+            )
+            .await?;
             tx.commit().await?;
             Ok(bundle)
         } else {
@@ -287,7 +308,8 @@ impl BrowserAuth {
         if !valid {
             return Err(IdentityError::Forbidden.into());
         }
-        let user = user_projection(&mut tx, actor.user_id).await?;
+        let user =
+            user_projection(&mut tx, actor.user_id, self.store.financial_profile_enabled).await?;
         tx.commit().await?;
         Ok(user)
     }
@@ -331,27 +353,46 @@ async fn revoke_family(c: &mut PgConnection, sid: &str) -> BrowserResult<()> {
     sqlx::query("UPDATE core_identity.web_sessions SET revoked_at=COALESCE(revoked_at,clock_timestamp()) WHERE sid=$1").bind(sid).execute(&mut *c).await?;
     Ok(())
 }
-async fn user_projection(c: &mut PgConnection, user: i64) -> BrowserResult<Value> {
-    let r=sqlx::query("SELECT u.id,u.active,u.platform_role,p.username,p.display_name,p.email,p.setting FROM core_identity.users u JOIN core_identity.user_profiles p ON p.user_id=u.id WHERE u.id=$1").bind(user).fetch_one(c).await?;
+async fn user_projection(c: &mut PgConnection, user: i64, financial: bool) -> BrowserResult<Value> {
+    let r=sqlx::query("SELECT u.id,u.active,u.platform_role,p.username,p.display_name,p.email,p.setting, (u.platform_role IN ('admin','superadmin') OR COALESCE((SELECT d.granted FROM core_identity.developer_access d WHERE d.user_id=u.id),FALSE)) AS developer_access_granted FROM core_identity.users u JOIN core_identity.user_profiles p ON p.user_id=u.id WHERE u.id=$1").bind(user).fetch_one(&mut *c).await?;
     let role = match r.try_get::<String, _>("platform_role")?.as_str() {
         "user" => 1,
         "admin" => 10,
         "superadmin" => 100,
         _ => return Err(IdentityError::Storage.into()),
     };
-    Ok(
-        json!({"id":r.try_get::<i64,_>("id")?,"username":r.try_get::<String,_>("username")?,"display_name":r.try_get::<String,_>("display_name")?,"email":r.try_get::<String,_>("email")?,"setting":r.try_get::<String,_>("setting")?,"role":role,"status":if r.try_get::<bool,_>("active")? {1}else{2},"usage_projection_available":false}),
-    )
+    let raw: String = r.try_get("setting")?;
+    let settings: Value = serde_json::from_str(&raw).map_err(|_| IdentityError::Storage)?;
+    let mut result = json!({"id":r.try_get::<i64,_>("id")?,"username":r.try_get::<String,_>("username")?,"display_name":r.try_get::<String,_>("display_name")?,"email":r.try_get::<String,_>("email")?,"setting":raw,"role":role,"status":if r.try_get::<bool,_>("active")? {1}else{2},"financial_projection_available":false,"usage_projection_available":false,"developer_access_granted":r.try_get::<bool,_>("developer_access_granted")?});
+    for field in ["language", "sidebar_modules"] {
+        if let Some(value) = settings.get(field).and_then(Value::as_str) {
+            result[field] = json!(value);
+        }
+    }
+    if financial {
+        match crate::financial_profile::read(c, user).await {
+            Ok(profile) => {
+                let value = serde_json::to_value(profile).map_err(|_| IdentityError::Storage)?;
+                for (name, value) in value.as_object().ok_or(IdentityError::Storage)? {
+                    result[name] = value.clone();
+                }
+            }
+            Err(crate::financial_profile::ProfileError::Unavailable) => {}
+            Err(_) => return Err(IdentityError::Storage.into()),
+        }
+    }
+    Ok(result)
 }
 async fn make_bundle(
     c: &mut PgConnection,
     sid: &str,
     access: &str,
     refresh: String,
+    financial: bool,
 ) -> BrowserResult<BrowserBundle> {
     let r=sqlx::query("SELECT s.*,extract(epoch FROM s.created_at)::bigint AS created,extract(epoch FROM s.last_active_at)::bigint AS active,extract(epoch FROM s.expires_at)::bigint AS expires,extract(epoch FROM c.expires_at)::bigint AS access_expires FROM core_identity.web_sessions s JOIN core_identity.credentials c ON c.id=s.current_credential_id WHERE s.sid=$1").bind(sid).fetch_one(&mut *c).await?;
     let expires: i64 = r.try_get("expires")?;
-    let user = user_projection(c, r.try_get("user_id")?).await?;
+    let user = user_projection(c, r.try_get("user_id")?, financial).await?;
     Ok(BrowserBundle {
         data: json!({"access_token":access,"token_type":"Bearer","access_expires_at":r.try_get::<i64,_>("access_expires")?,"user":user,"session":{"sid":sid,"current":true,"login_method":"password","ip":r.try_get::<String,_>("ip")?,"user_agent":r.try_get::<String,_>("user_agent")?,"created_at":r.try_get::<i64,_>("created")?,"last_active_at":r.try_get::<i64,_>("active")?,"expires_at":expires}}),
         refresh_token: refresh,

@@ -9,11 +9,18 @@ use std::{
 mod runtime;
 
 fn core(args: &[&str]) -> Command {
+    let mut command = file_core(args);
+    command
+        .arg("--legacy-env")
+        .env("LMM_CORE_WORKER_THREADS", "1");
+    command
+}
+
+fn file_core(args: &[&str]) -> Command {
     let mut command = Command::new(env!("CARGO_BIN_EXE_lmm-core"));
     command
         .args(args)
         .env_clear()
-        .env("LMM_CORE_WORKER_THREADS", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
@@ -21,7 +28,12 @@ fn core(args: &[&str]) -> Command {
 }
 
 fn run(args: &[&str], input: &[u8], variables: &[(&str, &str)]) -> Output {
-    let mut child = core(args).envs(variables.iter().copied()).spawn().unwrap();
+    finish(
+        core(args).envs(variables.iter().copied()).spawn().unwrap(),
+        input,
+    )
+}
+fn finish(mut child: Child, input: &[u8]) -> Output {
     child.stdin.take().unwrap().write_all(input).unwrap();
     let deadline = Instant::now() + Duration::from_secs(5);
     loop {
@@ -52,6 +64,7 @@ fn help_and_version_ignore_database_and_service_configuration() {
         vec!["serve", "--help"],
         vec!["init-db", "--help"],
         vec!["bootstrap-user", "--help"],
+        vec!["complete-setup", "--help"],
         vec!["--version"],
         vec!["-V"],
     ] {
@@ -73,6 +86,7 @@ fn invalid_arguments_are_rejected_without_echoing_or_reading_configuration() {
         vec!["serve", "do-not-log-this-argument"],
         vec!["init-db", "do-not-log-this-argument"],
         vec!["bootstrap-user", "do-not-log-this-argument"],
+        vec!["complete-setup", "do-not-log-this-argument"],
         vec!["--help", "do-not-log-this-argument"],
     ] {
         let output = run(&args, b"", &[("LMM_CORE_WORKER_THREADS", "invalid")]);
@@ -115,6 +129,140 @@ fn bootstrap_input_is_bounded_strict_and_redacted_before_database_access() {
     );
 }
 
+#[cfg(unix)]
+#[test]
+fn toml_cli_requires_one_safe_explicit_source_and_redacts_invalid_values() {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+    let directory = std::env::temp_dir().join(format!(
+        "lmm-config-cli-{}-{}",
+        std::process::id(),
+        rand::random::<u64>()
+    ));
+    std::fs::create_dir(&directory).unwrap();
+    let path = directory.join("core.toml");
+    let invoke = |args: &[&str]| finish(file_core(args).spawn().unwrap(), b"");
+    for document in [b"version=1\nversion=2\n".as_slice(),b"version=1\nsecret='do-not-log-this-value'\n",b"version=1\n\xff",b"version=1\n[database]\nurl_file='relative-secret'\n",b"version=1\n[identity]\nregistration_enabled=true\n",b"version=1\n[identity]\napi_key_encryption_key_file='/missing-key'\n",b"version=1\n[identity.google]\nclient_id='id'\nclient_secret_file='/missing-key'\nredirect_uri='https://example.test/core/v1/auth/oauth/google/callback'\n"] {
+        std::fs::write(&path,document).unwrap();
+        let output = invoke(&["--config",path.to_str().unwrap(),"init-db"]);
+        assert!(!output.status.success());
+        assert!(!String::from_utf8_lossy(&output.stderr).contains("do-not-log-this"));
+    }
+    std::fs::write(&path, b"version=1\n").unwrap();
+    let conflicted = finish(
+        file_core(&["--config", path.to_str().unwrap(), "init-db"])
+            .env("LMM_CORE_DATABASE_URL", "do-not-log-this-url")
+            .spawn()
+            .unwrap(),
+        b"",
+    );
+    assert!(!conflicted.status.success());
+    let error = String::from_utf8_lossy(&conflicted.stderr);
+    assert!(error.contains("cannot be mixed"));
+    assert!(!error.contains("do-not-log-this-url"));
+    let missing = directory.join("missing.toml");
+    for args in [
+        vec!["--config", missing.to_str().unwrap(), "init-db"],
+        vec!["--legacy-env", "--config", path.to_str().unwrap()],
+        vec!["--config", "relative.toml"],
+        vec![
+            "--config",
+            path.to_str().unwrap(),
+            "--config",
+            path.to_str().unwrap(),
+        ],
+    ] {
+        assert!(!invoke(&args).status.success());
+    }
+    assert!(
+        invoke(&["--config", missing.to_str().unwrap(), "--help"])
+            .status
+            .success()
+    );
+    assert!(
+        invoke(&["--config", missing.to_str().unwrap(), "--version"])
+            .status
+            .success()
+    );
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o666)).unwrap();
+    assert!(
+        !invoke(&["init-db", "--config", path.to_str().unwrap()])
+            .status
+            .success()
+    );
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let linked = directory.join("linked.toml");
+    symlink(&path, &linked).unwrap();
+    assert!(
+        !invoke(&["--config", linked.to_str().unwrap(), "init-db"])
+            .status
+            .success()
+    );
+    let secret = directory.join("database-url");
+    std::fs::write(&secret, b"do-not-log-this-url").unwrap();
+    std::fs::set_permissions(&secret, std::fs::Permissions::from_mode(0o644)).unwrap();
+    std::fs::write(
+        &path,
+        format!("version=1\n[database]\nurl_file='{}'\n", secret.display()),
+    )
+    .unwrap();
+    let output = invoke(&["--config", path.to_str().unwrap(), "init-db"]);
+    assert!(!output.status.success());
+    assert!(!String::from_utf8_lossy(&output.stderr).contains("do-not-log-this-url"));
+    std::fs::remove_dir_all(directory).unwrap();
+}
+
+#[cfg(unix)]
+#[tokio::test]
+async fn toml_only_no_database_process_is_live_but_never_ready() {
+    let path = std::env::temp_dir().join(format!(
+        "lmm-no-db-{}-{}.toml",
+        std::process::id(),
+        rand::random::<u64>()
+    ));
+    let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = reserved.local_addr().unwrap();
+    drop(reserved);
+    std::fs::write(
+        &path,
+        format!("version=1\n[server]\nlisten='{address}'\ndrain_timeout_seconds=1\n"),
+    )
+    .unwrap();
+    let mut service = Service(
+        file_core(&["--config", path.to_str().unwrap()])
+            .spawn()
+            .unwrap(),
+    );
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(1))
+        .build()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    loop {
+        assert!(service.0.try_wait().unwrap().is_none());
+        if let Ok(response) = client
+            .get(format!("http://{address}/health/live"))
+            .send()
+            .await
+        {
+            assert_eq!(response.status(), 200);
+            break;
+        }
+        assert!(Instant::now() < deadline);
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert_eq!(
+        client
+            .get(format!("http://{address}/health/ready"))
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        503
+    );
+    drop(service);
+    std::fs::remove_file(path).unwrap();
+}
+
 fn database_url(pool: &PgPool) -> String {
     let mut url = reqwest::Url::parse(&std::env::var("DATABASE_URL").unwrap()).unwrap();
     assert!(matches!(url.host_str(), Some("localhost" | "127.0.0.1")));
@@ -139,7 +287,14 @@ async fn management_commands_initialize_and_emit_one_bootstrap_credential(pool: 
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(components, 8);
+    assert_eq!(
+        components as usize,
+        lmm_core::core_schema::component_count()
+    );
+    assert!(
+        !run(&["complete-setup"], b"", &variables).status.success(),
+        "an empty installation has no root and cannot be completed"
+    );
 
     let mut input = br#"{"user_id":9001,"platform_level":6}"#.to_vec();
     input.resize(4096, b' ');
@@ -154,6 +309,22 @@ async fn management_commands_initialize_and_emit_one_bootstrap_credential(pool: 
         .unwrap();
     assert_eq!(principal.user_id, 9001);
     assert_eq!(principal.platform_level, 6);
+    assert!(run(&["complete-setup"], b"", &variables).status.success());
+    let initialized_at: String =
+        sqlx::query_scalar("SELECT initialized_at::text FROM core_console.initialization")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert!(run(&["complete-setup"], b"", &variables).status.success());
+    let repeated_at: String =
+        sqlx::query_scalar("SELECT initialized_at::text FROM core_console.initialization")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        initialized_at, repeated_at,
+        "an idempotent offline command must preserve the original setup timestamp"
+    );
 
     for args in [vec!["init-db"], vec!["bootstrap-user"]] {
         let output = run(&args, &input, &variables);
@@ -204,6 +375,117 @@ impl Drop for Service {
         let _ = self.0.kill();
         let _ = self.0.wait();
     }
+}
+
+#[cfg(unix)]
+#[sqlx::test(migrations = false)]
+async fn financial_runtime_configuration_uses_independent_private_credentials(pool: PgPool) {
+    use std::os::unix::fs::PermissionsExt;
+    lmm_core::core_schema::init(&pool).await.unwrap();
+    let role = runtime::RuntimeRole::create(&pool).await;
+    for schema in [
+        "core_charging",
+        "core_events",
+        "core_payments",
+        "core_commerce",
+    ] {
+        role.optional(schema).await;
+    }
+    let directory = std::env::temp_dir().join(format!(
+        "lmm-financial-process-{}-{:016x}",
+        std::process::id(),
+        rand::random::<u64>()
+    ));
+    std::fs::create_dir(&directory).unwrap();
+    std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let private = |name: &str, bytes: &[u8]| {
+        let path = directory.join(name);
+        std::fs::write(&path, bytes).unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+        path
+    };
+    let control = private("control", b"identity-transport-01234567890123456789");
+    let payment = private("payment", b"payment-principal-01234567890123456789");
+    let commerce = private("commerce", b"commerce-principal-01234567890123456789");
+    let verification = private("verification", b"whsec_synthetic_runtime_owned_0123456789");
+    let payment_document = private("payments.toml", format!("version=1\nprovider='stripe-test'\n[[channels]]\nid=1\nmerchant='acct_runtime_synthetic'\nwebhook_secret_file='{}'\nmax_usd_cents=1000\n[permissions]\nproof_read=true\n", verification.display()).as_bytes());
+    let commerce_document = private("commerce.toml", b"version=1\nread=true\n");
+    let socket = directory.join("core.sock");
+    let reserved = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let address = reserved.local_addr().unwrap();
+    drop(reserved);
+    let database = private("database-url", role.url.as_bytes());
+    let configured = |payment_token: &std::path::Path| {
+        let document = format!(
+            "version=1\n[server]\nlisten='{address}'\n[database]\nurl_file='{}'\n[rpc]\nsocket='{}'\ntoken_file='{}'\n[payments]\nconfig_file='{}'\ntoken_file='{}'\n[commerce]\nconfig_file='{}'\ntoken_file='{}'\n",
+            database.display(),
+            socket.display(),
+            control.display(),
+            payment_document.display(),
+            payment_token.display(),
+            commerce_document.display(),
+            commerce.display()
+        );
+        let path = private("core.toml", document.as_bytes());
+        file_core(&["serve", "--config", path.to_str().unwrap()])
+    };
+    let mut alias = configured(&control).spawn().unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while alias.try_wait().unwrap().is_none() {
+        if Instant::now() > deadline {
+            let _ = alias.kill();
+            panic!("aliased financial principal was accepted");
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    let alias = alias.wait_with_output().unwrap();
+    assert!(!alias.status.success());
+    assert!(
+        String::from_utf8(alias.stderr)
+            .unwrap()
+            .contains("must be distinct")
+    );
+    let mut service = Service(configured(&payment).spawn().unwrap());
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(1))
+        .build()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    let health = loop {
+        assert!(
+            service.0.try_wait().unwrap().is_none(),
+            "configured synthetic financial service exited"
+        );
+        if let Ok(response) = client
+            .get(format!("http://{address}/health/ready"))
+            .send()
+            .await
+        {
+            assert_eq!(response.status(), 200);
+            break response.json::<serde_json::Value>().await.unwrap();
+        }
+        assert!(Instant::now() < deadline);
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    assert_eq!(health["capabilities"]["payments"], true);
+    assert_eq!(health["capabilities"]["commerce"], true);
+    assert_eq!(health["capabilities"]["models"], false);
+    let public: serde_json::Value = client
+        .get(format!("http://{address}/api/status"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(
+        public["data"]["payments_enabled"], false,
+        "core test RPC does not imply a working Web checkout"
+    );
+    assert_eq!(public["data"]["payments_test_rpc_enabled"], true);
+    drop(service);
+    std::fs::remove_dir_all(directory).unwrap();
+    role.cleanup().await;
 }
 
 #[sqlx::test(migrations = false)]
@@ -316,6 +598,8 @@ async fn assembled_service_exposes_web_auth_and_explicit_capabilities_without_go
     lmm_core::core_schema::init(&pool).await.unwrap();
     let role = runtime::RuntimeRole::create(&pool).await;
     role.optional("core_events").await;
+    role.optional("web_identity").await;
+    role.optional("core_console").await;
     lmm_core::core_schema::check(&role.pool).await.unwrap();
     let url = role.url.clone();
     let directory = std::env::temp_dir().join(format!(
@@ -335,18 +619,13 @@ async fn assembled_service_exposes_web_auth_and_explicit_capabilities_without_go
     let socket = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let address = socket.local_addr().unwrap();
     drop(socket);
+    let database = directory.join("database-url");
+    std::fs::write(&database, url.as_bytes()).unwrap();
+    std::fs::set_permissions(&database, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let configuration = directory.join("core.toml");
+    std::fs::write(&configuration, format!("version=1\n[server]\nlisten='{address}'\n[database]\nurl_file='{}'\n[identity]\nregistration_enabled=true\n[identity.web]\norigin='http://api.lmm.local'\nrefresh_key_file='{}'\nlocal_http=true\nuser_agreement_enabled=false\nprivacy_policy_enabled=false\n[console]\nenabled=true\n[rpc]\nsocket='{}'\ntoken_file='{}'\n",database.display(),key.display(),socket_path.display(),token.display())).unwrap();
     let mut service = Service(
-        core(&["serve"])
-            .env("LMM_CORE_DATABASE_URL", &url)
-            .env("LMM_CORE_LISTEN", address.to_string())
-            .env("LMM_CORE_WEB_ORIGIN", "http://api.lmm.local")
-            .env("LMM_CORE_WEB_REFRESH_KEY_FILE", &key)
-            .env("LMM_CORE_WEB_LOCAL_HTTP", "true")
-            .env("LMM_CORE_WEB_USER_AGREEMENT_ENABLED", "false")
-            .env("LMM_CORE_WEB_PRIVACY_POLICY_ENABLED", "false")
-            .env("LMM_CORE_REGISTRATION_ENABLED", "true")
-            .env("LMM_CORE_RPC_SOCKET", &socket_path)
-            .env("LMM_CORE_RPC_TOKEN_FILE", &token)
+        file_core(&["--config", configuration.to_str().unwrap(), "serve"])
             .spawn()
             .unwrap(),
     );
@@ -367,6 +646,7 @@ async fn assembled_service_exposes_web_auth_and_explicit_capabilities_without_go
     };
     assert_eq!(health["capabilities"]["identity"], true);
     assert_eq!(health["capabilities"]["legacy_web_auth"], true);
+    assert_eq!(health["capabilities"]["console"], true);
     assert_eq!(health["capabilities"]["events"], true);
     assert_eq!(health["capabilities"]["models"], false);
     assert_eq!(health["capabilities"]["payments"], false);
@@ -391,6 +671,26 @@ async fn assembled_service_exposes_web_auth_and_explicit_capabilities_without_go
     );
     assert_eq!(public["data"]["payments_enabled"], false);
     assert!(public["data"].get("quota").is_none());
+    let setup: serde_json::Value = client
+        .get(format!("{endpoint}/api/setup"))
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(setup["success"], true);
+    assert_eq!(setup["data"]["status"], false);
+    assert_eq!(
+        client
+            .post(format!("{endpoint}/api/setup"))
+            .body("untrusted setup data")
+            .send()
+            .await
+            .unwrap()
+            .status(),
+        403
+    );
     let registered = client.post(format!("{endpoint}/api/user/register"))
         .header("origin","http://api.lmm.local")
         .json(&serde_json::json!({"username":"runtime_user","password":"abc12345","accepted_legal":false}))
@@ -423,9 +723,29 @@ async fn assembled_service_exposes_web_auth_and_explicit_capabilities_without_go
     assert_eq!(current.status(), 200);
     let current: serde_json::Value = current.json().await.unwrap();
     assert_eq!(current["data"]["username"], "runtime_user");
-    assert!(
-        current["data"].get("quota").is_none(),
-        "unimplemented financial fields must not be invented"
+    let announcements: serde_json::Value = client
+        .get(format!("{endpoint}/api/user/self/announcements"))
+        .bearer_auth(access)
+        .send()
+        .await
+        .unwrap()
+        .json()
+        .await
+        .unwrap();
+    assert_eq!(announcements["success"], true);
+    let initialization_rows: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM core_console.initialization")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        initialization_rows, 0,
+        "runtime startup and HTTP setup must not record offline initialization"
+    );
+    assert_eq!(current["data"]["financial_projection_available"], true);
+    assert_eq!(
+        current["data"]["quota"], 0,
+        "new accounts have their actual zero ledger balance"
     );
     assert_eq!(
         client

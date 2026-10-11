@@ -339,6 +339,8 @@ async fn browser_credentials_cannot_escalate_via_native_refresh_or_api_keys(pool
     let (headers, bundle) = login(&app, "bob").await;
     let access = bundle["access_token"].as_str().unwrap();
     let principal = store.authorize(access).await.unwrap();
+    sqlx::query("INSERT INTO core_identity.developer_access(user_id,granted,source_reference) VALUES ($1,TRUE,'synthetic-test-grant')")
+        .bind(principal.user_id).execute(&pool).await.unwrap();
     assert!(matches!(
         store.refresh_session(access).await,
         Err(IdentityError::Forbidden)
@@ -823,6 +825,8 @@ async fn logout_history_never_accepts_unknown_expired_key_or_other_sid(pool: PgP
     assert_eq!(wrong_sid.2["code"], "AUTH_SESSION_MISMATCH");
     assert!(wrong_sid.1.get("set-cookie").is_none());
     assert!(store.authorize(current_access).await.is_ok());
+    sqlx::query("INSERT INTO core_identity.developer_access(user_id,granted,source_reference) VALUES ($1,TRUE,'synthetic-test-grant')")
+        .bind(user).execute(&pool).await.unwrap();
     let key = store
         .issue_key(
             current_access,

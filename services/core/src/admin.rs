@@ -16,6 +16,7 @@ pub struct Bootstrap {
 
 pub enum Operation {
     InitDb,
+    CompleteSetup,
     BootstrapUser(Bootstrap),
 }
 
@@ -60,6 +61,16 @@ pub async fn run(operation: Operation) -> Result<(), Box<dyn Error>> {
             // One-time secret output. Operators must redirect to a private file.
             serde_json::to_writer(io::stdout().lock(), &issued)?;
             println!();
+        }
+        Operation::CompleteSetup => {
+            lmm_core::core_schema::check(&pool).await?;
+            // This explicit offline command cannot replace an imported receipt
+            // or create an administrator. Runtime roles have no INSERT grant.
+            lmm_core::console_compat::record_initialization(&pool, env!("CARGO_PKG_VERSION"))
+                .await?;
+            println!(
+                "Core setup completion recorded. Existing initialization facts were preserved."
+            );
         }
     }
     Ok(())

@@ -39,6 +39,12 @@ CREATE TRIGGER charging_serializable BEFORE INSERT OR UPDATE OR DELETE OR TRUNCA
 CREATE TRIGGER charging_serializable BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE
     ON core_charging.subscriptions FOR EACH STATEMENT EXECUTE FUNCTION core_charging.require_serializable();
 CREATE TRIGGER charging_serializable BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE
+    ON core_charging.budget_opening_consumption FOR EACH STATEMENT EXECUTE FUNCTION core_charging.require_serializable();
+CREATE TRIGGER charging_serializable BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE
+    ON core_charging.subscription_opening_consumption FOR EACH STATEMENT EXECUTE FUNCTION core_charging.require_serializable();
+CREATE TRIGGER charging_serializable BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE
+    ON core_charging.external_consumption FOR EACH STATEMENT EXECUTE FUNCTION core_charging.require_serializable();
+CREATE TRIGGER charging_serializable BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE
     ON core_charging.budget_checks FOR EACH STATEMENT EXECUTE FUNCTION core_charging.require_serializable();
 CREATE TRIGGER charging_serializable BEFORE INSERT OR UPDATE OR DELETE OR TRUNCATE
     ON core_charging.usage_events FOR EACH STATEMENT EXECUTE FUNCTION core_charging.require_serializable();

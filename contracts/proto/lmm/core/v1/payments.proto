@@ -8,6 +8,8 @@ import "lmm/core/v1/commands.proto";
 // verified provider evidence and a core-issued intent/authority, not merely a
 // service token. Go cannot assert that a provider event has been verified.
 service CorePayments {
+  rpc AcceptProviderProof(AcceptProviderProofRequest) returns (ProviderProofReceipt);
+  rpc GetProviderProof(GetProviderProofRequest) returns (ProviderProofReceipt);
   rpc PrepareTopup(PrepareTopupRequest) returns (PaymentIntent);
   rpc CreditTopup(CreditTopupRequest) returns (PaymentReceipt);
   rpc HoldRefund(HoldRefundRequest) returns (PaymentReceipt);
@@ -30,6 +32,28 @@ message ProviderEvidence {
   bytes signed_payload = 2;
   bytes signature = 3;
   string provider_event_id = 4;
+  // Only Rust can issue this durable ingress receipt. Later settlement uses
+  // this reference and the exact original payload, never a caller timestamp.
+  string accepted_proof_id = 5;
+}
+message AcceptProviderProofRequest {
+  int64 intent_id = 1;
+  ProviderEvidence evidence = 2;
+}
+message GetProviderProofRequest {
+  int64 intent_id = 1;
+  string provider_event_id = 2;
+  bytes payload_sha256 = 3;
+}
+// Receiving proof is distinct from applying money. There is deliberately no
+// journal or payment-success state here. Raw bytes/signatures stay private.
+message ProviderProofReceipt {
+  string proof_id = 1;
+  int64 intent_id = 2;
+  string provider_event_id = 3;
+  bytes payload_sha256 = 4;
+  ExternalPaymentReference payment = 5;
+  int64 accepted_unix_seconds = 6;
 }
 message PrepareTopupRequest {
   MutationContext mutation = 1;

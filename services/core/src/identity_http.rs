@@ -24,6 +24,10 @@ pub fn router(store: IdentityStore) -> Router {
         .merge(lifecycle::routes())
         .route("/core/v1/identity", get(identity))
         .route("/core/v1/keys", post(issue_key))
+        .route(
+            "/core/v1/keys/{id}/commerce-scope",
+            axum::routing::put(commerce_scope),
+        )
         .route("/core/v1/credentials/{id}", delete(revoke))
         .route("/core/v1/teams", get(list_teams).post(create_team))
         .route(
@@ -38,6 +42,22 @@ pub fn router(store: IdentityStore) -> Router {
         .layer(DefaultBodyLimit::max(16 * 1024))
         .layer(middleware::from_fn(no_store))
         .with_state(store)
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct CommerceScope {
+    enabled: bool,
+}
+async fn commerce_scope(
+    State(store): State<IdentityStore>,
+    headers: HeaderMap,
+    Path(id): Path<i64>,
+    Json(body): Json<CommerceScope>,
+) -> Result<StatusCode> {
+    store
+        .set_commerce_key_scope(bearer(&headers)?, id, body.enabled)
+        .await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 async fn no_store(request: Request, next: Next) -> Response {
     let mut response = next.run(request).await;

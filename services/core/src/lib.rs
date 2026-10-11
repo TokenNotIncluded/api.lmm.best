@@ -4,9 +4,13 @@
 //! disabled until durable billing and routing adapters are integrated.
 pub mod accounts;
 pub mod billing;
+#[cfg(unix)]
+pub mod commerce;
 pub mod config;
+pub mod console_compat;
 pub mod core_schema;
 pub mod events;
+pub mod financial_profile;
 pub mod funding;
 pub mod http;
 pub mod identity;

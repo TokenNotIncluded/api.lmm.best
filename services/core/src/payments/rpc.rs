@@ -10,6 +10,8 @@ use tonic::{Request, Response, Status, metadata::MetadataMap};
 
 #[derive(Clone, Copy, Default)]
 pub struct Permissions {
+    pub proof_ingress: bool,
+    pub proof_read: bool,
     pub prepare: bool,
     pub credit_evidence: bool,
     pub refund_user: bool,
@@ -48,6 +50,26 @@ fn status(error: Error) -> Status {
     }
 }
 impl PaymentsRpc {
+    /// Advertise only explicitly granted and implemented operations. A mounted
+    /// service is not authority, and failed-refund release remains unavailable.
+    pub fn features(&self) -> Vec<String> {
+        let p = self.permissions;
+        [
+            (p.proof_ingress, "payments.proof.accept"),
+            (p.proof_read, "payments.proof.reconcile"),
+            (p.prepare, "payments.topup.prepare"),
+            (p.credit_evidence, "payments.topup.credit"),
+            (p.refund_user, "payments.refund.hold"),
+            (p.refund_evidence, "payments.refund.commit"),
+            (p.refund_evidence, "payments.refund.external"),
+            (p.read_user, "payments.receipt.read"),
+            (p.reconcile, "payments.receipt.reconcile"),
+        ]
+        .into_iter()
+        .filter(|(allowed, _)| *allowed)
+        .map(|(_, name)| name.to_owned())
+        .collect()
+    }
     pub fn new(
         store: PaymentsStore,
         token: &[u8],
@@ -104,6 +126,22 @@ impl PaymentsRpc {
 }
 #[tonic::async_trait]
 impl pb::core_payments_server::CorePayments for PaymentsRpc {
+    async fn accept_provider_proof(
+        &self,
+        request: Request<pb::AcceptProviderProofRequest>,
+    ) -> Result<Response<pb::ProviderProofReceipt>, Status> {
+        self.check(request.metadata(), self.permissions.proof_ingress)?;
+        self.bounded(self.store.accept_proof(request.into_inner()))
+            .await
+    }
+    async fn get_provider_proof(
+        &self,
+        request: Request<pb::GetProviderProofRequest>,
+    ) -> Result<Response<pb::ProviderProofReceipt>, Status> {
+        self.check(request.metadata(), self.permissions.proof_read)?;
+        self.bounded(self.store.get_proof(request.into_inner()))
+            .await
+    }
     async fn prepare_topup(
         &self,
         request: Request<pb::PrepareTopupRequest>,
@@ -229,5 +267,45 @@ mod tests {
                 .code(),
             tonic::Code::Unauthenticated
         );
+    }
+
+    #[tokio::test]
+    async fn proof_requires_its_own_permission_and_dedicated_service_token() {
+        let mut request = Request::new(pb::AcceptProviderProofRequest::default());
+        request.metadata_mut().insert(
+            "authorization",
+            "Bearer 0123456789abcdef0123456789abcdef".parse().unwrap(),
+        );
+        request
+            .metadata_mut()
+            .insert("x-lmm-protocol", "1".parse().unwrap());
+        assert_eq!(
+            service(true)
+                .accept_provider_proof(request)
+                .await
+                .unwrap_err()
+                .code(),
+            tonic::Code::PermissionDenied
+        );
+        let mut request = Request::new(pb::GetProviderProofRequest::default());
+        request.metadata_mut().insert(
+            "authorization",
+            "Bearer other_service_0123456789abcdef0123456789abcdef"
+                .parse()
+                .unwrap(),
+        );
+        request
+            .metadata_mut()
+            .insert("x-lmm-protocol", "1".parse().unwrap());
+        assert_eq!(
+            service(true)
+                .get_provider_proof(request)
+                .await
+                .unwrap_err()
+                .code(),
+            tonic::Code::Unauthenticated
+        );
+        assert!(service(false).features().is_empty());
+        assert_eq!(service(true).features(), vec!["payments.topup.prepare"]);
     }
 }

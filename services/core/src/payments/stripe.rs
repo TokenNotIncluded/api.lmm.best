@@ -5,7 +5,7 @@
 use std::{collections::BTreeMap, fmt};
 
 use hmac::{Hmac, Mac};
-use serde::{Deserialize, Deserializer, de};
+use serde::{Deserialize, Deserializer, Serialize, de};
 use serde_json::Value;
 use sha2::Sha256;
 
@@ -17,15 +17,16 @@ const MAX_HEADER: usize = 2048;
 const MAX_SIGNATURES: usize = 8;
 const TIMESTAMP_TOLERANCE: u64 = 300;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) enum EventKind {
     Credit,
+    PaymentFailed,
     RefundSucceeded,
     RefundFailed,
     RefundPending,
 }
 
-#[derive(Debug, PartialEq, Eq)]
+#[derive(Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub(super) struct Verified {
     pub(super) event_id: String,
     pub(super) transaction: String,
@@ -142,6 +143,27 @@ pub(super) fn verify(
     }
 
     match envelope.kind.as_str() {
+        "payment_intent.payment_failed" => {
+            if object.object != "payment_intent" || !identifier(&object.id, "pi_") {
+                return Err(Error::Invalid);
+            }
+            if !matches!(
+                object.status.as_str(),
+                "requires_payment_method" | "canceled"
+            ) || object.amount != expected_amount_minor
+                || object.amount_received.is_some_and(|amount| amount != 0)
+            {
+                return Err(Error::Conflict);
+            }
+            Ok(Verified {
+                event_id: envelope.id,
+                transaction: object.id,
+                kind: EventKind::PaymentFailed,
+                amount_minor: object.amount,
+                refund_id: None,
+                hold_receipt_id: None,
+            })
+        }
         "payment_intent.succeeded" => {
             if object.object != "payment_intent" || !identifier(&object.id, "pi_") {
                 return Err(Error::Invalid);

@@ -2,7 +2,8 @@ use super::Bridge;
 use crate::{
     billing::charging::{self, Outcome, Usage},
     relay::{
-        Billing, RelayError, RelayFuture, Report, Request, RequestContext, Reservation, Route,
+        Billing, InputBlock, OutputCheckpoint, RelayError, RelayFuture, Report, Request,
+        RequestContext, Reservation, Route,
     },
 };
 use std::{future::Future, time::Duration};
@@ -21,7 +22,7 @@ pub(super) fn error(error: charging::Error) -> RelayError {
 
 /// Retry the entire rolled-back operation with the same ID, payload and worker.
 /// CommitUnknown is deliberately excluded; dispatch is never retried blindly.
-async fn retry<T, F, Fut>(mut operation: F) -> charging::Result<T>
+pub(super) async fn retry<T, F, Fut>(mut operation: F) -> charging::Result<T>
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = charging::Result<T>>,
@@ -45,7 +46,14 @@ impl Billing for Bridge {
         request: &'a Request,
     ) -> RelayFuture<'a, Reservation> {
         Box::pin(async move {
-            let (secret, worker, fingerprint, selected) = {
+            // The local synthetic provider contract budgets one token per UTF-8
+            // byte plus bounded framing. This is deliberately not advertised as
+            // an external provider tokenizer. Oversize prompts never reserve or
+            // dispatch; supplier-specific versioned bounds remain required.
+            if local_input_bound(request)? > self.policy.input_token_ceiling as u64 {
+                return Err(RelayError::Limit("local model input budget"));
+            }
+            let (secret, worker, fingerprint, selected, peer) = {
                 let active = self
                     .active
                     .lock()
@@ -58,6 +66,7 @@ impl Billing for Bridge {
                     op.worker,
                     op.fingerprint,
                     op.selected.clone().ok_or(RelayError::RouteUnavailable)?,
+                    op.peer,
                 )
             };
             if selected.route_id != route.id
@@ -85,9 +94,12 @@ impl Billing for Bridge {
                 lease_seconds: self.policy.lease_seconds,
                 maximum_seconds: self.policy.lease_seconds,
             };
-            let charge = retry(|| self.charging.reserve(&secret, &spec, &worker))
-                .await
-                .map_err(error)?;
+            let charge = retry(|| {
+                self.charging
+                    .reserve_with_context(&secret, &spec, &worker, peer)
+            })
+            .await
+            .map_err(error)?;
             if charge.actor_user_id != context.actor_user_id || charge.key_id != context.key_id {
                 return Err(RelayError::Forbidden);
             }
@@ -107,19 +119,30 @@ impl Billing for Bridge {
         })
     }
 
+    fn checkpoint<'a>(
+        &'a self,
+        reservation: &'a Reservation,
+        checkpoint: &'a OutputCheckpoint,
+    ) -> RelayFuture<'a, ()> {
+        Box::pin(self.persist_output(reservation, checkpoint))
+    }
+
     fn finalize<'a>(
         &'a self,
         reservation: &'a Reservation,
         report: &'a Report,
     ) -> RelayFuture<'a, ()> {
         Box::pin(async move {
-            let worker = self
-                .active
-                .lock()
-                .map_err(|_| RelayError::BillingUnavailable)?
-                .get(&reservation.id)
-                .ok_or(RelayError::BillingUnavailable)?
-                .worker;
+            let (worker, output_ceiling) = {
+                let active = self
+                    .active
+                    .lock()
+                    .map_err(|_| RelayError::BillingUnavailable)?;
+                let op = active
+                    .get(&reservation.id)
+                    .ok_or(RelayError::BillingUnavailable)?;
+                (op.worker, op.output_token_ceiling)
+            };
             if reservation.id != report.request_id {
                 return Err(RelayError::Conflict);
             }
@@ -128,7 +151,7 @@ impl Billing for Bridge {
             } else {
                 // Partial/local output is not an authoritative final provider
                 // usage receipt. Never substitute missing usage with zero.
-                if report.outcome != crate::relay::Outcome::Completed {
+                if !report.provider_complete {
                     return Err(RelayError::SettlementPending);
                 }
                 let observed = report.usage;
@@ -145,6 +168,9 @@ impl Billing for Bridge {
                     .ok_or(RelayError::SettlementPending)?;
                 let cached = i64::try_from(observed.cached_input_tokens.unwrap_or(0))
                     .map_err(|_| RelayError::SettlementPending)?;
+                if input > self.policy.input_token_ceiling || output > i64::from(output_ceiling) {
+                    return Err(RelayError::SettlementPending);
+                }
                 (
                     Usage {
                         input,
@@ -192,4 +218,57 @@ impl Billing for Bridge {
             }
         })
     }
+}
+
+fn local_input_bound(request: &Request) -> Result<u64, RelayError> {
+    let mut bytes = 16u64;
+    let mut add = |n: usize| -> Result<(), RelayError> {
+        bytes = bytes
+            .checked_add(n as u64)
+            .ok_or(RelayError::Limit("input budget"))?;
+        Ok(())
+    };
+    for message in &request.messages {
+        add(32)?;
+        for block in &message.content {
+            add(16)?;
+            match block {
+                InputBlock::Text(value) | InputBlock::Refusal(value) => add(value.len())?,
+                InputBlock::Thinking { text, signature } => {
+                    add(text.len())?;
+                    if let Some((_, value)) = signature {
+                        add(value.len())?;
+                    }
+                }
+                InputBlock::ToolCall {
+                    id,
+                    name,
+                    arguments,
+                    signature,
+                } => {
+                    add(id.len())?;
+                    add(name.len())?;
+                    add(arguments.len())?;
+                    if let Some((_, value)) = signature {
+                        add(value.len())?;
+                    }
+                }
+                InputBlock::ToolResult { id, content } => {
+                    add(id.len())?;
+                    add(content.len())?;
+                }
+            }
+        }
+    }
+    for tool in &request.tools {
+        add(64)?;
+        add(tool.name.len())?;
+        if let Some(value) = &tool.description {
+            add(value.len())?;
+        }
+        add(serde_json::to_vec(&tool.parameters)
+            .map_err(|_| RelayError::Invalid("tool schema"))?
+            .len())?;
+    }
+    Ok(bytes)
 }

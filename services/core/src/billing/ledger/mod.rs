@@ -40,6 +40,17 @@ pub enum Action {
         reservation_journal_id: i64,
         amount_units: Credits,
     },
+    /// Core commerce only. Transfer a buyer hold to its frozen seller account.
+    CommerceCapture {
+        reservation_journal_id: i64,
+        destination_account_id: i64,
+        amount_units: Credits,
+    },
+    /// Claim only positive affiliate entitlement; receiving wallet debt is paid first.
+    ClaimAffiliate {
+        account_id: i64,
+        amount_units: Credits,
+    },
     Release {
         reservation_journal_id: i64,
     },
@@ -47,6 +58,18 @@ pub enum Action {
     Refund {
         journal_id: i64,
         amount_units: Credits,
+    },
+    /// Verified external topup refund only. The payments owner binds the
+    /// provider fact to the original credit; a shortfall restores wallet debt.
+    RefundTopup {
+        journal_id: i64,
+        amount_units: Credits,
+        refund_reference: String,
+    },
+    /// Full commerce compensation. Account and amount come from the original
+    /// capture; debt may restore only its recorded repayment component.
+    RefundCommerce {
+        journal_id: i64,
     },
     /// Exact, one-time reversal of an unrefunded credit, charge or transfer.
     Reverse {
@@ -104,7 +127,20 @@ impl Request {
             | Action::Reserve {
                 account_id,
                 amount_units,
+            }
+            | Action::ClaimAffiliate {
+                account_id,
+                amount_units,
             } => *account_id > 0 && positive(*amount_units),
+            Action::CommerceCapture {
+                reservation_journal_id,
+                destination_account_id,
+                amount_units,
+            } => {
+                *reservation_journal_id > 0
+                    && *destination_account_id > 0
+                    && positive(*amount_units)
+            }
             Action::Capture {
                 reservation_journal_id,
                 ..
@@ -116,7 +152,20 @@ impl Request {
                 journal_id,
                 amount_units,
             } => *journal_id > 0 && positive(*amount_units),
-            Action::Reverse { journal_id } => *journal_id > 0,
+            Action::RefundTopup {
+                journal_id,
+                amount_units,
+                refund_reference,
+            } => {
+                *journal_id > 0
+                    && positive(*amount_units)
+                    && !refund_reference.is_empty()
+                    && refund_reference.chars().count() <= 256
+                    && !refund_reference.contains('\0')
+            }
+            Action::Reverse { journal_id } | Action::RefundCommerce { journal_id } => {
+                *journal_id > 0
+            }
         };
         if valid {
             Ok(())
@@ -157,6 +206,7 @@ pub enum Rejection {
     AlreadyCompensated,
     AmountOverflow,
     DuplicatePayment,
+    DuplicateRefund,
 }
 
 /// Replays return this exact stored value, including the ORIGINAL balance snapshot.
@@ -184,7 +234,13 @@ pub struct Wallet {
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, sqlx::FromRow)]
 pub struct Balance {
     pub account_id: i64,
+    /// Signed economic wallet position. Debt is preserved, never displayed as zero.
     pub available_units: i64,
+    /// Nonnegative wallet funds that can actually be reserved or spent.
+    pub spendable_units: i64,
+    pub debt_units: i64,
+    /// Independent signed affiliate entitlement, not wallet cash.
+    pub affiliate_units: i64,
     pub reserved_units: i64,
     pub available_revision: i64,
     pub reserved_revision: i64,
@@ -290,13 +346,18 @@ impl Ledger {
             return Err(Error::InvalidRequest);
         }
         sqlx::query_as::<_, Balance>(
-            "SELECT w.owner_account_id AS account_id, wb.balance_units AS available_units, \
-             rb.balance_units AS reserved_units, wb.revision AS available_revision, \
+            "SELECT w.owner_account_id AS account_id, wb.balance_units+db.balance_units AS available_units, \
+             wb.balance_units AS spendable_units, db.balance_units AS debt_units, ab.balance_units AS affiliate_units, \
+             rb.balance_units AS reserved_units, wb.revision+db.revision AS available_revision, \
              rb.revision AS reserved_revision \
              FROM core_billing.ledger_accounts w \
              JOIN core_billing.balance_state wb ON wb.ledger_account_id = w.id \
              JOIN core_billing.ledger_accounts r ON r.owner_account_id = w.owner_account_id AND r.bucket = 'reserved' \
              JOIN core_billing.balance_state rb ON rb.ledger_account_id = r.id \
+             JOIN core_billing.ledger_accounts d ON d.owner_account_id=w.owner_account_id AND d.bucket='debt' \
+             JOIN core_billing.balance_state db ON db.ledger_account_id=d.id \
+             JOIN core_billing.ledger_accounts a ON a.owner_account_id=w.owner_account_id AND a.bucket='affiliate' \
+             JOIN core_billing.balance_state ab ON ab.ledger_account_id=a.id \
              WHERE w.owner_account_id = $1 AND w.bucket = 'wallet'",
         )
         .bind(account_id)

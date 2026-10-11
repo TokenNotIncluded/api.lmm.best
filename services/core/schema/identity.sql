@@ -67,6 +67,84 @@ CREATE TABLE core_identity.credentials (
 );
 CREATE INDEX credentials_user ON core_identity.credentials(user_id, id);
 CREATE INDEX credentials_owner ON core_identity.credentials(owner_account_id, id);
+-- Authentication hashes remain separate from optional encrypted recovery
+-- material. One-time keys have no recoverable copy.
+CREATE TABLE core_identity.api_key_settings (
+    credential_id BIGINT PRIMARY KEY REFERENCES core_identity.credentials(id),
+    name TEXT NOT NULL CHECK (length(btrim(name)) BETWEEN 1 AND 128),
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    one_time_reveal BOOLEAN NOT NULL DEFAULT TRUE,
+    encrypted_secret BYTEA,
+    model_limits_enabled BOOLEAN NOT NULL DEFAULT FALSE,
+    model_limits TEXT[] NOT NULL DEFAULT '{}',
+    allow_ips INET[] NOT NULL DEFAULT '{}',
+    group_name TEXT NOT NULL CHECK (length(group_name) BETWEEN 1 AND 64),
+    auto_groups TEXT[] NOT NULL DEFAULT '{}',
+    cross_group_retry BOOLEAN NOT NULL DEFAULT FALSE,
+    account_balance_read BOOLEAN NOT NULL DEFAULT FALSE,
+    accessed_at TIMESTAMPTZ,
+    CHECK (cardinality(model_limits) <= 200 AND cardinality(allow_ips) <= 64),
+    CHECK (cardinality(auto_groups) <= 16),
+    CHECK ((one_time_reveal AND encrypted_secret IS NULL) OR
+        (NOT one_time_reveal AND encrypted_secret IS NOT NULL
+            AND octet_length(encrypted_secret) BETWEEN 44 AND 300)),
+    CHECK (group_name = 'auto' OR (cardinality(auto_groups) = 0 AND NOT cross_group_retry))
+);
+-- Operator/migration grants, never inferred from the existence of a route.
+CREATE TABLE core_identity.user_routing_groups (
+    user_id BIGINT NOT NULL REFERENCES core_identity.users(id),
+    group_name TEXT NOT NULL CHECK (length(group_name) BETWEEN 1 AND 64 AND group_name <> 'auto'),
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    source_reference TEXT NOT NULL CHECK (length(source_reference) BETWEEN 1 AND 200),
+    PRIMARY KEY (user_id, group_name)
+);
+CREATE TABLE core_identity.developer_access (
+    user_id BIGINT PRIMARY KEY REFERENCES core_identity.users(id),
+    granted BOOLEAN NOT NULL,
+    source_reference TEXT NOT NULL CHECK (length(source_reference) BETWEEN 1 AND 200),
+    revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0)
+);
+-- Revocations acquire the same user authority lock as financial admission.
+-- Runtime roles have SELECT only on these grant tables. Policy revocation
+-- therefore linearizes with in-flight requests without granting runtime UPDATE.
+CREATE FUNCTION core_identity.routing_access_revoked() RETURNS TRIGGER
+LANGUAGE plpgsql SET search_path = pg_catalog AS $$
+BEGIN
+    IF TG_OP='DELETE' THEN
+        UPDATE core_identity.users SET auth_version=auth_version+1 WHERE id=OLD.user_id;
+        RETURN OLD;
+    ELSIF TG_TABLE_NAME='developer_access' THEN
+        IF OLD.granted AND NOT NEW.granted THEN
+            UPDATE core_identity.users SET auth_version=auth_version+1 WHERE id=OLD.user_id;
+        END IF;
+    ELSIF OLD.enabled AND NOT NEW.enabled THEN
+        UPDATE core_identity.users SET auth_version=auth_version+1 WHERE id=OLD.user_id;
+    END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER developer_access_revocation AFTER UPDATE OR DELETE
+    ON core_identity.developer_access FOR EACH ROW EXECUTE FUNCTION core_identity.routing_access_revoked();
+CREATE TRIGGER routing_group_revocation AFTER UPDATE OR DELETE
+    ON core_identity.user_routing_groups FOR EACH ROW EXECUTE FUNCTION core_identity.routing_access_revoked();
+CREATE FUNCTION core_identity.check_api_key_settings() RETURNS TRIGGER
+LANGUAGE plpgsql SET search_path = pg_catalog AS $$
+BEGIN
+    IF TG_OP = 'DELETE' THEN
+        RAISE EXCEPTION 'key settings preserve credential history' USING ERRCODE = '23514';
+    END IF;
+    IF NOT EXISTS (SELECT 1 FROM core_identity.credentials
+        WHERE id=NEW.credential_id AND kind='api_key') THEN
+        RAISE EXCEPTION 'settings require an API key' USING ERRCODE = '23514';
+    END IF;
+    IF TG_OP = 'UPDATE' AND (NEW.credential_id,NEW.one_time_reveal,NEW.encrypted_secret)
+       IS DISTINCT FROM (OLD.credential_id,OLD.one_time_reveal,OLD.encrypted_secret) THEN
+        RAISE EXCEPTION 'recovery policy is immutable' USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER api_key_settings_guard BEFORE INSERT OR UPDATE OR DELETE
+    ON core_identity.api_key_settings
+    FOR EACH ROW EXECUTE FUNCTION core_identity.check_api_key_settings();
 CREATE TABLE core_identity.key_funding_rules (
     credential_id BIGINT NOT NULL REFERENCES core_identity.credentials(id),
     position SMALLINT NOT NULL CHECK (position BETWEEN 0 AND 15),
@@ -133,7 +211,7 @@ BEGIN
     IF TG_OP = 'UPDATE' AND OLD.revoked_at IS NOT NULL AND NEW.revoked_at IS DISTINCT FROM OLD.revoked_at THEN
         RAISE EXCEPTION 'revocation is permanent' USING ERRCODE = '23514';
     END IF;
-    IF TG_OP = 'UPDATE' AND NEW.expires_at > OLD.expires_at THEN
+    IF TG_OP = 'UPDATE' AND NEW.kind = 'session' AND NEW.expires_at > OLD.expires_at THEN
         RAISE EXCEPTION 'issue a new credential instead of extending expiry' USING ERRCODE = '23514';
     END IF;
     SELECT kind INTO STRICT owner_kind FROM core_identity.accounts WHERE id = NEW.owner_account_id;
@@ -291,6 +369,19 @@ CREATE TABLE core_identity.user_profiles (
     legacy_bcrypt_allowed BOOLEAN NOT NULL DEFAULT FALSE
 );
 CREATE INDEX user_profiles_email ON core_identity.user_profiles(email) WHERE email <> '';
+-- Invoice identity is private user-owned data, never an authorization grant.
+CREATE TABLE core_identity.company_billing_profiles (
+    user_id BIGINT PRIMARY KEY REFERENCES core_identity.users(id),
+    country TEXT NOT NULL CHECK (country ~ '^[A-Z]{2}$'),
+    is_business BOOLEAN NOT NULL,
+    postcode TEXT NOT NULL CHECK (length(postcode)<=32),
+    state TEXT NOT NULL CHECK (length(state)<=128),
+    business_name TEXT NOT NULL CHECK (length(business_name)<=255),
+    tax_id TEXT NOT NULL CHECK (length(tax_id)<=64),
+    use_for_invoices BOOLEAN NOT NULL,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL CHECK(updated_at>=created_at)
+);
 
 -- Stable browser family and rotating refresh credentials remain separate from
 -- the 15-minute bearer. Only hashes are stored; no production sessions import.

@@ -125,6 +125,7 @@ struct Control {
     store: Option<IdentityStore>,
     events: Option<crate::events::EventStore>,
     service_id: String,
+    commerce_features: Vec<String>,
     slots: Arc<Semaphore>,
 }
 impl Control {
@@ -137,6 +138,7 @@ impl Control {
             store,
             events: None,
             service_id: "extensions".into(),
+            commerce_features: Vec::new(),
             slots: Arc::new(Semaphore::new(MAX_CALLS)),
         })
     }
@@ -206,6 +208,9 @@ impl CoreControl for Control {
                     if self.events.is_some() {
                         features.extend(crate::events::FEATURES.iter().map(|v| (*v).into()));
                     }
+                    // Discovery reports mounted commerce methods. Their
+                    // independent credential still gates every money RPC.
+                    features.extend(self.commerce_features.iter().cloned());
                     features
                 },
             })
@@ -300,9 +305,20 @@ pub struct RpcServer {
     guard: SocketGuard,
     control: Control,
     payments: Option<crate::payments::rpc::PaymentsRpc>,
+    commerce: Option<crate::commerce::rpc::CommerceRpc>,
 }
 impl RpcServer {
     pub fn bind(path: &Path, token: &[u8], store: Option<IdentityStore>) -> io::Result<Self> {
+        Self::bind_with_group(path, token, store, None)
+    }
+    /// A shared group is an explicit transport opt-in. Every RPC still requires
+    /// its own service credential; filesystem access never supplies authority.
+    pub fn bind_with_group(
+        path: &Path,
+        token: &[u8],
+        store: Option<IdentityStore>,
+        group: Option<u32>,
+    ) -> io::Result<Self> {
         let control = Control::new(token, store)?;
         if !path.is_absolute() || path.as_os_str().len() > 100 {
             return Err(invalid("RPC socket must be a short absolute path"));
@@ -311,9 +327,14 @@ impl RpcServer {
             .parent()
             .ok_or_else(|| invalid("RPC socket has no parent"))?;
         let metadata = fs::symlink_metadata(parent)?;
-        if !metadata.is_dir() || metadata.permissions().mode() & 0o077 != 0 {
+        let mode = metadata.permissions().mode() & 0o7777;
+        let valid_directory = match group {
+            None => mode == 0o700,
+            Some(gid) => gid != 0 && mode == 0o750 && metadata.gid() == gid,
+        };
+        if !metadata.is_dir() || !valid_directory {
             return Err(invalid(
-                "RPC socket directory must be a real private directory (0700)",
+                "RPC socket directory must match its explicit private or shared-group policy",
             ));
         }
         let lock_path = path.with_extension("lock");
@@ -338,7 +359,19 @@ impl RpcServer {
             Err(e) => return Err(e),
         }
         let listener = UnixListener::bind(path)?;
-        fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+        let socket_metadata = fs::symlink_metadata(path)?;
+        if socket_metadata.uid() != metadata.uid()
+            || group.is_some_and(|gid| socket_metadata.gid() != gid)
+        {
+            let _ = fs::remove_file(path);
+            return Err(invalid(
+                "RPC socket owner or group does not match its directory",
+            ));
+        }
+        fs::set_permissions(
+            path,
+            fs::Permissions::from_mode(if group.is_some() { 0o660 } else { 0o600 }),
+        )?;
         let guard = SocketGuard {
             path: path.into(),
             inode: fs::symlink_metadata(path)?.ino(),
@@ -349,6 +382,7 @@ impl RpcServer {
             guard,
             control,
             payments: None,
+            commerce: None,
         })
     }
     /// Explicit integration hook. Provisioned subscriptions bind to this
@@ -372,6 +406,11 @@ impl RpcServer {
         self.payments = Some(payments);
         self
     }
+    pub fn with_commerce(mut self, commerce: crate::commerce::rpc::CommerceRpc) -> Self {
+        self.control.commerce_features = commerce.features();
+        self.commerce = Some(commerce);
+        self
+    }
     pub async fn serve(
         self,
         mut shutdown: watch::Receiver<bool>,
@@ -381,6 +420,7 @@ impl RpcServer {
             guard: _guard,
             control,
             payments,
+            commerce,
         } = self;
         let connections = Arc::new(Semaphore::new(MAX_CONNECTIONS));
         let incoming = UnixListenerStream::new(listener).filter_map(move |item| match item {
@@ -412,6 +452,11 @@ impl RpcServer {
             )
             .add_optional_service(payments.map(|payments| {
                 pb::core_payments_server::CorePaymentsServer::new(payments)
+                    .max_decoding_message_size(MAX_MESSAGE)
+                    .max_encoding_message_size(MAX_MESSAGE)
+            }))
+            .add_optional_service(commerce.map(|commerce| {
+                pb::core_commerce_server::CoreCommerceServer::new(commerce)
                     .max_decoding_message_size(MAX_MESSAGE)
                     .max_encoding_message_size(MAX_MESSAGE)
             }))
@@ -517,6 +562,47 @@ mod tests {
             tonic::Code::Unauthenticated
         );
     }
+
+    #[tokio::test]
+    async fn commerce_discovery_does_not_share_identity_transport_authority() {
+        let pool = PgPoolOptions::new()
+            .connect_lazy("postgresql://synthetic:synthetic@127.0.0.1:1/synthetic")
+            .unwrap();
+        let commerce = crate::commerce::rpc::CommerceRpc::new(
+            crate::commerce::CommerceStore::from_pool(pool),
+            b"independent-commerce-credential-0123456789",
+            crate::commerce::rpc::Permissions {
+                read: true,
+                complete_delivery: true,
+                ..crate::commerce::rpc::Permissions::default()
+            },
+        )
+        .unwrap();
+        let mut control = Control::new(TOKEN, None).unwrap();
+        control.commerce_features = commerce.features();
+        let response = control
+            .capabilities(request(pb::CapabilitiesRequest {}))
+            .await
+            .unwrap()
+            .into_inner();
+        assert_eq!(
+            response.features,
+            vec!["commerce.receipt.read.v1", "commerce.delivery.complete.v1"]
+        );
+        use pb::core_commerce_server::CoreCommerce;
+        let mut query = request(pb::QueryCommerceRequest {
+            protocol_major: 1,
+            ..Default::default()
+        });
+        query.metadata_mut().insert(
+            "x-lmm-user-credential",
+            "synthetic-session-01234567890123456789".parse().unwrap(),
+        );
+        assert_eq!(
+            commerce.query_commerce(query).await.unwrap_err().code(),
+            tonic::Code::Unauthenticated
+        );
+    }
     #[tokio::test]
     async fn calls_have_global_admission_and_server_deadlines() {
         let control = Control::new(TOKEN, None).unwrap();
@@ -578,6 +664,42 @@ mod tests {
         fs::write(&path, "keep").unwrap();
         assert!(RpcServer::bind(&path, TOKEN, None).is_err());
         assert_eq!(fs::read_to_string(&path).unwrap(), "keep");
+        fs::remove_dir_all(dir).unwrap();
+    }
+
+    #[tokio::test]
+    async fn shared_socket_requires_explicit_matching_group_and_exact_directory_modes() {
+        let dir = std::env::temp_dir().join(format!(
+            "lmm-rpc-group-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        fs::create_dir(&dir).unwrap();
+        let gid = fs::metadata(&dir).unwrap().gid();
+        let path = dir.join("core.sock");
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o750)).unwrap();
+        assert!(RpcServer::bind(&path, TOKEN, None).is_err());
+        assert!(RpcServer::bind_with_group(&path, TOKEN, None, Some(gid.wrapping_add(1))).is_err());
+        assert!(RpcServer::bind_with_group(&path, TOKEN, None, Some(0)).is_err());
+        if gid != 0 {
+            let service = RpcServer::bind_with_group(&path, TOKEN, None, Some(gid)).unwrap();
+            let metadata = fs::metadata(&path).unwrap();
+            assert_eq!(metadata.gid(), gid);
+            assert_eq!(metadata.permissions().mode() & 0o777, 0o660);
+            assert_eq!(
+                fs::metadata(path.with_extension("lock"))
+                    .unwrap()
+                    .permissions()
+                    .mode()
+                    & 0o777,
+                0o600
+            );
+            drop(service);
+        }
+        for mode in [0o700, 0o770, 0o755, 0o2750] {
+            fs::set_permissions(&dir, fs::Permissions::from_mode(mode)).unwrap();
+            assert!(RpcServer::bind_with_group(&path, TOKEN, None, Some(gid)).is_err());
+        }
         fs::remove_dir_all(dir).unwrap();
     }
 }

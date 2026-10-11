@@ -1,4 +1,6 @@
 //! Existing Web authentication contract backed exclusively by Rust identity.
+#[path = "identity_compat.rs"]
+mod compatibility;
 use crate::identity::{
     BrowserAuth, BrowserAuthError, BrowserBundle, BrowserRegistration, BrowserSessionMetadata,
     IdentityError, IdentityStore,
@@ -88,25 +90,31 @@ pub fn router(store: IdentityStore, config: LegacyAuthConfig) -> Router {
         config,
     };
     Router::new()
+        .merge(compatibility::routes())
         .route("/api/user/register", post(register))
         .route("/api/user/login", post(login))
         .route("/api/user/auth/refresh", post(refresh))
         .route("/api/user/auth/logout", post(logout))
-        .route("/api/user/self", get(current_user))
+        .route(
+            "/api/user/self",
+            get(current_user).put(compatibility::profile),
+        )
         .layer(DefaultBodyLimit::max(16 * 1024))
         .layer(middleware::from_fn_with_state(state.clone(), security))
         .with_state(state)
 }
 async fn security(State(state): State<AuthState>, request: Request, next: Next) -> Response {
-    let mut response = if request.method() == axum::http::Method::POST
-        && !valid_origin(request.headers(), &state.config.origin)
-    {
+    let unsafe_method = !matches!(
+        *request.method(),
+        axum::http::Method::GET | axum::http::Method::HEAD | axum::http::Method::OPTIONS
+    );
+    let mut response = if unsafe_method && !valid_origin(request.headers(), &state.config.origin) {
         failure(
             StatusCode::FORBIDDEN,
             "AUTH_ORIGIN_FORBIDDEN",
             "Request origin is not allowed",
         )
-    } else if request.method() == axum::http::Method::POST {
+    } else if unsafe_method {
         let peer = request
             .extensions()
             .get::<ConnectInfo<SocketAddr>>()

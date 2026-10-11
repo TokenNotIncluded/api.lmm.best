@@ -13,9 +13,12 @@ name = "lmm-core"
 path = "src/main.rs"
 
 [dependencies]
+aes-gcm = { version = "=0.10.3", default-features = false, features = ["aes", "alloc"] }
 argon2 = "=0.5.3"
 base64 = "=0.22.1"
 bcrypt = "=0.17.1"
+chrono = { version = "=0.4.45", default-features = false, features = ["std"] }
+hkdf = "=0.12.4"
 hmac = "=0.12.1"
 jsonwebtoken = { version = "=9.3.1", default-features = false }
 axum = "=0.8.9"
@@ -31,6 +34,7 @@ fs2 = "=0.4.3"
 prost = "=0.14.4"
 subtle = "=2.6.1"
 tokio-stream = { version = "=0.1.17", features = ["net"] }
+toml = { version = "=1.1.6", default-features = false, features = ["std", "serde", "parse"] }
 tonic = "=0.14.6"
 tonic-prost = "=0.14.6"
 

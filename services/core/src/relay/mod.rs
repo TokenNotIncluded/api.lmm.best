@@ -18,6 +18,7 @@ use axum::{
 };
 use decode::Decoder;
 use encode::Encoder;
+use sha2::{Digest, Sha256};
 use std::{
     collections::BTreeMap,
     future::Future,
@@ -351,6 +352,7 @@ struct Worker {
     reserve_ambiguous: bool,
     report: Report,
     terminal: Vec<Vec<u8>>,
+    checkpoint_sequence: u64,
 }
 impl Worker {
     fn new(
@@ -369,6 +371,7 @@ impl Worker {
             outcome: Outcome::Failed,
             usage: Usage::default(),
             finish_reason: None,
+            provider_complete: false,
             upstream_attempted: false,
             attempts: 0,
             upstream_status: None,
@@ -390,6 +393,7 @@ impl Worker {
             reserve_ambiguous: false,
             report,
             terminal: Vec::new(),
+            checkpoint_sequence: 0,
         }
     }
     fn send_head(&mut self) -> Result<(), RelayError> {
@@ -421,11 +425,74 @@ impl Worker {
         Ok(())
     }
     async fn events(&mut self, events: Vec<Event>) -> Result<(), RelayError> {
+        let observation = events
+            .iter()
+            .any(|event| matches!(event, Event::Usage(_) | Event::Done));
+        let terminal_observed = events.iter().any(|event| matches!(event, Event::Done));
+        let mut packets = Vec::new();
+        // Fully apply a validated frame before waiting for the downstream. A
+        // frame can contain content followed by authoritative usage; losing the
+        // client during its first packet must not discard the already decoded
+        // usage or protocol terminal boundary.
         for event in events {
-            for packet in self.encoder.consume(event)? {
-                self.write(&packet).await?;
+            packets.extend(self.encoder.consume(event)?);
+        }
+        if terminal_observed {
+            // Validate complete blocks and tool JSON, and encode the exact
+            // terminal bytes ONCE, before treating Done as authoritative. An
+            // invalid tool response must remain uncertain rather than charging
+            // Completed simply because the provider sent a terminator.
+            self.terminal = self.encoder.terminal()?;
+            self.report.provider_complete = true;
+        }
+        if self.request.stream {
+            for packet in &packets {
+                self.checkpoint(packet, terminal_observed).await?;
+            }
+            if observation {
+                self.checkpoint(&[], terminal_observed).await?;
+            }
+            if terminal_observed {
+                for packet in self.terminal.clone() {
+                    self.checkpoint(&packet, true).await?;
+                }
             }
         }
+        for packet in packets {
+            self.write(&packet).await?;
+        }
+        Ok(())
+    }
+    async fn checkpoint(
+        &mut self,
+        packet: &[u8],
+        terminal_observed: bool,
+    ) -> Result<(), RelayError> {
+        self.checkpoint_sequence = self
+            .checkpoint_sequence
+            .checked_add(1)
+            .filter(|v| *v <= 65_536)
+            .ok_or(RelayError::Limit("output checkpoints"))?;
+        let evidence = OutputCheckpoint {
+            sequence: self.checkpoint_sequence,
+            packet_sha256: Sha256::digest(packet).into(),
+            packet_bytes: packet.len(),
+            usage: self.encoder.usage(),
+            terminal_observed,
+        };
+        let reservation = self
+            .reservation
+            .as_ref()
+            .ok_or(RelayError::SettlementPending)?;
+        // Do not let disconnect abort a money/evidence commit. On timeout its
+        // result is unknown, no corresponding output is exposed, and the hold
+        // stays available for reconciliation.
+        timeout(
+            self.inner.limits.hook_timeout,
+            self.inner.billing.checkpoint(reservation, &evidence),
+        )
+        .await
+        .map_err(|_| RelayError::SettlementPending)??;
         Ok(())
     }
     fn count_input(&mut self, chunk: &Bytes) -> Result<(), RelayError> {
@@ -635,7 +702,9 @@ impl Worker {
         // Drop the upstream before any money write. Do not drain an unbounded
         // body after a terminal marker merely to reuse its connection.
         drop(response);
-        self.terminal = self.encoder.terminal()?;
+        if !self.report.provider_complete {
+            return Err(RelayError::Truncated);
+        }
         Ok(())
     }
     async fn run(mut self) {

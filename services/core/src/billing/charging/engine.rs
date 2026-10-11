@@ -3,7 +3,7 @@ use serde::Serialize;
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool, Postgres, Row, Transaction, postgres::PgRow};
-use std::sync::Arc;
+use std::{net::IpAddr, sync::Arc};
 use subtle::ConstantTimeEq;
 
 #[derive(Clone)]
@@ -168,6 +168,18 @@ impl Charging {
         request: &Request,
         worker: &[u8; 32],
     ) -> Result<Charge> {
+        self.reserve_with_context(secret, request, worker, None)
+            .await
+    }
+    /// The host supplies the trusted network peer. Missing peer information
+    /// fails closed for keys with IP restrictions.
+    pub async fn reserve_with_context(
+        &self,
+        secret: &str,
+        request: &Request,
+        worker: &[u8; 32],
+        peer: Option<IpAddr>,
+    ) -> Result<Charge> {
         request.validate()?;
         let worker_digest = authority::worker_digest(worker)?;
         let spec = hash(request)?;
@@ -177,6 +189,7 @@ impl Charging {
         if actor.kind != "api_key" {
             return Err(Error::Forbidden);
         }
+        authority::model_policy(&mut tx, secret, &request.price, peer).await?;
         if let Some(row) =
             sqlx::query("SELECT * FROM core_charging.requests WHERE id=$1 FOR UPDATE")
                 .bind(&request.id)
@@ -314,6 +327,17 @@ impl Charging {
         worker: &[u8; 32],
         total: i64,
     ) -> Result<Charge> {
+        self.increase_with_context(secret, id, worker, total, None)
+            .await
+    }
+    pub async fn increase_with_context(
+        &self,
+        secret: &str,
+        id: &str,
+        worker: &[u8; 32],
+        total: i64,
+        peer: Option<IpAddr>,
+    ) -> Result<Charge> {
         let mut tx = self.begin().await?;
         lock(&mut tx, id).await?;
         let stored = load(&mut tx, id).await?;
@@ -331,6 +355,7 @@ impl Charging {
         {
             return Err(Error::Forbidden);
         }
+        authority::model_policy(&mut tx, secret, &old.price, peer).await?;
         if !authority::funding(&mut tx, &actor)
             .await?
             .iter()
@@ -694,7 +719,7 @@ impl Charging {
             "INSERT INTO core_charging.budgets(scope,account_id,user_id,key_id,issuer_user_id,period,anchor,seconds,limit_credits) \
              VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) \
              ON CONFLICT (scope,account_id,user_id,key_id,issuer_user_id,period,anchor,seconds) \
-             DO UPDATE SET limit_credits=EXCLUDED.limit_credits,revision=core_charging.budgets.revision+1 RETURNING id",
+             DO UPDATE SET limit_credits=EXCLUDED.limit_credits,unlimited=FALSE,display_limit_credits=NULL,revision=core_charging.budgets.revision+1 RETURNING id",
         )
         .bind(&budget.scope).bind(budget.account_id).bind(budget.user_id).bind(budget.key_id)
         .bind(actor.user).bind(&budget.period).bind(budget.anchor).bind(budget.seconds).bind(budget.limit)

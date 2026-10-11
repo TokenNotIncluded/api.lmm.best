@@ -3,6 +3,7 @@
 use super::types::*;
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, Row};
+use std::net::IpAddr;
 
 pub(super) struct Actor {
     pub user: i64,
@@ -44,17 +45,53 @@ pub(super) async fn authenticate(c: &mut PgConnection, secret: &str) -> Result<A
          FOR SHARE OF c,u,a,p",
     )
     .bind(digest(secret)?)
-    .fetch_optional(c)
+    .fetch_optional(&mut *c)
     .await?
     .ok_or(Error::Unauthorized)?;
-    Ok(Actor {
+    let actor = Actor {
         user: row.try_get("user_id")?,
         key: row.try_get("id")?,
         owner: row.try_get("owner_account_id")?,
         personal: row.try_get("personal_account_id")?,
         kind: row.try_get("kind")?,
         preference: row.try_get("personal_billing_preference")?,
-    })
+    };
+    // Optional metadata is absent for original native keys. A managed Web key
+    // must be locked and rechecked in this same admission transaction.
+    let enabled: Option<bool> = sqlx::query_scalar(
+        "SELECT enabled FROM core_identity.api_key_settings WHERE credential_id=$1 FOR SHARE",
+    )
+    .bind(actor.key)
+    .fetch_optional(c)
+    .await?;
+    if enabled == Some(false) {
+        return Err(Error::Unauthorized);
+    }
+    Ok(actor)
+}
+
+pub(super) async fn model_policy(
+    c: &mut PgConnection,
+    secret: &str,
+    price: &Price,
+    peer: Option<IpAddr>,
+) -> Result<()> {
+    crate::identity::authorize_model_request_in_transaction(
+        c,
+        secret,
+        &price.model,
+        peer,
+        &price.group,
+    )
+    .await
+    .map_err(|error| match error {
+        crate::identity::IdentityError::Unauthorized => Error::Unauthorized,
+        crate::identity::IdentityError::Forbidden => Error::Forbidden,
+        crate::identity::IdentityError::Invalid => Error::Invalid,
+        crate::identity::IdentityError::Conflict => Error::Retry,
+        crate::identity::IdentityError::Storage => Error::Storage,
+    })?;
+    Ok(())
 }
 
 pub(super) async fn funding(c: &mut PgConnection, actor: &Actor) -> Result<Vec<Payer>> {

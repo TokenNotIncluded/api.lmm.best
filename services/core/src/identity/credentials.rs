@@ -20,6 +20,7 @@ impl IdentityStore {
         }
         let mut tx = self.pool.begin().await?;
         let actor = session(&mut tx, secret).await?;
+        compat::developer(&mut tx, &actor).await?;
         if owner.kind == AccountKind::Personal && owner.id != actor.user_id {
             return Err(IdentityError::Forbidden);
         }

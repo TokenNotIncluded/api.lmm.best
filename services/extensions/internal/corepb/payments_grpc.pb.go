@@ -19,6 +19,8 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
+	CorePayments_AcceptProviderProof_FullMethodName = "/lmm.core.v1.CorePayments/AcceptProviderProof"
+	CorePayments_GetProviderProof_FullMethodName    = "/lmm.core.v1.CorePayments/GetProviderProof"
 	CorePayments_PrepareTopup_FullMethodName        = "/lmm.core.v1.CorePayments/PrepareTopup"
 	CorePayments_CreditTopup_FullMethodName         = "/lmm.core.v1.CorePayments/CreditTopup"
 	CorePayments_HoldRefund_FullMethodName          = "/lmm.core.v1.CorePayments/HoldRefund"
@@ -37,6 +39,8 @@ const (
 // verified provider evidence and a core-issued intent/authority, not merely a
 // service token. Go cannot assert that a provider event has been verified.
 type CorePaymentsClient interface {
+	AcceptProviderProof(ctx context.Context, in *AcceptProviderProofRequest, opts ...grpc.CallOption) (*ProviderProofReceipt, error)
+	GetProviderProof(ctx context.Context, in *GetProviderProofRequest, opts ...grpc.CallOption) (*ProviderProofReceipt, error)
 	PrepareTopup(ctx context.Context, in *PrepareTopupRequest, opts ...grpc.CallOption) (*PaymentIntent, error)
 	CreditTopup(ctx context.Context, in *CreditTopupRequest, opts ...grpc.CallOption) (*PaymentReceipt, error)
 	HoldRefund(ctx context.Context, in *HoldRefundRequest, opts ...grpc.CallOption) (*PaymentReceipt, error)
@@ -52,6 +56,26 @@ type corePaymentsClient struct {
 
 func NewCorePaymentsClient(cc grpc.ClientConnInterface) CorePaymentsClient {
 	return &corePaymentsClient{cc}
+}
+
+func (c *corePaymentsClient) AcceptProviderProof(ctx context.Context, in *AcceptProviderProofRequest, opts ...grpc.CallOption) (*ProviderProofReceipt, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProviderProofReceipt)
+	err := c.cc.Invoke(ctx, CorePayments_AcceptProviderProof_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *corePaymentsClient) GetProviderProof(ctx context.Context, in *GetProviderProofRequest, opts ...grpc.CallOption) (*ProviderProofReceipt, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ProviderProofReceipt)
+	err := c.cc.Invoke(ctx, CorePayments_GetProviderProof_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (c *corePaymentsClient) PrepareTopup(ctx context.Context, in *PrepareTopupRequest, opts ...grpc.CallOption) (*PaymentIntent, error) {
@@ -133,6 +157,8 @@ func (c *corePaymentsClient) GetPaymentReceipt(ctx context.Context, in *GetPayme
 // verified provider evidence and a core-issued intent/authority, not merely a
 // service token. Go cannot assert that a provider event has been verified.
 type CorePaymentsServer interface {
+	AcceptProviderProof(context.Context, *AcceptProviderProofRequest) (*ProviderProofReceipt, error)
+	GetProviderProof(context.Context, *GetProviderProofRequest) (*ProviderProofReceipt, error)
 	PrepareTopup(context.Context, *PrepareTopupRequest) (*PaymentIntent, error)
 	CreditTopup(context.Context, *CreditTopupRequest) (*PaymentReceipt, error)
 	HoldRefund(context.Context, *HoldRefundRequest) (*PaymentReceipt, error)
@@ -150,6 +176,12 @@ type CorePaymentsServer interface {
 // pointer dereference when methods are called.
 type UnimplementedCorePaymentsServer struct{}
 
+func (UnimplementedCorePaymentsServer) AcceptProviderProof(context.Context, *AcceptProviderProofRequest) (*ProviderProofReceipt, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AcceptProviderProof not implemented")
+}
+func (UnimplementedCorePaymentsServer) GetProviderProof(context.Context, *GetProviderProofRequest) (*ProviderProofReceipt, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetProviderProof not implemented")
+}
 func (UnimplementedCorePaymentsServer) PrepareTopup(context.Context, *PrepareTopupRequest) (*PaymentIntent, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method PrepareTopup not implemented")
 }
@@ -190,6 +222,42 @@ func RegisterCorePaymentsServer(s grpc.ServiceRegistrar, srv CorePaymentsServer)
 		t.testEmbeddedByValue()
 	}
 	s.RegisterService(&CorePayments_ServiceDesc, srv)
+}
+
+func _CorePayments_AcceptProviderProof_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AcceptProviderProofRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CorePaymentsServer).AcceptProviderProof(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CorePayments_AcceptProviderProof_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CorePaymentsServer).AcceptProviderProof(ctx, req.(*AcceptProviderProofRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _CorePayments_GetProviderProof_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetProviderProofRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CorePaymentsServer).GetProviderProof(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CorePayments_GetProviderProof_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CorePaymentsServer).GetProviderProof(ctx, req.(*GetProviderProofRequest))
+	}
+	return interceptor(ctx, in, info, handler)
 }
 
 func _CorePayments_PrepareTopup_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
@@ -325,6 +393,14 @@ var CorePayments_ServiceDesc = grpc.ServiceDesc{
 	ServiceName: "lmm.core.v1.CorePayments",
 	HandlerType: (*CorePaymentsServer)(nil),
 	Methods: []grpc.MethodDesc{
+		{
+			MethodName: "AcceptProviderProof",
+			Handler:    _CorePayments_AcceptProviderProof_Handler,
+		},
+		{
+			MethodName: "GetProviderProof",
+			Handler:    _CorePayments_GetProviderProof_Handler,
+		},
 		{
 			MethodName: "PrepareTopup",
 			Handler:    _CorePayments_PrepareTopup_Handler,

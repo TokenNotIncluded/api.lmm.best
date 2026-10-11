@@ -445,6 +445,140 @@ impl PaymentsStore {
         }
         Ok(verified)
     }
+
+    /// Persist independently verified, fresh provider input before the extension
+    /// acknowledges delivery. This receipt does not represent applied money.
+    pub async fn accept_proof(
+        &self,
+        request: pb::AcceptProviderProofRequest,
+    ) -> Result<pb::ProviderProofReceipt> {
+        let evidence = request.evidence.as_ref().ok_or(Error::Invalid)?;
+        if !evidence.accepted_proof_id.is_empty() {
+            return Err(Error::Invalid);
+        }
+        let mut tx = self.begin().await?;
+        let intent = Self::intent(&mut tx, request.intent_id).await?;
+        // Freshness is checked exclusively against Rust's own wall clock here.
+        // Unknown commit results are recovered by get_proof, not stale re-signing.
+        let verified = self.verify(&intent, evidence)?;
+        if let Some(hold_id) = &verified.hold_receipt_id {
+            let amount: Option<i64> = sqlx::query_scalar(
+                "SELECT amount_minor FROM core_payments.refund_holds WHERE receipt_id=$1 AND intent_id=$2 FOR SHARE",
+            )
+            .bind(hold_id)
+            .bind(intent.id)
+            .fetch_optional(&mut *tx)
+            .await?;
+            if amount != Some(verified.amount_minor) {
+                return Err(Error::Denied);
+            }
+        }
+        let digest = Sha256::digest(&evidence.signed_payload).to_vec();
+        let prior: Option<(i64, Vec<u8>, Vec<u8>)> = sqlx::query_as(
+            "SELECT intent_id,payload_hash,receipt_wire FROM core_payments.accepted_proofs WHERE channel_id=$1 AND event_id=$2",
+        )
+        .bind(intent.channel_id)
+        .bind(&verified.event_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+        if let Some((id, old_digest, wire)) = prior {
+            if id != intent.id || old_digest != digest {
+                return Err(Error::Conflict);
+            }
+            let receipt =
+                pb::ProviderProofReceipt::decode(wire.as_slice()).map_err(|_| Error::Storage)?;
+            tx.commit().await?;
+            return Ok(receipt);
+        }
+        let proof_hash = hash(json!([
+            intent.channel_id,
+            intent.id,
+            verified.event_id,
+            digest
+        ]));
+        use std::fmt::Write;
+        let mut proof_id = "proof_".to_owned();
+        for byte in proof_hash {
+            let _ = write!(proof_id, "{byte:02x}");
+        }
+        let receipt = pb::ProviderProofReceipt {
+            proof_id,
+            intent_id: intent.id,
+            provider_event_id: verified.event_id.clone(),
+            payload_sha256: digest.clone(),
+            payment: evidence.payment.clone(),
+            accepted_unix_seconds: now()?,
+        };
+        sqlx::query("INSERT INTO core_payments.accepted_proofs(id,channel_id,event_id,intent_id,payload_hash,signed_payload,signature,verified_facts,receipt_wire) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)")
+            .bind(&receipt.proof_id).bind(intent.channel_id).bind(verified.event_id.clone()).bind(intent.id)
+            .bind(digest).bind(&evidence.signed_payload).bind(&evidence.signature).bind(Json(verified)).bind(receipt.encode_to_vec())
+            .execute(&mut *tx).await?;
+        tx.commit().await?;
+        Ok(receipt)
+    }
+
+    /// Only a separately authorized service principal may reconcile ingress.
+    /// The caller must already know the scoped intent, event and exact digest.
+    pub async fn get_proof(
+        &self,
+        request: pb::GetProviderProofRequest,
+    ) -> Result<pb::ProviderProofReceipt> {
+        if request.intent_id <= 0
+            || !valid_id(&request.provider_event_id)
+            || request.payload_sha256.len() != 32
+        {
+            return Err(Error::Invalid);
+        }
+        let mut tx = self.begin().await?;
+        let intent = Self::intent(&mut tx, request.intent_id).await?;
+        self.channel(&intent)?;
+        let row: Option<(Vec<u8>, Vec<u8>)> = sqlx::query_as(
+            "SELECT payload_hash,receipt_wire FROM core_payments.accepted_proofs WHERE intent_id=$1 AND channel_id=$2 AND event_id=$3",
+        ).bind(intent.id).bind(intent.channel_id).bind(&request.provider_event_id)
+            .fetch_optional(&mut *tx).await?;
+        let (digest, wire) = row.ok_or(Error::NotFound)?;
+        if digest != request.payload_sha256 {
+            return Err(Error::Conflict);
+        }
+        let receipt =
+            pb::ProviderProofReceipt::decode(wire.as_slice()).map_err(|_| Error::Storage)?;
+        tx.commit().await?;
+        Ok(receipt)
+    }
+
+    async fn accepted(
+        &self,
+        connection: &mut PgConnection,
+        intent: &IntentRow,
+        evidence: &pb::ProviderEvidence,
+    ) -> Result<stripe::Verified> {
+        if evidence.accepted_proof_id.len() != 70
+            || !evidence.accepted_proof_id.starts_with("proof_")
+            || evidence.signed_payload.is_empty()
+            || evidence.signed_payload.len() > 32768
+        {
+            return Err(Error::Denied);
+        }
+        let row: Option<(Vec<u8>, Vec<u8>, Json<stripe::Verified>)> = sqlx::query_as(
+            "SELECT payload_hash,receipt_wire,verified_facts FROM core_payments.accepted_proofs WHERE id=$1 AND intent_id=$2 AND channel_id=$3 AND event_id=$4",
+        ).bind(&evidence.accepted_proof_id).bind(intent.id).bind(intent.channel_id)
+            .bind(&evidence.provider_event_id).fetch_optional(connection).await?;
+        let (digest, wire, Json(verified)) = row.ok_or(Error::Denied)?;
+        let receipt =
+            pb::ProviderProofReceipt::decode(wire.as_slice()).map_err(|_| Error::Storage)?;
+        if digest != Sha256::digest(&evidence.signed_payload).to_vec()
+            || receipt.payment != evidence.payment
+            || intent
+                .provider_transaction
+                .as_ref()
+                .is_some_and(|id| id != &verified.transaction)
+        {
+            return Err(Error::Conflict);
+        }
+        // No provider secret or current timestamp is consulted for a previously
+        // accepted proof; its immutable Rust facts survive delay and rotation.
+        Ok(verified)
+    }
     async fn event(
         connection: &mut PgConnection,
         intent: &IntentRow,
@@ -548,11 +682,11 @@ impl PaymentsStore {
         let mut tx = self.begin().await?;
         let intent = Self::intent(&mut tx, request.intent_id).await?;
         self.channel(&intent)?;
+        let verified = self.accepted(&mut tx, &intent, evidence).await?;
         if let Some(prior) = Self::prior(&mut tx, intent.id, key, "credit", &request_hash).await? {
             tx.commit().await?;
             return Ok(prior);
         }
-        let verified = self.verify(&intent, evidence)?;
         if verified.kind != stripe::EventKind::Credit {
             return Err(Error::Invalid);
         }
@@ -707,11 +841,11 @@ impl PaymentsStore {
         let mut tx = self.begin().await?;
         let intent = Self::intent(&mut tx, request.intent_id).await?;
         self.channel(&intent)?;
+        let verified = self.accepted(&mut tx, &intent, evidence).await?;
         if let Some(prior) = Self::prior(&mut tx, intent.id, key, method, &request_hash).await? {
             tx.commit().await?;
             return Ok(prior);
         }
-        let verified = self.verify(&intent, evidence)?;
         let wanted = if commit {
             stripe::EventKind::RefundSucceeded
         } else {
@@ -825,9 +959,18 @@ impl PaymentsStore {
         verified: &stripe::Verified,
         reason: &str,
     ) -> Result<()> {
+        // Retain the original independently accepted signature, rather than
+        // trusting any altered delivery header carried by a later worker.
+        let signature: Vec<u8> = sqlx::query_scalar(
+            "SELECT signature FROM core_payments.accepted_proofs WHERE id=$1 AND intent_id=$2",
+        )
+        .bind(&evidence.accepted_proof_id)
+        .bind(intent.id)
+        .fetch_one(&mut **tx)
+        .await?;
         sqlx::query("INSERT INTO core_payments.blocked_refunds(channel_id,event_id,refund_id,intent_id,transaction_id,amount_minor,payload_hash,signed_payload,signature,reason) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)")
             .bind(intent.channel_id).bind(&verified.event_id).bind(verified.refund_id.as_deref().ok_or(Error::Invalid)?).bind(intent.id).bind(&verified.transaction).bind(verified.amount_minor)
-            .bind(Sha256::digest(&evidence.signed_payload).to_vec()).bind(&evidence.signed_payload).bind(&evidence.signature).bind(reason).execute(&mut **tx).await?;
+            .bind(Sha256::digest(&evidence.signed_payload).to_vec()).bind(&evidence.signed_payload).bind(signature).bind(reason).execute(&mut **tx).await?;
         sqlx::query("UPDATE core_payments.intents SET refund_fenced=TRUE WHERE id=$1")
             .bind(intent.id)
             .execute(&mut **tx)
@@ -845,13 +988,13 @@ impl PaymentsStore {
         let mut tx = self.begin().await?;
         let intent = Self::intent(&mut tx, request.intent_id).await?;
         self.channel(&intent)?;
+        let verified = self.accepted(&mut tx, &intent, evidence).await?;
         if let Some(prior) =
             Self::prior(&mut tx, intent.id, key, "external_refund", &request_hash).await?
         {
             tx.commit().await?;
             return Ok(prior);
         }
-        let verified = self.verify(&intent, evidence)?;
         if verified.kind != stripe::EventKind::RefundSucceeded {
             return Err(Error::Invalid);
         }
