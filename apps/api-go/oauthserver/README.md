@@ -105,7 +105,9 @@ code TTL 固定 120 秒，单次使用。access TTL 固定 10 分钟，接近 fa
 - 每次 access 检查都联表读取 token/family，并检查当前 Policy；不缓存“仍有效”。撤销不能撤回在其提交前已经通过验证的在途操作。
 - 必须使用主写库，不使用 read replica、读写分离 resolver 或事后可能回滚的外层事务。数据库不可用时 fail closed。生产需要配置连接池、锁/语句超时和可靠时钟。
 
-没有自动清理任务。未来清理应先处理到期 pending，按 family 的绝对期限/撤销与审计保留策略整族删除；**不能只按 used refresh 自身 idle expiry 删除 tombstone**，否则仍存活的后代会失去重放检测。日志不得记录 query、表单、callback code、state 或令牌响应。
+浏览器 preflight 的一次性 CSRF 和 binding 仍保存在授权事务中，以支持跨进程继续登录；它不是无状态验证。每个 issuer 最多保留 4096 条授权事务，新建前在同一数据库事务内回收到期记录（每次最多 256 条）并检查容量。PostgreSQL 使用事务级 advisory lock，SQLite 先取得写锁；多个实例不能并发越过上限。容量已满或 admission 锁正忙时返回 HTTP 503，不会挤掉仍有效的确认页面。上限也会限制正常登录高峰，客户端应稍后重新发起登录；已有超额历史记录会分批缩减，新请求不会继续增加积压。
+
+主节点的每小时认证清理也会删除到期授权事务（每轮最多 20 批、每批 256 条，15 秒截止）。该清理不删除 grant、code、access/refresh 或计费绑定；这些记录仍需按 family 绝对期限、重放检测及在途退款/审计保留策略单独处理。**不能只按 used refresh 自身 idle expiry 删除 tombstone**，否则仍存活的后代会失去重放检测。日志不得记录 query、表单、callback code、state 或令牌响应。
 
 ## DPoP 与未满足事项
 

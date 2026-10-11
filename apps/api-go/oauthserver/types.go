@@ -169,6 +169,8 @@ func protocolError(code string) *ProtocolError {
 		status, description = http.StatusUnauthorized, "The access token is invalid."
 	case "server_error":
 		status, description = http.StatusServiceUnavailable, "The authorization service is unavailable."
+	case "temporarily_unavailable":
+		status, description = http.StatusServiceUnavailable, "The authorization service is temporarily busy. Please try again later."
 	}
 	return &ProtocolError{Code: code, Description: description, Status: status}
 }

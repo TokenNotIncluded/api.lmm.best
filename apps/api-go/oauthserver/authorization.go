@@ -48,16 +48,41 @@ func (s *Server) BeginAuthorization(ctx context.Context, rawQuery, browserBindin
 	if err != nil {
 		return nil, storageError(err)
 	}
-	now := s.now()
-	row := model.OAuthServerAuthorization{
-		Digest: digest(handle), Issuer: s.issuer, ClientID: client.ID, ClientName: client.Name, RedirectURI: values.Get("redirect_uri"),
-		Resource: values.Get("resource"), Scope: strings.Join(scopes, " "), State: state,
-		CodeChallenge: values.Get("code_challenge"), BrowserDigest: browserDigest(browserBinding),
-		CreatedAtMs: now.UnixMilli(), ExpiresAtMs: now.Add(AuthorizationTTL).UnixMilli(),
-		BrowserCSRFHash: "", BrowserSessionID: "", BrowserSessionVersion: 0, BrowserAuthVersion: 0,
-	}
-	if err := s.db.WithContext(ctx).Create(&row).Error; err != nil {
-		return nil, storageError(err)
+	var row model.OAuthServerAuthorization
+	err = s.transact(ctx, func(tx *gorm.DB) (*ProtocolError, error) {
+		acquired, err := s.lockAuthorizationAdmission(tx)
+		if err != nil {
+			return nil, err
+		}
+		if !acquired {
+			return protocolError("temporarily_unavailable"), nil
+		}
+		// Sample time after taking the writer lock, including SQLite lock waits.
+		now := s.now()
+		if _, err := model.CleanupExpiredOAuthAuthorizations(tx, s.issuer, now); err != nil {
+			return nil, err
+		}
+		// The issuer index and LIMIT bound reads even for a pre-existing backlog.
+		candidates := tx.Model(&model.OAuthServerAuthorization{}).Select("digest").Where("issuer = ?", s.issuer).Limit(MaxAuthorizationRows)
+		var count int64
+		if err := tx.Table("(?) AS authorization_capacity", candidates).Count(&count).Error; err != nil {
+			return nil, err
+		}
+		if count >= MaxAuthorizationRows {
+			// Commit expired-row reclamation even when admission is refused.
+			return protocolError("temporarily_unavailable"), nil
+		}
+		row = model.OAuthServerAuthorization{
+			Digest: digest(handle), Issuer: s.issuer, ClientID: client.ID, ClientName: client.Name, RedirectURI: values.Get("redirect_uri"),
+			Resource: values.Get("resource"), Scope: strings.Join(scopes, " "), State: state,
+			CodeChallenge: values.Get("code_challenge"), BrowserDigest: browserDigest(browserBinding),
+			CreatedAtMs: now.UnixMilli(), ExpiresAtMs: now.Add(AuthorizationTTL).UnixMilli(),
+			BrowserCSRFHash: "", BrowserSessionID: "", BrowserSessionVersion: 0, BrowserAuthVersion: 0,
+		}
+		return nil, tx.Create(&row).Error
+	})
+	if err != nil {
+		return nil, err
 	}
 	pending := s.pendingView(row, handle)
 	return &pending, nil

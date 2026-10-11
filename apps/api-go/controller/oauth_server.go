@@ -312,6 +312,21 @@ func (h *OAuthHTTP) failed(c *gin.Context, language, clientName string) {
 	h.render(c, 400, oauthPageData{Language: language, Mode: "failed", ClientName: clientName})
 }
 
+func (h *OAuthHTTP) authorizationFailed(c *gin.Context, language, clientName string, err error) {
+	status := http.StatusBadRequest
+	data := oauthPageData{Language: language, Mode: "failed", ClientName: clientName}
+	var protocol *oauthserver.ProtocolError
+	if errors.As(err, &protocol) {
+		if protocol.Code == "invalid_client" {
+			data.Failure = protocol.Code
+		}
+		if protocol.Status == http.StatusServiceUnavailable {
+			status = http.StatusServiceUnavailable
+		}
+	}
+	h.render(c, status, data)
+}
+
 func (h *OAuthHTTP) showPreflight(c *gin.Context, raw, language string) {
 	normalized, normalizeErr := h.Integration.MCPAuthorizationQuery(c.Request.Context(), raw)
 	if normalizeErr != nil {
@@ -331,12 +346,7 @@ func (h *OAuthHTTP) showPreflight(c *gin.Context, raw, language string) {
 	}
 	pending, err := h.Integration.Core.BeginAuthorization(c.Request.Context(), raw, binding)
 	if err != nil {
-		data := oauthPageData{Language: language, Mode: "failed", ClientName: oauthRequestClientName(raw)}
-		var protocol *oauthserver.ProtocolError
-		if errors.As(err, &protocol) && protocol.Code == "invalid_client" {
-			data.Failure = protocol.Code
-		}
-		h.render(c, 400, data)
+		h.authorizationFailed(c, language, oauthRequestClientName(raw), err)
 		return
 	}
 	if err := h.Integration.Core.SetBrowserCSRF(c.Request.Context(), pending.Transaction, binding, csrf); err != nil {
@@ -384,7 +394,7 @@ func (h *OAuthHTTP) Continue(c *gin.Context) {
 	}
 	pending, err := h.Integration.Core.BeginAuthorization(c.Request.Context(), query, binding)
 	if err != nil {
-		h.failed(c, flow.Language, flow.ClientName)
+		h.authorizationFailed(c, flow.Language, flow.ClientName, err)
 		return
 	}
 	consent, err := h.Integration.Core.TrustedPrepareConsent(c.Request.Context(), pending.Transaction, binding, identity.UserID)
