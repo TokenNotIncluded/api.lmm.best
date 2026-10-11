@@ -68,6 +68,8 @@ func setupKeyBypassIPPolicyTest(t *testing.T) {
 	t.Helper()
 	previousDB := model.DB
 	previousRedis := common.RedisEnabled
+	previousLimiter := ipPolicyBypassLimiter
+	ipPolicyBypassLimiter = &common.InMemoryRateLimiter{}
 	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
 	require.NoError(t, err)
 	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}))
@@ -76,6 +78,7 @@ func setupKeyBypassIPPolicyTest(t *testing.T) {
 	t.Cleanup(func() {
 		model.DB = previousDB
 		common.RedisEnabled = previousRedis
+		ipPolicyBypassLimiter = previousLimiter
 	})
 }
 
@@ -190,7 +193,7 @@ func TestCheckIPAccessRoutingPolicyKeyBypass(t *testing.T) {
 		assert.Equal(t, http.StatusForbidden, c.Writer.Status())
 	})
 
-	t.Run("L1+ user with bypass enabled and valid key skips policy evaluation", func(t *testing.T) {
+	t.Run("L1+ user with bypass enabled and valid key overrides rejection", func(t *testing.T) {
 		user := createBypassTestUser(t, 1, true)
 		createBypassTestToken(t, user.Id, "l1enabledkey")
 
