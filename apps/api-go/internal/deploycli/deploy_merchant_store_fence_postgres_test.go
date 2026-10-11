@@ -161,6 +161,40 @@ GRANT EXECUTE ON FUNCTION pg_catalog.pg_control_system() TO lmm_fence_business;`
 		t.Fatalf("normal owner release changed unrelated options: rows=%d error=%v", rows, err)
 	}
 
+	t.Run("separate tool claims writer owner and serves exact live RPC", func(t *testing.T) {
+		modern := *contract
+		modern.Candidate.PayloadSHA256 = strings.Repeat("8", 64)
+		toolSHA, err := sha256File("/proc/self/exe")
+		if err != nil {
+			t.Fatal(err)
+		}
+		held, err := acquireMerchantStoreDeploymentFence(ctx, values, &modern)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer held.Close()
+		o := owner
+		o.BackendPID = held.backendPID
+		o.ContractSHA256 = merchantStoreFenceContractSHA(&modern)
+		o.ProviderSHA256 = modern.Candidate.PayloadSHA256
+		if err := held.ClaimOwner(ctx, o); err == nil {
+			t.Fatal("legacy API binding authorized a separate tool")
+		}
+		if err := held.claimOwner(ctx, o, strings.Repeat("9", 64), nil); err == nil {
+			t.Fatal("wrong tool digest claimed owner")
+		}
+		if err := held.claimOwner(ctx, o, toolSHA, nil); err != nil {
+			t.Fatal(err)
+		}
+		if err := held.CheckOwner(ctx); err != nil {
+			t.Fatal(err)
+		}
+		testMerchantStoreFenceLiveRPC(t, ctx, held, o, &modern, toolSHA)
+		if err := held.ReleaseOwner(ctx); err != nil {
+			t.Fatal(err)
+		}
+	})
+
 	t.Run("two actual sessions serialize portable owner claims", func(t *testing.T) {
 		left, err := acquireMerchantStoreDeploymentFence(ctx, values, contract)
 		if err != nil {

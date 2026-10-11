@@ -80,7 +80,7 @@ func (runtime *productionReleaseRuntime) verifyRemoteDeployEngine(ctx context.Co
 	if _, err := runtime.ssh(ctx, alias, time.Minute, "test", "!", "-L", path); err != nil {
 		return errors.New("deployment tool is a symlink")
 	}
-	info, err := runtime.ssh(ctx, alias, time.Minute, "stat", "-c", "%F %u %h %a", "--", path)
+	info, err := runtime.ssh(ctx, alias, time.Minute, "stat", "-c", "'%F %u %h %a'", "--", path)
 	if err != nil {
 		return fmt.Errorf("inspect deployment tool: %w", err)
 	}

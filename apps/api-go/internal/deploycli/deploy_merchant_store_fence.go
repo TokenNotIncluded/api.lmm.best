@@ -249,10 +249,10 @@ func (lease *productionMerchantStoreFence) Check(ctx context.Context, expected *
 // Claim only after acquiring the live shared lock. An existing key is never
 // overwritten, and a crash after this INSERT deliberately leaves a blocker.
 func (lease *productionMerchantStoreFence) ClaimOwner(ctx context.Context, owner productionMerchantStoreFenceOwner) error {
-	return lease.claimOwner(ctx, owner, nil)
+	return lease.claimOwner(ctx, owner, lease.identity.Candidate.PayloadSHA256, nil)
 }
 
-func (lease *productionMerchantStoreFence) claimOwner(ctx context.Context, owner productionMerchantStoreFenceOwner, guard func(context.Context) error) error {
+func (lease *productionMerchantStoreFence) claimOwner(ctx context.Context, owner productionMerchantStoreFenceOwner, executableSHA256 string, guard func(context.Context) error) error {
 	if lease.startupOnly && owner.Purpose != "start" {
 		return errors.New("startup baseline cannot claim an ordinary deployment owner")
 	}
@@ -268,7 +268,12 @@ func (lease *productionMerchantStoreFence) claimOwner(ctx context.Context, owner
 		owner.ContractSHA256 != merchantStoreFenceContractSHA(&lease.identity) || owner.ProviderSHA256 != lease.identity.Candidate.PayloadSHA256 {
 		return errors.New("merchant deployment owner differs from the actual holder/session/database")
 	}
-	if err := sha256MustEqual("/proc/self/exe", owner.ProviderSHA256); err != nil {
+	// ProviderSHA256 continues to identify the database writer. Modern holders
+	// execute the independently signed tool pinned by the manifest/capsule.
+	if !productionSHA256Pattern.MatchString(executableSHA256) {
+		return errors.New("merchant deployment holder executable binding is invalid")
+	}
+	if err := sha256MustEqual("/proc/self/exe", executableSHA256); err != nil {
 		return errors.New("merchant deployment owner actual executable differs from the qualified candidate payload")
 	}
 	lease.mu.Lock()

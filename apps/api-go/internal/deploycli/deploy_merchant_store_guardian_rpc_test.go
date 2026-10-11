@@ -30,7 +30,7 @@ func (fixture *merchantStoreHolderUnitFixture) Run(_ context.Context, command pr
 // The unit inventory is a component fixture. Socket peer credentials, actual
 // executable hash, dedicated PG session/lock, and durable Options row below are
 // real local resources; this is not an installed systemd-unit qualification.
-func testMerchantStoreFenceLiveRPC(t *testing.T, ctx context.Context, lease *productionMerchantStoreFence, owner productionMerchantStoreFenceOwner, contract *productionMerchantStoreWriterContract) {
+func testMerchantStoreFenceLiveRPC(t *testing.T, ctx context.Context, lease *productionMerchantStoreFence, owner productionMerchantStoreFenceOwner, contract *productionMerchantStoreWriterContract, engineSHA256 ...string) {
 	t.Helper()
 	directory, err := os.MkdirTemp("/tmp", "lmm-fence-rpc-")
 	if err != nil {
@@ -43,6 +43,9 @@ func testMerchantStoreFenceLiveRPC(t *testing.T, ctx context.Context, lease *pro
 	}
 	workspace := productionWorkspace{root: directory, id: owner.DeploymentID, stateDir: state, manifestPath: filepath.Join(state, productionManifestFilename), statusPath: filepath.Join(state, productionStatusFilename)}
 	manifest := productionManifest{Go: productionPackageTransition{Changed: true}, SchemaPlanSHA256: owner.PlanSHA256, MerchantStoreWriter: contract}
+	if len(engineSHA256) == 1 {
+		manifest.DeployEngineSHA256 = engineSHA256[0]
+	}
 	unit := &merchantStoreHolderUnitFixture{owner: owner}
 	runtime := &productionRuntime{runner: unit, requiredOwnerUID: uint32(os.Getuid()), merchantStoreSocketDirectory: directory, hostname: func() (string, error) { return owner.Host, nil }}
 	ownerPath := merchantStoreFenceOwnerPath(workspace)
