@@ -19,6 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import { useNavigate } from '@tanstack/react-router'
 import {
   Building2,
+  Key,
   LayoutDashboard,
   User,
   Wallet,
@@ -56,6 +57,7 @@ export function ProfileDropdown() {
   const { displayName, roleLabel } = useUserDisplay(user)
   const consoleActivated = isConsoleActivated(user)
   const isSuperAdmin = user?.role === ROLE.SUPER_ADMIN
+  const isApiKeysVisible = useIsSidebarModuleVisible('/keys')
   const isWalletVisible = useIsSidebarModuleVisible('/wallet')
   const isCompanyVisible = useIsSidebarModuleVisible('/company')
   const avatarName = user?.username || displayName
@@ -127,6 +129,13 @@ export function ProfileDropdown() {
             <User className='size-4' />
             {t('Profile')}
           </DropdownMenuItem>
+
+          {user && isApiKeysVisible ? (
+            <DropdownMenuItem onClick={() => navigate({ to: '/keys' })}>
+              <Key className='size-4' />
+              {t('API Keys')}
+            </DropdownMenuItem>
+          ) : null}
 
           {consoleActivated ? (
             <>
