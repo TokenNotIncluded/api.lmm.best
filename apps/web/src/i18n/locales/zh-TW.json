@@ -1,5 +1,11 @@
 {
   "translation": {
+    "Continue with human beings": "透過人類繼續",
+    "Unable to load HumanGrant setting": "無法載入 HumanGrant 設定",
+    "HumanGrant setting saved": "HumanGrant 設定已儲存",
+    "Unable to save HumanGrant setting": "無法儲存 HumanGrant 設定",
+    "HumanGrant remote authorization": "HumanGrant 遠端授權",
+    "Allow AI clients to request limited access with explicit human approval. Existing login methods stay available.": "允許 AI 用戶端在取得人類明確同意後申請有限權限。現有登入方式維持可用。",
     "360": "360",
     "1000": "1000",
     "10000": "10000",
