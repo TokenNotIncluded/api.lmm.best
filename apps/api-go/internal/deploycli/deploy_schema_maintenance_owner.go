@@ -198,16 +198,20 @@ func (f *productionSchemaMaintenanceFence) Check(ctx context.Context) error {
 // new recovery capsules qualified for the resulting catalog. It never accepts
 // an ordinary transaction terminal phase, an expiry or a caller's approval.
 func (f *productionSchemaMaintenanceFence) Release(ctx context.Context) error {
-	if err := f.Check(ctx); err != nil {
+	if err := f.CheckPhysical(ctx); err != nil {
 		return err
 	}
+	// The recovery callback itself freshly proves both stopped origins, their
+	// closed admission and new loaded post-catalog capsules. Repeating the same
+	// full signature/provider/database qualification via CheckStoppedOrigins
+	// would add no authority while substantially extending the closed window.
 	if err := f.authority.CheckRecoveryOrigins(ctx); err != nil {
 		return err
 	}
 	if err := f.lease.checkSchemaMaintenanceRecoveryBusiness(ctx); err != nil {
 		return err
 	}
-	if err := f.Check(ctx); err != nil {
+	if err := f.CheckPhysical(ctx); err != nil {
 		return err
 	}
 	if err := f.lease.ReleaseOwner(ctx); err != nil {
