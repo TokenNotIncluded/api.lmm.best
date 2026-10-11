@@ -275,7 +275,7 @@ func TestSchemaMaintenanceBackupActualRestoreWithRealTools(t *testing.T) {
 	if _, e := decodeSchemaMaintenanceBackupSource(bytes.TrimSpace(sql(query))); e == nil {
 		t.Fatal("unsupported custom type silently qualified")
 	}
-	sql("DROP TYPE app.unsupported_enum; CREATE TABLE app.options(key text PRIMARY KEY,value text); INSERT INTO app.options VALUES('BusinessOption','unchanged');")
+	sql("DROP TYPE app.unsupported_enum; CREATE TABLE app.options(key text PRIMARY KEY,value text); INSERT INTO app.options VALUES('BusinessOption','unchanged'); CREATE TABLE app.referral_rewards(id bigint PRIMARY KEY,top_up_id bigint NOT NULL); INSERT INTO app.referral_rewards VALUES(1,1);")
 	projectionBefore, e := decodeSchemaMaintenanceBackupSource(bytes.TrimSpace(sql(query)))
 	if e != nil {
 		t.Fatal(e)
@@ -296,7 +296,7 @@ func TestSchemaMaintenanceBackupActualRestoreWithRealTools(t *testing.T) {
 	if e != nil {
 		t.Fatal(e)
 	}
-	sql("ALTER TABLE app.credits ADD COLUMN additive text DEFAULT 'new'; CREATE TABLE app.new_feature(id bigint); INSERT INTO app.options VALUES(" + schemaMaintenanceBackupLiteral(ownerKey) + "," + schemaMaintenanceBackupLiteral(string(ownerBytes)) + ");")
+	sql("ALTER TABLE app.credits ADD COLUMN additive text DEFAULT 'new'; ALTER TABLE app.referral_rewards ALTER COLUMN top_up_id DROP NOT NULL; CREATE TABLE app.new_feature(id bigint); INSERT INTO app.options VALUES(" + schemaMaintenanceBackupLiteral(ownerKey) + "," + schemaMaintenanceBackupLiteral(string(ownerBytes)) + ");")
 	project := func() productionSchemaMaintenanceBackupSource {
 		t.Helper()
 		p, e := decodeSchemaMaintenanceBackupProjectedSource(bytes.TrimSpace(sql(projectedQuery)))
@@ -330,4 +330,11 @@ func TestSchemaMaintenanceBackupActualRestoreWithRealTools(t *testing.T) {
 		t.Fatal("old index drop and recreation accepted")
 	}
 	t.Logf("actual source snapshot bytes=%d; tables=%d", len(originalBytes), len(projectionBefore.Tables))
+	sql(`DO $f$ BEGIN FOR n IN 1..190 LOOP EXECUTE format('CREATE TABLE app.scale_%s(id bigint PRIMARY KEY,payload text,stamp timestamptz DEFAULT now())',lpad(n::text,3,'0')); END LOOP; END $f$;`)
+	scaleBytes := bytes.TrimSpace(sql(query))
+	scale, e := decodeSchemaMaintenanceBackupSource(scaleBytes)
+	if e != nil || len(scale.Tables) != 194 {
+		t.Fatalf("194-table snapshot bounded inventory: tables=%d err=%v", len(scale.Tables), e)
+	}
+	t.Logf("actual synthetic 194-table source bytes=%d; bounded source=%d set=%d", len(scaleBytes), schemaMaintenanceBackupSourceMaxBytes, schemaMaintenanceBackupSetMaxBytes)
 }
