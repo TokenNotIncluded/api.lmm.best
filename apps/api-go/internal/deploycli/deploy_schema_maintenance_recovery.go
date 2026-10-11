@@ -82,8 +82,12 @@ func (h *productionSchemaMaintenanceHost) recoveryCapsule(ctx context.Context, p
 		return c, origin, errors.New("schema maintenance recovery changed the original local retained capsule")
 	}
 	for _, ref := range []productionReleaseFilePlan{binding.WorkerResult, binding.Outcome} {
-		raw, err := h.runtime.readExistingSchemaSealedFile(ref.Path, true)
-		if err != nil || len(raw) > 8<<20 || startupContentSHA256(raw) != ref.SHA256 {
+		limit := int64(1 << 20)
+		if ref.Path == binding.Outcome.Path {
+			limit = schemaMaintenanceOutcomeMaxBytes
+		}
+		raw, err := h.runtime.readExistingSchemaSealedFileBounded(ref.Path, true, limit)
+		if err != nil || startupContentSHA256(raw) != ref.SHA256 {
 			return c, origin, errors.New("schema maintenance recovery execution evidence changed or disappeared")
 		}
 	}
@@ -93,6 +97,10 @@ func (h *productionSchemaMaintenanceHost) recoveryCapsule(ctx context.Context, p
 	}
 	if _, err := h.runtime.readSchemaMaintenanceWorkerResult(h.binding.Workspace, owner, binding.OwnerSHA256); err != nil {
 		return c, origin, err
+	}
+	outcome, outcomeSHA, err := h.runtime.readSchemaMaintenanceOutcome(plan, preSHA, binding.OwnerSHA256)
+	if err != nil || outcomeSHA != binding.Outcome.SHA256 || outcome.PostSchema != binding.PostSchema || outcome.WorkerResult != binding.WorkerResult {
+		return c, origin, errors.New("schema maintenance recovery does not match its actual native schema outcome")
 	}
 	c, err = h.runtime.loadMerchantStoreCapsule(origin.Capsule.Path, origin.Capsule.SHA256)
 	if err != nil {
