@@ -60,6 +60,7 @@ import {
 import { useMarketMoneyDraft } from './money'
 import { MarketOAuthConnection } from './oauth-connection'
 import { useMarketTranslation as useTranslation } from './provider-i18n'
+import { MarketNextStep } from './setup-guide'
 
 type IssuedToken = { token: string; record: MarketToken }
 type ClientAccess = {
@@ -543,6 +544,15 @@ function ConnectionWorkspace({
             <summary className='cursor-pointer py-2 text-sm font-medium'>
               {t('Manual connection token')}
             </summary>
+            <MarketNextStep>
+              {issued
+                ? t(
+                    'Copy the configuration into your MCP client, then choose tools for this same Client ID.'
+                  )
+                : t(
+                    'Create a connection token, add the configuration to your MCP client, then choose and authorize tools.'
+                  )}
+            </MarketNextStep>
             <form
               onSubmit={(event) => {
                 event.preventDefault()
