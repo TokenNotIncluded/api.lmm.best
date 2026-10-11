@@ -18,6 +18,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/constant"
 	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 // Management responses retain review notes and IDs, without credentials. The
@@ -40,11 +41,14 @@ func publicRelayManagementViews(items []PublicRelayContribution) ([]PublicRelayM
 }
 
 // A surviving contribution ID alone does not prove that a channel can route.
+// Quote the reserved group column with this connection's dialect. Isolated
+// callers need not have initialized the process-wide legacy column names.
 func publicRelayVisibleQuery(db *gorm.DB, group string) *gorm.DB {
 	channels := db.Session(&gorm.Session{NewDB: true}).Model(&Channel{}).
 		Select("channels.id").
 		Joins("JOIN abilities ON abilities.channel_id = channels.id").
-		Where("channels.status = ? AND channels.type <> ? AND abilities.enabled = ? AND abilities."+commonGroupCol+" = ?", common.ChannelStatusEnabled, constant.ChannelTypeOpenHuman, true, group)
+		Where("channels.status = ? AND channels.type <> ? AND abilities.enabled = ?", common.ChannelStatusEnabled, constant.ChannelTypeOpenHuman, true).
+		Where(clause.Eq{Column: clause.Column{Table: "abilities", Name: "group"}, Value: group})
 	return db.Where(map[string]interface{}{"status": PublicRelayApproved, "group": group}).Where("channel_id IN (?)", channels)
 }
 
