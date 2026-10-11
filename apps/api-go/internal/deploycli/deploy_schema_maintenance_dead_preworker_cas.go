@@ -106,6 +106,9 @@ func (lease *productionMerchantStoreFence) recoverSchemaMaintenanceDeadPreWorker
 	if err := guard(ctx); err != nil {
 		return err
 	}
+	if err := checkSchemaMaintenanceDeadPreWorkerClients(ctx, tx, owner.BackendPID); err != nil {
+		return err
+	}
 	if err := tx.Commit(ctx); err != nil {
 		return errSchemaMaintenanceDeadCommitUncertain
 	}
@@ -128,13 +131,8 @@ func checkSchemaMaintenanceDeadPreWorkerTransaction(ctx context.Context, tx pgx.
 	if _, err := tx.Exec(ctx, "SET LOCAL search_path TO pg_catalog"); err != nil {
 		return errors.New("dead-preworker catalog path is unavailable")
 	}
-	if _, err := tx.Exec(ctx, "SELECT pg_catalog.pg_stat_clear_snapshot()"); err != nil {
-		return errors.New("dead-preworker client visibility is unavailable")
-	}
-	var others int
-	var originalBackendExists bool
-	if tx.QueryRow(ctx, `SELECT (SELECT count(*)::int FROM pg_catalog.pg_stat_activity WHERE datid=(SELECT oid FROM pg_catalog.pg_database WHERE datname=pg_catalog.current_database()) AND (backend_type='client backend' OR backend_type IS NULL) AND pid<>pg_catalog.pg_backend_pid()), EXISTS(SELECT 1 FROM pg_catalog.pg_stat_activity WHERE pid=$1)`, originalOwner.BackendPID).Scan(&others, &originalBackendExists) != nil || others != 0 || originalOwner.BackendPID > 1 && originalBackendExists {
-		return errors.New("dead-preworker original backend is live/reused or another client is present")
+	if err := checkSchemaMaintenanceDeadPreWorkerClients(ctx, tx, originalOwner.BackendPID); err != nil {
+		return err
 	}
 	catalogQuery := strings.TrimSuffix(strings.TrimPrefix(existingSchemaMetadataQuery(expected.Schema), "BEGIN READ ONLY;\nSET LOCAL search_path TO pg_catalog;\n"), "\nROLLBACK;")
 	var raw []byte
@@ -158,6 +156,20 @@ func checkSchemaMaintenanceDeadPreWorkerTransaction(ctx context.Context, tx pgx.
 	}
 	if mode != schemaMaintenanceDeadPreWorkerExactOwner || count != 1 || key == nil || value == nil || *key != merchantStoreFenceOwnerKey(originalOwner) || !bytes.Equal([]byte(*value), ownerRaw) {
 		return errors.New("dead-preworker expected owner differs from the sole exact canonical row")
+	}
+	return nil
+}
+
+// Refresh after catalog/owner inspection as well as before it. Restricted roles
+// see some client rows with a NULL backend_type; those rows must still count.
+func checkSchemaMaintenanceDeadPreWorkerClients(ctx context.Context, tx pgx.Tx, originalPID int32) error {
+	if _, err := tx.Exec(ctx, "SELECT pg_catalog.pg_stat_clear_snapshot()"); err != nil {
+		return errors.New("dead-preworker client visibility is unavailable")
+	}
+	var others int
+	var originalExists bool
+	if tx.QueryRow(ctx, `SELECT (SELECT count(*)::int FROM pg_catalog.pg_stat_activity WHERE datid=(SELECT oid FROM pg_catalog.pg_database WHERE datname=pg_catalog.current_database()) AND (backend_type='client backend' OR backend_type IS NULL) AND pid<>pg_catalog.pg_backend_pid()), EXISTS(SELECT 1 FROM pg_catalog.pg_stat_activity WHERE pid=$1)`, originalPID).Scan(&others, &originalExists) != nil || others != 0 || originalPID > 1 && originalExists {
+		return errors.New("dead-preworker original backend is live/reused or another client is present")
 	}
 	return nil
 }
