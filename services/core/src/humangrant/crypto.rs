@@ -137,21 +137,92 @@ mod tests {
     fn public_signature_vector_and_mutations() {
         let body = br#"{"client_id":"example-cli","target_service":"notes","purpose":"Read a note","requested_permissions":[{"action":"notes.read","resource":"alice-note"}],"expected_human_id":"alice"}"#;
         let mut headers = HeaderMap::new();
-        for (name,value) in [
-          ("content-type","application/json"),
-          ("content-digest","sha-256=:jN6odj5Tli9ZfoLdtLxtE/sUNtMKAKM2V7xq8/qri5Y=:"),
-          ("x-hg-key","11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"),
-          ("authorization","HumanGrant anonymous"),
-          ("signature-input",r#"hg=("@method" "@target-uri" "content-digest" "content-type" "x-hg-key" "authorization");created=1700000000;expires=1700000060;nonce="AAECAwQFBgcICQoLDA0ODxAREhMUFRYX";keyid="ed25519:If4x36FUomFia_hUBG_SJxt77UtqvkWqWId-9H-XIbk";alg="ed25519";tag="humangrant-0.1""#),
-          ("signature","hg=:jmjuzgV58zQY0A8N+T9sss24Jwa8Kah5bvs2VSdWA43TScypSfoPkzlERC6XLBOvx8+D+ZqQ0WOVKwS2/Gd3AA==:")
-        ] { headers.insert(name, value.parse().unwrap()); }
+        for (name, value) in [
+            ("content-type", "application/json"),
+            (
+                "content-digest",
+                "sha-256=:jN6odj5Tli9ZfoLdtLxtE/sUNtMKAKM2V7xq8/qri5Y=:",
+            ),
+            ("x-hg-key", "11qYAYKxCrfVS_7TyWQHOg7hcvPapiMlrwIaaPcHURo"),
+            ("authorization", "HumanGrant anonymous"),
+            (
+                "signature-input",
+                r#"hg=("@method" "@target-uri" "content-digest" "content-type" "x-hg-key" "authorization");created=1700000000;expires=1700000060;nonce="AAECAwQFBgcICQoLDA0ODxAREhMUFRYX";keyid="ed25519:If4x36FUomFia_hUBG_SJxt77UtqvkWqWId-9H-XIbk";alg="ed25519";tag="humangrant-0.1""#,
+            ),
+            (
+                "signature",
+                "hg=:jmjuzgV58zQY0A8N+T9sss24Jwa8Kah5bvs2VSdWA43TScypSfoPkzlERC6XLBOvx8+D+ZqQ0WOVKwS2/Gd3AA==:",
+            ),
+        ] {
+            headers.insert(name, value.parse().unwrap());
+        }
         let path: Uri = "/v1/requests".parse().unwrap();
-        assert!(verify(&headers,&Method::POST,&path,body,"https://auth.example.test",1700000001).is_ok());
-        assert!(verify(&headers,&Method::GET,&path,body,"https://auth.example.test",1700000001).is_err());
-        assert!(verify(&headers,&Method::POST,&path,body,"https://evil.example.test",1700000001).is_err());
-        assert!(verify(&headers,&Method::POST,&path,body,"https://auth.example.test",1700000070).is_err());
-        assert!(verify(&headers,&Method::POST,&path,b"{}","https://auth.example.test",1700000001).is_err());
+        assert!(
+            verify(
+                &headers,
+                &Method::POST,
+                &path,
+                body,
+                "https://auth.example.test",
+                1700000001
+            )
+            .is_ok()
+        );
+        assert!(
+            verify(
+                &headers,
+                &Method::GET,
+                &path,
+                body,
+                "https://auth.example.test",
+                1700000001
+            )
+            .is_err()
+        );
+        assert!(
+            verify(
+                &headers,
+                &Method::POST,
+                &path,
+                body,
+                "https://evil.example.test",
+                1700000001
+            )
+            .is_err()
+        );
+        assert!(
+            verify(
+                &headers,
+                &Method::POST,
+                &path,
+                body,
+                "https://auth.example.test",
+                1700000070
+            )
+            .is_err()
+        );
+        assert!(
+            verify(
+                &headers,
+                &Method::POST,
+                &path,
+                b"{}",
+                "https://auth.example.test",
+                1700000001
+            )
+            .is_err()
+        );
         headers.append("signature", "hg=:invalid:".parse().unwrap());
-        assert!(verify(&headers,&Method::POST,&path,body,"https://auth.example.test",1700000001).is_err());
+        assert!(
+            verify(
+                &headers,
+                &Method::POST,
+                &path,
+                body,
+                "https://auth.example.test",
+                1700000001
+            )
+            .is_err()
+        );
     }
 }
