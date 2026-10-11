@@ -289,6 +289,10 @@ func (h *productionSchemaMaintenanceHost) checkRecoveryReadyAuthority(ctx contex
 	if err := h.validate(ctx); err != nil {
 		return nil, err
 	}
+	guardian, err := h.runtime.readExistingSchemaSealedFile(h.binding.GuardianBindingPath, true)
+	if err != nil || startupContentSHA256(guardian) != h.binding.GuardianBindingSHA256 {
+		return nil, errors.New("schema maintenance finished observation changed its original guardian binding")
+	}
 	bindingRaw, err := canonicalProductionSchemaMaintenanceRecoveryBinding(binding, plan, preSHA, h.runtime.paths)
 	if err != nil {
 		return nil, err
