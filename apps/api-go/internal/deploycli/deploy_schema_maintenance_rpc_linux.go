@@ -24,6 +24,19 @@ const schemaMaintenanceRPCMaxBytes = 64 << 10
 const schemaMaintenanceRPCIOTimeout = 10 * time.Second
 const schemaMaintenanceRPCMaxRequests = 4096
 
+// These are reply bounds, not action authority. The request allowlist and its
+// fixed typed dispatcher are still checked before a handler can run.
+func schemaMaintenanceRPCReplyLimit(action string) int {
+	switch action {
+	case "backup-export":
+		return (16 << 20) + 4096
+	case "capture-backup-source":
+		return (8 << 20) + 4096
+	default:
+		return schemaMaintenanceRPCMaxBytes
+	}
+}
+
 func schemaMaintenanceRPCSelfBinding(transitionID, planSHA256, expectedEngineSHA256 string) (schemaMaintenanceRPCBinding, error) {
 	binding := schemaMaintenanceRPCBinding{TransitionID: transitionID, PlanSHA256: planSHA256,
 		DaemonPID: os.Getpid(), DaemonExeSHA256: expectedEngineSHA256}
@@ -166,7 +179,10 @@ func schemaMaintenanceRPCInvocation(pid int) (string, error) {
 	return invocation, nil
 }
 
-func schemaMaintenanceRPCRead(connection *net.UnixConn, timeout time.Duration) ([]byte, error) {
+func schemaMaintenanceRPCRead(connection *net.UnixConn, timeout time.Duration, limit int) ([]byte, error) {
+	if limit != schemaMaintenanceRPCMaxBytes && limit != schemaMaintenanceRPCReplyLimit("backup-export") && limit != schemaMaintenanceRPCReplyLimit("capture-backup-source") {
+		return nil, errors.New("schema maintenance RPC message limit is not a fixed protocol bound")
+	}
 	if err := connection.SetReadDeadline(time.Now().Add(timeout)); err != nil {
 		return nil, err
 	}
@@ -196,14 +212,14 @@ func schemaMaintenanceRPCRead(connection *net.UnixConn, timeout time.Duration) (
 			return nil, err
 		}
 		body = append(body, data[:n]...)
-		if len(body) > schemaMaintenanceRPCMaxBytes {
+		if len(body) > limit {
 			return nil, errors.New("schema maintenance RPC message is oversized")
 		}
 		if n == 0 || errors.Is(err, io.EOF) {
 			break
 		}
 	}
-	if len(body) > schemaMaintenanceRPCMaxBytes || len(body) < 2 || body[len(body)-1] != '\n' {
+	if len(body) > limit || len(body) < 2 || body[len(body)-1] != '\n' {
 		return nil, errors.New("schema maintenance RPC message is incomplete or oversized")
 	}
 	return body[:len(body)-1], nil
@@ -288,7 +304,7 @@ func schemaMaintenanceRPCJSONValue(decoder *json.Decoder) (any, error) {
 		}
 		return object, nil
 	case '[':
-		var array []any
+		array := make([]any, 0)
 		for decoder.More() {
 			value, err := schemaMaintenanceRPCJSONValue(decoder)
 			if err != nil {
@@ -306,11 +322,26 @@ func schemaMaintenanceRPCJSONValue(decoder *json.Decoder) (any, error) {
 }
 
 func schemaMaintenanceRPCWrite(connection *net.UnixConn, value any) error {
+	limit := schemaMaintenanceRPCMaxBytes
+	// Requests can never select a larger limit, including requests for either
+	// large-result action. Only a typed, correlated reply gets that action's cap.
+	switch reply := value.(type) {
+	case schemaMaintenanceRPCReply:
+		limit = schemaMaintenanceRPCReplyLimit(reply.Action)
+		if len(reply.Result) > limit {
+			return errors.New("schema maintenance RPC reply is oversized")
+		}
+	case *schemaMaintenanceRPCReply:
+		limit = schemaMaintenanceRPCReplyLimit(reply.Action)
+		if len(reply.Result) > limit {
+			return errors.New("schema maintenance RPC reply is oversized")
+		}
+	}
 	body, err := schemaMaintenanceRPCMarshal(value)
 	if err != nil {
 		return err
 	}
-	if len(body)+1 > schemaMaintenanceRPCMaxBytes {
+	if len(body)+1 > limit {
 		return errors.New("schema maintenance RPC reply is oversized")
 	}
 	if err := connection.SetWriteDeadline(time.Now().Add(schemaMaintenanceRPCIOTimeout)); err != nil {
@@ -331,7 +362,7 @@ func schemaMaintenanceRPCHandle(ctx context.Context, connection *net.UnixConn, p
 	if err != nil || !os.SameFile(current, socketInfo) || schemaMaintenanceRPCProcess(binding) != nil {
 		return
 	}
-	body, err := schemaMaintenanceRPCRead(connection, schemaMaintenanceRPCIOTimeout)
+	body, err := schemaMaintenanceRPCRead(connection, schemaMaintenanceRPCIOTimeout, schemaMaintenanceRPCMaxBytes)
 	if err != nil {
 		return
 	}
@@ -362,7 +393,9 @@ func schemaMaintenanceRPCHandle(ctx context.Context, connection *net.UnixConn, p
 	reply.Protocol, reply.Binding, reply.Action, reply.Nonce = schemaMaintenanceRPCProtocol, binding, request.Action, request.Nonce
 	reply.OK, reply.Error = handlerErr == nil, ""
 	if handlerErr != nil {
-		reply.Result, reply.Error = nil, handlerErr.Error()
+		// The exact typed envelope rejects null collections. An empty object
+		// carries no result authority while preserving the handler's error.
+		reply.Result, reply.Error = json.RawMessage(`{}`), handlerErr.Error()
 	}
 	// A lost response remains an unknown result: never repeat the handler here.
 	_ = schemaMaintenanceRPCWrite(connection, reply)
@@ -425,14 +458,14 @@ func callSchemaMaintenanceRPC(ctx context.Context, workspace string, binding sch
 	// The peer may be executing worker for minutes. Its read/write calls stay
 	// bounded, while this reply wait follows the caller's bounded action context.
 	deadline, _ := ctx.Deadline()
-	body, err := schemaMaintenanceRPCRead(stream, time.Until(deadline))
+	body, err := schemaMaintenanceRPCRead(stream, time.Until(deadline), schemaMaintenanceRPCReplyLimit(action))
 	if err != nil {
 		return unknown(err)
 	}
 	if err := schemaMaintenanceRPCDecode(body, &reply); err != nil {
 		return unknown(err)
 	}
-	if reply.Protocol != request.Protocol || reply.Binding != request.Binding || reply.Action != request.Action || reply.Nonce != request.Nonce || reply.OK && reply.Error != "" || !reply.OK && (reply.Error == "" || len(reply.Result) != 0 && string(reply.Result) != "null") {
+	if reply.Protocol != request.Protocol || reply.Binding != request.Binding || reply.Action != request.Action || reply.Nonce != request.Nonce || reply.OK && reply.Error != "" || !reply.OK && (reply.Error == "" || string(reply.Result) != "{}") {
 		return unknown(errors.New("schema maintenance RPC reply correlation or result differs"))
 	}
 	if _, err := schemaMaintenanceGuardianPeer(stream, 0, binding.DaemonPID); err != nil || schemaMaintenanceRPCProcess(binding) != nil {
