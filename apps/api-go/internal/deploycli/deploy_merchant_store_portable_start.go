@@ -45,7 +45,7 @@ func (runtime *productionRuntime) portableOwner(ctx context.Context, c productio
 		return owner, nil, merchantStorePortableProofError{stage: "immutable-owner-binding"}
 	}
 	actual, err := runtime.billingUnitState(ctx, owner.HolderUnit)
-	if err != nil || actual["ActiveState"] != "active" || actual["SubState"] != "running" || actual["Restart"] != "no" || actual["MainPID"] != strconv.Itoa(owner.HolderPID) || actual["ExecMainPID"] != strconv.Itoa(owner.HolderPID) || actual["InvocationID"] != owner.HolderInvocationID || sha256MustEqual(filepath.Join("/proc", strconv.Itoa(owner.HolderPID), "exe"), owner.ProviderSHA256) != nil {
+	if err != nil || actual["ActiveState"] != "active" || actual["SubState"] != "running" || actual["Restart"] != "no" || actual["MainPID"] != strconv.Itoa(owner.HolderPID) || actual["ExecMainPID"] != strconv.Itoa(owner.HolderPID) || actual["InvocationID"] != owner.HolderInvocationID || sha256MustEqual(filepath.Join("/proc", strconv.Itoa(owner.HolderPID), "exe"), c.deploymentSHA256()) != nil {
 		return owner, nil, merchantStorePortableProofError{stage: "holder-generation"}
 	}
 	return owner, body, nil
@@ -344,7 +344,7 @@ func (runtime *productionRuntime) holdMerchantStorePortableFence(ctx context.Con
 		}
 	}
 	claim := func(ctx context.Context, guard func(context.Context) error) error {
-		return lease.claimOwner(ctx, owner, guard)
+		return lease.claimOwner(ctx, owner, c.deploymentSHA256(), guard)
 	}
 	if startInvocation != "" {
 		guard := func(ctx context.Context) error {
@@ -352,7 +352,7 @@ func (runtime *productionRuntime) holdMerchantStorePortableFence(ctx context.Con
 		}
 		err = merchantStoreGuardedStartupClaim(ctx, guard, claim)
 	} else {
-		err = lease.ClaimOwner(ctx, owner)
+		err = lease.claimOwner(ctx, owner, c.deploymentSHA256(), nil)
 	}
 	if err != nil {
 		return err

@@ -90,7 +90,7 @@ func (runtime *productionRuntime) requestMerchantStoreFence(ctx context.Context,
 	if hasher == nil {
 		hasher = func(pid int) (string, error) { return sha256File(filepath.Join("/proc", strconv.Itoa(pid), "exe")) }
 	}
-	if digest, err := hasher(owner.HolderPID); err != nil || digest != owner.ProviderSHA256 {
+	if digest, err := hasher(owner.HolderPID); err != nil || digest != manifest.deploymentSHA256() {
 		return errors.New("merchant deployment holder executable differs from the qualified signed provider")
 	}
 	socket, err := runtime.merchantStoreSocketPath(workspace.root, owner, false)
@@ -259,7 +259,7 @@ func (runtime *productionRuntime) holdMerchantStoreFence(ctx context.Context, wo
 		return errors.New("merchant deployment holder requires a real systemd invocation")
 	}
 	digest, err := sha256File(filepath.Join("/proc", "self", "exe"))
-	if err != nil || digest != manifest.MerchantStoreWriter.Candidate.PayloadSHA256 {
+	if err != nil || digest != manifest.deploymentSHA256() {
 		return errors.New("merchant deployment holder is not the signed candidate payload")
 	}
 	host, err := runtime.hostname()
@@ -308,7 +308,7 @@ func (runtime *productionRuntime) holdMerchantStoreFence(ctx context.Context, wo
 		return errors.New("merchant deployment holder nonce is unavailable")
 	}
 	owner := productionMerchantStoreFenceOwner{Format: 1, State: "ACTIVE", DeploymentID: workspace.id, Host: host,
-		PlanSHA256: planSHA, ContractSHA256: merchantStoreFenceContractSHA(manifest.MerchantStoreWriter), ProviderSHA256: digest,
+		PlanSHA256: planSHA, ContractSHA256: merchantStoreFenceContractSHA(manifest.MerchantStoreWriter), ProviderSHA256: manifest.MerchantStoreWriter.Candidate.PayloadSHA256,
 		Nonce: hex.EncodeToString(nonce), HolderPID: os.Getpid(), HolderUnit: merchantStoreFenceUnit(workspace.id), HolderInvocationID: invocation, BackendPID: lease.backendPID,
 		SystemIdentifier: manifest.MerchantStoreWriter.SystemIdentifier, Database: manifest.MerchantStoreWriter.Database, DatabaseOID: manifest.MerchantStoreWriter.DatabaseOID,
 		Schema: manifest.MerchantStoreWriter.Schema, SchemaOID: manifest.MerchantStoreWriter.SchemaOID, Role: manifest.MerchantStoreWriter.Role}
@@ -326,7 +326,7 @@ func (runtime *productionRuntime) holdMerchantStoreFence(ctx context.Context, wo
 			return errors.New("merchant deployment holder state already exists; explicit recovery review is required")
 		}
 	}
-	if err := lease.ClaimOwner(ctx, owner); err != nil {
+	if err := lease.claimOwner(ctx, owner, manifest.deploymentSHA256(), nil); err != nil {
 		return err
 	}
 	ownerJSON, _ := canonicalMerchantStoreFenceOwner(owner)
