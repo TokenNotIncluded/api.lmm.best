@@ -107,6 +107,40 @@ def peer_uid(connection):
     return struct.unpack('3i', connection.getsockopt(socket.SOL_SOCKET, socket.SO_PEERCRED, 12))[1]
 
 
+def validate_request(connection, request, operation, path, expected, value, uid):
+    fields = {'protocol', 'operation', 'binding_path', 'binding_sha256',
+              'transition_id', 'plan_sha256'}
+    if (set(request) != fields or peer_uid(connection) != uid
+            or request['protocol'] != PROTOCOL or request['operation'] != operation
+            or request['binding_path'] != str(path) or request['binding_sha256'] != expected
+            or request['transition_id'] != value['transition_id']
+            or request['plan_sha256'] != value['plan_sha256']
+            or binding(path, expected, uid) != value):
+        raise RuntimeError('schema guardian lease binding differs')
+
+
+def validate_lock_parent(name, lock_path, info, uid):
+    # The registered native lock is in the root-owned sticky /run/lock.
+    # Only that exact path gets the same narrow exception as the Go receiver.
+    native_sticky = (name == 'native' and str(lock_path) == LOCKS['native']
+                     and info.st_uid == 0 and stat.S_IMODE(info.st_mode) == 0o1777)
+    if (not stat.S_ISDIR(info.st_mode) or info.st_uid not in (0, uid)
+            or info.st_mode & 0o022 and not native_sticky):
+        raise RuntimeError('schema lock parent is unsafe')
+
+
+def observed_locks(descriptors, paths, uid):
+    locks = []
+    for name, descriptor in descriptors.items():
+        validate_lock_parent(name, paths[name], Path(paths[name]).parent.lstat(), uid)
+        info, current = os.fstat(descriptor), os.stat(paths[name], follow_symlinks=False)
+        if (not stat.S_ISREG(current.st_mode) or current.st_uid != uid or current.st_nlink != 1
+                or (info.st_dev, info.st_ino) != (current.st_dev, current.st_ino)):
+            raise RuntimeError('schema guardian lock path changed')
+        locks.append({'path': paths[name], 'device': info.st_dev, 'inode': info.st_ino, 'held': True})
+    return locks
+
+
 def serve(path, expected, uid=0, lock_paths=None, observed_host=None):
     value = binding(path, expected, uid)
     if value['host'] != (observed_host or socket.gethostname()):
@@ -120,8 +154,7 @@ def serve(path, expected, uid=0, lock_paths=None, observed_host=None):
         for name, lock_path in paths.items():
             lock = Path(lock_path)
             info = lock.parent.lstat()
-            if not stat.S_ISDIR(info.st_mode) or info.st_uid not in (0, uid) or info.st_mode & 0o022:
-                raise RuntimeError('schema lock parent is unsafe')
+            validate_lock_parent(name, lock_path, info, uid)
             descriptor = os.open(lock, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o600)
             descriptors[name] = descriptor
             info, current = os.fstat(descriptor), lock.lstat()
@@ -143,30 +176,31 @@ def serve(path, expected, uid=0, lock_paths=None, observed_host=None):
                 try:
                     connection.settimeout(10)
                     request = receive_request(connection)
-                    fields = {'protocol', 'operation', 'binding_path', 'binding_sha256',
-                              'transition_id', 'plan_sha256'}
-                    if (set(request) != fields or peer_uid(connection) != uid
-                            or request['protocol'] != PROTOCOL or request['operation'] != 'adopt-all'
-                            or request['binding_path'] != str(path) or request['binding_sha256'] != expected
-                            or request['transition_id'] != value['transition_id']
-                            or request['plan_sha256'] != value['plan_sha256']
-                            or binding(path, expected, uid) != value):
-                        raise RuntimeError('schema guardian lease binding differs')
-                    locks = []
-                    for name, descriptor in descriptors.items():
-                        info, current = os.fstat(descriptor), os.stat(paths[name], follow_symlinks=False)
-                        if (not stat.S_ISREG(current.st_mode) or current.st_uid != uid or current.st_nlink != 1
-                                or (info.st_dev, info.st_ino) != (current.st_dev, current.st_ino)):
-                            raise RuntimeError('schema guardian lock path changed')
-                        locks.append({'path': paths[name], 'device': info.st_dev, 'inode': info.st_ino, 'held': True})
+                    validate_request(connection, request, 'adopt-all', path, expected, value, uid)
+                    locks = observed_locks(descriptors, paths, uid)
                     reply = {'protocol': PROTOCOL, 'binding_sha256': expected,
                              'transition_id': value['transition_id'], 'plan_sha256': value['plan_sha256'],
                              'guardian_pid': os.getpid(), 'transferred_paths': list(paths.values()), 'locks': locks}
                     connection.sendmsg([json.dumps(reply).encode() + b'\n'],
                                        [(socket.SOL_SOCKET, socket.SCM_RIGHTS, array.array('i', descriptors.values()))])
                     connection.settimeout(None)
-                    while connection.recv(1):
-                        raise RuntimeError('schema guardian lease must only be closed')
+                    # Only this adopted connection may commit terminal release.
+                    # Disconnects and invalid/partial requests leave all original
+                    # descriptors held. There is no unlock or second adoption.
+                    terminal = receive_request(connection)
+                    validate_request(connection, terminal, 'finish-all', path, expected, value, uid)
+                    observed_locks(descriptors, paths, uid)
+                    acknowledgment = {'protocol': PROTOCOL, 'operation': 'finish-all',
+                                      'binding_path': str(path), 'binding_sha256': expected,
+                                      'transition_id': value['transition_id'],
+                                      'plan_sha256': value['plan_sha256'],
+                                      'guardian_pid': os.getpid(), 'accepted': True,
+                                      'closing_paths': list(paths.values())}
+                    connection.sendall(json.dumps(acknowledgment).encode() + b'\n')
+                    # SCM_RIGHTS clones still hold each OFD until the receiver
+                    # validates this acknowledgment and closes its descriptors.
+                    # Closing originals never issues LOCK_UN on shared OFDs.
+                    return
                 except (OSError, RuntimeError, ValueError, KeyError, TypeError):
                     continue
     finally:

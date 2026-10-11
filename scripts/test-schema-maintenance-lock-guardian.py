@@ -8,9 +8,11 @@ import multiprocessing
 import os
 from pathlib import Path
 import socket
+import stat
 import tempfile
 import time
 import unittest
+from types import SimpleNamespace
 
 
 spec = importlib.util.spec_from_file_location('schema_guardian', Path(__file__).with_name('schema-maintenance-lock-guardian.py'))
@@ -19,6 +21,18 @@ spec.loader.exec_module(guardian)
 
 
 class SchemaGuardianTests(unittest.TestCase):
+    def test_sticky_parent_exception_is_only_exact_root_native_lock(self):
+        trusted = SimpleNamespace(st_uid=0, st_mode=stat.S_IFDIR | 0o1777)
+        guardian.validate_lock_parent('native', guardian.LOCKS['native'], trusted, 0)
+        for name, path, profile in (
+                ('native', '/tmp/native.lock', trusted),
+                ('systemd', guardian.LOCKS['systemd'], trusted),
+                ('frontend', guardian.LOCKS['frontend'], trusted),
+                ('native', guardian.LOCKS['native'], SimpleNamespace(st_uid=0, st_mode=stat.S_IFDIR | 0o777)),
+                ('native', guardian.LOCKS['native'], SimpleNamespace(st_uid=12345, st_mode=stat.S_IFDIR | 0o1777))):
+            with self.subTest(name=name, path=path, profile=profile), self.assertRaises(RuntimeError):
+                guardian.validate_lock_parent(name, path, profile, 0)
+
     def private(self, path, value):
         path.write_bytes(value if isinstance(value, bytes) else json.dumps(value).encode())
         path.chmod(0o600)
@@ -86,6 +100,115 @@ class SchemaGuardianTests(unittest.TestCase):
                 fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
         finally:
             os.close(descriptor)
+
+    def assert_unlocked(self, path):
+        descriptor = os.open(path, os.O_RDWR)
+        try:
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        finally:
+            os.close(descriptor)
+
+    def finish_request(self, value, binding, expected, **changes):
+        request = {'protocol': guardian.PROTOCOL, 'operation': 'finish-all',
+                   'binding_path': str(binding), 'binding_sha256': expected,
+                   'transition_id': value['transition_id'], 'plan_sha256': value['plan_sha256']}
+        request.update(changes)
+        return request
+
+    def test_terminal_finish_on_adopted_session_releases_only_after_clone_close(self):
+        with self.running() as (_, value, binding, expected, locks, process):
+            connection, _, descriptors, _ = self.adopt(value, binding, expected)
+            try:
+                connection.sendall(json.dumps(self.finish_request(value, binding, expected)).encode() + b'\n')
+                body, ancillary, flags, _ = connection.recvmsg(16384, socket.CMSG_SPACE(12))
+                self.assertEqual([], ancillary)
+                self.assertEqual(0, flags & (socket.MSG_TRUNC | socket.MSG_CTRUNC))
+                self.assertEqual({'protocol': guardian.PROTOCOL, 'operation': 'finish-all',
+                                  'binding_path': str(binding), 'binding_sha256': expected,
+                                  'transition_id': value['transition_id'], 'plan_sha256': value['plan_sha256'],
+                                  'guardian_pid': process.pid, 'accepted': True,
+                                  'closing_paths': list(locks.values())}, json.loads(body))
+                process.join(5)
+                self.assertEqual(0, process.exitcode)
+                self.assertEqual(b'', connection.recv(1))
+                for path in locks.values():
+                    self.assert_locked(path)
+            finally:
+                for descriptor in descriptors:
+                    os.close(descriptor)
+                connection.close()
+            for path in locks.values():
+                self.assert_unlocked(path)
+
+    def test_finish_requires_original_session_and_exact_request(self):
+        invalid = ({'protocol': 'other'}, {'operation': 'adopt-all'},
+                   {'binding_path': '/tmp/other-binding'}, {'binding_sha256': 'a' * 64},
+                   {'transition_id': 'other'}, {'plan_sha256': 'a' * 64}, {'extra': True})
+        for changes in invalid:
+            with self.subTest(changes=changes), self.running() as (_, value, binding, expected, locks, process):
+                connection, _, descriptors, _ = self.adopt(value, binding, expected)
+                try:
+                    connection.sendall(json.dumps(self.finish_request(value, binding, expected, **changes)).encode() + b'\n')
+                    self.assertEqual(b'', connection.recv(16384))
+                    self.assertTrue(process.is_alive())
+                finally:
+                    for descriptor in descriptors:
+                        os.close(descriptor)
+                    connection.close()
+                for path in locks.values():
+                    self.assert_locked(path)
+        with self.running() as (_, value, binding, expected, locks, process):
+            connection, body, descriptors, _ = self.adopt(value, binding, expected, operation='finish-all')
+            try:
+                self.assertEqual(b'', body)
+                self.assertEqual([], descriptors)
+                self.assertTrue(process.is_alive())
+                for path in locks.values():
+                    self.assert_locked(path)
+            finally:
+                connection.close()
+
+    def test_partial_finish_and_disconnect_keep_original_locks(self):
+        for partial in (b'', b'{"operation":"finish-all"', b'{}\n{}\n'):
+            with self.subTest(partial=partial), self.running() as (_, value, binding, expected, locks, process):
+                connection, _, descriptors, _ = self.adopt(value, binding, expected)
+                try:
+                    if partial:
+                        connection.sendall(partial)
+                    connection.shutdown(socket.SHUT_WR)
+                    self.assertEqual(b'', connection.recv(16384))
+                    self.assertTrue(process.is_alive())
+                finally:
+                    for descriptor in descriptors:
+                        os.close(descriptor)
+                    connection.close()
+                for path in locks.values():
+                    self.assert_locked(path)
+
+    def test_finish_rechecks_binding_plan_and_lock_inodes(self):
+        for changed in ('binding', 'plan', 'lock'):
+            with self.subTest(changed=changed), self.running() as (_, value, binding, expected, locks, process):
+                connection, _, descriptors, _ = self.adopt(value, binding, expected)
+                retained = dict(locks)
+                try:
+                    if changed == 'binding':
+                        self.private(binding, dict(value, host='changed'))
+                    elif changed == 'plan':
+                        self.private(Path(value['plan_path']), {'transition_id': 'changed'})
+                    else:
+                        original = Path(locks['native'])
+                        original.rename(original.with_suffix('.original'))
+                        retained['native'] = str(original.with_suffix('.original'))
+                        self.private(original, b'')
+                    connection.sendall(json.dumps(self.finish_request(value, binding, expected)).encode() + b'\n')
+                    self.assertEqual(b'', connection.recv(16384))
+                    self.assertTrue(process.is_alive())
+                finally:
+                    for descriptor in descriptors:
+                        os.close(descriptor)
+                    connection.close()
+                for path in retained.values():
+                    self.assert_locked(path)
 
     def test_real_scm_descriptors_keep_all_three_locks_after_guardian_exit(self):
         with self.running() as (_, value, binding, expected, locks, process):
