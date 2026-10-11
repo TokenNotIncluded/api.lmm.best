@@ -1,62 +1,50 @@
 ---
 name: shadcn-ui
-description: >-
-  Build or review this project's React UI, shadcn components, forms, themes,
-  responsive layouts, and component presets. Read apps/web configuration first
-  and use the installed CLI and project conventions before upstream references.
+description: "Implement React components, forms, themes and responsive layouts in apps/web. Reuse installed components and tokens. Not for backend work or a blanket performance audit."
 ---
 
 # Project UI workflow
 
-## Establish project context
+Start with the affected component and a nearby working example. Reuse the current
+components, tokens and composition APIs. For visual changes, consult
+[frontend design](../../../docs/frontend-design.md). Do not assume Next.js,
+a component base, icon library or alias from an upstream example.
 
-Read [components.json](../../../apps/web/components.json),
-[package.json](../../../apps/web/package.json), and
-[frontend design](../../../docs/frontend-design.md) before changing components.
-The app is in `apps/web`. Do not assume Next.js, a particular component base,
-icon library, or import alias from a generic example.
+## Select the necessary preparation
 
-Install locked dependencies with `just setup` from the repository root when
-needed. Use the installed CLI, not an unreviewed `@latest` version:
+For an existing component edit, work directly; no CLI survey or dependency
+installation is required when the relevant configuration is already known.
+When adding a component, changing its base or using the CLI, read
+[components.json](../../../apps/web/components.json) and
+[package.json](../../../apps/web/package.json). Use the installed CLI:
 
 ```bash
 cd apps/web
 bun run shadcn info --json
 ```
 
-Read its output together with the checked-in configuration. Inspect nearby
-components before adding a dependency, registry, preset, or replacement widget.
-A skill update is not permission to reinstall skills or change the UI foundation.
+Install locked dependencies with `just setup` only when needed. Do not use an
+unreviewed `@latest`, replace the UI foundation, or reinstall skills to fix a widget.
+For changed UI copy, also use [translations](../i18n-translate/SKILL.md).
 
-## Implement and check
+## Verify and finish
 
-1. Reuse the project's components and tokens. Follow the current base library's
-   composition APIs, not a copied example from another library.
-2. For new UI copy, also load the
-   [translation skill](../i18n-translate/SKILL.md).
-3. Check keyboard focus, accessible labels, loading, empty and error states,
-   light/dark themes, and mobile layout. Do not generate a mock screenshot and
-   present it as a browser test.
-4. Run relevant tests and `bun run typecheck` from `apps/web`. For bundle changes,
-   also run `bun run build` and `bun run bundle:check`. Record actual browser
-   checks and any missing visual evidence separately.
+Check the affected interaction, keyboard focus, accessible labels and relevant
+loading/error states. Review affected light/dark and mobile layouts. For changed
+TypeScript, run its tests and `just typecheck-web` from the repository root.
+Format/lint changed files. Build with `just build-web` when imports, dependencies
+or bundle behavior change, not for every copy or class-name edit.
 
-## Load only the needed reference
+Use actual browser evidence for visual acceptance, never a generated mock image.
+Report missing browser checks. Finish with the change and its checks; do not add
+a full-site redesign or performance investigation unless needed for this task.
 
-The upstream snapshot and its attribution remain in
-[UPSTREAM.txt](vendor/shadcn/UPSTREAM.txt). Project paths and installed versions
-come from this entry point and the repository, not the snapshot.
+## Optional references
 
-| Topic | Reference |
-| --- | --- |
-| Full upstream workflow | [Workflow](vendor/shadcn/official-shadcn-ui-workflow.md) |
-| CLI and registries | [CLI](vendor/shadcn/cli.md) |
-| Themes | [Customization](vendor/shadcn/customization.md) |
-| MCP | [MCP](vendor/shadcn/mcp.md) |
-| Forms and composition | [Forms](vendor/shadcn/rules/forms.md), [composition](vendor/shadcn/rules/composition.md) |
-| Styling and icons | [Styling](vendor/shadcn/rules/styling.md), [icons](vendor/shadcn/rules/icons.md) |
-| Component base | [Base vs Radix](vendor/shadcn/rules/base-vs-radix.md) |
-
-Read the full upstream workflow only for a task that needs it. Confirm external
-API changes against the relevant official documentation before upgrading a tool.
-Do not overwrite the vendored reference to fix a project path.
+Keep [upstream attribution](vendor/shadcn/UPSTREAM.txt). Load only the relevant
+[CLI](vendor/shadcn/cli.md), [theme](vendor/shadcn/customization.md),
+[composition](vendor/shadcn/rules/composition.md) or
+[component-base](vendor/shadcn/rules/base-vs-radix.md) reference. The
+[full workflow](vendor/shadcn/official-shadcn-ui-workflow.md) is background, not a
+mandatory first step. Installed versions and project code take precedence over
+generic examples. Verify an external API before an actual dependency upgrade.

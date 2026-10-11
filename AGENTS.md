@@ -1,50 +1,55 @@
 # Agent guide
 
-This is the repository guide for `TokenNotIncluded/api.lmm.best`. Read the
-[contribution guide](CONTRIBUTING.md) and the [skill index](.agents/skills/README.md)
-before editing. Load only the skills needed for the task.
+Finish the requested change with the shortest reliable read → edit → check → deliver loop.
+Use this file as a map, not a checklist to expand for every task.
 
-## Establish the current state
+## Start once
 
-- Read the current branch, base commit, working-tree changes, and related PRs.
-  Do not replace another contributor's work or force-push a shared branch.
-- Use code and configuration at that revision as evidence. A design proposal,
-  a WIP PR, a merge, a release, and a production deployment are different states.
-- The default-branch development entry points are in [justfile](justfile) and
-  [package.json](package.json). Do not apply a refactor branch's installation
-  instructions to another branch.
+- Identify the branch, base revision and working-tree changes. Preserve other work;
+  use a task branch. Inspect PR history only when the task depends on it.
+- Read the affected code and its callers, plus the matching guide or skill below.
+  Do not read every guide, scan all PRs, or install every toolchain first.
+- Small, clear changes need no separate plan file or approval round. For complex
+  work, keep a short plan and continue through implementation and verification.
+- Use information and authorization already supplied. Resolve discoverable facts
+  with available tools; ask only for a missing decision that changes the outcome.
 
 ## Find the work
 
-| Task | Start here |
+| Task | Entry point |
 | --- | --- |
-| Local setup, checks, and repository paths | [Development](docs/development.md) |
-| UI and component changes | [shadcn/ui skill](.agents/skills/shadcn-ui/SKILL.md) |
-| UI text or translations, including one key | [Translation skill](.agents/skills/i18n-translate/SKILL.md) |
-| React performance | [Performance skill](.agents/skills/vercel-react-best-practices/SKILL.md) |
-| README, docs, or skills | [Documentation skill](.agents/skills/docs-maintenance/SKILL.md) |
-| Release, deployment, or recovery | [Deployment skill](.agents/skills/deployment/SKILL.md) |
-| Publishing or reviewing a bounty | [Skill index](.agents/skills/README.md) |
+| Setup and repository paths | [Development](docs/development.md) |
+| Select checks; reuse results | [Working guide](docs/agent-workflows.md) |
+| README, docs, AGENTS.md or skills | [Documentation skill](.agents/skills/docs-maintenance/SKILL.md) |
+| UI components and layout | [UI skill](.agents/skills/shadcn-ui/SKILL.md) |
+| Homepage particle scenes | [Sculpture skill](.agents/skills/home-sculpture/SKILL.md) |
+| UI copy or locale keys | [Translation skill](.agents/skills/i18n-translate/SKILL.md) |
+| React performance investigation | [Performance skill](.agents/skills/vercel-react-best-practices/SKILL.md) |
+| Release, deploy or recover | [Deployment skill](.agents/skills/deployment/SKILL.md) |
+| Bounty publication or settlement | [Skill index](.agents/skills/README.md) |
 
-Commands use the repository root unless a command explicitly changes directory.
-The frontend is `apps/web`, not a root-level frontend directory. Keep app changes,
-translation changes, and generated output limited to the requested scope.
+Commands start at the repository root unless stated otherwise. The frontend is
+`apps/web`. Use [justfile](justfile) and [package.json](package.json) at the selected
+revision; do not apply a refactor branch's commands to another branch.
 
-## Safety and verification
+## Verify and finish
 
-Never commit credentials, cookies, private keys, production data, or unredacted
-logs. Do not use a production database for development or tests. When using
-api.lmm.best, each user may have only one account; do not register accounts in
-bulk or create extra accounts to obtain rewards or bypass limits.
+Run the smallest checks that cover the changed behavior. Expand for affected
+callers, shared contracts, security, billing or data integrity. Do not stack
+`just test`, lint and formatting checks on top of `just check`, which includes them.
+Do not rebuild an unchanged component or rerun a passed check without a reason.
 
-Run relevant checks locally. Record the exact commands, tested revision, results,
-and skipped checks. Do not turn a syntax check or a fixture test into a claim of
-full application, browser, database, or production validation.
+Review the diff, then report the change, actual checks, unverified items and
+commit/PR. Stop when the requested outcome is met; do not add unrelated cleanup,
+benchmarking, plan documents or repeated review rounds.
 
-Preserve source attribution, copyright headers, and license notices. Keep
-vendored skill references separate from project-owned instructions.
+## Keep these constraints
 
-A request to edit code or docs is not permission to publish a release, move funds,
-change production, or deploy. Keep changes on a task branch and report the commit
-and PR. Merge or deploy only when authorized. Never infer completion from a
-successful request alone; read back the resulting state.
+Never expose credentials or user data. Preserve other contributors' changes,
+attribution and licenses. Never use production databases or account registration for tests.
+Follow the [public account policy](apps/web/public/AGENTS.md) when using the site.
+A code edit, merge, signed release and deployment are different outcomes.
+Merge, release, deploy or move funds only when the request authorizes that action;
+do not ask again for unchanged authorization already given. Keep signing, locks,
+source checks, rollback safeguards and financial confirmation flows intact.
+PR details and contribution policy: [CONTRIBUTING.md](CONTRIBUTING.md).
