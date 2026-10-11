@@ -25,6 +25,7 @@ const globals = [
   'requestAnimationFrame',
   'cancelAnimationFrame',
   'getComputedStyle',
+  'scrollTo',
 ] as const
 const previousGlobals = new Map(
   globals.map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)])
@@ -122,7 +123,10 @@ for (const scenario of [
               data-testid='enter-settings'
               onClick={() => {
                 if (scenario.mobileOpen) setOpenMobile(true)
-                void navigate({ to: settingsPath })
+                void navigate({
+                  to: '/system-settings/site/$section',
+                  params: { section: 'system-info' },
+                })
               }}
             >
               Enter settings
@@ -133,7 +137,12 @@ for (const scenario of [
           <button
             type='button'
             data-testid='leave-settings'
-            onClick={() => void navigate({ to: dashboardPath })}
+            onClick={() =>
+              void navigate({
+                to: '/dashboard/$section',
+                params: { section: 'overview' },
+              })
+            }
           >
             Leave settings
           </button>
@@ -173,6 +182,17 @@ for (const scenario of [
     const root = createRoot(container)
     const createdOverlays = new Set<Element>()
     let requestedOpen = false
+    const collectAddedNode = (node: unknown) => {
+      if (!(node instanceof Element) || !node.isConnected) return
+      const expandedHandle = '.settings-scrub-handle[aria-expanded="true"]'
+      if (node.matches(expandedHandle) || node.querySelector(expandedHandle)) {
+        requestedOpen = true
+      }
+      if (node.matches(overlaySelector)) createdOverlays.add(node)
+      for (const overlay of node.querySelectorAll(overlaySelector)) {
+        createdOverlays.add(overlay)
+      }
+    }
     const collectChanges = (records: MutationRecord[]) => {
       for (const record of records) {
         if (
@@ -185,20 +205,38 @@ for (const scenario of [
           requestedOpen = true
         }
         for (const node of record.addedNodes) {
-          if (!(node instanceof Element)) continue
-          const expandedHandle = '.settings-scrub-handle[aria-expanded="true"]'
-          if (
-            node.matches(expandedHandle) ||
-            node.querySelector(expandedHandle)
-          ) {
-            requestedOpen = true
-          }
-          if (node.matches(overlaySelector)) createdOverlays.add(node)
-          for (const overlay of node.querySelectorAll(overlaySelector)) {
-            createdOverlays.add(overlay)
-          }
+          collectAddedNode(node)
         }
       }
+    }
+    // Happy DOM 20.11.1 keeps its internal mutation callback weakly. Observe
+    // real DOM writes synchronously too, so collection cannot disappear at GC.
+    const originalSetAttribute = view.Element.prototype.setAttribute
+    const originalAppendChild = view.Node.prototype.appendChild
+    const originalInsertBefore = view.Node.prototype.insertBefore
+    view.Element.prototype.setAttribute = function (name, value) {
+      const previous = this.getAttribute(name)
+      originalSetAttribute.call(this, name, value)
+      if (
+        this.isConnected &&
+        name === 'aria-expanded' &&
+        this.matches('.settings-scrub-handle') &&
+        (previous === 'true' || value === 'true')
+      ) {
+        requestedOpen = true
+      }
+    }
+    view.Node.prototype.appendChild = function (node) {
+      const added = node.nodeType === 11 ? [...node.childNodes] : [node]
+      const inserted = originalAppendChild.call(this, node)
+      added.forEach(collectAddedNode)
+      return inserted
+    }
+    view.Node.prototype.insertBefore = function (node, reference) {
+      const added = node.nodeType === 11 ? [...node.childNodes] : [node]
+      const inserted = originalInsertBefore.call(this, node, reference)
+      added.forEach(collectAddedNode)
+      return inserted
     }
     // Track open requests as well as portals: an immediately closed modal
     // may disappear before assertions or before its portal has mounted.
@@ -278,8 +316,14 @@ for (const scenario of [
       await click('[data-slot="sheet-close"]')
     } finally {
       observer.disconnect()
-      await act(async () => root.unmount())
-      container.remove()
+      try {
+        await act(async () => root.unmount())
+      } finally {
+        view.Element.prototype.setAttribute = originalSetAttribute
+        view.Node.prototype.appendChild = originalAppendChild
+        view.Node.prototype.insertBefore = originalInsertBefore
+        container.remove()
+      }
     }
   })
 }
