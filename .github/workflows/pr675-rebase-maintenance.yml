@@ -12,57 +12,167 @@ defaults:
   run:
     shell: bash
 jobs:
-  inspect:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    outputs:
+      sha: ${{ steps.rebase.outputs.sha }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          fetch-depth: 0
+      - name: Reproduce locally reviewed trees and preserve merge history
+        id: rebase
+        run: |
+          set -euo pipefail
+          git fetch origin main wip/rust-core-go-extensions
+          cp scripts/pr675-rebase-maintenance.py "$RUNNER_TEMP/rebase.py"
+          python3 -B "$RUNNER_TEMP/rebase.py" | tee "$RUNNER_TEMP/rebase-result.txt"
+          test "$(git rev-parse HEAD^{tree})" = 30ac78002d96bf5e7339ecaacb7de97e0e3af424
+          git diff --check 1a2db5f244468932fbda8c013891e72ad91ef566 HEAD
+          test "$(git ls-remote origin refs/heads/wip/rust-core-go-extensions | cut -f1)" = 1a2db5f244468932fbda8c013891e72ad91ef566
+          test "$(git ls-remote origin refs/heads/main | cut -f1)" = de2c439f26446792d4a605b2b91fa2b84777e284
+          candidate=refs/heads/maintenance/rebased-pr675-20261011-124234
+          git push --force-with-lease="$candidate:" origin "HEAD:$candidate"
+      - name: Preserve exact rebase identity
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: pr675-rebase-result-${{ github.run_id }}
+          path: ${{ runner.temp }}/rebase-result.txt
+          if-no-files-found: error
+          retention-days: 7
+  contracts:
+    needs: prepare
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
+          ref: ${{ needs.prepare.outputs.sha }}
           fetch-depth: 0
-      - name: Inspect and attempt rebase without updating remote refs
-        env:
-          EXPECTED_HEAD: 1a2db5f244468932fbda8c013891e72ad91ef566
+          persist-credentials: false
+      - name: Verify exact source and unchanged microservice implementations
+        run: |
+          test "$(git rev-parse HEAD^{tree})" = 30ac78002d96bf5e7339ecaacb7de97e0e3af424
+          git merge-base --is-ancestor de2c439f26446792d4a605b2b91fa2b84777e284 HEAD
+          git diff --exit-code 1a2db5f244468932fbda8c013891e72ad91ef566 HEAD -- apps/lmm-core apps/lmm-extensions
+          test "$(git rev-list --count de2c439f26446792d4a605b2b91fa2b84777e284..HEAD)" = 65
+          test "$(git rev-list --count --merges de2c439f26446792d4a605b2b91fa2b84777e284..HEAD)" = 11
+      - name: Documentation, boundaries, distribution and quality self-tests
         run: |
           set -euo pipefail
-          git fetch origin main wip/rust-core-go-extensions
-          source_ref=refs/remotes/origin/wip/rust-core-go-extensions
-          test "$(git rev-parse "$source_ref")" = "$EXPECTED_HEAD"
-          target=$(git rev-parse refs/remotes/origin/main)
-          base=$(git merge-base "$EXPECTED_HEAD" "$target")
-          mkdir "$RUNNER_TEMP/pr675-rebase"
-          out="$RUNNER_TEMP/pr675-rebase"
-          printf 'head=%s\nmain=%s\nmerge_base=%s\n' "$EXPECTED_HEAD" "$target" "$base" | tee "$out/refs.txt"
-          git rev-list --left-right --count "$EXPECTED_HEAD...$target"
-          git log --reverse --format='%h %s' "$base..$target" | tee "$out/main-commits.txt"
-          git log --reverse --format='%h %p %s' "$base..$EXPECTED_HEAD" | tee "$out/wip-commits.txt"
-          git diff --stat "$base" "$target" | tee "$out/main-diff-stat.txt"
-          git bundle create "$out/pr675-before.bundle" "$source_ref" refs/remotes/origin/main
-          git bundle verify "$out/pr675-before.bundle"
-          sha256sum "$out/pr675-before.bundle" | tee "$out/bundle.sha256"
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git switch -c pr675-rebase "$EXPECTED_HEAD"
-          set +e
-          GIT_EDITOR=true git -c rerere.enabled=false -c merge.conflictStyle=diff3 rebase --rebase-merges "$target" 2>&1 | tee "$out/rebase.log"
-          result=${PIPESTATUS[0]}
-          set -e
-          printf 'rebase_exit=%s\n' "$result" | tee -a "$out/refs.txt"
-          if [ "$result" -ne 0 ]; then
-            git status --short | tee "$out/status.txt"
-            git diff --name-only --diff-filter=U | tee "$out/conflicts.txt"
-            git diff --cc > "$out/conflicts.diff"
-            head -c 70000 "$out/conflicts.diff"
-          else
-            git rev-parse HEAD | tee "$out/rebased-head.txt"
-            git diff --stat "$EXPECTED_HEAD" HEAD | tee "$out/rebased-stat.txt"
-            git merge-base --is-ancestor "$target" HEAD
-          fi
-          exit "$result"
-      - name: Preserve source history and conflict evidence
+          {
+            python3 -B scripts/check-docs-brand.py
+            python3 -B -m unittest discover -s scripts -p test_check_docs_brand.py
+            python3 -B scripts/test-docs-microservices.py
+            python3 -B scripts/test-core-boundaries.py
+            python3 -B scripts/test-distribution.py
+            python3 -B scripts/test-quality-gate.py
+            python3 -B scripts/test-local-release-tests.py
+            node --test scripts/workflow-topology.test.mjs
+            node --test .agents/skills/i18n-translate/scripts/apply-translations.test.mjs
+          } 2>&1 | tee "$RUNNER_TEMP/contracts.log"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
-          name: pr675-rebase-inspection-${{ github.run_id }}
-          path: ${{ runner.temp }}/pr675-rebase/
-          if-no-files-found: error
-          retention-days: 2
+          name: pr675-contracts-${{ github.run_id }}
+          path: ${{ runner.temp }}/contracts.log
+          retention-days: 7
+  extensions:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: disposable_test_only
+          POSTGRES_DB: lmm_store_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres -d lmm_store_test"
+          --health-interval 5s --health-timeout 5s --health-retries 12
+    env:
+      GOMAXPROCS: '2'
+      LMM_STORE_TEST_DSN: postgres://postgres:disposable_test_only@127.0.0.1:5432/lmm_store_test?sslmode=disable
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version: '1.27.2'
+          cache-dependency-path: apps/lmm-extensions/go.sum
+      - name: Go extension formatting, dependencies, vet and race tests
+        working-directory: apps/lmm-extensions
+        run: |
+          set -euo pipefail
+          bash ../../scripts/check-go-format.sh .
+          go mod verify
+          go vet -mod=readonly ./...
+          go test -mod=readonly -race -count=1 -json ./... | tee "$RUNNER_TEMP/go-tests.jsonl"
+          CGO_ENABLED=0 go build -mod=readonly -trimpath -o "$RUNNER_TEMP/lmm-extensions" ./cmd/extensions
+      - name: Public legal reads with the real extension host
+        run: LMM_EXTENSION_TEST_BIN="$RUNNER_TEMP/lmm-extensions" python3 -B scripts/test-legal-process.py
+      - name: Store and support on disposable PostgreSQL
+        if: ${{ !cancelled() }}
+        working-directory: apps/lmm-extensions/internal/modules/store/pgtest
+        run: |
+          set -euo pipefail
+          go mod verify
+          go vet -mod=readonly ./...
+          go test -mod=readonly -race -count=1 -json ./... | tee "$RUNNER_TEMP/store-pg-tests.jsonl"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: pr675-extension-tests-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/go-tests.jsonl
+            ${{ runner.temp }}/store-pg-tests.jsonl
+          retention-days: 7
+  web:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      CI: 'true'
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ needs.prepare.outputs.sha }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.3.14'
+      - name: Install frozen dependencies
+        run: bun install --frozen-lockfile
+      - name: Frontend type check
+        working-directory: apps/web
+        run: bun run typecheck 2>&1 | tee "$RUNNER_TEMP/web-typecheck.log"
+      - name: Complete frontend tests
+        if: ${{ !cancelled() }}
+        working-directory: apps/web
+        run: bun run test 2>&1 | tee "$RUNNER_TEMP/web-tests.log"
+      - name: Frontend lint and production build
+        if: ${{ !cancelled() }}
+        working-directory: apps/web
+        run: |
+          set -euo pipefail
+          bun run lint
+          bun run build 2>&1 | tee "$RUNNER_TEMP/web-build.log"
+          bun run bundle:check
+          git diff --exit-code
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        if: always()
+        with:
+          name: pr675-web-tests-${{ github.run_id }}
+          path: |
+            ${{ runner.temp }}/web-typecheck.log
+            ${{ runner.temp }}/web-tests.log
+            ${{ runner.temp }}/web-build.log
+          retention-days: 7
