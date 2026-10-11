@@ -192,14 +192,10 @@ func receiveSchemaMaintenanceHostLocksForPaths(ctx context.Context, binding prod
 }
 
 func schemaMaintenanceDecodeGuardianJSON(body []byte, result any) error {
-	decoder := json.NewDecoder(bytes.NewReader(body))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(result); err != nil {
-		return err
-	}
-	var extra any
-	if err := decoder.Decode(&extra); !errors.Is(err, io.EOF) {
-		return errors.New("schema guardian JSON contains trailing data")
+	// The shared structural decoder rejects duplicate keys and incorrectly
+	// cased tags too; DisallowUnknownFields alone accepts both in encoding/json.
+	if err := decodeControllerBackupJSON(body, result); err != nil {
+		return fmt.Errorf("schema guardian JSON is not an exact typed object: %w", err)
 	}
 	return nil
 }

@@ -12,8 +12,10 @@ import (
 	"io"
 	"net"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"syscall"
 	"testing"
@@ -552,7 +554,7 @@ func TestSchemaMaintenanceGuardianFinishClosesOnlyAfterExactTerminalAck(t *testi
 }
 
 func TestSchemaMaintenanceGuardianFinishUnknownRetainsLocksAndRejectsCleanup(t *testing.T) {
-	for _, name := range []string{"wrong-binding", "wrong-path", "wrong-pid", "wrong-plan", "wrong-operation", "unknown-ack", "disconnect", "unexpected-rights", "binding-changed"} {
+	for _, name := range []string{"wrong-binding", "wrong-path", "wrong-pid", "wrong-plan", "wrong-operation", "unknown-ack", "duplicate-ack", "case-alias-ack", "disconnect", "unexpected-rights", "binding-changed"} {
 		t.Run(name, func(t *testing.T) {
 			f := newSchemaGuardianFixture(t)
 			f.serveWithFinish(t, f.files, false, func(connection *net.UnixConn) error {
@@ -591,6 +593,12 @@ func TestSchemaMaintenanceGuardianFinishUnknownRetainsLocksAndRejectsCleanup(t *
 				body, err := json.Marshal(ack)
 				if err != nil {
 					return err
+				}
+				if name == "duplicate-ack" {
+					body = append([]byte(`{"accepted":false,`), body[1:]...)
+				}
+				if name == "case-alias-ack" {
+					body = []byte(strings.Replace(string(body), `"accepted":`, `"Accepted":`, 1))
 				}
 				if name == "unexpected-rights" {
 					other, err := os.Open(f.paths[0])
@@ -670,4 +678,152 @@ func TestSchemaMaintenanceGuardianFinishPrecheckFailureRetainsLocks(t *testing.T
 		t.Fatal("failed terminal precheck allowed deferred Close")
 	}
 	f.assertIndependentlyLocked(t)
+}
+
+func TestSchemaMaintenanceGuardianPythonTerminalProtocol(t *testing.T) {
+	for _, name := range []string{"finish-all", "guardian-loss-before-finish"} {
+		t.Run(name, func(t *testing.T) {
+			f := newSchemaGuardianFixture(t)
+			// The actual Python guardian must acquire its own descriptions, so
+			// release only the fixture's initial setup locks and unused listener.
+			if err := f.listener.Close(); err != nil {
+				t.Fatal(err)
+			}
+			for _, file := range f.files {
+				if err := file.Close(); err != nil {
+					t.Fatal(err)
+				}
+			}
+			f.binding.TransitionID = filepath.Base(f.binding.Workspace)
+			plan, err := json.Marshal(map[string]string{"transition_id": f.binding.TransitionID})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(f.binding.PlanPath, plan, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			f.binding.PlanSHA256 = fmt.Sprintf("%x", sha256.Sum256(plan))
+			bound, err := json.Marshal(schemaMaintenanceGuardianBinding{schemaMaintenanceGuardianBindingFormat, f.binding.TransitionID, f.binding.PlanPath, f.binding.PlanSHA256, f.binding.Host, f.binding.Workspace, f.binding.GuardianSocket})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(f.binding.GuardianBindingPath, bound, 0o600); err != nil {
+				t.Fatal(err)
+			}
+			f.binding.GuardianBindingSHA256 = fmt.Sprintf("%x", sha256.Sum256(bound))
+			script, err := filepath.Abs(filepath.Join("..", "..", "..", "..", "scripts", "schema-maintenance-lock-guardian.py"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := os.Stat(script); err != nil {
+				t.Fatalf("actual schema guardian source is required for protocol qualification: %v", err)
+			}
+			// Import the real implementation with test-only paths. Its production
+			// CLI still requires root and its fixed three native lock paths.
+			harness := `import importlib.util, os, sys
+from pathlib import Path
+spec = importlib.util.spec_from_file_location('schema_guardian_fixture', sys.argv[1])
+guardian = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(guardian)
+guardian.serve(Path(sys.argv[2]), sys.argv[3], uid=os.getuid(),
+               lock_paths=dict(zip(('native', 'systemd', 'frontend'), sys.argv[4:])),
+               observed_host='fixture-host')
+`
+			args := []string{"-I", "-B", "-c", harness, script, f.binding.GuardianBindingPath, f.binding.GuardianBindingSHA256}
+			args = append(args, f.paths...)
+			command := exec.Command("python3", args...)
+			var output strings.Builder
+			command.Stdout, command.Stderr = &output, &output
+			if err := command.Start(); err != nil {
+				t.Fatal(err)
+			}
+			done := make(chan error, 1)
+			go func() { done <- command.Wait() }()
+			waited := false
+			t.Cleanup(func() {
+				if !waited {
+					_ = command.Process.Kill()
+					<-done
+				}
+			})
+			deadline := time.Now().Add(5 * time.Second)
+			for {
+				if info, err := os.Lstat(f.binding.GuardianSocket); err == nil && info.Mode()&os.ModeSocket != 0 {
+					break
+				}
+				select {
+				case err := <-done:
+					waited = true
+					t.Fatalf("Python guardian exited before socket readiness: %v: %s", err, output.String())
+				default:
+				}
+				if time.Now().After(deadline) {
+					t.Fatal("Python guardian socket readiness timed out")
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			lease, err := receiveSchemaMaintenanceHostLocksForPaths(context.Background(), f.binding, uint32(os.Getuid()), f.paths)
+			if err != nil {
+				t.Fatal(err)
+			}
+			concrete := lease.(*schemaMaintenanceHostLockLease)
+			t.Cleanup(func() {
+				concrete.mu.Lock()
+				defer concrete.mu.Unlock()
+				concrete.finishUncertain = false
+				schemaMaintenanceUncertainHostLeases.Lock()
+				delete(schemaMaintenanceUncertainHostLeases.leases, concrete)
+				schemaMaintenanceUncertainHostLeases.Unlock()
+				_ = concrete.closeLocked()
+			})
+			if concrete.pid != command.Process.Pid {
+				t.Fatal("SCM receiver authenticated a different Python process")
+			}
+			if err := lease.Check(context.Background()); err != nil {
+				t.Fatal(err)
+			}
+			f.assertIndependentlyLocked(t)
+			if name == "guardian-loss-before-finish" {
+				if err := command.Process.Kill(); err != nil {
+					t.Fatal(err)
+				}
+				<-done
+				waited = true
+				if err := finishSchemaMaintenanceHostLocks(context.Background(), lease); err == nil {
+					t.Fatal("terminal precheck accepted a lost original guardian")
+				}
+				if err := lease.Close(); err == nil {
+					t.Fatal("lost guardian permitted cleanup of its last adopted copies")
+				}
+				if err := finishSchemaMaintenanceHostLocks(context.Background(), lease); err == nil {
+					t.Fatal("lost guardian permitted repeated terminal exchange")
+				}
+				f.assertIndependentlyLocked(t)
+				return
+			}
+			if err := finishSchemaMaintenanceHostLocks(context.Background(), lease); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case err := <-done:
+				waited = true
+				if err != nil {
+					t.Fatalf("Python guardian terminal exit failed: %v: %s", err, output.String())
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("Python guardian did not exit after valid finish-all")
+			}
+			for _, path := range f.paths {
+				fd, err := unix.Open(path, unix.O_RDWR|unix.O_CLOEXEC, 0)
+				if err != nil {
+					t.Fatal(err)
+				}
+				err = unix.Flock(fd, unix.LOCK_EX|unix.LOCK_NB)
+				_ = unix.Close(fd)
+				if err != nil {
+					t.Fatalf("real Python terminal exit left lock held: %s: %v", path, err)
+				}
+			}
+		})
+	}
 }
