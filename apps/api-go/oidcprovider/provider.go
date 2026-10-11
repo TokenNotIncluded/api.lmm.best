@@ -239,9 +239,40 @@ func (p *Provider) transport(r *http.Request) bool {
 	}
 	return false
 }
+
+func (p *Provider) trustedProxy(ip net.IP) bool {
+	for _, network := range p.config.TrustedProxies {
+		if network != nil && network.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func (p *Provider) rateLimitClientIP(r *http.Request) string {
+	peer, _, _ := net.SplitHostPort(r.RemoteAddr)
+	if !p.trustedProxy(net.ParseIP(peer)) || len(r.Header.Values("X-Forwarded-For")) != 1 {
+		return peer
+	}
+	// The packaged Nginx edge appends its client to X-Forwarded-For. Walk
+	// backwards through explicitly trusted proxies, stopping at the first
+	// untrusted address; any earlier entries are controlled by that client.
+	forwarded := r.Header.Get("X-Forwarded-For")
+	for {
+		comma := strings.LastIndexByte(forwarded, ',')
+		ip := net.ParseIP(strings.TrimSpace(forwarded[comma+1:]))
+		if ip == nil {
+			return peer
+		}
+		if comma < 0 || !p.trustedProxy(ip) {
+			return ip.String()
+		}
+		forwarded = forwarded[:comma]
+	}
+}
+
 func (p *Provider) allowed(r *http.Request) bool {
-	host, _, _ := net.SplitHostPort(r.RemoteAddr)
-	key := host + ":" + r.URL.Path
+	key := p.rateLimitClientIP(r) + ":" + r.URL.Path
 	now := time.Now()
 	p.mu.Lock()
 	defer p.mu.Unlock()
