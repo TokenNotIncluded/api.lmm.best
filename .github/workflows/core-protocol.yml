@@ -38,7 +38,7 @@ on:
       - docs/**
       - README.md
       - README_EN.md
-      - CONTRIBUTING.md
+      - docs/contributing.md
 permissions:
   contents: read
 defaults:

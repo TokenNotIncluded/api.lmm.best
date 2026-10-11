@@ -44,6 +44,6 @@
 
 ## 贡献与许可证
 
-先阅读 [贡献指南](CONTRIBUTING.md)。漏洞按 [安全指南](SECURITY.md) 报告，不要公开密钥或用户数据。合并、打包、发布和部署需要分别确认；默认检查只生成测试结果或预览包。
+先阅读 [贡献指南](docs/contributing.md)。漏洞按 [安全指南](.github/SECURITY.md) 报告，不要公开密钥或用户数据。合并、打包、发布和部署需要分别确认；默认检查只生成测试结果或预览包。
 
-项目基于 [QuantumNous/new-api](https://github.com/QuantumNous/new-api) 发展，按 [AGPL-3.0](LICENSE) 发布。保留 [NOTICE](NOTICE)、[FORK.md](FORK.md) 和[第三方许可证](THIRD-PARTY-LICENSES.md)。[线上服务](https://api.lmm.best)与本分支的实现状态不同。
+项目基于 [QuantumNous/new-api](https://github.com/QuantumNous/new-api) 发展，按 [AGPL-3.0](LICENSE) 发布。保留 [NOTICE](NOTICE)、[分支来源与归属](docs/fork.md) 和[第三方许可证](THIRD-PARTY-LICENSES.md)。[线上服务](https://api.lmm.best)与本分支的实现状态不同。

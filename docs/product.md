@@ -13,7 +13,7 @@ This record describes the public repository entry and README brand. Application-
 This checkout is the fresh-install microservice WIP. The capabilities below
 describe the existing product to preserve during migration, not completed WIP
 integration. Current ownership and missing business flows are recorded in
-[architecture and status](docs/core-migration.md).
+[architecture and status](core-migration.md).
 
 ## Users
 

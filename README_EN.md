@@ -44,6 +44,6 @@ Core and extensions use separate Compose projects. Updating extensions must not 
 
 ## Contribution and license
 
-Read [CONTRIBUTING.md](CONTRIBUTING.md). Follow [SECURITY.md](SECURITY.md) for vulnerabilities; do not disclose keys or user data. Merging, packaging, publishing and deploying are separate decisions. Checks produce test evidence or preview archives only.
+Read the [contribution guide](docs/contributing.md). Follow the [security policy](.github/SECURITY.md) for vulnerabilities; do not disclose keys or user data. Merging, packaging, publishing and deploying are separate decisions. Checks produce test evidence or preview archives only.
 
-The project builds on [QuantumNous/new-api](https://github.com/QuantumNous/new-api) under [AGPL-3.0](LICENSE). Preserve [NOTICE](NOTICE), [FORK.md](FORK.md) and [third-party notices](THIRD-PARTY-LICENSES.md). The [hosted service](https://api.lmm.best) and this branch have different implementation states.
+The project builds on [QuantumNous/new-api](https://github.com/QuantumNous/new-api) under [AGPL-3.0](LICENSE). Preserve [NOTICE](NOTICE), [fork provenance](docs/fork.md) and [third-party notices](THIRD-PARTY-LICENSES.md). The [hosted service](https://api.lmm.best) and this branch have different implementation states.

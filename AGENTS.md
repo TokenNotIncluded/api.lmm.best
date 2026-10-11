@@ -1,7 +1,7 @@
 # Agent guide
 
 This is the repository guide for `TokenNotIncluded/api.lmm.best`. Read the
-[contribution guide](CONTRIBUTING.md) and the [skill index](.agents/skills/README.md)
+[contribution guide](docs/contributing.md) and the [skill index](.agents/skills/README.md)
 before editing. Load only the skills needed for the task.
 
 ## Establish the current state

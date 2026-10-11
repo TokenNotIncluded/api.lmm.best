@@ -1,6 +1,6 @@
 # 文档目录
 
-[项目首页](../README.md) · [贡献指南](../CONTRIBUTING.md)
+[项目首页](../README.md) · [贡献指南](contributing.md)
 
 本目录以微服务分支为准：可执行程序只有 `lmm` 客户端、`lmm-core` 核心和 `lmm-extensions` 扩展；Web 是单独构建的静态文件。线上 Go 单体的历史说明不是新架构安装步骤。
 
@@ -23,7 +23,7 @@
 
 Go 模块的接口与存储规则以各自源码目录为准：[扩展宿主](../services/extensions/README.md)、[助手](../services/extensions/internal/modules/assistant/README.md)。[CLI 子项目文档](https://github.com/TokenNotIncluded/lmm#readme)与服务端部署分开。
 
-前端资料：[设计](../apps/web/DESIGN.md)、[Logo](../.github/assets/README.md)、[翻译术语](translation-glossary.md)。[安全报告](../SECURITY.md)与[支持渠道](../SUPPORT.md)不属于运行时用户协议。
+品牌与产品：[品牌设计](brand-design.md)、[产品记录](product.md)、[分支来源与归属](fork.md)。前端资料：[设计](../apps/web/DESIGN.md)、[Logo](../.github/assets/README.md)、[翻译术语](translation-glossary.md)。[安全报告](../.github/SECURITY.md)与[支持渠道](SUPPORT.md)不属于运行时用户协议。
 
 旧部署、OpenAPI、审计和已合并专题统一从[历史索引](archive.md)查找原文。它们不作为当前服务能力或测试通过的依据。
 

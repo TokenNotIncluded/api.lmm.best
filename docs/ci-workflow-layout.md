@@ -1,6 +1,6 @@
 # 微服务分支的 GitHub Actions 入口
 
-[文档目录](README.md) · [贡献指南](../CONTRIBUTING.md) · [架构与状态](core-migration.md)
+[文档目录](README.md) · [贡献指南](contributing.md) · [架构与状态](core-migration.md)
 
 本文对应 PR #675 的微服务分支，不是 main 旧单体的发布说明。
 触发方式、输入和权限以当前提交的工作流为准。

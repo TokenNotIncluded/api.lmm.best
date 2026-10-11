@@ -1,6 +1,6 @@
 # Project skills
 
-[Agent guide](../../AGENTS.md) · [Working guide](../../docs/agent-workflows.md) · [Documentation](../../docs/README.md)
+[Agent guide](../../AGENTS.md) · [Contribution guide](../../docs/contributing.md) · [Working guide](../../docs/agent-workflows.md) · [Documentation](../../docs/README.md)
 
 Load the matching `SKILL.md` before the task. Combine skills when necessary: a UI
 change with new text needs both the UI and translation skills. Do not load every

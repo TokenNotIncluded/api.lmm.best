@@ -54,4 +54,4 @@ just test-core
 
 OpenUI 提示由前端组件定义生成。已移除写入旧 Go controller 的生成脚本，因为新宿主没有该文件的消费者；保留组件、输出边界与转义测试。未来接入真实助手时，应通过明确的组件契约传递提示，而不是恢复已删除的后端路径。
 
-[协议模板](legal/README.md) · [构建预览包](release-architecture.md) · [贡献要求](../CONTRIBUTING.md)
+[协议模板](legal/README.md) · [构建预览包](release-architecture.md) · [贡献要求](contributing.md)

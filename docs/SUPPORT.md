@@ -4,11 +4,11 @@ Use this document before opening a request in this repository.
 
 ## 1) First, check documentation
 
-- Project overview and operations: [`README.md`](./README.md)
-- Bounty flow details: [`docs/open-source-bounties.md`](./docs/open-source-bounties.md)
-- Authentication and session behavior: [`docs/core-identity.md`](./docs/core-identity.md)
-- Legal / policy: [`docs/legal`](./docs/legal)
-- Security incidents: [`SECURITY.md`](./SECURITY.md)
+- Project overview and operations: [`README.md`](../README.md)
+- Bounty flow details: [`docs/open-source-bounties.md`](open-source-bounties.md)
+- Authentication and session behavior: [`docs/core-identity.md`](core-identity.md)
+- Legal / policy: [`docs/legal`](legal)
+- Security incidents: [`SECURITY.md`](../.github/SECURITY.md)
 
 ## 2) Non-security support
 
@@ -23,7 +23,7 @@ For security issues, do not use public issues.
 
 - Use GitHub Security Advisories (preferred): repository Advisories tab.
 - Or email `support@quantumnous.com` with subject `[SECURITY] Security Vulnerability Report`.
-- Follow `SECURITY.md` reporting format and include reproducible impact info.
+- Follow [SECURITY.md](../.github/SECURITY.md) reporting format and include reproducible impact info.
 
 ## 4) Bounty, evidence, and dispute operations
 

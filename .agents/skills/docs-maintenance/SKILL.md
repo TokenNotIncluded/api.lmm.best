@@ -8,7 +8,8 @@ description: >-
 
 # Maintain documentation and skills
 
-Read [AGENTS.md](../../../AGENTS.md) and the
+Read [AGENTS.md](../../../AGENTS.md), the
+[contribution guide](../../../docs/contributing.md) and the
 [working guide](../../../docs/agent-workflows.md). Work from a known branch and
 commit; do not treat a pending refactor or an earlier conversation as current code.
 
