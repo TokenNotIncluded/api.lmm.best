@@ -7,10 +7,15 @@ import hashlib
 import hmac
 import http.client
 import http.server
+import io
+import json
+from pathlib import Path
 import socket
+import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 from urllib.parse import urlencode
 
 from .client import Client
@@ -464,6 +469,107 @@ class LifecycleTests(unittest.TestCase):
             self.assertEqual(response.status,200)
             response.read()
             conn.close()
+
+
+class NetworkReportingTests(unittest.TestCase):
+    def test_network_status_requires_exact_loopback(self):
+        from . import report
+        for interfaces, expected in (([(1, "lo")], True), ([(1, "lo"), (2, "eth0")], False), ([], False)):
+            with self.subTest(interfaces=interfaces), patch.object(report.socket, "if_nameindex", return_value=interfaces):
+                self.assertIs(report.network_status()["network_isolated"], expected)
+                self.assertIsNone(report.network_status()["network_inspection_error"])
+                self.assertIs(report.isolated_network(), expected)
+
+    def test_metadata_records_inspection_errors_and_gate_fails_closed(self):
+        from . import cli, report
+        for error in (PermissionError(1, "Operation not permitted"), OSError(38, "Function not implemented")):
+            with self.subTest(error=error), patch.object(report.socket, "if_nameindex", side_effect=error):
+                result = cli.metadata(cli.ROOT)
+                self.assertIsNone(result["network_isolated"])
+                self.assertIn(type(error).__name__, result["network_inspection_error"])
+                self.assertIn(str(error), result["network_inspection_error"])
+                self.assertIs(report.isolated_network(), False)
+
+    def test_selftest_preserves_results_when_inspection_fails(self):
+        from . import cli, report
+        # Use a small runner-result fixture to avoid recursively running this test.
+        for status, expected_code in (("PASS", 2), ("FAIL", 1)):
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as folder:
+                output = Path(folder) / "report"
+                completed = [report.row("fixture.completed-test", "mock-component", status)]
+                with patch.object(report.socket, "if_nameindex", side_effect=PermissionError(1, "Operation not permitted")), \
+                        patch.object(cli, "selftests", return_value=(completed, "completed test log\n")), \
+                        patch.object(cli.sys, "argv", ["mocklab.py", "selftest", "--output", str(output)]), \
+                        patch.object(cli.sys, "stdout", io.StringIO()):
+                    self.assertEqual(cli.main(), expected_code)
+                result = json.loads((output / "report.json").read_text())
+                self.assertEqual(result["results"][0], completed[0])
+                self.assertEqual(len(completed), 1)  # Saving must not mutate caller-owned rows.
+                self.assertEqual(result["summary"][status], 1)
+                self.assertEqual(result["summary"]["BLOCKED"], 1)
+                self.assertIsNone(result["network_isolated"])
+                self.assertEqual(result["results"][-1]["scenario_id"], "network-inspection")
+                self.assertIn("PermissionError", result["results"][-1]["evidence"]["reason"])
+                self.assertIn("BLOCKED", (output / "report.md").read_text())
+                self.assertEqual((output / "component-tests.log").read_text(), "completed test log\n")
+
+    def test_failed_isolated_child_still_writes_blocked_report(self):
+        from . import cli, report
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / "report"
+            def failed_child(command, **kwargs):
+                self.assertIn("--net", command)
+                kwargs["output"].write_text("Cannot open netlink socket: Operation not permitted\n")
+                return 1, ""
+            args = cli.argparse.Namespace(output=output, config=cli.ROOT / "tests/mocklab/example.json", skip_adapters=False)
+            with patch.object(report.socket, "if_nameindex", side_effect=PermissionError(1, "Operation not permitted")), \
+                    patch.object(cli.shutil, "which", side_effect=lambda name: "/usr/bin/" + name), \
+                    patch.object(cli, "run_process", side_effect=failed_child):
+                self.assertEqual(cli.isolated(args), 2)
+            result = json.loads((output / "report.json").read_text())
+            self.assertEqual(result["summary"], {"PASS": 0, "FAIL": 0, "BLOCKED": 2, "NOT RUN": 0})
+            self.assertIsNone(result["network_isolated"])
+            isolation = next(r for r in result["results"] if r["scenario_id"] == "network-isolation")
+            self.assertEqual(isolation["evidence"]["exit_code"], 1)
+            self.assertEqual(isolation["evidence"]["log"], "isolation.log")
+            self.assertIn("PermissionError", result["network_inspection_error"])
+            self.assertIn("BLOCKED", (output / "report.md").read_text())
+
+    def test_missing_isolation_tools_still_writes_blocked_report(self):
+        from . import cli, report
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder) / "report"
+            args = cli.argparse.Namespace(output=output)
+            with patch.object(report.socket, "if_nameindex", side_effect=PermissionError(1, "Operation not permitted")), \
+                    patch.object(cli.shutil, "which", return_value=None), patch.object(cli, "run_process") as run:
+                self.assertEqual(cli.isolated(args), 2)
+                run.assert_not_called()
+            result = json.loads((output / "report.json").read_text())
+            self.assertEqual(result["summary"]["BLOCKED"], 2)
+            self.assertIn("unshare and ip", result["results"][0]["evidence"]["reason"])
+
+    def test_go_checks_do_not_run_when_inspection_fails(self):
+        from . import cli, report
+        with tempfile.TemporaryDirectory() as folder:
+            output = Path(folder)
+            with patch.object(report.socket, "if_nameindex", side_effect=PermissionError(1, "Operation not permitted")), \
+                    patch("shutil.which", return_value="/not-executed/go"), patch.object(report, "run_process") as run:
+                rows = report.go_adapters(cli.ROOT, output / "absent-manifest.json", output)
+                rows.append(report.go_transport(cli.ROOT, output))
+                run.assert_not_called()
+            self.assertEqual(len(rows), 3)
+            self.assertTrue(all(r["status"] == "BLOCKED" for r in rows))
+            self.assertTrue(all("PermissionError" in r["evidence"]["reason"] for r in rows))
+
+    def test_isolated_child_stops_before_provider_when_inspection_fails(self):
+        from . import cli, report
+        with patch.object(report.socket, "if_nameindex", side_effect=PermissionError(1, "Operation not permitted")), \
+                patch.object(cli.subprocess, "run"), patch.object(cli, "Lab") as provider, \
+                patch.object(cli, "run_suite") as suite:
+            with self.assertRaisesRegex(Invalid, "PermissionError"):
+                cli.isolated_child(cli.argparse.Namespace())
+            provider.assert_not_called()
+            suite.assert_not_called()
 
 
 class ReportPolicyTests(unittest.TestCase):
