@@ -42,9 +42,10 @@ jobs:
       - name: Lint, typecheck, test, and build frontend
         run: |
           # Main contains unrelated pre-existing formatter findings; only task files were formatted.
-          bun run --filter @lmm/web lint
-          bun run --filter @lmm/web typecheck
-          bun run --filter @lmm/web test
-          bun run --filter @lmm/web build
-      - name: Check frontend route declaration
-        run: bash apps/api-rust/tests/behavior-oracle/tests/test-frontend-api-route-manifest.sh
+          status=0
+          bun run --filter @lmm/web lint || status=1
+          bun run --filter @lmm/web typecheck || status=1
+          bun run --filter @lmm/web test || status=1
+          bun run --filter @lmm/web build || status=1
+          bash apps/api-rust/tests/behavior-oracle/tests/test-frontend-api-route-manifest.sh || status=1
+          exit "$status"
