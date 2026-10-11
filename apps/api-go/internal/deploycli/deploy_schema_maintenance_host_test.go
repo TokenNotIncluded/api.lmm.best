@@ -161,6 +161,46 @@ func TestSchemaMaintenanceHostEvidenceIsPrivateImmutableAndBound(t *testing.T) {
 	}
 }
 
+func TestSchemaMaintenanceFailedReopenCleanupCannotMutateAfterLeaseLoss(t *testing.T) {
+	for _, stage := range []string{"lost before inspection", "lost before write", "unknown config"} {
+		t.Run(stage, func(t *testing.T) {
+			h, capture := newSchemaMaintenanceHostEvidenceFixture(t)
+			h.runtime.paths.NginxRoot = t.TempDir()
+			original := []byte("location @lmm_api_backend {\n proxy_pass http://127.0.0.1:3000;\n}\n")
+			barrier, err := schemaMaintenanceAdmissionBarrier(original, h.binding.TransitionID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			current := original
+			if stage == "unknown config" {
+				current = []byte("# another native owner\n")
+			}
+			path := filepath.Join(h.runtime.paths.NginxRoot, "lmm-api-locations.conf")
+			if err := os.WriteFile(path, current, 0644); err != nil {
+				t.Fatal(err)
+			}
+			checks := 0
+			h.lease = &schemaMaintenanceTestLease{}
+			h.validate = func(context.Context) error {
+				checks++
+				if stage == "lost before inspection" || stage == "lost before write" && checks == 2 {
+					return errors.New("original guardian authority lost")
+				}
+				return nil
+			}
+			runner := &schemaMaintenanceJournalRunner{}
+			h.runtime.runner = runner
+			if err := h.restoreAdmissionBarrierAfterFailedReopen(context.Background(), original, barrier, &capture); err == nil {
+				t.Fatal("cleanup accepted missing authority or another admission owner")
+			}
+			after, err := os.ReadFile(path)
+			if err != nil || !bytes.Equal(after, current) || runner.calls != 0 {
+				t.Fatal("failed cleanup changed admission or invoked a service command")
+			}
+		})
+	}
+}
+
 type schemaMaintenanceJournalRunner struct {
 	body  []byte
 	calls int

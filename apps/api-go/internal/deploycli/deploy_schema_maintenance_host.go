@@ -639,20 +639,10 @@ func (h *productionSchemaMaintenanceHost) restoreAdmission(ctx context.Context, 
 		if returnErr == nil || !changed {
 			return
 		}
-		path := filepath.Join(h.runtime.paths.NginxRoot, "lmm-api-locations.conf")
-		current, err := h.runtime.readExistingSchemaSealedFile(path, false)
-		if err != nil || !bytes.Equal(current, original) && !bytes.Equal(current, barrier) {
-			returnErr = fmt.Errorf("%w; failed reopen could not prove admission restoration without replacing unknown configuration", returnErr)
-			return
-		}
 		cleanupCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		if err := h.runtime.installAdmissionBarrier(cleanupCtx, barrier); err != nil {
-			returnErr = fmt.Errorf("%w; failed reopen could not restore its closed barrier: %v", returnErr, err)
-			return
-		}
-		if err := h.captureAdmission(cleanupCtx, &result); err != nil {
-			returnErr = fmt.Errorf("%w; barrier rewritten but direct-origin closed proof failed: %v", returnErr, err)
+		if err := h.restoreAdmissionBarrierAfterFailedReopen(cleanupCtx, original, barrier, &result); err != nil {
+			returnErr = fmt.Errorf("%w; %v", returnErr, err)
 		}
 	}()
 	// Mark the attempt before the call: nginx test/reload errors can occur after
@@ -691,6 +681,27 @@ func (h *productionSchemaMaintenanceHost) restoreAdmission(ctx context.Context, 
 		return result, err
 	}
 	return result, nil
+}
+
+func (h *productionSchemaMaintenanceHost) restoreAdmissionBarrierAfterFailedReopen(ctx context.Context, original, barrier []byte, result *productionSchemaMaintenanceHostCapture) error {
+	if err := h.check(ctx); err != nil {
+		return fmt.Errorf("failed reopen lost native guardian authority; cleanup did not change admission: %w", err)
+	}
+	path := filepath.Join(h.runtime.paths.NginxRoot, "lmm-api-locations.conf")
+	current, err := h.runtime.readExistingSchemaSealedFile(path, false)
+	if err != nil || !bytes.Equal(current, original) && !bytes.Equal(current, barrier) {
+		return errors.New("failed reopen could not prove admission restoration without replacing unknown configuration")
+	}
+	if err := h.check(ctx); err != nil {
+		return fmt.Errorf("failed reopen lost native guardian authority before cleanup mutation: %w", err)
+	}
+	if err := h.runtime.installAdmissionBarrier(ctx, barrier); err != nil {
+		return fmt.Errorf("failed reopen could not restore its closed barrier: %w", err)
+	}
+	if err := h.captureAdmission(ctx, result); err != nil {
+		return fmt.Errorf("barrier rewritten but direct-origin closed proof failed: %w", err)
+	}
+	return nil
 }
 
 func (h *productionSchemaMaintenanceHost) probeRestoredAdmission(ctx context.Context, c productionMerchantStoreCapsule) error {
