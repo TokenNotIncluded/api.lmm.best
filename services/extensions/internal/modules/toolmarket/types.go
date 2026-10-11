@@ -99,9 +99,10 @@ func (p Price) total(now time.Time) (int64, error) {
 }
 
 type Tool struct {
-	Name        string          `json:"name"`
-	Description string          `json:"description"`
-	InputSchema json.RawMessage `json:"inputSchema"`
+	Name         string          `json:"name"`
+	Description  string          `json:"description"`
+	InputSchema  json.RawMessage `json:"inputSchema"`
+	OutputSchema json.RawMessage `json:"outputSchema,omitempty"`
 }
 type Server struct {
 	ID       string    `json:"id"`
@@ -170,10 +171,11 @@ type database struct {
 	States     map[string]OAuthState   `json:"states"`
 	Executions map[string]Execution    `json:"executions"`
 	Audit      []Audit                 `json:"audit"`
+	Web        *webDatabase            `json:"web_compat,omitempty"`
 }
 
 func emptyDB() database {
-	return database{1, map[string]Server{}, map[string]Release{}, map[string]Installation{}, map[string]Secret{}, map[string]OAuthState{}, map[string]Execution{}, []Audit{}}
+	return database{Version: 1, Servers: map[string]Server{}, Releases: map[string]Release{}, Installs: map[string]Installation{}, Secrets: map[string]Secret{}, States: map[string]OAuthState{}, Executions: map[string]Execution{}, Audit: []Audit{}}
 }
 func (d *database) audit(p Principal, action, target, outcome string) {
 	d.Audit = append(d.Audit, Audit{time.Now().Unix(), p, action, target, outcome})

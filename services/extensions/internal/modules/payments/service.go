@@ -154,7 +154,7 @@ func acceptHold(o *Order, r *Refund, receipt Receipt, now time.Time) {
 }
 func enqueue(o *Order, j Job, now time.Time) {
 	if old, ok := o.Jobs[j.Key]; ok {
-		if old.Evidence.Source == "api" && j.Evidence.Source == "webhook" && old.State != "done" {
+		if old.State != "done" && old.State != "rejected" && old.State != "fenced" && strongerProof(old.Evidence, j.Evidence) {
 			old.Evidence = j.Evidence
 			if old.State != "running" {
 				old.State = "pending"
@@ -170,7 +170,17 @@ func enqueue(o *Order, j Job, now time.Time) {
 	o.Jobs[j.Key] = j
 }
 
-// Receive returns after durable inbox storage only. It does not claim credit.
+func strongerProof(old, next Evidence) bool {
+	if old.AcceptedProofID != "" || next.AcceptedProofID == "" || next.Source != "webhook" || !samePayment(old, next) {
+		return false
+	}
+	// A semantic job may be repaired by a second independently accepted event.
+	// The same provider event can never change its original signed payload.
+	return old.EventID != next.EventID || eventHash(old.Payload) == eventHash(next.Payload)
+}
+
+// Receive acknowledges only after Rust durably accepts the provider proof and
+// Go persists the inbox event. It does not claim credit.
 func (s *Service) Receive(ctx context.Context, channelID int64, req *http.Request) error {
 	a := s.adapters[channelID]
 	if a == nil {
@@ -198,12 +208,56 @@ func (s *Service) receiveEvent(ctx context.Context, a Adapter, e Event) error {
 	if e.OrderID != "" && !validID(e.OrderID) {
 		return ErrInvalid
 	}
+	if e.Evidence.Source == "webhook" {
+		if len(e.Evidence.Payload) == 0 || len(e.Evidence.Signature) == 0 {
+			return ErrEvidence
+		}
+		o, err := s.eventOrder(ctx, a, e)
+		if err != nil {
+			return err // An orphan callback must be retried, not falsely ACKed.
+		}
+		// Acceptance may already be durable even if a prior Go response or inbox
+		// write was lost. Look up exact bytes before checking delivery freshness.
+		proof, err := s.core.LookupProof(ctx, o.Intent.ID, e.Evidence)
+		if errors.Is(err, ErrNotFound) {
+			proof, err = s.core.AcceptProof(ctx, o.Intent.ID, e.Evidence)
+		}
+		if err != nil {
+			return err
+		}
+		if !proofMatches(proof, o.Intent.ID, e.Evidence) {
+			return ErrConflict
+		}
+		e.Evidence.AcceptedProofID = proof.ID
+	} else if e.Evidence.Source != "api" || e.Evidence.AcceptedProofID != "" {
+		return ErrEvidence
+	}
 	e.ChannelID = c.ID
 	e.Key = eventKey(e)
 	e.Digest = eventDigest(e)
 	e.Status = "pending"
 	e.NextAttempt = s.now()
 	return s.store.PutEvent(ctx, e)
+}
+
+func (s *Service) eventOrder(ctx context.Context, a Adapter, e Event) (Order, error) {
+	var o Order
+	var err error
+	if e.OrderID != "" {
+		o, err = s.store.Get(ctx, e.OrderID)
+	} else {
+		o, err = s.store.FindPayment(ctx, a.Channel().namespace(), e.Evidence.Transaction)
+	}
+	if err != nil {
+		return Order{}, err
+	}
+	if o.ChannelID != a.Channel().ID || !sameChannel(e.Evidence, a.Channel()) || e.Currency != o.Intent.Currency ||
+		o.PaymentID != "" && o.PaymentID != e.Evidence.Transaction ||
+		(e.Type == Paid || e.Type == PaymentFailed) && e.AmountMinor != o.Intent.AmountMinor ||
+		e.AmountMinor > o.Intent.AmountMinor {
+		return Order{}, ErrConflict
+	}
+	return o, nil
 }
 
 // Drain persists a job before marking the inbox item done. A crash between the
@@ -235,6 +289,23 @@ func (s *Service) Drain(ctx context.Context, limit int) error {
 	return nil
 }
 func (s *Service) apply(ctx context.Context, e Event) error {
+	if e.Evidence.Source == "webhook" && e.Evidence.AcceptedProofID == "" {
+		a := s.adapters[e.ChannelID]
+		if a == nil {
+			return ErrUnavailable
+		}
+		o, err := s.eventOrder(ctx, a, e)
+		if err != nil {
+			return err
+		}
+		e.Evidence, err = s.acceptedEvidence(ctx, o.Intent.ID, e.Evidence)
+		if err != nil {
+			return err
+		}
+		if err = s.store.PutEvent(ctx, e); err != nil {
+			return err
+		}
+	}
 	id := e.OrderID
 	if id == "" {
 		c := s.adapters[e.ChannelID].Channel()

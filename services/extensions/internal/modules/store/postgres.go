@@ -42,6 +42,10 @@ func (p *Postgres) Within(ctx context.Context, shopID string, fn func(Tx) error)
 		return err
 	}
 	if err = fn(&postgresTx{ctx, tx, shopID}); err != nil {
+		var pg interface{ SQLState() string }
+		if errors.As(err, &pg) && pg.SQLState() == "23505" {
+			return ErrConflict
+		}
 		return err
 	}
 	return tx.Commit()

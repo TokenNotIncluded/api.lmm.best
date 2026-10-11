@@ -3,9 +3,6 @@ package payments
 import (
 	"bytes"
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/url"
@@ -18,7 +15,7 @@ type StripeConfig struct {
 	Channel        Channel
 	APIKey         string
 	APIVersion     string   // Pin a tested Stripe API version; do not follow a changing default.
-	WebhookSecrets []string // Current and previous secret during rotation.
+	WebhookSecrets []string // Deprecated: must be empty. Rust alone owns webhook secrets.
 	SuccessURL     string
 	CancelURL      string
 }
@@ -28,7 +25,7 @@ type Stripe struct {
 }
 
 func NewStripe(cfg StripeConfig) (*Stripe, error) {
-	if !cfg.Channel.valid() || cfg.Channel.Provider != "stripe" || !strings.HasPrefix(cfg.Channel.Merchant, "acct_") || len(cfg.WebhookSecrets) < 1 || len(cfg.WebhookSecrets) > 2 || len(cfg.APIVersion) < 10 || len(cfg.APIVersion) > 64 {
+	if !cfg.Channel.valid() || cfg.Channel.Provider != "stripe" || !strings.HasPrefix(cfg.Channel.Merchant, "acct_") || len(cfg.WebhookSecrets) != 0 || len(cfg.APIVersion) < 10 || len(cfg.APIVersion) > 64 {
 		return nil, ErrInvalid
 	}
 	for _, r := range cfg.APIVersion {
@@ -41,18 +38,12 @@ func NewStripe(cfg StripeConfig) (*Stripe, error) {
 	if !strings.HasPrefix(cfg.APIKey, prefix) && !strings.HasPrefix(cfg.APIKey, restricted) {
 		return nil, ErrInvalid
 	}
-	for _, secret := range cfg.WebhookSecrets {
-		if !strings.HasPrefix(secret, "whsec_") || len(secret) < 16 {
-			return nil, ErrInvalid
-		}
-	}
 	if _, err := secureURL(cfg.SuccessURL); err != nil {
 		return nil, err
 	}
 	if _, err := secureURL(cfg.CancelURL); err != nil {
 		return nil, err
 	}
-	cfg.WebhookSecrets = append([]string(nil), cfg.WebhookSecrets...)
 	return &Stripe{cfg: cfg, client: outboundClient()}, nil
 }
 func (s *Stripe) Channel() Channel                { return s.cfg.Channel }
@@ -167,7 +158,7 @@ func (s *Stripe) Checkout(ctx context.Context, o Order, key string) (Checkout, e
 	}
 	return Checkout{ID: v.ID, URL: v.URL, PaymentID: refID(v.PaymentIntent)}, nil
 }
-func (s *Stripe) Verify(r *http.Request, now time.Time) (Event, error) {
+func (s *Stripe) Verify(r *http.Request, _ time.Time) (Event, error) {
 	if r.Method != "POST" || len(r.Header.Values("Stripe-Signature")) != 1 {
 		return Event{}, ErrInvalid
 	}
@@ -176,14 +167,16 @@ func (s *Stripe) Verify(r *http.Request, now time.Time) (Event, error) {
 		return Event{}, err
 	}
 	signature := r.Header.Get("Stripe-Signature")
-	if !stripeSignature(raw, signature, s.cfg.WebhookSecrets, now) {
-		return Event{}, ErrDenied
+	if len(signature) == 0 || len(signature) > 2048 {
+		return Event{}, ErrInvalid
 	}
+	// This is only a parser and optional provider API cross-check. Rust verifies
+	// the original bytes/signature and persists acceptance before HTTP ACK.
 	e, err := s.parseEnvelope(raw)
 	if err != nil {
 		return Event{}, err
 	}
-	// Direct-account events omit account. Confirm the signed event also exists in
+	// Direct-account events omit account. Confirm the parsed event also exists in
 	// the API-key's configured merchant, instead of trusting metadata as identity.
 	if err = s.merchant(r.Context()); err != nil {
 		return Event{}, err
@@ -215,52 +208,6 @@ func (s *Stripe) Verify(r *http.Request, now time.Time) (Event, error) {
 	}
 	e.Evidence.Signature = []byte(signature)
 	return e, nil
-}
-func stripeSignature(payload []byte, header string, secrets []string, now time.Time) bool {
-	if len(header) > 2048 {
-		return false
-	}
-	var timestamp string
-	var signatures [][]byte
-	for _, part := range strings.Split(header, ",") {
-		k, v, ok := strings.Cut(strings.TrimSpace(part), "=")
-		if !ok {
-			return false
-		}
-		if k == "t" {
-			if timestamp != "" {
-				return false
-			}
-			timestamp = v
-		}
-		if k == "v1" {
-			b, err := hex.DecodeString(v)
-			if err != nil || len(b) != sha256.Size {
-				return false
-			}
-			signatures = append(signatures, b)
-		}
-	}
-	t, err := strconv.ParseInt(timestamp, 10, 64)
-	if err != nil || t <= 0 {
-		return false
-	}
-	age := now.Sub(time.Unix(t, 0))
-	if age > 5*time.Minute || age < -5*time.Minute {
-		return false
-	}
-	for _, secret := range secrets {
-		m := hmac.New(sha256.New, []byte(secret))
-		m.Write([]byte(timestamp + "."))
-		m.Write(payload)
-		want := m.Sum(nil)
-		for _, sig := range signatures {
-			if hmac.Equal(want, sig) {
-				return true
-			}
-		}
-	}
-	return false
 }
 func (s *Stripe) parseEnvelope(raw []byte) (Event, error) {
 	var envelope stripeEnvelope

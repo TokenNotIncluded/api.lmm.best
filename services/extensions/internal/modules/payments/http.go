@@ -117,7 +117,7 @@ func (s *Service) WebhookHandler() http.Handler {
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, MaxEvidence)
 		err = s.Receive(r.Context(), id, r)
-		if err != nil && !errors.Is(err, ErrUnsupported) {
+		if err != nil {
 			paymentError(w, err)
 			return
 		}

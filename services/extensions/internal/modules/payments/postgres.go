@@ -124,20 +124,69 @@ func encodeOrder(o Order) ([]byte, error) {
 	}
 	return b, nil
 }
+
+// mergeEvent preserves signed bytes. Inbox done means only that local work was
+// queued, so a missing proof may still be promoted and reapplied to repair a
+// quarantined job. Final money jobs and receipts remain immutable in apply.
+func mergeEvent(old, next Event) (Event, bool, error) {
+	if old.Digest != next.Digest || eventHash(old.Evidence.Payload) != eventHash(next.Evidence.Payload) || !samePayment(old.Evidence, next.Evidence) {
+		return Event{}, false, ErrConflict
+	}
+	if old.Evidence.AcceptedProofID != "" && next.Evidence.AcceptedProofID != "" && old.Evidence.AcceptedProofID != next.Evidence.AcceptedProofID {
+		return Event{}, false, ErrConflict
+	}
+	if !strongerProof(old.Evidence, next.Evidence) {
+		return old, false, nil
+	}
+	old.Evidence = next.Evidence
+	old.Status, old.ErrorCode, old.NextAttempt = "pending", "", next.NextAttempt
+	return old, true, nil
+}
 func (p *Postgres) PutEvent(ctx context.Context, e Event) error {
 	b, err := json.Marshal(e)
 	if err != nil || len(b) > 96<<10 {
 		return ErrInvalid
 	}
-	var digest string
-	// A duplicate never moves done/review back to pending. A changed normalized
-	// event cannot replace the original stored evidence under the same event ID.
-	err = p.db.QueryRowContext(ctx, `INSERT INTO payment_events(event_key,digest,snapshot,status,next_attempt) VALUES($1,$2,$3,'pending',$4) ON CONFLICT(event_key) DO UPDATE SET event_key=EXCLUDED.event_key RETURNING digest`, e.Key, e.Digest, string(b), e.NextAttempt).Scan(&digest)
+	tx, err := p.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
 		return ErrUnavailable
 	}
-	if digest != e.Digest {
-		return ErrConflict
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `INSERT INTO payment_events(event_key,digest,snapshot,status,next_attempt) VALUES($1,$2,$3,'pending',$4) ON CONFLICT(event_key) DO NOTHING`, e.Key, e.Digest, string(b), e.NextAttempt)
+	if err != nil {
+		return ErrUnavailable
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return ErrUnavailable
+	}
+	if count == 0 {
+		var old Event
+		var raw []byte
+		if err = tx.QueryRowContext(ctx, `SELECT snapshot,status,error_code,next_attempt FROM payment_events WHERE event_key=$1 FOR UPDATE`, e.Key).Scan(&raw, &old.Status, &old.ErrorCode, &old.NextAttempt); err != nil {
+			return ErrUnavailable
+		}
+		status, code, next := old.Status, old.ErrorCode, old.NextAttempt
+		if json.Unmarshal(raw, &old) != nil {
+			return ErrUnavailable
+		}
+		old.Status, old.ErrorCode, old.NextAttempt = status, code, next
+		merged, changed, mergeErr := mergeEvent(old, e)
+		if mergeErr != nil {
+			return mergeErr
+		}
+		if changed {
+			raw, err = json.Marshal(merged)
+			if err != nil || len(raw) > 96<<10 {
+				return ErrInvalid
+			}
+			if _, err = tx.ExecContext(ctx, `UPDATE payment_events SET snapshot=$2,status=$3,error_code=$4,next_attempt=$5,updated_at=now() WHERE event_key=$1`, e.Key, string(raw), merged.Status, merged.ErrorCode, merged.NextAttempt); err != nil {
+				return ErrUnavailable
+			}
+		}
+	}
+	if tx.Commit() != nil {
+		return ErrUnavailable
 	}
 	return nil
 }
@@ -165,7 +214,7 @@ func (p *Postgres) Events(ctx context.Context, now time.Time, limit int) ([]Even
 	return result, nil
 }
 func (p *Postgres) FinishEvent(ctx context.Context, key, status, code string, next time.Time) error {
-	_, err := p.db.ExecContext(ctx, `UPDATE payment_events SET status=$2,error_code=$3,next_attempt=$4,updated_at=now() WHERE event_key=$1 AND status<>'done'`, key, status, code, next)
+	_, err := p.db.ExecContext(ctx, `UPDATE payment_events SET status=$2,error_code=$3,next_attempt=$4,updated_at=now() WHERE event_key=$1 AND status<>'done' AND NOT ($2='review' AND $3='independent_provider_evidence_required' AND COALESCE(snapshot->'evidence'->>'accepted_proof_id','')<>'')`, key, status, code, next)
 	if err != nil {
 		return ErrUnavailable
 	}

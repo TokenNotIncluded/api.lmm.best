@@ -17,6 +17,31 @@ type Core interface {
 }
 type Adapter struct{ core Core }
 
+// CheckAdmin reauthorizes a live interactive session. Platform administration
+// is distinct from ownership of the seller's personal account.
+func (a *Adapter) CheckAdmin(ctx context.Context, token string, root bool) (int64, error) {
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	self, err := a.core.Authorize(ctx, token)
+	if err != nil {
+		return 0, translate(err)
+	}
+	if self == nil || self.GetUserId() <= 0 {
+		return 0, store.ErrUnauthorized
+	}
+	if self.GetCredentialKind() != pb.CredentialKind_CREDENTIAL_KIND_SESSION || self.GetOwner().GetKind() != pb.AccountKind_ACCOUNT_KIND_PERSONAL || self.GetOwner().GetId() != self.GetUserId() {
+		return 0, store.ErrForbidden
+	}
+	minimum := int32(5)
+	if root {
+		minimum = 6
+	}
+	if self.GetPlatformLevel() < minimum || self.GetPlatformLevel() > 6 {
+		return 0, store.ErrForbidden
+	}
+	return self.GetUserId(), nil
+}
+
 func New(core Core) (*Adapter, error) {
 	if store.Missing(core) {
 		return nil, store.ErrInvalid

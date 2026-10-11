@@ -16,6 +16,8 @@ import (
 	"regexp"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/BurntSushi/toml"
 )
 
 const maxDocument = 128 << 10
@@ -27,11 +29,12 @@ var variableName = regexp.MustCompile(`^[a-z][a-z0-9_]*$`)
 var documentNames = []string{"user-agreement", "privacy-policy", "refund-policy"}
 
 type configuration struct {
-	Version         int                          `json:"version"`
-	Published       bool                         `json:"published"`
-	DefaultLanguage string                       `json:"default_language"`
-	Variables       map[string]string            `json:"variables"`
-	Documents       map[string]map[string]string `json:"documents"`
+	Version         int                          `toml:"version"`
+	Published       bool                         `toml:"published"`
+	DefaultLanguage string                       `toml:"default_language"`
+	TemplateRoot    string                       `toml:"template_root,omitempty"`
+	Variables       map[string]string            `toml:"variables"`
+	Documents       map[string]map[string]string `toml:"documents"`
 }
 
 type document struct {
@@ -57,19 +60,41 @@ func Load(path string) (*Handler, error) {
 		return nil, errors.New("cannot read legal configuration")
 	}
 	var c configuration
-	decoder := json.NewDecoder(bytes.NewReader(raw))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&c); err != nil {
-		return nil, errors.New("invalid legal configuration JSON")
+	metadata, err := toml.NewDecoder(bytes.NewReader(raw)).Decode(&c)
+	// Parser errors can include operator values and source lines. Return a fixed
+	// message; never put private configuration or filenames in startup errors.
+	if err != nil || len(metadata.Undecoded()) != 0 {
+		return nil, errors.New("invalid legal configuration TOML")
 	}
-	if err := decoder.Decode(new(any)); err != io.EOF {
-		return nil, errors.New("legal configuration must contain one JSON document")
+	// The decoder can match struct fields without regard to case. TOML keys are
+	// case-sensitive: accept only our exact schema names, including empty tables.
+	for _, key := range metadata.Keys() {
+		if len(key) == 0 {
+			return nil, errors.New("invalid legal configuration TOML")
+		}
+		switch key[0] {
+		case "version", "published", "default_language", "template_root", "variables", "documents":
+		default:
+			return nil, errors.New("invalid legal configuration TOML")
+		}
 	}
 	c.DefaultLanguage = normalizeLanguage(c.DefaultLanguage)
 	if c.Version != 1 || !languagePattern.MatchString(c.DefaultLanguage) {
 		return nil, errors.New("legal configuration requires version 1 and a valid default_language")
 	}
 	h.defaultLanguage = c.DefaultLanguage
+	templateRoot := filepath.Dir(path)
+	if c.TemplateRoot != "" {
+		if !safeAbsoluteDirectory(c.TemplateRoot) {
+			return nil, errors.New("invalid legal template_root")
+		}
+		templateRoot = c.TemplateRoot
+		// A disabled draft can name an installation path that does not exist on
+		// a developer machine. Publication requires the real root to be safe.
+		if c.Published && checkTemplateRoot(templateRoot) != nil {
+			return nil, errors.New("invalid legal template_root")
+		}
+	}
 	if len(c.Documents) > len(documentNames) || len(c.Variables) > 64 {
 		return nil, errors.New("too many legal documents or variables")
 	}
@@ -98,9 +123,10 @@ func Load(path string) (*Handler, error) {
 		}
 		h.documents[name] = make(map[string]document)
 		for language, file := range normalized {
-			// Operator-owned configuration is mounted read-only. Reject symlinks and
-			// non-regular files, including every relative parent of a template.
-			source, err := readTemplate(filepath.Dir(path), file)
+			// Operator-owned configuration is mounted read-only. Reject files
+			// writable by the group or others, symlinks, and non-regular files,
+			// including every relative parent of a template.
+			source, err := readTemplate(templateRoot, file)
 			if err != nil {
 				return nil, fmt.Errorf("cannot read legal template %s/%s", name, language)
 			}
@@ -200,6 +226,24 @@ func safeRelativeFile(file string) bool {
 	return true
 }
 
+func safeAbsoluteDirectory(root string) bool {
+	return root != "" && len(root) <= 4096 && filepath.IsAbs(root) && filepath.Clean(root) == root && !strings.ContainsAny(root, "\\\x00")
+}
+
+// Check every absolute parent, including the configured root itself. Lstat on
+// only the final directory would follow a symlink in an earlier component.
+func checkTemplateRoot(root string) error {
+	path := string(filepath.Separator)
+	for _, part := range strings.Split(strings.TrimPrefix(root, path), path) {
+		path = filepath.Join(path, part)
+		info, err := os.Lstat(path)
+		if err != nil || info == nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return errors.New("invalid template directory")
+		}
+	}
+	return nil
+}
+
 func readTemplate(root, file string) ([]byte, error) {
 	path := root
 	for _, part := range strings.Split(file, "/") {
@@ -217,7 +261,7 @@ func readTemplate(root, file string) ([]byte, error) {
 
 func readBounded(path string, limit int64) ([]byte, error) {
 	info, err := os.Lstat(path)
-	if err != nil || info == nil || !info.Mode().IsRegular() || info.Size() > limit {
+	if err != nil || info == nil || !info.Mode().IsRegular() || info.Mode().Perm()&0022 != 0 || info.Size() > limit {
 		return nil, errors.New("not a bounded regular file")
 	}
 	file, err := os.Open(path)

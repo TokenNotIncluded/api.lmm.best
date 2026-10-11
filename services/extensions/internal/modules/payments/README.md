@@ -1,16 +1,14 @@
-# Go payment extension — task 10
+# Go payment extension
 
-Parent integration PR: #675. Work branch: `wip/mk-10-payments`.
-Initial base: `e71f6028ac110420a55bda5d0bb0243a80d4e541`.
-Rebased onto `4179ea1acfa1172afbd0d16927acb1c3c3a93a10` after the upstream rename
-from `apps/api-go` to `apps/lmm-extensions`. The current service directory is
-`services/extensions`; the earlier rename above describes that historical base.
+Parent integration PR: #675. Active work branch: `wip/rust-core-go-extensions`.
 
-**Draft integration, not production-enabled.** The base declares `CorePayments`
-but does not register its Rust implementation. This module does not implement a
-Go ledger, edit Rust/Protobuf, migrate old data or enable production routes.
-[PROTOCOL_REQUIREMENTS.md](PROTOCOL_REQUIREMENTS.md) records the task 02/06
-requirements that must be resolved before funds can be connected.
+**Local WIP, not production-enabled.** Go owns provider orders and callback
+processing; Rust independently accepts provider proof and owns all ledger
+mutations. Construction does not enable live channels or install a schema.
+[PROTOCOL_REQUIREMENTS.md](PROTOCOL_REQUIREMENTS.md) separates implemented
+contracts from remaining acceptance work. [VERIFICATION.md](VERIFICATION.md)
+records current Go/PostgreSQL checks and the completed simulated Rust/Go payment
+recovery test, separately from historical task 10 results.
 
 ## Ownership and construction
 
@@ -22,10 +20,10 @@ calculates credit units or accesses a core database.
 
 `Service` implements the host's `Name` / `Handler` interface. Inject a dedicated
 `Postgres`, `rustbridge.Bridge` and configured adapters using `New`. Construction
-starts no worker and makes no provider call. The composition root remains
-**disabled** pending real Rust authorization, independent evidence verification,
-service scopes and an isolated database role. Other extensions and the Rust core
-must remain available if this module fails.
+starts no worker and makes no provider call. The completed joint test constructs
+this service directly; it does not verify host registration, public proxy routes
+or production configuration. Those remain separate integration work. Other
+extensions and the Rust core must remain available if this module fails.
 
 Install `schema.sql` explicitly into a **new payment-only PostgreSQL database**.
 Its login role must have no core database/schema access. `NewPostgres` checks the
@@ -67,20 +65,23 @@ order. No unbounded goroutine or retry loop is created by this package.
 ## State and recovery
 
 ```text
-callback -> signature / merchant checks -> durable event inbox
-         -> order row lock -> durable job -> controlled Rust RPC
+callback -> parse / provider API observation -> resolve frozen Rust intent
+         -> Rust proof lookup or independent verification + durable acceptance
+         -> durable Go event inbox -> order row lock -> durable job
+         -> controlled Rust RPC with accepted proof ID + exact original bytes
          -> validated durable receipt -> public status
 ```
 
-Callback success acknowledges durable receipt of an event, **not account credit**.
-Invalid signatures or channel identity never enter the inbox. Authenticated
-irrelevant event types are ignored. Unknown orders remain pending for delayed
-creation. Wrong amounts or conflicting ownership go to review without a ledger
-call. Original evidence is private; public status exposes no signatures or jobs.
+Callback success requires both a Rust durable proof receipt and a saved Go inbox
+event. It is **not account credit**. Go checks the receipt's intent, event ID,
+payload SHA-256, provider/merchant/environment/transaction and acceptance time.
+Missing dependencies, unsupported events, unknown orders and invalid bindings
+return non-2xx so the provider can retry. They are never falsely acknowledged.
+Original evidence remains private; public status exposes no signatures or jobs.
 
 | Event state | Meaning |
 | --- | --- |
-| `pending` | Saved; awaiting its order or retry. |
+| `pending` | Saved with accepted proof, or an unsigned API observation awaiting proof/retry. |
 | `done` | Applied to local state or a durable job, not necessarily posted by Rust. |
 | `review` | Conflicting identity, amount or event meaning. |
 
@@ -106,10 +107,13 @@ call. Original evidence is private; public status exposes no signatures or jobs.
 balances from Rust, including after refunds. A job in review leaves the user
 status pending instead of inventing success; inspect private jobs for its reason.
 
-Event deduplication uses provider + merchant + environment + event ID. A changed
-meaning under one event ID is rejected. Distinct paid events for one transaction
+Event deduplication uses provider + merchant + environment + event ID. Changed meaning or original payload bytes under one event ID are rejected. Distinct paid events for one transaction
 use the same credit job. A database unique index prevents that transaction from
-binding to two orders. Late failure cannot erase terminal success.
+binding to two orders. Late failure cannot erase terminal success. Missing proof can be upgraded to a
+Rust-issued proof only for identical original bytes under the same event ID. A
+second accepted event may repair the same semantic job only when its immutable
+payment/refund bindings agree. Completed, rejected and fenced jobs never reopen.
+Review entries can recover only when missing proof becomes durably accepted.
 
 PostgreSQL row locks protect order updates; network calls run outside database
 transactions. Durable claims recover after restart, and expired workers cannot
@@ -124,9 +128,12 @@ protocol requirement, not a locally invented cross-language contract.
 The user refund flow is `hold_pending -> held -> awaiting_evidence -> committed`.
 Rust first holds funds. Go then sends a provider refund with a stable request key.
 Only independently verified success plus Rust `REFUND_COMMITTED` completes it.
-Only verified terminal failure plus `REFUND_RELEASED` releases a hold. Timeout,
-missing callback, API error or unsigned provider success never releases funds.
-Lost hold responses use receipt lookup; background jobs never save user sessions.
+A hold may be released only after Rust returns `REFUND_RELEASED`. The current
+Rust release operation remains unavailable until provider dispatch is bound to
+the hold: one signed failed attempt cannot exclude another successful attempt.
+Timeout, missing callback, API error or unsigned provider success never releases
+funds. Lost hold responses use receipt lookup; background jobs never save user
+sessions. The completed joint test covers top-up credit recovery, not refunds.
 
 Partial refunds have separate IDs and request keys. Local locked checks cap the
 cumulative requested amount; Rust enforces the authoritative cap and holds.
@@ -142,14 +149,21 @@ and bounded refund pagination. Connect-account events are rejected in this basic
 adapter. The required pinned API version has no changing default. Checkout
 disables adaptive pricing, promotions and automatic tax to preserve the intent.
 
-HMAC verification uses the exact body, a five-minute delivery-signature window
-and up to two rotating secrets. An old event with a fresh delivery signature is
-accepted. The API key must identify the configured merchant and retrieve the same
-signed event. Provider mutation retries retain the same key and stop after
-23 hours from the first attempt, rather than assuming indefinite key retention.
-API observations have `source=api` and no fabricated signature. The current Rust
-bridge rejects them as settlement proof. Later signed callbacks replace those
-observations, including while an older job is in flight.
+Rust alone holds Stripe webhook secrets and verifies the exact original body,
+five-minute delivery window, merchant, frozen intent, amount and event semantics
+before persisting proof. `StripeConfig.WebhookSecrets` is deprecated and must be
+empty; `NewStripe` rejects nonempty values. Go forwards the unchanged bytes and
+signature header. Its API-key merchant/event checks are observations, not an
+authenticity assertion.
+
+Ingress first looks up an accepted proof by intent, provider event and payload
+SHA-256. This recovers a lost Go ACK or inbox write even after delivery freshness
+expires. Workers also recover accepted proof by that immutable binding; they do
+not re-accept aged, previously unverified signatures. Settlement requires the
+Rust proof ID and exact payload. Provider mutation retries retain their key and
+stop after 23 hours. API observations have `source=api`, no forged signature or
+accepted proof ID, and cannot settle funds. A later accepted webhook can repair
+an earlier unproved job, including while that job is in flight.
 
 **Legacy ePay MD5 profile:** deterministic signed checkout links, precise CNY
 minor-unit amounts, GET/form callback verification and authenticated order query.
@@ -157,6 +171,9 @@ The wire format contains no currency or environment: only CNY is enabled, and
 each environment requires a separate merchant key. Duplicate form fields,
 ambiguous signing inputs and unexpected merchant/payment type are rejected.
 There is no callback timestamp check, so replay keys must remain durable.
+These are Go adapter capabilities. Rust has no ePay proof verifier yet, so this
+profile cannot complete the current durable-proof settlement path. The completed
+joint acceptance uses simulated Stripe events only.
 
 Legacy ePay automatic refunds are **disabled by default**: its common documented
 API lacks stable refund IDs, refund idempotency keys and signed terminal proof.
@@ -177,18 +194,30 @@ the protocol handoff. No Go `verified=true` flag grants ledger authority.
 
 ```sh
 cd services/extensions
-go test -race -count=3 ./internal/modules/payments/... ./internal/coreclient ./internal/modules
-go vet ./internal/modules/payments/... ./internal/coreclient
-cd internal/modules/payments/pgtest
-PAYMENT_TEST_DSN='postgres://payments_test:disposable_test_password@localhost:5432/lmm_payments_test?sslmode=disable' go test -race -v ./...
+MISE_IGNORED_TOOLS=rust MISE_AUTO_INSTALL=false mise exec -- go test -mod=readonly -race -count=1 ./internal/modules/payments/... ./internal/coreclient
+MISE_IGNORED_TOOLS=rust MISE_AUTO_INSTALL=false mise exec -- go vet ./internal/modules/payments/... ./internal/coreclient
 ```
 
-The PostgreSQL test refuses any database name except `lmm_payments_test` and resets
-only its disposable schema. Never pass production credentials. The isolated
-`pgtest` module keeps the driver out of production module dependencies. The
-`mk10-payment-safety` workflow runs repository-toolchain, controlled RPC, host and
-PostgreSQL tests without production secrets or deployment. See
-[VERIFICATION.md](VERIFICATION.md) for executed checks and remaining limits.
+The nested `pgtest` module uses `PAYMENT_TEST_DSN` supplied privately by an
+isolated test runner. It refuses any database name except `lmm_payments_test` and
+resets only that disposable schema. Never use application or production data.
+
+`TestRustDurableProofAcrossGoRestart` requires an explicit private fixture through
+`PAYMENT_CORE_PROOF_FIXTURE` and phase `recv`, `recv-lost`, `offline` or `settle`
+through `PAYMENT_CORE_PROOF_PHASE`. The runner
+must provision separate fresh Rust and Go databases, install Go's schema, sign
+payloads outside Go and execute each phase in a separate Go process. Callbacks use a real loopback HTTP test server; they do not traverse Caddy.
+The fault phases require explicit runner-owned database/UDS fault injection.
+No webhook secret is passed to Go. The default test run skips this joint test. A rebuilt Rust
+service object is not a Rust operating-system process restart. Consult
+[VERIFICATION.md](VERIFICATION.md) for the actually executed phases and limits.
+
+The four phases passed locally on 2026-10-12: four actual Go processes, loopback
+HTTP callbacks, UDS RPC and separate synthetic PostgreSQL databases. Recovery
+survived a Go inbox-write failure, an offline Rust service, a real 302-second wait
+and webhook-key rotation. Two accepted proofs produced one credit receipt and
+one balanced journal. This establishes that bounded recovery path; it does not
+verify a real provider, the normal host, Caddy, browser flows or production.
 
 Provider references checked during implementation:
 - https://docs.stripe.com/webhooks

@@ -33,6 +33,13 @@ func TestPublicViewPreservesExactIntegerCreditsAndDisablesPayments(t *testing.T)
 			row.Product.LegacyPublic = publicSnapshot(t, map[string]any{"price_quota": json.Number(strconv.FormatInt(credits, 10)), "variants": []any{map[string]any{"id": "variant-1", "product_id": "product-1", "name": "Current variant", "price_quota": json.Number(strconv.FormatInt(credits, 10)), "enabled": true}}})
 			original := append([]byte(nil), row.Product.LegacyPublic...)
 			view, err := publicView(row)
+			if credits > legacySafeInteger {
+				wantError(t, err, ErrUnavailable)
+				if view != nil {
+					t.Fatal("unsafe JavaScript integer projected")
+				}
+				return
+			}
 			must(t, err)
 			price, ok := view["price_quota"].(json.Number)
 			if !ok {

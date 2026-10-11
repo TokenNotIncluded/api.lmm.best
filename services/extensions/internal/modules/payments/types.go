@@ -2,6 +2,7 @@
 package payments
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
@@ -135,6 +136,8 @@ func receiptMatches(r Receipt, intent int64, key, state string) bool {
 type Core interface {
 	Prepare(context.Context, string, PrepareRequest) (Intent, error)
 	Read(context.Context, string, Intent) error
+	AcceptProof(context.Context, int64, Evidence) (ProofReceipt, error)
+	LookupProof(context.Context, int64, Evidence) (ProofReceipt, error)
 	Credit(context.Context, int64, string, Evidence) (Receipt, error)
 	Hold(context.Context, string, int64, string, int64) (Receipt, error)
 	Commit(context.Context, int64, string, string, Evidence) (Receipt, error)
@@ -144,15 +147,40 @@ type Core interface {
 }
 
 type Evidence struct {
-	Provider    string `json:"provider"`
-	Merchant    string `json:"merchant"`
-	Environment string `json:"environment"`
-	Transaction string `json:"transaction"`
-	EventID     string `json:"event_id"`
-	Payload     []byte `json:"payload"`
-	Signature   []byte `json:"signature"`
-	Source      string `json:"source"` // webhook or api; api is NOT signed webhook evidence.
+	Provider        string `json:"provider"`
+	Merchant        string `json:"merchant"`
+	Environment     string `json:"environment"`
+	Transaction     string `json:"transaction"`
+	EventID         string `json:"event_id"`
+	Payload         []byte `json:"payload"`
+	Signature       []byte `json:"signature"`
+	Source          string `json:"source"` // webhook or api; api is NOT signed webhook evidence.
+	AcceptedProofID string `json:"accepted_proof_id,omitempty"`
 }
+
+// ProofReceipt proves only that Rust independently checked and durably accepted
+// these exact provider bytes. It is not a credit or refund receipt.
+type ProofReceipt struct {
+	ID                  string
+	IntentID            int64
+	EventID             string
+	PayloadSHA256       []byte
+	Payment             Evidence
+	AcceptedUnixSeconds int64
+}
+
+func proofMatches(p ProofReceipt, intent int64, e Evidence) bool {
+	h := sha256.Sum256(e.Payload)
+	return p.ID != "" && p.IntentID == intent && p.EventID == e.EventID &&
+		p.AcceptedUnixSeconds > 0 && len(p.PayloadSHA256) == sha256.Size &&
+		bytes.Equal(p.PayloadSHA256, h[:]) &&
+		samePayment(p.Payment, e)
+}
+
+func samePayment(a, b Evidence) bool {
+	return a.Provider == b.Provider && a.Merchant == b.Merchant && a.Environment == b.Environment && a.Transaction == b.Transaction
+}
+
 type Event struct {
 	Key           string    `json:"key"`
 	ChannelID     int64     `json:"channel_id"`

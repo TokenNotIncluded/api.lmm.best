@@ -22,6 +22,11 @@ func Respond(w http.ResponseWriter, value any, err error) {
 			w.Header().Set("Retry-After", "60")
 		}
 		body = map[string]any{"success": false, "code": label, "message": message}
+		var terms *store.TermsUpdatedError
+		if errors.As(err, &terms) {
+			body["request_key"] = terms.RequestKey
+			body["order_created"] = false
+		}
 		if errors.Is(err, store.ErrPending) {
 			body["data"] = value
 		}
@@ -39,7 +44,16 @@ func Respond(w http.ResponseWriter, value any, err error) {
 }
 
 func responseError(err error) (int, string, string) {
+	var terms *store.TermsUpdatedError
 	switch {
+	case errors.As(err, &terms):
+		return http.StatusConflict, "STORE_TERMS_UPDATED", "The seller terms changed before this order was created. Read and accept the current terms."
+	case errors.Is(err, store.ErrSellerTermsNotConfigured):
+		return http.StatusConflict, "STORE_SELLER_TERMS_NOT_CONFIGURED", "Configure seller terms before publishing or relisting this product."
+	case errors.Is(err, store.ErrSellerTermsRequired):
+		return http.StatusConflict, "STORE_SELLER_TERMS_REQUIRED", "Read and accept the current seller terms before ordering."
+	case errors.Is(err, store.ErrDisclaimerRequired):
+		return http.StatusConflict, "STORE_DISCLAIMER_REQUIRED", "Read and accept the current merchant disclaimer before ordering."
 	case errors.Is(err, store.ErrRateLimited):
 		return http.StatusTooManyRequests, "STORE_RATE_LIMITED", "Please wait before sending another request."
 	case errors.Is(err, store.ErrUnauthorized):

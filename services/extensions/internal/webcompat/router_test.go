@@ -33,7 +33,7 @@ func TestMountTransportPreparingAndDrainingRejectWebWhileHealthRemainsReadable(t
 	host, core := mountTransportHost(t, nil)
 	storeService, supportService := newStoreTransportFake(), &supportFake{}
 	handler := Mount(host, newAuth(t, core), storeService, supportService)
-	paths := []struct{ method, path string }{{"GET", "/api/store/products"}, {"GET", "/api/store/products/product-1"}, {"POST", "/api/store/orders/order-1/pay"}, {"GET", "/api/store/support/conversations"}, {"GET", "/api/store/my/products"}}
+	paths := []struct{ method, path string }{{"GET", "/api/store/config"}, {"GET", "/api/store/disclaimer"}, {"GET", "/api/store/products/product-1/terms"}, {"PUT", "/api/store/my/terms"}, {"GET", "/api/store/products"}, {"GET", "/api/store/products/product-1"}, {"POST", "/api/store/orders/order-1/pay"}, {"GET", "/api/store/support/conversations"}, {"GET", "/api/store/my/products"}}
 	checkClosed := func(phase string) {
 		t.Helper()
 		for _, route := range paths {
@@ -146,6 +146,8 @@ func TestMountTransportUnassembledRoutesFailExplicitlyAndMissingServicesDoNotPan
 		values       []string
 		want         int
 	}{
+		{"GET", "/api/store/config", nil, 503},
+		{"GET", "/api/store/disclaimer", nil, 503},
 		{"GET", "/api/store/products", nil, 503},
 		{"GET", "/api/store/products/product-1", nil, 503},
 		{"POST", "/api/store/orders/order-1/pay", []string{"Bearer " + webToken}, 503},
@@ -232,7 +234,7 @@ func TestMountTransportReleasesAdmissionOnAuthAndValidationFailures(t *testing.T
 	}{
 		{"/api/store/products", []string{"Bearer " + hostToken}, 401},
 		{"/api/store/products?limit=0", nil, 422},
-		{"/api/store/products?sort=latest", nil, 503},
+		{"/api/store/products?sort=newest", nil, 503},
 		{"/api/store/my/products", nil, 401},
 	} {
 		host, core := mountTransportHost(t, nil)
@@ -251,5 +253,45 @@ func TestMountTransportReleasesAdmissionOnAuthAndValidationFailures(t *testing.T
 		if err != nil {
 			t.Fatalf("permit leaked for %s: %v", tc.path, err)
 		}
+	}
+}
+
+func TestMountTransportLegacyCatalogueAndConfigReachOnlyReadyHost(t *testing.T) {
+	host, core := mountTransportHost(t, nil)
+	service := newStoreLegacyTransportFake()
+	handler := Mount(host, newAuth(t, core), service, &supportFake{})
+	for _, path := range []string{"/api/store/config", "/api/store/disclaimer", "/api/store/products?sort=comprehensive"} {
+		if rec := mountTransportCall(handler, "GET", path, nil); rec.Code != 503 {
+			t.Fatal(path, rec.Code)
+		}
+	}
+	if len(service.calls) != 0 || core.calls != 0 {
+		t.Fatal(service.calls, core.calls)
+	}
+	if err := host.MarkReady(); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{"/api/store/config", "/api/store/disclaimer", "/api/store/products?sort=comprehensive"} {
+		if rec := mountTransportCall(handler, "GET", path, nil); rec.Code != 200 {
+			t.Fatal(path, rec.Code, rec.Body.String())
+		}
+	}
+	if core.calls != 0 || len(service.calls) != 3 {
+		t.Fatal(core.calls, service.calls)
+	}
+	// No Web fulfill/settle route existed in main, and unsupported pickup proof
+	// cannot be replaced with an unguarded generic order mutation.
+	for _, path := range []string{"/api/store/orders/order-1/fulfill", "/api/store/orders/order-1/settle", "/api/store/orders/order-1/pickup-link"} {
+		rec := mountTransportCall(handler, "POST", path, []string{"Bearer " + webToken})
+		if rec.Code != 503 || len(service.calls) != 3 {
+			t.Fatal(path, rec.Code, service.calls)
+		}
+	}
+	host.BeginDrain()
+	if rec := mountTransportCall(handler, "GET", "/api/store/config", nil); rec.Code != 503 {
+		t.Fatal(rec.Code)
+	}
+	if rec := mountTransportCall(handler, "GET", "/health/live", nil); rec.Code != 200 {
+		t.Fatal(rec.Code)
 	}
 }

@@ -208,6 +208,12 @@ func (c *mcpSession) tools(ctx context.Context) ([]Tool, error) {
 			if e != nil || s.Type != "object" {
 				return nil, invalid("unsupported tool schema")
 			}
+			if len(t.OutputSchema) > 0 && string(t.OutputSchema) != "null" {
+				s, e := readSchema(t.OutputSchema, 0)
+				if e != nil || s.Type != "object" {
+					return nil, invalid("unsupported output schema")
+				}
+			}
 			names[t.Name] = true
 			result = append(result, t)
 			if len(result) > 200 {

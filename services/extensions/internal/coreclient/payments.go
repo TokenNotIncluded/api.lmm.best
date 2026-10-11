@@ -47,3 +47,13 @@ func (c *Client) ReleasePaymentRefund(ctx context.Context, request *pb.ResolveRe
 func (c *Client) ApplyExternalPaymentRefund(ctx context.Context, request *pb.ExternalRefundRequest) (*pb.PaymentReceipt, error) {
 	return pb.NewCorePaymentsClient(c.connection).ApplyExternalRefund(c.context(ctx, ""), request)
 }
+
+// Provider evidence is admitted and reconciled only using the independently
+// scoped payment-adapter service credential. No user/identity credential or
+// Stripe webhook signing secret is forwarded by this client.
+func (c *Client) AcceptPaymentProviderProof(ctx context.Context, request *pb.AcceptProviderProofRequest) (*pb.ProviderProofReceipt, error) {
+	return pb.NewCorePaymentsClient(c.connection).AcceptProviderProof(c.context(ctx, ""), request)
+}
+func (c *Client) ReconcilePaymentProviderProof(ctx context.Context, request *pb.GetProviderProofRequest) (*pb.ProviderProofReceipt, error) {
+	return pb.NewCorePaymentsClient(c.connection).GetProviderProof(c.context(ctx, ""), request)
+}

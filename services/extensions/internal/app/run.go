@@ -3,36 +3,46 @@
 package app
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/composition"
+	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/coreclient"
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/legal"
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules"
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/webcompat"
 )
 
 func Run() error {
-	if len(os.Args) != 1 {
-		return errors.New("lmm-extensions accepts no subcommands; configure it with LMM_EXTENSION_* variables")
-	}
-	if err := validateEnvironment(os.Getenv); err != nil {
-		return err
-	}
-	credential, err := readHostCredential(os.Getenv("LMM_EXTENSION_TOKEN_FILE"))
+	path, err := configPath(os.Args[1:])
 	if err != nil {
 		return err
 	}
-	socket, tokenFile := os.Getenv("LMM_CORE_RPC_SOCKET"), os.Getenv("LMM_CORE_RPC_TOKEN_FILE")
+	var cfg GoConfig
+	if path == "" {
+		cfg, err = legacyConfig(os.Getenv)
+	} else {
+		if err = validateEnvironment(os.Getenv); err != nil {
+			return err
+		}
+		cfg, err = LoadConfig(path)
+	}
+	if err != nil {
+		return err
+	}
+	credential, err := readHostCredential(cfg.Host.TokenFile)
+	if err != nil {
+		return err
+	}
+	socket, tokenFile := cfg.Core.Socket, cfg.Core.IdentityTokenFile
 	if (socket == "") != (tokenFile == "") {
 		return errors.New("configure both core RPC socket and credential file")
 	}
@@ -40,18 +50,16 @@ func Run() error {
 	if socket != "" {
 		defaults = []string{"identity"}
 	}
-	selected, err := modules.Select(os.Getenv("LMM_EXTENSION_MODULES"), defaults, []string{"identity", "store", "support"})
+	selected, err := modules.Select(strings.Join(cfg.Host.Modules, ","), defaults, []string{"identity", "store", "support", "assistant"})
 	if err != nil {
 		return err
 	}
-	webEnabled := os.Getenv("LMM_EXTENSION_WEB_COMPAT")
-	if webEnabled != "" && webEnabled != "false" && webEnabled != "true" {
-		return errors.New("LMM_EXTENSION_WEB_COMPAT must be true or false")
-	}
 	runtime, err := composition.New(context.Background(), composition.Config{
 		Selected: selected, Socket: socket, TokenFile: tokenFile,
-		Store:   composition.StorageConfig{Component: "store", URLFile: os.Getenv("LMM_STORE_DATABASE_URL_FILE"), Database: os.Getenv("LMM_STORE_DATABASE_NAME")},
-		Support: composition.StorageConfig{Component: "support", URLFile: os.Getenv("LMM_SUPPORT_DATABASE_URL_FILE"), Database: os.Getenv("LMM_SUPPORT_DATABASE_NAME")},
+		CommerceTokenFile: cfg.Core.CommerceTokenFile,
+		Store:             composition.StorageConfig{Component: "store", URLFile: cfg.Store.DatabaseURLFile, Database: cfg.Store.DatabaseName},
+		Support:           composition.StorageConfig{Component: "support", URLFile: cfg.Support.DatabaseURLFile, Database: cfg.Support.DatabaseName},
+		Assistant:         composition.StorageConfig{Component: "assistant", URLFile: cfg.Assistant.DatabaseURLFile, Database: cfg.Assistant.DatabaseName}, AssistantCursorKeyFile: cfg.Assistant.CursorKeyFile,
 	})
 	if err != nil {
 		return err
@@ -61,23 +69,23 @@ func Run() error {
 	if err != nil {
 		return err
 	}
-	policies, err := legal.Load(os.Getenv("LMM_LEGAL_CONFIG_FILE"))
+	policies, err := legal.Load(cfg.Legal.ConfigFile)
 	if err != nil {
 		return err
 	}
 	var api http.Handler = host
-	if webEnabled == "true" {
-		if runtime.Store == nil {
-			return errors.New("Web compatibility requires the store module")
+	if cfg.Host.WebCompat {
+		if runtime.Store == nil && runtime.AssistantHistory == nil {
+			return errors.New("Web compatibility requires an assembled Web module")
 		}
 		auth, err := webcompat.NewAuthenticator(runtime.Client, credential)
 		if err != nil {
 			return err
 		}
-		api = webcompat.Mount(host, auth, runtime.Store, runtime.Support)
+		api = webcompat.Mount(host, auth, runtime.Store, runtime.Support, webcompat.AdditionalServices{Assistant: runtime.AssistantHistory})
 	}
 	handler := policies.Mount(api)
-	address := os.Getenv("LMM_EXTENSION_LISTEN")
+	address := cfg.Host.Listen
 	if address == "" {
 		address = "0.0.0.0:8081"
 	}
@@ -99,6 +107,7 @@ func Run() error {
 	if err := host.MarkReady(); err != nil {
 		return err
 	}
+	runtime.StartWorkers(ctx, host)
 	defer host.BeginDrain()
 	result := make(chan error, 1)
 	go func() { result <- server.Serve(listener) }()
@@ -127,16 +136,5 @@ func Run() error {
 }
 
 func readHostCredential(path string) ([]byte, error) {
-	file, err := os.Open(path)
-	if err != nil {
-		return nil, fmt.Errorf("open extension service credential: %w", err)
-	}
-	credential, readErr := io.ReadAll(io.LimitReader(file, 4097))
-	if err := errors.Join(readErr, file.Close()); err != nil {
-		return nil, err
-	}
-	if len(credential) > 4096 {
-		return nil, errors.New("extension service credential file is too large")
-	}
-	return bytes.TrimSpace(credential), nil
+	return coreclient.ReadTokenFile(path)
 }

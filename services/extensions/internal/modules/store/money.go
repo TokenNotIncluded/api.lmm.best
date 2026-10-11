@@ -22,15 +22,22 @@ func (DisabledFunds) Execute(context.Context, string, MoneyCommand) (Receipt, er
 }
 
 type MoneyCommand struct {
-	Key           string  `json:"key"`
-	Kind          string  `json:"kind"`
-	ShopID        string  `json:"shop_id"`
-	OrderID       string  `json:"order_id"`
-	Buyer         Account `json:"buyer"`
-	Seller        Account `json:"seller"`
-	Total         Price   `json:"total"`
-	PaymentRef    string  `json:"payment_ref,omitempty"`
-	SettlementRef string  `json:"settlement_ref,omitempty"`
+	Key           string              `json:"key"`
+	Kind          string              `json:"kind"`
+	ShopID        string              `json:"shop_id"`
+	OrderID       string              `json:"order_id"`
+	Buyer         Account             `json:"buyer"`
+	Seller        Account             `json:"seller"`
+	Total         Price               `json:"total"`
+	PaymentRef    string              `json:"payment_ref,omitempty"`
+	SettlementRef string              `json:"settlement_ref,omitempty"`
+	OrderSnapshot *MoneyOrderSnapshot `json:"order_snapshot,omitempty"`
+}
+type MoneyOrderSnapshot struct {
+	VariantID string `json:"variant_id"`
+	Quantity  int64  `json:"quantity"`
+	UnitPrice Price  `json:"unit_price"`
+	CreatedBy int64  `json:"created_by"`
 }
 type Receipt struct {
 	Key         string `json:"key"`
@@ -39,10 +46,12 @@ type Receipt struct {
 	Outcome     string `json:"outcome"` // succeeded or rejected; all other outcomes remain pending.
 }
 type operation struct {
-	Command MoneyCommand `json:"command"`
-	Before  string       `json:"before"`
-	Done    bool         `json:"done"`
-	Receipt Receipt      `json:"receipt"`
+	Command            MoneyCommand `json:"command"`
+	Before             string       `json:"before"`
+	Done               bool         `json:"done"`
+	Receipt            Receipt      `json:"receipt"`
+	PaymentCommandHash string       `json:"payment_command_hash,omitempty"`
+	DeliveryReference  string       `json:"delivery_reference,omitempty"`
 }
 
 func (s *Service) money(ctx context.Context, token string, c OrderChange) (Order, error) {
@@ -85,6 +94,7 @@ func (s *Service) money(ctx context.Context, token string, c OrderChange) (Order
 			return ErrInvalid
 		}
 		op = operation{Command: MoneyCommand{Key: key, Kind: c.Action, ShopID: c.ShopID, OrderID: out.ID, Buyer: out.Buyer, Seller: out.Seller, Total: out.Total, PaymentRef: out.PaymentRef, SettlementRef: out.SettlementRef}, Before: before}
+		op.Command.OrderSnapshot = &MoneyOrderSnapshot{VariantID: out.VariantID, Quantity: out.Quantity, UnitPrice: out.UnitPrice, CreatedBy: out.CreatedBy}
 		if err := tx.Put("orders", out.ID, out); err != nil {
 			return err
 		}
@@ -118,8 +128,19 @@ func (s *Service) money(ctx context.Context, token string, c OrderChange) (Order
 		return out, ErrPending
 	}
 	// If the process dies here, the durable operation is retried with the SAME key.
-	err = s.repo.Within(ctx, c.ShopID, func(tx Tx) error {
-		if err := tx.Get("orders", c.OrderID, &out); err != nil {
+	return s.finishMoney(ctx, c.ShopID, c.OrderID, op, receipt)
+}
+
+// finishMoney is shared by a user response and trusted read-only recovery. The
+// receipt can only finish the exact command already persisted in PostgreSQL.
+func (s *Service) finishMoney(ctx context.Context, shopID, orderID string, op operation, receipt Receipt) (Order, error) {
+	var out Order
+	key := op.Command.Key
+	if receipt.Key != key || receipt.CommandHash != ID(op.Command) || !Text(receipt.Reference, 256) || (receipt.Outcome != "succeeded" && receipt.Outcome != "rejected") {
+		return out, ErrPending
+	}
+	err := s.repo.Within(ctx, shopID, func(tx Tx) error {
+		if err := tx.Get("orders", orderID, &out); err != nil {
 			return err
 		}
 		var current operation
@@ -134,17 +155,20 @@ func (s *Service) money(ctx context.Context, token string, c OrderChange) (Order
 		}
 		if receipt.Outcome == "rejected" {
 			out.State = current.Before
-			if c.Action == "pay" {
+			if current.Command.Kind == "pay" {
 				if err := release(tx, &out); err != nil {
 					return err
 				}
 				out.State = Cancelled
 			}
 		} else {
-			switch c.Action {
+			switch current.Command.Kind {
 			case "pay":
 				out.State = Paid
 				out.PaymentRef = receipt.Reference
+				if out.Legacy != nil && out.Legacy.PaidAt == 0 {
+					out.Legacy.PaidAt = time.Now().Unix()
+				}
 			case "settle":
 				out.State = Settled
 				out.SettlementRef = receipt.Reference

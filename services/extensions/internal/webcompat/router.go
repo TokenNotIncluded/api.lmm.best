@@ -3,6 +3,7 @@ package webcompat
 
 import (
 	"net/http"
+	"strings"
 
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules"
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/store"
@@ -11,10 +12,23 @@ import (
 // Mount keeps interactive Web traffic separate from the service-token module
 // API while sharing its admission/drain lifecycle. It never upgrades the host
 // credential into user authority.
-func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, support SupportService) http.Handler {
+type AdditionalServices struct {
+	Assistant  AssistantHistory
+	ToolMarket ToolMarketService
+}
+
+func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, support SupportService, optional ...AdditionalServices) http.Handler {
 	mux := http.NewServeMux()
 	RegisterStore(mux, auth, catalogue)
 	RegisterSupport(mux, auth, support)
+	if len(optional) == 1 {
+		if !store.Missing(optional[0].Assistant) {
+			RegisterAssistant(mux, auth, optional[0].Assistant)
+		}
+		if !store.Missing(optional[0].ToolMarket) {
+			RegisterToolMarket(mux, auth, optional[0].ToolMarket)
+		}
+	}
 	// Unassembled old routes are explicit failures, never a successful empty DTO.
 	mux.HandleFunc("/api/store/", func(w http.ResponseWriter, r *http.Request) {
 		if _, err := auth.Verify(r.Context(), r); err != nil {
@@ -24,7 +38,7 @@ func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, supp
 		Respond(w, nil, store.ErrUnavailable)
 	})
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if len(r.URL.Path) < 11 || r.URL.Path[:11] != "/api/store/" {
+		if !strings.HasPrefix(r.URL.Path, "/api/store/") && !strings.HasPrefix(r.URL.Path, "/api/assistant/") && !strings.HasPrefix(r.URL.Path, "/api/tool-market/") && !strings.HasPrefix(r.URL.Path, "/api/user/auth/store-claim/") {
 			host.ServeHTTP(w, r)
 			return
 		}

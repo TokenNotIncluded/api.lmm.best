@@ -4,14 +4,17 @@ import (
 	"context"
 	"errors"
 	"math"
+	"time"
 )
 
 type Purchase struct {
-	ShopID    string  `json:"shop_id"`
-	VariantID string  `json:"variant_id"`
-	Buyer     Account `json:"buyer"`
-	Quantity  int64   `json:"quantity"`
-	Key       string  `json:"key"`
+	ShopID    string                `json:"shop_id"`
+	VariantID string                `json:"variant_id"`
+	Buyer     Account               `json:"buyer"`
+	Quantity  int64                 `json:"quantity"`
+	Key       string                `json:"key"`
+	Policy    *LegacyCheckoutPolicy `json:"-"`
+	Created   *bool                 `json:"-"`
 }
 
 func (s *Service) Purchase(ctx context.Context, token string, p Purchase) (Order, error) {
@@ -27,6 +30,9 @@ func (s *Service) Purchase(ctx context.Context, token string, p Purchase) (Order
 	var out Order
 	err = s.repo.Within(ctx, p.ShopID, func(tx Tx) error {
 		if err := tx.Get("orders", id, &out); err == nil {
+			if p.Created != nil {
+				*p.Created = false
+			}
 			if out.RequestHash != hash {
 				return ErrConflict
 			}
@@ -52,18 +58,82 @@ func (s *Service) Purchase(ctx context.Context, token string, p Purchase) (Order
 		if !product.Published {
 			return ErrConflict
 		}
+		if !v.Price.valid() {
+			return ErrInvalid
+		}
+		if product.Legacy != nil {
+			m := product.Legacy
+			if m.Status != "published" || !m.Approved || m.TestMode || v.Legacy == nil || !v.Legacy.Enabled || v.Price.Unit != "credits" {
+				return ErrConflict
+			}
+			if m.MaxQuantityPerOrder != nil && p.Quantity > *m.MaxQuantityPerOrder {
+				return ErrConflict
+			}
+			if m.SaleLimit != nil {
+				vs, err := variantsFor(tx, product.ID)
+				if err != nil {
+					return err
+				}
+				var claimed int64
+				for _, existing := range vs {
+					if existing.Claimed < 0 || claimed > math.MaxInt64-existing.Claimed {
+						return ErrInvalid
+					}
+					claimed += existing.Claimed
+				}
+				if claimed >= *m.SaleLimit || p.Quantity > *m.SaleLimit-claimed {
+					return ErrSoldOut
+				}
+			}
+		}
+		var frozenTerms *legacySellerTerms
+		var termsAcceptedAt int64
+		if product.Legacy != nil {
+			if p.Policy == nil {
+				return ErrSellerTermsRequired
+			}
+			var err error
+			frozenTerms, termsAcceptedAt, err = freezeLegacyTerms(tx, p.Buyer.ID, p.Key, p.Policy)
+			if err != nil {
+				return err
+			}
+		}
 		if v.Price.Amount > math.MaxInt64/p.Quantity {
 			return ErrInvalid
 		}
-		total := Price{v.Price.Amount * p.Quantity, v.Price.Currency}
+		total := Price{Amount: v.Price.Amount * p.Quantity, Currency: v.Price.Currency, Unit: v.Price.Unit}
+		// This is the price reread under the shop transaction lock. A prior
+		// catalogue read cannot guard concurrent repricing before reservation.
+		if product.Legacy != nil && total.Amount > legacySafeInteger {
+			return ErrInvalid
+		}
 		// Even order reservation is disabled for paid goods until the Rust adapter is ready.
 		if total.Amount > 0 && !s.funds.Available() {
 			return ErrPaymentUnavailable
+		}
+		if total.Amount > 0 {
+			if supported, ok := s.funds.(interface{ Supports(Price) bool }); ok && !supported.Supports(total) {
+				return ErrPaymentUnavailable
+			}
 		}
 		if err := v.reserve(p.Quantity); err != nil {
 			return err
 		}
 		out = Order{ID: id, Buyer: p.Buyer, Seller: shop.Owner, CreatedBy: actor, VariantID: v.ID, Title: v.Title, ProductTitle: product.Title, Quantity: p.Quantity, UnitPrice: v.Price, Total: total, State: AwaitingPayment, RequestHash: hash}
+		if product.Legacy != nil {
+			out.Legacy = &LegacyOrderMetadata{ProductID: product.ID, PaymentMethod: "balance", CreatedAt: time.Now().Unix(), DeliveryTemplate: v.Legacy.Template}
+			out.Legacy.SellerTermsVersion = frozenTerms.Version
+			out.Legacy.SellerTermsContent = frozenTerms.Content
+			out.Legacy.SellerTermsAcceptedAt = termsAcceptedAt
+			if err := tx.Put("commands", ID("legacy-order-delivery-v1", out.ID), struct {
+				Content string `json:"content"`
+			}{v.Legacy.FixedContent}); err != nil {
+				return err
+			}
+		}
+		if p.Created != nil {
+			*p.Created = true
+		}
 		if total.Amount == 0 {
 			out.State = Paid
 		}

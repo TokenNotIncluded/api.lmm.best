@@ -10,6 +10,9 @@ import (
 )
 
 type Config struct {
+	// WebOnly disables the native MCP/OAuth API and needs no callback URL.
+	// It is the bounded legacy Web package, with no executable/funds adapter.
+	WebOnly        bool
 	CallbackURL    string
 	Timeout        time.Duration
 	CallsPerMinute int
@@ -27,6 +30,7 @@ type Module struct {
 	mu        sync.Mutex
 	buckets   map[string]bucket
 	active    chan struct{}
+	webOnly   bool
 }
 type bucket struct {
 	Start time.Time
@@ -38,7 +42,11 @@ func New(store *Store, authority Authority, cfg Config) (*Module, error) {
 		return nil, ErrInvalid
 	}
 	n := newNetwork()
-	if _, e := n.url(cfg.CallbackURL); e != nil {
+	if cfg.WebOnly {
+		if cfg.CallbackURL != "" || cfg.Funds != nil {
+			return nil, ErrInvalid
+		}
+	} else if _, e := n.url(cfg.CallbackURL); e != nil {
 		return nil, invalid("fixed HTTPS callback required")
 	}
 	if cfg.Timeout == 0 {
@@ -53,7 +61,7 @@ func New(store *Store, authority Authority, cfg Config) (*Module, error) {
 	if cfg.CallsPerMinute < 1 || cfg.CallsPerMinute > 600 {
 		return nil, ErrInvalid
 	}
-	return &Module{store: store, authority: authority, funds: cfg.Funds, net: n, callback: cfg.CallbackURL, timeout: cfg.Timeout, perMinute: cfg.CallsPerMinute, now: time.Now, buckets: map[string]bucket{}, active: make(chan struct{}, 8)}, nil
+	return &Module{store: store, authority: authority, funds: cfg.Funds, net: n, callback: cfg.CallbackURL, timeout: cfg.Timeout, perMinute: cfg.CallsPerMinute, now: time.Now, buckets: map[string]bucket{}, active: make(chan struct{}, 8), webOnly: cfg.WebOnly}, nil
 }
 func (*Module) Name() string { return "toolmarket" }
 func (m *Module) admit(p Principal) error {

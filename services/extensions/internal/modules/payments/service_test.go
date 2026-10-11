@@ -127,7 +127,9 @@ func TestProviderTransactionCannotCreditTwoOrders(t *testing.T) {
 	second := h.create("create_fixture_0002")
 	e := h.event(second, "evt_other", Paid, 1000)
 	e.Evidence.Transaction = first.PaymentID
-	h.send(e)
+	if err := h.s.receiveEvent(context.Background(), h.a, e); err != nil && !errors.Is(err, ErrConflict) {
+		t.Fatal(err)
+	}
 	h.work()
 	if h.get(second.ID).Credited() || h.c.count("credit") != 1 {
 		t.Fatal("transaction rebound")
@@ -155,9 +157,9 @@ func TestCoreOutageAndUnspecifiedReceiptNeverCredit(t *testing.T) {
 			h := setup(t)
 			o := h.create("create_fixture_0001")
 			h.work()
+			h.send(h.event(o, "evt_paid", Paid, 1000))
 			h.c.offline = mode == "offline"
 			h.c.invalidReceipt = mode == "queued"
-			h.send(h.event(o, "evt_paid", Paid, 1000))
 			h.work()
 			if h.get(o.ID).Credited() {
 				t.Fatal("uncertain result credited")
@@ -195,12 +197,14 @@ func TestRefundBeforeCreditFencesLatePayment(t *testing.T) {
 func TestCallbackBeforeLocalOrderIsRetried(t *testing.T) {
 	h := setup(t)
 	e := h.event(Order{ID: "top_1"}, "evt_early", Paid, 1000)
-	h.send(e)
-	h.work()
-	if h.c.count("credit") != 0 {
-		t.Fatal("orphan credited")
+	if err := h.s.receiveEvent(context.Background(), h.a, e); !errors.Is(err, ErrNotFound) {
+		t.Fatal("orphan acknowledged", err)
+	}
+	if len(h.m.events) != 0 || h.c.count("accept_proof") != 0 {
+		t.Fatal("orphan persisted without core intent")
 	}
 	o := h.create("create_fixture_0001")
+	h.send(e)
 	h.advance()
 	h.work()
 	if !h.get(o.ID).Credited() {
@@ -402,38 +406,38 @@ func TestSignedEvidenceUpgradesUnsignedObservation(t *testing.T) {
 		t.Fatal("signed evidence lost")
 	}
 }
-func TestSignedEvidenceArrivingDuringAPIJobIsNotLost(t *testing.T) {
+func TestAcceptedProofArrivingDuringOldJobIsNotLost(t *testing.T) {
 	h := setup(t)
 	o := h.create("create_fixture_0001")
 	h.work()
-	e := h.event(o, "api_observed", Paid, 1000)
-	e.Evidence.Source = "api"
-	e.Evidence.Signature = nil
-	h.send(e)
-	if err := h.s.Drain(context.Background(), 100); err != nil {
+	e := h.event(o, "evt_verified", Paid, 1000)
+	key := stableKey("credit", o.ID)
+	if err := h.m.Mutate(context.Background(), o.ID, func(o *Order) error {
+		enqueue(o, Job{Key: key, Kind: "credit", Evidence: e.Evidence}, h.s.now())
+		return nil
+	}); err != nil {
 		t.Fatal(err)
 	}
-	h.c.creditStarted = make(chan struct{}, 1)
-	h.c.creditGate = make(chan struct{})
+	h.c.proofLookupStarted = make(chan struct{}, 1)
+	h.c.proofLookupGate = make(chan struct{})
+	h.c.proofLookupError = ErrNotFound
 	done := make(chan error, 1)
 	go func() { done <- h.s.Step(context.Background(), o.ID) }()
-	<-h.c.creditStarted
-	e.Evidence.Source = "webhook"
-	e.Evidence.Signature = []byte("signed")
-	e.Evidence.EventID = "evt_verified"
+	<-h.c.proofLookupStarted
 	h.send(e)
 	if err := h.s.Drain(context.Background(), 100); err != nil {
 		t.Fatal(err)
 	}
-	close(h.c.creditGate)
+	close(h.c.proofLookupGate)
 	if err := <-done; err != nil {
 		t.Fatal(err)
 	}
-	h.c.creditStarted = nil
-	h.c.creditGate = nil
+	h.c.proofLookupStarted = nil
+	h.c.proofLookupGate = nil
+	h.c.proofLookupError = nil
 	h.work()
-	if !h.get(o.ID).Credited() {
-		t.Fatal("concurrent signed evidence lost")
+	if !h.get(o.ID).Credited() || h.c.count("credit") != 1 {
+		t.Fatal("concurrent durable proof lost")
 	}
 }
 func TestRefundDisabledBeforeHold(t *testing.T) {

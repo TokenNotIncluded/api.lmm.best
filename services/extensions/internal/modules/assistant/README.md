@@ -2,6 +2,46 @@
 
 This is an independent backend module for the fresh-install microkernel. The canonical service directory is `services/extensions`. No old database data or runtime is imported.
 
+## Legacy history implementation
+
+The fresh-only schema contract is now version **2**. `NewHistory(repository,
+authority, cursorKey)` adds a separate typed transcript service to the existing
+bounded tools module. `Postgres` implements both repository ports using the same
+dedicated assistant database pool. Neither constructor installs or upgrades SQL.
+An existing version-1 assistant database is rejected, not modified automatically.
+
+`webcompat.RegisterAssistant` can mount main's status, public reviewed fallback
+presets/clicks, owner conversation list/detail and owner-only archive/unarchive
+with the `success/message/data` envelope. The host must explicitly configure the
+module, restricted database, private cursor key and admission/drain integration.
+Declaring these handlers does not prove they are active in a running host.
+
+Completed user/assistant turns and their replay receipts commit together. Failed
+or empty results create no conversation shell. Messages are redacted before
+storage; latest history is bounded to 128 messages and 256 KiB per conversation.
+Cursor pagination is authenticated, bound to owner/archive filter and expires
+after 24 hours. Replays preserve their original conversation after restart and
+message trimming. The receipt contains digests, never user credentials.
+
+`RecordCompletedTurn` is a trusted internal persistence hook, not a browser route
+or proof that model usage was billed. Main uses platform-sponsored model funding.
+The current Core model entry accepts API keys while this module authenticates
+interactive sessions. No safe typed sponsorship delegation is implemented here:
+legacy chat returns **503**, status advertises the model as unavailable, and no
+unrestricted root key or substitute user charge is used. Platform human support,
+workspace confirmations, private cards, generated/custom presets, and main's
+strict-lower-role administrator history reads remain separate pending work.
+The current authority port has no reliable target-role lookup; cross-owner
+history returns 404 even for administrators.
+
+Version-2 runtime grants are explicit: schema USAGE; contract SELECT;
+records/conversations SELECT, INSERT, UPDATE; history_messages SELECT, INSERT,
+DELETE for trimming; turn_receipts SELECT, INSERT; preset_stats SELECT and
+UPDATE(clicks); and USAGE on conversations_id_seq/history_messages_id_seq.
+The runtime cannot install SQL, alter the contract, or rewrite/delete replay
+receipts. PUBLIC connectivity, cross-database denial and restricted role checks
+belong to the explicit isolated provisioning/host assembly step.
+
 ## Status and assembly boundary
 
 `New(repository, authority, promotions, Options)` constructs a service implementing the existing `modules.Module` interface. Register it explicitly with `modules.New`. Construction does not open databases, start workers, call models, or enable any module globally. `internal/app/run.go` and all Protobuf files are unchanged. Frontend routes and production host composition remain final integration work.
@@ -28,7 +68,12 @@ Install `schema.sql` explicitly in a **new dedicated assistant database**, using
 
 `lmm_assistant.records` contains four constrained record families: session state, call audit, display preferences, and entries. Primary keys include account/user scope. Transactions use a scope-specific database lock across processes. Call audit stores tool name, canonical request hash, state and time, not the credential, input text, response text, raw arguments, results, drawing prompt or image. Explicitly submitted feedback text and chosen display preferences are intentional business records. Treat status references as opaque IDs; never use them to store chat text or secrets.
 
-No conversation transcript is stored. Account revocation does not erase already-required audit records. A deployment must set a retention policy for expired session/call metadata and feedback before production. Do not delete promotion claim uniqueness records as part of conversation cleanup.
+The original tool runner retains no conversation text in its four generic
+record families. The separate version-2 history port stores only the redacted
+completed-turn transcript described above. Account revocation does not erase
+already-required audit records. A deployment must set a retention policy for
+expired session/call metadata and feedback before production. Do not delete
+promotion claim uniqueness or assistant replay receipts as incidental cleanup.
 
 ## HTTP surface
 
@@ -55,12 +100,22 @@ go test -mod=readonly -race -count=1 ./...
 CGO_ENABLED=0 go build -mod=readonly -trimpath ./cmd/extensions
 ```
 
-The separate `pgtest` module keeps a PostgreSQL driver out of production dependencies. Its tests require a disposable **local** PostgreSQL instance and fail rather than skip when configuration is absent:
+The separate `pgtest` module has explicit disposable **local** PostgreSQL fixtures
+and fails rather than skips when its selected configuration is absent:
 
 ```sh
 cd internal/modules/assistant/pgtest
 LMM_MK09_TEST_DSN='postgres://postgres:postgres@127.0.0.1:5432/postgres?sslmode=disable' \
   go test -mod=readonly -race -count=1 ./...
 ```
+
+The version-2 transcript suite instead uses a fixture already provisioned by the
+isolated database owner. `LMM_ASSISTANT_HISTORY_TEST_DSN_FILE` points to its
+absolute private restricted-runtime URL file; never put its content in argv or
+logs. From the separate `historypgtest` module, run `go test -mod=readonly -race -count=1 -run
+'^TestHistoryPostgres' ./...`. This suite tests real PostgreSQL and legacy HTTP
+DTOs with controlled identity fixtures; it does not test live Rust authorization,
+model sponsorship, external providers or production data. Record actual results
+separately from compiling the suite.
 
 Tests create uniquely named databases, use two independent pools, exercise rollback, account boundaries, least-privilege role behavior, duplicate applications, campaign caps and recovery after a core-result loss, then delete the test databases. Core money/model behavior in these tests is a controlled fixture, **not** live Rust ledger posting. The task workflow records the tested commit and full test output without deploying anything.

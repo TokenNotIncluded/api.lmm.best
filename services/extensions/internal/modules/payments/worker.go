@@ -146,15 +146,35 @@ func (s *Service) Step(ctx context.Context, id string) error {
 			receipt, callErr = s.core.Receipt(bounded, snapshot.Intent.ID, chosen.Key)
 		}
 		if chosen.Attempts == 1 || errors.Is(callErr, ErrNotFound) {
-			switch chosen.Kind {
-			case "credit":
-				receipt, callErr = s.core.Credit(bounded, snapshot.Intent.ID, chosen.Key, chosen.Evidence)
-			case "commit":
-				receipt, callErr = s.core.Commit(bounded, snapshot.Intent.ID, chosen.Key, snapshot.Refunds[chosen.RefundID].HoldReceipt, chosen.Evidence)
-			case "release":
-				receipt, callErr = s.core.Release(bounded, snapshot.Intent.ID, chosen.Key, snapshot.Refunds[chosen.RefundID].HoldReceipt, chosen.Evidence)
-			case "external_refund":
-				receipt, callErr = s.core.ExternalRefund(bounded, snapshot.Intent.ID, chosen.Key, chosen.Evidence)
+			// Old queues can recover an already accepted proof by immutable
+			// intent/event/payload binding. They never re-verify an aged signature.
+			var proof Evidence
+			proof, callErr = s.acceptedEvidence(bounded, snapshot.Intent.ID, chosen.Evidence)
+			if callErr == nil && proof.AcceptedProofID != chosen.Evidence.AcceptedProofID {
+				callErr = s.store.Mutate(bounded, id, func(o *Order) error {
+					j := o.Jobs[chosen.Key]
+					if j.Lease != lease {
+						return ErrConflict
+					}
+					if strongerProof(j.Evidence, proof) {
+						j.Evidence = proof
+						o.Jobs[j.Key] = j
+					}
+					return nil
+				})
+				chosen.Evidence = proof
+			}
+			if callErr == nil {
+				switch chosen.Kind {
+				case "credit":
+					receipt, callErr = s.core.Credit(bounded, snapshot.Intent.ID, chosen.Key, chosen.Evidence)
+				case "commit":
+					receipt, callErr = s.core.Commit(bounded, snapshot.Intent.ID, chosen.Key, snapshot.Refunds[chosen.RefundID].HoldReceipt, chosen.Evidence)
+				case "release":
+					receipt, callErr = s.core.Release(bounded, snapshot.Intent.ID, chosen.Key, snapshot.Refunds[chosen.RefundID].HoldReceipt, chosen.Evidence)
+				case "external_refund":
+					receipt, callErr = s.core.ExternalRefund(bounded, snapshot.Intent.ID, chosen.Key, chosen.Evidence)
+				}
 			}
 		}
 	}
@@ -182,7 +202,7 @@ func (s *Service) Step(ctx context.Context, id string) error {
 			// A signed callback may arrive while an unsigned observation is in
 			// flight. Keep the stronger evidence and retry; do not lose it when
 			// the older observation fails closed at the core bridge.
-			if chosen.Evidence.Source == "api" && j.Evidence.Source == "webhook" {
+			if strongerProof(chosen.Evidence, j.Evidence) {
 				j.State = "pending"
 				j.ErrorCode = ""
 				j.NextAttempt = s.now()
@@ -259,4 +279,25 @@ func (s *Service) Step(ctx context.Context, id string) error {
 		o.Jobs[j.Key] = j
 		return nil
 	})
+}
+
+func (s *Service) acceptedEvidence(ctx context.Context, intent int64, e Evidence) (Evidence, error) {
+	if e.Source != "webhook" || len(e.Payload) == 0 {
+		return Evidence{}, ErrEvidence
+	}
+	if e.AcceptedProofID != "" {
+		return e, nil
+	}
+	proof, err := s.core.LookupProof(ctx, intent, e)
+	if errors.Is(err, ErrNotFound) {
+		return Evidence{}, ErrEvidence
+	}
+	if err != nil {
+		return Evidence{}, err
+	}
+	if !proofMatches(proof, intent, e) {
+		return Evidence{}, ErrConflict
+	}
+	e.AcceptedProofID = proof.ID
+	return e, nil
 }

@@ -222,7 +222,7 @@ func TestPostgresIsolationRollbackConcurrentClaimsAndRestart(t *testing.T) {
 	must(t, e)
 	var version int
 	must(t, conn.QueryRowContext(ctx, `SELECT version FROM lmm_assistant.contract`).Scan(&version))
-	if version != 1 {
+	if version != 2 {
 		t.Fatal(version)
 	}
 	if _, e = conn.ExecContext(ctx, `CREATE TABLE public.not_allowed(x int)`); e == nil {

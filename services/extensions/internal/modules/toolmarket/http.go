@@ -171,6 +171,10 @@ func respond(w http.ResponseWriter, v any, e error) {
 func cookieName(state string) string { return "__Host-lmm-mcp-" + digest(state)[:24] }
 func (m *Module) Handler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if m.webOnly {
+			respond(w, nil, ErrUnavailable)
+			return
+		}
 		select {
 		case m.active <- struct{}{}:
 			defer func() { <-m.active }()

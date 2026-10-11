@@ -25,16 +25,26 @@ func TestEnvironmentRejectsLegacyAndCoreDatabaseSettings(t *testing.T) {
 	}
 }
 
-func TestEnvironmentAllowsExtensionAndRPCSettings(t *testing.T) {
+func TestEnvironmentAllowsProcessSettings(t *testing.T) {
 	env := map[string]string{
-		"LMM_EXTENSION_LISTEN":           "127.0.0.1:8081",
-		"LMM_EXTENSION_TOKEN_FILE":       "/run/secrets/extension",
-		"LMM_CORE_RPC_SOCKET":            "/run/lmm-core/control.sock",
-		"LMM_CORE_RPC_TOKEN_FILE":        "/run/secrets/rpc",
-		"LMM_EXTENSION_EXAMPLE_DATABASE": "extension-owned-storage",
+		"PATH": "/usr/bin", "GOMAXPROCS": "2", "MISE_AUTO_INSTALL": "false",
 	}
 	if err := validateEnvironment(func(key string) string { return env[key] }); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestEnvironmentRejectsRetiredRuntimeInputs(t *testing.T) {
+	for _, name := range []string{"LMM_EXTENSION_TOKEN_FILE", "LMM_EXTENSION_LISTEN", "LMM_EXTENSION_MODULES", "LMM_EXTENSION_WEB_COMPAT", "LMM_CORE_RPC_SOCKET", "LMM_CORE_RPC_TOKEN_FILE", "LMM_CORE_COMMERCE_RPC_TOKEN_FILE", "LMM_STORE_DATABASE_URL_FILE", "LMM_STORE_DATABASE_NAME", "LMM_SUPPORT_DATABASE_URL_FILE", "LMM_SUPPORT_DATABASE_NAME", "LMM_LEGAL_CONFIG_FILE"} {
+		err := validateEnvironment(func(key string) string {
+			if key == name {
+				return "private-value"
+			}
+			return ""
+		})
+		if err == nil || !strings.Contains(err.Error(), name) || strings.Contains(err.Error(), "private-value") {
+			t.Fatalf("runtime input did not fail closed: %s %v", name, err)
+		}
 	}
 }
 

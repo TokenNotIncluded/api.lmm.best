@@ -96,6 +96,9 @@ func (s *Service) Catalog(ctx context.Context, token string, c CatalogChange) (j
 			if err := tx.Get("products", c.ID, &p); err != nil {
 				return err
 			}
+			if p.Legacy != nil {
+				return ErrUnavailable
+			}
 			if c.Action == "product_status" {
 				p.Published = c.Published
 			} else {
@@ -116,6 +119,9 @@ func (s *Service) Catalog(ctx context.Context, token string, c CatalogChange) (j
 			if err := tx.Get("products", c.ProductID, &p); err != nil {
 				return err
 			}
+			if p.Legacy != nil {
+				return ErrUnavailable
+			}
 			v := Variant{ID: resourceID, ProductID: p.ID, Title: c.Title, Price: c.Price, TrackStock: c.TrackStock, Quota: c.Quota}
 			if err := tx.Put("variants", v.ID, v); err != nil {
 				return err
@@ -125,6 +131,9 @@ func (s *Service) Catalog(ctx context.Context, token string, c CatalogChange) (j
 			var v Variant
 			if err := tx.Get("variants", c.ID, &v); err != nil {
 				return err
+			}
+			if v.Legacy != nil {
+				return ErrUnavailable
 			}
 			switch c.Action {
 			case "variant_details":
@@ -207,6 +216,9 @@ func (s *Service) Browse(ctx context.Context, shopID, after string, limit int) (
 			}
 			out.Next = p.ID
 			if p.Published {
+				// Private moderation and seller input are not part of a public
+				// service browse DTO, even when its caller holds the host token.
+				p.Legacy = nil
 				out.Items = append(out.Items, p)
 			}
 		}

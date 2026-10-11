@@ -1,13 +1,17 @@
 package legal
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/BurntSushi/toml"
 )
 
 func fixture(t *testing.T) (string, configuration) {
@@ -24,12 +28,12 @@ func fixture(t *testing.T) (string, configuration) {
 
 func writeConfig(t *testing.T, root string, c configuration) string {
 	t.Helper()
-	data, err := json.Marshal(c)
-	if err != nil {
+	var data bytes.Buffer
+	if err := toml.NewEncoder(&data).Encode(c); err != nil {
 		t.Fatal(err)
 	}
-	path := filepath.Join(root, "site.json")
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	path := filepath.Join(root, "site.toml")
+	if err := os.WriteFile(path, data.Bytes(), 0600); err != nil {
 		t.Fatal(err)
 	}
 	return path
@@ -141,17 +145,41 @@ func TestBrokenPublicationFailsClosed(t *testing.T) {
 	}
 }
 
-func TestStrictJSONAndRedactedErrors(t *testing.T) {
+func TestStrictTOMLAndRedactedErrors(t *testing.T) {
 	root, _ := fixture(t)
-	for _, raw := range []string{`{"unknown":"sensitive-value"}`, `{} {}`, strings.Repeat("x", maxConfig+1)} {
-		path := filepath.Join(root, "site.json")
-		if err := os.WriteFile(path, []byte(raw), 0600); err != nil {
-			t.Fatal(err)
-		}
-		_, err := Load(path)
-		if err == nil || strings.Contains(err.Error(), "sensitive-value") || strings.Contains(err.Error(), root) {
-			t.Fatalf("unsafe error: %v", err)
-		}
+	const base = "version = 1\npublished = false\ndefault_language = \"zh-CN\"\n"
+	cases := map[string]string{
+		"unknown":              base + `unknown = "sensitive-value"`,
+		"unknown-empty-table":  base + "[sensitive-value]\n",
+		"case-alias":           "Version = 1\npublished = false\ndefault_language = \"zh-CN\"\n",
+		"case-alias-published": base + "Published = false\n",
+		"duplicate-key":        base + "version = 1\n",
+		"duplicate-case-alias": base + "Version = 1\n",
+		"duplicate-table":      base + "[variables]\nservice_name = \"Example\"\n[variables]\noperator_name = \"sensitive-value\"\n",
+		"duplicate-map-key":    base + "[variables]\nservice_name = \"Example\"\nservice_name = \"sensitive-value\"\n",
+		"duplicate-inline-key": base + "variables = { service_name = \"Example\", service_name = \"sensitive-value\" }\n",
+		"malformed":            base + "variables = { service_name = \"sensitive-value\"\n",
+		"wrong-version-type":   "version = \"sensitive-value\"\npublished = false\ndefault_language = \"zh-CN\"\n",
+		"wrong-published-type": "version = 1\npublished = \"sensitive-value\"\ndefault_language = \"zh-CN\"\n",
+		"wrong-variable-type":  base + "[variables]\nservice_name = 12\n",
+		"wrong-document-type":  base + "[documents.user-agreement]\nzh-CN = 12\n",
+		"nested-variable":      base + "[variables.service_name]\nsecret = \"sensitive-value\"\n",
+		"json-rejected":        `{"version":1,"published":false,"default_language":"zh-CN","secret":"sensitive-value"}`,
+		"empty":                "",
+		"oversize":             strings.Repeat("x", maxConfig+1),
+		"invalid-utf8":         base + string([]byte{255}),
+	}
+	for name, raw := range cases {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(root, "site.toml")
+			if err := os.WriteFile(path, []byte(raw), 0600); err != nil {
+				t.Fatal(err)
+			}
+			_, err := Load(path)
+			if err == nil || strings.Contains(err.Error(), "sensitive-value") || strings.Contains(err.Error(), root) {
+				t.Fatalf("unsafe error: %v", err)
+			}
+		})
 	}
 }
 
@@ -213,7 +241,7 @@ func TestConcurrentReads(t *testing.T) {
 
 func TestShippedTemplatesAreDraftsAndCanBeConfigured(t *testing.T) {
 	root := filepath.Join("..", "..", "..", "..", "config", "legal")
-	path := filepath.Join(root, "site.example.json")
+	path := filepath.Join(root, "site.example.toml")
 	h, err := Load(path)
 	if err != nil {
 		t.Fatal(err)
@@ -226,7 +254,7 @@ func TestShippedTemplatesAreDraftsAndCanBeConfigured(t *testing.T) {
 		t.Fatal(err)
 	}
 	var c configuration
-	if err = json.Unmarshal(data, &c); err != nil {
+	if _, err = toml.NewDecoder(bytes.NewReader(data)).Decode(&c); err != nil {
 		t.Fatal(err)
 	}
 	c.Published = true
@@ -234,6 +262,7 @@ func TestShippedTemplatesAreDraftsAndCanBeConfigured(t *testing.T) {
 		c.Variables[key] = "Operator-supplied value"
 	}
 	temp := t.TempDir()
+	c.TemplateRoot = temp
 	for _, translations := range c.Documents {
 		for _, name := range translations {
 			data, err := os.ReadFile(filepath.Join(root, name))
@@ -266,5 +295,131 @@ func TestShippedTemplatesAreDraftsAndCanBeConfigured(t *testing.T) {
 func TestExpansionIsBoundedBeforeAllocation(t *testing.T) {
 	if _, err := render(strings.Repeat("{{x}}", 1000), map[string]string{"x": strings.Repeat("x", 16<<10)}); err == nil {
 		t.Fatal("oversized expansion accepted")
+	}
+}
+
+func TestTemplateRootSupportsSeparateInstalledDirectory(t *testing.T) {
+	root, c := fixture(t)
+	configDir := t.TempDir()
+	c.TemplateRoot = root
+	h, err := Load(writeConfig(t, configDir, c))
+	if err != nil {
+		t.Fatal(err)
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/api/user-agreement?lang=en", nil))
+	if w.Code != 200 || !strings.Contains(w.Body.String(), "English policy") {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	// The returned handler is a snapshot; later template replacement is not read.
+	if err := os.WriteFile(filepath.Join(root, "en.md"), []byte("Replacement policy"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	w = httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/api/user-agreement?lang=en", nil))
+	if strings.Contains(w.Body.String(), "Replacement policy") {
+		t.Fatal("template root was read per request")
+	}
+}
+
+func TestTemplateRootRejectsUnsafeDirectories(t *testing.T) {
+	for _, kind := range []string{"relative", "unclean", "trailing-slash", "backslash", "nul", "missing", "file", "symlink", "parent-symlink"} {
+		t.Run(kind, func(t *testing.T) {
+			root, c := fixture(t)
+			configDir := t.TempDir()
+			switch kind {
+			case "relative":
+				c.TemplateRoot = "templates"
+			case "unclean":
+				c.TemplateRoot = root + "/../" + filepath.Base(root)
+			case "trailing-slash":
+				c.TemplateRoot = root + "/"
+			case "backslash":
+				c.TemplateRoot = root + "/\\folder"
+			case "nul":
+				c.TemplateRoot = root + "\x00"
+			case "missing":
+				c.TemplateRoot = filepath.Join(root, "absent")
+			case "file":
+				c.TemplateRoot = filepath.Join(root, "en.md")
+			case "symlink":
+				link := filepath.Join(configDir, "linked")
+				if err := os.Symlink(root, link); err != nil {
+					t.Fatal(err)
+				}
+				c.TemplateRoot = link
+			case "parent-symlink":
+				child := filepath.Join(root, "child")
+				if err := os.Mkdir(child, 0700); err != nil {
+					t.Fatal(err)
+				}
+				link := filepath.Join(configDir, "linked")
+				if err := os.Symlink(root, link); err != nil {
+					t.Fatal(err)
+				}
+				c.TemplateRoot = filepath.Join(link, "child")
+			}
+			_, err := Load(writeConfig(t, configDir, c))
+			if err == nil || strings.Contains(err.Error(), root) || strings.Contains(err.Error(), configDir) {
+				t.Fatalf("unsafe root accepted/error: %v", err)
+			}
+		})
+	}
+	// Unpublished examples may name a future installation root without opening it.
+	root, c := fixture(t)
+	c.Published = false
+	c.TemplateRoot = filepath.Join(t.TempDir(), "future-install")
+	h, err := Load(writeConfig(t, root, c))
+	if err != nil || len(h.documents) != 0 {
+		t.Fatal(h, err)
+	}
+	// Lexical path rules also apply while publication is disabled.
+	c.TemplateRoot = "relative"
+	if _, err = Load(writeConfig(t, root, c)); err == nil {
+		t.Fatal("invalid unpublished root accepted")
+	}
+}
+
+func TestConfigRequiresBoundedRegularFile(t *testing.T) {
+	root, c := fixture(t)
+	target := writeConfig(t, root, c)
+	link := filepath.Join(root, "linked.toml")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+	for _, path := range []string{filepath.Join(root, "missing.toml"), root, link} {
+		if _, err := Load(path); err == nil || strings.Contains(err.Error(), root) {
+			t.Fatalf("unsafe config accepted/error: %s %v", path, err)
+		}
+	}
+}
+
+func TestOperatorFilesRejectGroupOrOtherWrite(t *testing.T) {
+	for _, target := range []string{"configuration", "template"} {
+		for _, mode := range []os.FileMode{0600, 0640, 0644, 0444, 0620, 0602, 0666} {
+			t.Run(fmt.Sprintf("%s/%04o", target, mode), func(t *testing.T) {
+				root, c := fixture(t)
+				path := writeConfig(t, root, c)
+				file := path
+				if target == "template" {
+					file = filepath.Join(root, "en.md")
+				}
+				// Chmod after creation so the process umask cannot remove the
+				// unsafe write bits that this regression exercises.
+				if err := os.Chmod(file, mode); err != nil {
+					t.Fatal(err)
+				}
+				h, err := Load(path)
+				if mode&0022 != 0 {
+					if h != nil || err == nil || strings.Contains(err.Error(), root) {
+						t.Fatalf("unsafe permissions accepted or exposed path: %v %v", h, err)
+					}
+					return
+				}
+				if err != nil || len(h.documents) != 1 {
+					t.Fatalf("safe operator file rejected: %v", err)
+				}
+			})
+		}
 	}
 }

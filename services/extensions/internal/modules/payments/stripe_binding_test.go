@@ -11,8 +11,8 @@ import (
 	"time"
 )
 
-const checkoutObject = `{"id":"cs_fixture","object":"checkout.session","mode":"payment","client_reference_id":"top_1","metadata":{"lmm_order_id":"top_1"},"amount_total":1000,"currency":"usd","livemode":false,"payment_intent":"pi_top_1","url":"https://checkout.stripe.com/c/pay/test"}`
-const refundObject = `{"id":"re_fixture","object":"refund","payment_intent":"pi_top_1","amount":300,"currency":"usd","status":"succeeded","metadata":{"lmm_order_id":"top_1","lmm_refund_id":"local_refund"}}`
+const checkoutObject = `{"id":"cs_fixture","object":"checkout.session","mode":"payment","client_reference_id":"top_1","metadata":{"lmm_order_id":"top_1","lmm_core_intent_id":"1","lmm_merchant":"acct_fixture"},"amount_total":1000,"currency":"usd","livemode":false,"payment_intent":"pi_top_1","url":"https://checkout.stripe.com/c/pay/test"}`
+const refundObject = `{"id":"re_fixture","object":"refund","payment_intent":"pi_top_1","amount":300,"currency":"usd","status":"succeeded","metadata":{"lmm_order_id":"top_1","lmm_refund_id":"local_refund","lmm_core_intent_id":"1","lmm_merchant":"acct_fixture","lmm_hold_receipt_id":"held_by_core"}}`
 
 func bindingOrder() Order {
 	return Order{ID: "top_1", PaymentID: "pi_top_1", Intent: Intent{ID: 1, Merchant: "acct_fixture", Currency: "USD", AmountMinor: 1000}}
@@ -223,7 +223,7 @@ func TestStripeRefundWebhookMetadataDoesNotReplaceOriginalPayment(t *testing.T) 
 					return nil, ErrInvalid
 				}
 			})}
-			e, err := s.Verify(stripeRequest(raw, s.cfg.WebhookSecrets[0], now), now)
+			e, err := s.Verify(stripeRequest(raw, "whsec_fixture_current_secret", now), now)
 			if tc.wantError {
 				if !errors.Is(err, ErrConflict) || e.OrderID != "" || e.Evidence.EventID != "" {
 					t.Fatalf("conflicting refund binding accepted: order=%q err=%v", e.OrderID, err)
@@ -325,7 +325,7 @@ func TestStripeWorkerKeepsHoldUntilVerifiedRefundAfterRetry(t *testing.T) {
 		t.Fatal("unsigned provider response was settled or the retry repeated a hold")
 	}
 	for attempt := 0; attempt < 2; attempt++ {
-		request := stripeRequest(raw, adapter.cfg.WebhookSecrets[0], h.s.now())
+		request := stripeRequest(raw, "whsec_fixture_current_secret", h.s.now())
 		request.URL.Path = "/callbacks/1"
 		recorder := httptest.NewRecorder()
 		h.s.WebhookHandler().ServeHTTP(recorder, request)

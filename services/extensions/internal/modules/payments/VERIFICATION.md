@@ -1,4 +1,90 @@
-# Verification record — 2026-10-10
+# Verification record — durable proof WIP, 2026-10-12
+
+The current change moves proof acceptance before callback ACK and preserves a
+Rust-issued proof reference through Go inbox and jobs. Go no longer holds Stripe
+webhook secrets. The initial source base on `wip/rust-core-go-extensions` was
+`013aa7df959530be7cb9470c396993c32c7fb7ca`. Results below bind the recorded source
+hashes; they do not certify every concurrent change or the entire branch.
+
+## Current local checks
+
+At 2026-10-11 20:38 UTC, using mise Go 1.27.2 with the generated provider-proof
+RPC contract and controlled client wrappers:
+
+```sh
+cd services/extensions
+MISE_IGNORED_TOOLS=rust MISE_AUTO_INSTALL=false mise exec -- go test -mod=readonly -race ./internal/modules/payments/... -count=1 -timeout=90s -json
+MISE_IGNORED_TOOLS=rust MISE_AUTO_INSTALL=false mise exec -- go vet ./internal/modules/payments/...
+```
+
+Both packages passed: **63 top-level tests, 160 tests including subtests**, zero
+failures. Three explicit fixture-dependent tests skipped: the two standalone
+mocklab adapters and `TestRustDurableProofAcrossGoRestart`. Vet and scoped gofmt
+checks passed. The document gate and its 33 unit tests also passed. This tested
+the uncommitted payment-source manifest based on the revision above; it is not
+a claim that an untested commit or all repository changes passed.
+
+The tests cover controlled local UDS RPC metadata and proof receipt mapping;
+Rust-unavailable and invalid-proof non-ACK; lost inbox write recovery; unchanged
+original bytes; stale queued proof lookup; concurrent proof upgrade; and
+missing-proof repair of a done inbox with a quarantined credit job. Go state
+fixtures remain synthetic and do not prove real Rust journals or balances.
+
+The isolated nested PostgreSQL race test passed at 2026-10-11 20:46 UTC: one
+top-level test and six recovery subtests, zero failures or skips. It used only a
+new synthetic `lmm_payments_test` database, preserved source hashes and left the
+separate joint database untouched. The scenarios covered durable evidence and
+proof references, unchanged raw bytes, exact event deduplication, review repair,
+a done inbox repairing its quarantined semantic job, and final money-job state
+preservation. Its Core/provider fixtures are synthetic; this proves real Go
+PostgreSQL storage behavior, not real Rust journals.
+
+## Completed Rust/Go recovery acceptance
+
+At 2026-10-11 21:23 UTC (2026-10-12 locally), the isolated runner passed
+`real_go_http_uds_proof_survives_expiry_and_service_restart` in the Rust
+`payments` integration target: **one passed, zero failed or ignored**, with
+14 other tests filtered out. The runner recorded 330 compiler inputs unchanged
+before and after execution. It used mise-selected Go 1.27.2 and pinned Rust
+1.99.0, separate fresh synthetic Core/Go PostgreSQL databases, actual Go loopback
+TCP HTTP callbacks, and the real UDS client, bridge and Rust payment service.
+Provider API responses were simulated; signed webhook bodies were created by
+the Rust runner, and no webhook secret or Core DSN was given to Go.
+
+Four separate Go processes executed `TestRustDurableProofAcrossGoRestart`:
+
+| Phase | Observed result |
+| --- | --- |
+| `recv` | Accepted first webhook and drained its inbox into a credit job, without posting money. |
+| `recv-lost` | Rust durably accepted a second event; an injected Go inbox-insert failure returned HTTP 503. |
+| `offline` | With Rust UDS stopped, callback delivery returned HTTP 503. |
+| `settle` | After a real 302-second wait, webhook-key rotation and reconstruction of the Rust service, old signed callbacks recovered durable proofs and settled once. |
+
+The runner also constructed a historical Go queue shape: an already-drained
+inbox and review credit job with missing proof references, while Core already
+retained the accepted proof and had no credit receipt. Identical redelivery
+recovered that proof, reopened the inbox and repaired the same job. This is a
+synthetic legacy queue-state test, not migration of real historical Core proofs.
+Duplicate deliveries and 12 concurrent workers preserved **two accepted proofs,
+one credit receipt and one journal**, whose entries sum to zero. Go and Rust
+both retained the original event/payload bindings.
+
+The Rust runner constructed two service instances in one operating-system
+process: **`rust_os_process_restart=false`**. Go processes actually restarted;
+the Rust OS process did not. The result does not establish Caddy or browser
+acceptance, normal host mounting, real Stripe/ePay interoperability, live
+channels, all refund flows, a deployed release or production readiness. Rust's
+failed-refund release guard remains in place, and an ePay Rust verifier is still
+missing. Neither standalone mocklab adapter test was enabled by this run.
+
+The private local artifacts `checkpoint-06-payment-real-go-joint-receipt.json`
+and `checkpoint-06-payment-joint-safe-result.json` record the exact command,
+environment, stable input hashes and safe result. The Go payment report binds
+those artifacts to its unchanged 17 Go source files. Only the three module
+documents changed after the joint run; Go tests were not rerun for these wording
+changes.
+
+# Historical verification record — 2026-10-10
 
 ## Executed locally
 

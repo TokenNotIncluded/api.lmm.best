@@ -3,7 +3,9 @@
 package rustbridge
 
 import (
+	"bytes"
 	"context"
+	"crypto/sha256"
 
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/coreclient"
 	pb "github.com/TokenNotIncluded/api.lmm.best/extensions/internal/corepb"
@@ -61,6 +63,22 @@ func (b *Bridge) Read(ctx context.Context, user string, intent p.Intent) error {
 func (b *Bridge) Hold(ctx context.Context, user string, id int64, key string, amount int64) (p.Receipt, error) {
 	return convert(b.client.HoldPaymentRefund(ctx, user, &pb.HoldRefundRequest{Mutation: mutation(key), IntentId: id, RefundAmountMinor: amount}))
 }
+func (b *Bridge) AcceptProof(ctx context.Context, id int64, e p.Evidence) (p.ProofReceipt, error) {
+	proof, err := ingressEvidence(e)
+	if err != nil {
+		return p.ProofReceipt{}, err
+	}
+	r, err := b.client.AcceptPaymentProviderProof(ctx, &pb.AcceptProviderProofRequest{IntentId: id, Evidence: proof})
+	return convertProof(r, err, id, e)
+}
+func (b *Bridge) LookupProof(ctx context.Context, id int64, e p.Evidence) (p.ProofReceipt, error) {
+	if e.Source != "webhook" || e.EventID == "" || len(e.Payload) == 0 || len(e.Payload) > p.MaxEvidence {
+		return p.ProofReceipt{}, p.ErrEvidence
+	}
+	h := sha256.Sum256(e.Payload)
+	r, err := b.client.ReconcilePaymentProviderProof(ctx, &pb.GetProviderProofRequest{IntentId: id, ProviderEventId: e.EventID, PayloadSha256: h[:]})
+	return convertProof(r, err, id, e)
+}
 func (b *Bridge) Credit(ctx context.Context, id int64, key string, e p.Evidence) (p.Receipt, error) {
 	proof, err := evidence(e)
 	if err != nil {
@@ -94,10 +112,31 @@ func (b *Bridge) Receipt(ctx context.Context, id int64, key string) (p.Receipt, 
 }
 func mutation(key string) *pb.MutationContext { return &pb.MutationContext{IdempotencyKey: key} }
 func evidence(e p.Evidence) (*pb.ProviderEvidence, error) {
+	if e.AcceptedProofID == "" {
+		return nil, p.ErrEvidence
+	}
+	v, err := ingressEvidence(e)
+	if err == nil {
+		v.AcceptedProofId = e.AcceptedProofID
+	}
+	return v, err
+}
+func ingressEvidence(e p.Evidence) (*pb.ProviderEvidence, error) {
 	if e.Source != "webhook" || len(e.Signature) == 0 || len(e.Signature) > 2048 || len(e.Payload) == 0 || len(e.Payload) > p.MaxEvidence {
 		return nil, p.ErrEvidence
 	}
 	return &pb.ProviderEvidence{Payment: &pb.ExternalPaymentReference{Provider: e.Provider, Merchant: e.Merchant, Environment: e.Environment, Transaction: e.Transaction}, ProviderEventId: e.EventID, SignedPayload: append([]byte(nil), e.Payload...), Signature: append([]byte(nil), e.Signature...)}, nil
+}
+func convertProof(r *pb.ProviderProofReceipt, err error, id int64, e p.Evidence) (p.ProofReceipt, error) {
+	if err != nil {
+		return p.ProofReceipt{}, mapError(err)
+	}
+	h := sha256.Sum256(e.Payload)
+	if r == nil || r.ProofId == "" || r.IntentId != id || r.ProviderEventId != e.EventID || !bytes.Equal(r.PayloadSha256, h[:]) || r.AcceptedUnixSeconds <= 0 || r.Payment == nil ||
+		r.Payment.Provider != e.Provider || r.Payment.Merchant != e.Merchant || r.Payment.Environment != e.Environment || r.Payment.Transaction != e.Transaction {
+		return p.ProofReceipt{}, p.ErrConflict
+	}
+	return p.ProofReceipt{ID: r.ProofId, IntentID: r.IntentId, EventID: r.ProviderEventId, PayloadSHA256: append([]byte(nil), r.PayloadSha256...), Payment: p.Evidence{Provider: r.Payment.Provider, Merchant: r.Payment.Merchant, Environment: r.Payment.Environment, Transaction: r.Payment.Transaction}, AcceptedUnixSeconds: r.AcceptedUnixSeconds}, nil
 }
 func convert(r *pb.PaymentReceipt, err error) (p.Receipt, error) {
 	if err != nil {

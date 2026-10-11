@@ -2,6 +2,7 @@ package payments
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -101,8 +102,12 @@ func (m *memoryStore) PutEvent(ctx context.Context, e Event) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if old, ok := m.events[e.Key]; ok {
-		if old.Digest != e.Digest {
-			return ErrConflict
+		merged, changed, err := mergeEvent(old, e)
+		if err != nil {
+			return err
+		}
+		if changed {
+			m.events[e.Key] = merged
 		}
 		return nil
 	}
@@ -128,7 +133,7 @@ func (m *memoryStore) FinishEvent(ctx context.Context, key, status, code string,
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	e := m.events[key]
-	if e.Status == "done" {
+	if e.Status == "done" || status == "review" && code == ErrEvidence.Error() && e.Evidence.AcceptedProofID != "" {
 		return nil
 	}
 	e.Status = status
@@ -155,21 +160,25 @@ func (m *memoryStore) DueOrders(ctx context.Context, now time.Time, limit int) (
 }
 
 type fakeCore struct {
-	mu                        sync.Mutex
-	channel                   Channel
-	intents                   map[string]Intent
-	requests                  map[string]PrepareRequest
-	receipts                  map[string]Receipt
-	calls                     map[string]int
-	lose                      map[string]bool
-	deny                      bool
-	offline                   bool
-	invalidReceipt            bool
-	creditGate, creditStarted chan struct{}
+	mu                                  sync.Mutex
+	channel                             Channel
+	intents                             map[string]Intent
+	requests                            map[string]PrepareRequest
+	receipts                            map[string]Receipt
+	proofs                              map[string]ProofReceipt
+	calls                               map[string]int
+	lose                                map[string]bool
+	deny                                bool
+	offline                             bool
+	invalidReceipt                      bool
+	creditGate, creditStarted           chan struct{}
+	proofLookupGate, proofLookupStarted chan struct{}
+	proofLookupError                    error
+	proofLookupBlocked                  atomic.Bool
 }
 
 func newCore(c Channel) *fakeCore {
-	return &fakeCore{channel: c, intents: map[string]Intent{}, requests: map[string]PrepareRequest{}, receipts: map[string]Receipt{}, calls: map[string]int{}, lose: map[string]bool{}}
+	return &fakeCore{channel: c, intents: map[string]Intent{}, requests: map[string]PrepareRequest{}, receipts: map[string]Receipt{}, proofs: map[string]ProofReceipt{}, calls: map[string]int{}, lose: map[string]bool{}}
 }
 func (f *fakeCore) Prepare(ctx context.Context, user string, r PrepareRequest) (Intent, error) {
 	f.mu.Lock()
@@ -204,6 +213,51 @@ func (f *fakeCore) Read(ctx context.Context, user string, i Intent) error {
 	}
 	return nil
 }
+func (f *fakeCore) AcceptProof(ctx context.Context, id int64, e Evidence) (ProofReceipt, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls["accept_proof"]++
+	if f.offline {
+		return ProofReceipt{}, ErrUnavailable
+	}
+	if e.Source != "webhook" || len(e.Signature) == 0 {
+		return ProofReceipt{}, ErrEvidence
+	}
+	key := fmt.Sprint(id) + "/" + e.EventID
+	if old, ok := f.proofs[key]; ok {
+		if !proofMatches(old, id, e) {
+			return ProofReceipt{}, ErrConflict
+		}
+		return old, nil
+	}
+	digest := sha256.Sum256(e.Payload)
+	p := ProofReceipt{ID: stableKey("proof", key), IntentID: id, EventID: e.EventID, PayloadSHA256: digest[:], Payment: e, AcceptedUnixSeconds: 1}
+	f.proofs[key] = p
+	return p, nil
+}
+func (f *fakeCore) LookupProof(ctx context.Context, id int64, e Evidence) (ProofReceipt, error) {
+	if f.proofLookupStarted != nil && !f.proofLookupBlocked.Swap(true) {
+		f.proofLookupStarted <- struct{}{}
+		<-f.proofLookupGate
+		if f.proofLookupError != nil {
+			return ProofReceipt{}, f.proofLookupError
+		}
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls["lookup_proof"]++
+	if f.offline {
+		return ProofReceipt{}, ErrUnavailable
+	}
+	p, ok := f.proofs[fmt.Sprint(id)+"/"+e.EventID]
+	if !ok {
+		return ProofReceipt{}, ErrNotFound
+	}
+	if !proofMatches(p, id, e) {
+		return ProofReceipt{}, ErrConflict
+	}
+	return p, nil
+}
 func (f *fakeCore) post(kind string, id int64, key, state string, e Evidence) (Receipt, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -211,7 +265,7 @@ func (f *fakeCore) post(kind string, id int64, key, state string, e Evidence) (R
 	if f.offline {
 		return Receipt{}, ErrUnavailable
 	}
-	if kind != "hold" && (e.Source != "webhook" || len(e.Signature) == 0) {
+	if kind != "hold" && (e.Source != "webhook" || len(e.Signature) == 0 || e.AcceptedProofID == "") {
 		return Receipt{}, ErrEvidence
 	}
 	if old, ok := f.receipts[key]; ok {

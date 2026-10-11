@@ -1,4 +1,4 @@
-# Tool market extension — task 08
+# Tool market extension
 
 This package is for the fresh-install Rust-core / Go-extension branch. It does
 not import a legacy model, open a core database, grant a team role, or edit a
@@ -12,7 +12,8 @@ Construct the module with `New(store, authority, Config{...})`.
 - `Authority` is mandatory. Its integration adapter must call Rust for the live
   user credential, account membership and requested action on **every request**.
   Accepted action names are `toolmarket.read`, `toolmarket.manage`,
-  `toolmarket.authorize`, and `toolmarket.execute`. The existing three read-only
+  `toolmarket.authorize`, and `toolmarket.execute`; the Web adapter additionally
+  requires explicit `toolmarket.review` and `toolmarket.config` decisions. The existing three read-only
   RPCs must not be treated as proof of these new permissions. No permissive
   default or local role store is provided.
 - `Funds` is an optional adapter interface, not a protobuf proposal. No real
@@ -58,6 +59,60 @@ limited to 63 MiB of plaintext; full storage fails closed. There is no automatic
 pruning of audit records or idempotency keys. Operators must account for capacity
 before enabling the module. Do not delete uncertain execution records to make
 space. A future backend can replace this storage without accessing core tables.
+
+## Legacy Web compatibility first package
+
+`web.go` and `web_types.go` preserve the service/version/tool DTOs and raw list
+arrays consumed by `apps/web/src/features/tool-market/api.ts`, using main
+`6efcb6fb0f6d` as the source contract. Optional host wiring is
+`webcompat.RegisterToolMarket(mux, authenticator, module)`. This does not mount
+the routes or provide a real Rust action-authority adapter by itself.
+
+Construct this package with `Config{WebOnly: true}`. It requires no OAuth
+callback and refuses a configured callback or funds adapter. The module's native
+`Handler()` then returns 503 for every endpoint, so wiring the Web package cannot
+accidentally enable native OAuth or MCP execution. The separate legacy Web
+registration remains available after real Rust action authorization is supplied.
+
+Implemented domain operations are public config, catalog search and released
+detail; author draft create/read/edit, remote validation, submit, private free
+activation, pause and deletion; administrator review; per-user favorites,
+exact-version installations and the corresponding `mine` lists. A public read
+with a supplied invalid session fails; it does not silently become anonymous.
+Protected HTTP requests validate the Rust session and requested action before
+reading the body. The domain rechecks action authority, exact owner and version;
+network validation also rechecks authority before recording its result.
+
+The Web format has a personal-user `owner_id`. This first package requires the
+authorized account to be that user's personal account. It does not convert a
+team membership into personal ownership. A future team Web contract needs an
+explicit account reference and Rust team/action authorization.
+
+Web records occupy an optional `web_compat` section in the same encrypted,
+single-writer snapshot. Existing stores remain readable without changing their
+native records or requiring a PostgreSQL connection. Editing creates a new
+version; released versions and existing installations are never silently
+upgraded. Private/shared visibility is reapplied to catalog, detail and favorites.
+Remote schemas must match before approval or private activation; request input
+cannot set a validation digest. The existing bounded HTTPS/DNS/MCP transport
+and closed schema subset apply. Credentialed remote validation, provider and
+metered pricing, AI review, OAuth, tokens, metatools, call history and business
+record import are not implemented by this Web package.
+
+The public Web config advertises `enabled=false`, `builtin_enabled=false` and
+`execution_ready=false`. Only service deletion is advertised as a supported
+optional capability. `quota_per_unit=500000` and `credits_per_usd="500000"`
+describe the project's fixed credit unit, not a current foreign-exchange quote.
+Web tool prices are safe integer ledger credits; the native `Price` API below
+uses USD millionths and is a separate contract.
+
+Web invoke, grant and budget operations always fail with HTTP 503
+`TOOL_MARKET_FUNDS_UNAVAILABLE`, including nominally free Web executions. The
+first package neither reserves funds nor contacts a tool for an invocation.
+Config writes and unimplemented account resource kinds fail explicitly instead
+of returning successful empty lists. Fresh synthetic tests are not a migrated
+real catalog, and this package remains unassembled until Rust action authority
+and host wiring have independent acceptance.
 
 ## API and workflow
 
@@ -185,7 +240,8 @@ All tests use local mock MCP/OAuth servers. The unsafe local transport override
 is unexported and exists only in tests; no runtime configuration disables the
 production network policy. No real paid provider was called.
 
-Local validation used Go 1.23.2 with the package's standard-library-only sources:
+The historical native-only validation below used Go 1.23.2 with the package's
+standard-library-only sources; it does not validate the newer Web package:
 
 ```sh
 cd services/extensions/internal/modules/toolmarket
@@ -203,17 +259,22 @@ PKCE, refresh, revoke-vs-callback races, same-team token isolation, schema
 constraints, provider errors, timeout non-retry, SSRF/redirect rejection,
 concurrent duplicate payment, settlement retry, and encrypted-store reopen.
 
-The repository declares Go 1.25.0. Its full module/dependency build, host
+That historical run did not validate the full module/dependency build, host
 registration, real Rust authority/funds adapters, browser gateway routing,
 full-process Rust isolation and live provider interoperability were **not**
-validated by the isolated Go 1.23.2 run. At final integration, run the repository
-checks and at least:
+validated by the isolated Go 1.23.2 run. The current branch pins its tools in
+`mise.toml`. Web compatibility has additional business and HTTP fixture tests,
+including encrypted-file reopen, ownership, immutable versions, live visibility,
+schema drift, concurrent drafts, authorization before body reads, integer
+precision and disabled paid operations. Run from `services/extensions`:
 
 ```sh
-cd services/extensions
-go test -race ./internal/modules/toolmarket -count=1
-go vet ./...
-go test -race ./... -count=1
+mise exec -- go test -mod=readonly -race ./internal/modules/toolmarket ./internal/webcompat -count=1
+mise exec -- go vet ./internal/modules/toolmarket ./internal/webcompat
 ```
+
+These tests use synthetic action authority and local mock MCP transport. They
+do not prove the missing Rust action RPC, real snapshot import, browser journey,
+host admission wiring, live providers or funds integration.
 
 Keep the PR as Draft. Do not enable paid calls, merge or deploy from this task.

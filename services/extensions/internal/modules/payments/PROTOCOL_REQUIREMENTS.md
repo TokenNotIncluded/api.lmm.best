@@ -1,86 +1,82 @@
-# Task 02 / task 06 handoff — blockers to enabling payments
+# Payment contracts and remaining acceptance
 
-This file proposes integration requirements. It changes no Protobuf or Rust
-ledger code. The task 10 Draft must remain disabled until these are resolved and
-verified with the real Rust service, not just a mock.
+This is the current WIP integration boundary for PR #675. It neither authorizes
+live channels nor makes a production-readiness claim.
 
-## Existing contract used without alteration
+## Implemented contracts
 
-`contracts/proto/lmm/core/v1/payments.proto` already declares `PrepareTopup`,
-`CreditTopup`, `HoldRefund`, `CommitRefund`, `ReleaseRefund`,
-`ApplyExternalRefund`, and `GetPaymentReceipt`. At this base the service is not
-registered. Go calls those exact generated methods through the bounded Unix
-`coreclient`; `UNIMPLEMENTED` remains dependency unavailable, never success.
+- `PrepareTopup` freezes explicit Rust account, channel, provider, merchant,
+  environment, currency, external minor amount and integer credit quote.
+- `GetPaymentReceipt` can return `PREPARED` for authorized intent reads. That
+  state has no money journal and cannot become credit success in Go.
+- `AcceptProviderProof` asks Rust to independently verify original webhook bytes
+  and signature before persisting proof. `GetProviderProof` requires the exact
+  expected intent, provider event ID and payload SHA-256. The receipt contains
+  no payment-success or journal state.
+- Go sends `accepted_proof_id` and the original evidence for `CreditTopup`,
+  `CommitRefund`, `ReleaseRefund` and `ApplyExternalRefund`. A Go service token,
+  API response, parser result or caller-provided timestamp is insufficient.
+- Payment RPCs use the controlled Unix `coreclient`. User actions require current
+  user authorization; provider workers do not forward user credentials. Unknown
+  RPCs and dependency failures fail closed.
 
-## Required decisions
+Stripe webhook secrets remain in Rust. Go's deprecated `WebhookSecrets` config
+field must be empty. Raw payloads and signatures are private and immutable;
+Go's authenticated provider API reads remain observations. Rust decides provider
+scope, freshness on first acceptance, transaction binding and replay semantics.
+Adding another provider still requires an independent Rust verifier or another
+explicitly designed trusted boundary; no generic attestation is assumed here.
 
-1. **Independent evidence without provider-specific Rust deployments.** The
-   current contract requires Rust to verify original provider signatures and
-   event semantics. Go cannot claim `verified=true`. To meet the microkernel
-   goal, approve a generic trusted verification boundary: for example a
-   separately scoped verifier issuing signed, bounded attestations over intent,
-   provider, merchant, environment, transaction, unique event/refund ID, exact
-   minor-unit amount/currency, event kind and original-evidence hash. Core must
-   validate issuer scope, signature, account/intent binding and replay state.
-   This is a proposal, not an implemented or approved attestation format.
-   Alternatively, approve a controlled independent query/verifier contract.
-   Arbitrary caller-selected endpoints, embedded secrets and service-token-only
-   assertions are not acceptable. Do not move a provider parser into task 10's
-   Go code and then silently trust its output as a ledger grant.
+## Recovery and finality
 
-2. **Prepared-intent read and authorization.** `GetPaymentReceipt` returns a
-   durable mutation receipt, but there is no prepared-intent read operation or
-   prepared receipt state. Task 10 needs an explicit `topup.read` authorization
-   and immutable intent lookup before a credit exists. Supply a read-intent RPC
-   or define a valid, scoped prepared receipt read. The bridge currently uses the
-   prepare key for the read and fails closed on NotFound. A creator check or
-   cached team membership in Go is not a replacement. Refund admission also
-   needs current refund permission before local pending reservations can be
-   abused by a read-only caller. A denied hold is not proof that an earlier
-   ambiguous attempt never committed; preserve its reconciliation record.
+Ingress looks up accepted proof before trying fresh acceptance. Go ACK requires
+both Rust durable acceptance and Go inbox persistence. A lost response or old
+queue can therefore recover the accepted proof without weakening freshness for
+unverified events. Same-event payload changes conflict. Missing proof can repair
+pending/review work and already-drained inbox entries for the same immutable meaning; done/rejected/fenced jobs do
+not reopen. A stale worker cannot erase stronger proof or a final receipt.
 
-3. **Durable idempotency and receipt fingerprint.** Define the canonical request
-   fingerprint across Go/Rust and its scope. Existing `request_sha256` has no
-   canonical encoding definition. Keys bind immutable action/intent/amount;
-   changed requests under one key must conflict. Core must deduplicate a payment
-   transaction even under different provider event IDs or Go keys. A receipt
-   lookup must be scoped to the service's configured channels/intents. Transport
-   errors, receipt NotFound after a timeout and user revocation must not be
-   treated as evidence of a failed provider payment.
+Ledger idempotency and refunds remain Rust responsibilities: original transaction
+uniqueness, request fingerprint, original payer, cumulative partial refunds,
+refund-before-credit fences, hold overlap, and no release on timeout. Go must not
+compute credit or infer balance correctness from local states.
 
-4. **Delayed signed proof and reconciliation.** Stripe re-signs webhook
-   deliveries, but a saved, already validated payload can sit in an inbox while
-   Rust is down. Define how independently verified durable evidence can be
-   replayed without weakening freshness/replay checks. Stripe/ePay query results
-   have no webhook signature. A controlled provider read or approved verifier
-   must independently confirm transaction/refund status, amount, currency and
-   ownership. Task 10 retains those reads as observations and does not forge a
-   signature. Legacy ePay needs provider-specific refund identity, idempotency
-   and proof support before automatic settlement can be enabled.
+## Executed recovery acceptance
 
-5. **Atomic refund fences and ledger holds.** Rust must atomically handle a
-   refund before credit, a lost credit response, cumulative partial refunds,
-   existing local refund holds, external refunds and concurrent stale credits.
-   The same provider refund cannot cause both a held commit and a second
-   external debit. Never release a hold on timeout; release requires verified
-   terminal failure. A refund fence must survive Go data loss and process
-   restarts. Define the outcome for pre-credit partial refunds and return a
-   durable receipt for that exact outcome. Go does not choose a substitute
-   account, bypass a budget, calculate credit units or write core tables.
+The four-phase simulated Stripe acceptance passed locally on 2026-10-12 using
+four real Go processes, loopback TCP HTTP callbacks, UDS RPC, the Rust payment
+service and separate synthetic PostgreSQL databases. It covered durable proof
+acceptance followed by a failed Go inbox write, non-ACK during a Core outage,
+old-proof recovery after a real 302-second wait and webhook-key rotation,
+synthetic legacy done-inbox/review-job repair, duplicate delivery and 12
+concurrent workers. Two proofs produced one credit receipt and one balanced
+journal. Two Rust service objects were constructed in one OS process; a Rust
+OS process restart was not tested. See [VERIFICATION.md](VERIFICATION.md).
 
-6. **Production composition and acceptance.** Provide an independently scoped
-   payment service credential, channel allowlist/configuration and explicit
-   database role isolation. Enable the module and callback-only ingress in the
-   composition root only after those requirements and real Rust authorization
-   are tested. No core/Go production deployment is part of task 10.
+## Remaining acceptance before enabling
 
-## Required joint acceptance before enabling
+Extend the fresh isolated PostgreSQL-backed Rust/Go tests with simulated
+providers. Inspect real Rust journals and exact integer balances for:
 
-Use PostgreSQL-backed Rust and Go services and simulated providers. Verify an
-explicit personal account and team account; revoked user and service scopes;
-changing amount under the same key; 100 concurrent callback deliveries; distinct
-event IDs for one payment; loss of each RPC response after commit; delayed proof;
-external refunds before credit and after a held refund; partial refund caps;
-provider retry-window expiry; and Go/core restarts between every durable step.
-Check Rust journal entries and final balances directly in the test environment.
-Passing Go state-machine tests alone is not proof of those ledger properties.
+- Personal and team account authorization, revoked users/services and channel
+  scope; changed amount under the same key and cross-intent proof reuse.
+- Loss of each ledger/refund RPC response after commit, beyond the accepted-proof
+  recovery and inbox-write failure already tested.
+- A full Rust operating-system process restart, distinct from reconstructing
+  the Rust service in the completed test.
+- External/pre-credit refunds, local holds, partial/cumulative caps, conflicting
+  terminal outcomes and finite provider retry windows.
+- Normal host owner/runtime database grants, callback-only ingress, explicit
+  host configuration and its unavailable-dependency behavior.
+
+The joint test constructs the module directly; it does not establish normal
+host mounting or public proxy/browser acceptance. Rust's failed-refund release
+operation remains guarded until dispatch is bound to a hold. Go's ePay adapter
+has no corresponding Rust proof verifier yet. Passing the top-up recovery path
+does not remove these limits or verify all provider and refund operations.
+
+Unit fixtures do not prove the ledger. The joint fixture contains a private Go
+DSN file reference, UDS/service/user test credentials and already signed payloads;
+it must never contain a core DSN or Stripe webhook secret. Record executed and
+skipped checks in [VERIFICATION.md](VERIFICATION.md). No production deployment is
+part of these tests.

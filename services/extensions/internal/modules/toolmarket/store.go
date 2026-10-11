@@ -93,6 +93,9 @@ func fileStore(path string, key []byte, create bool) (s *Store, err error) {
 	if e = json.Unmarshal(plain, &s.data); e != nil || s.data.Version != 1 || s.data.Servers == nil || s.data.Releases == nil || s.data.Installs == nil || s.data.Secrets == nil || s.data.States == nil || s.data.Executions == nil {
 		return s, ErrInvalid
 	}
+	if w := s.data.Web; w != nil && (w.Services == nil || w.Versions == nil || w.Installations == nil || w.Favorites == nil) {
+		return s, ErrInvalid
+	}
 	return s, nil
 }
 func (s *Store) Close() error {

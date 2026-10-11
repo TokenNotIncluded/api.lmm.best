@@ -189,7 +189,7 @@ func setup(t *testing.T, price int64, stock, quota int64, team bool, enabled boo
 	}
 	f.catalog(t, CatalogChange{Action: "create_shop", Owner: owner, Title: "Example shop", Key: "shop"}, &f.shop)
 	f.catalog(t, CatalogChange{Action: "create_product", Title: "Document", Key: "product"}, &f.product)
-	f.catalog(t, CatalogChange{Action: "create_variant", ProductID: f.product.ID, Title: "DOCX", Price: Price{price, "CNY"}, TrackStock: true, Quota: quota, Key: "variant"}, &f.variant)
+	f.catalog(t, CatalogChange{Action: "create_variant", ProductID: f.product.ID, Title: "DOCX", Price: Price{Amount: price, Currency: "CNY"}, TrackStock: true, Quota: quota, Key: "variant"}, &f.variant)
 	if stock > 0 {
 		f.catalog(t, CatalogChange{Action: "stock_adjust", ID: f.variant.ID, Delta: stock, Reason: "received actual goods", Key: "receive"}, &f.variant)
 	}
@@ -206,7 +206,7 @@ func (f *fixture) catalog(t *testing.T, c CatalogChange, out any) {
 	must(t, json.Unmarshal(b, out))
 }
 func (f *fixture) purchase(key string) (Order, error) {
-	return f.s.Purchase(context.Background(), buyerToken, Purchase{f.shop.ID, f.variant.ID, Account{"personal", 2}, 1, key})
+	return f.s.Purchase(context.Background(), buyerToken, Purchase{ShopID: f.shop.ID, VariantID: f.variant.ID, Buyer: Account{"personal", 2}, Quantity: 1, Key: key})
 }
 func (f *fixture) change(token string, o Order, action, text string) (Order, error) {
 	return f.s.ChangeOrder(context.Background(), token, OrderChange{f.shop.ID, o.ID, action, text})
@@ -245,7 +245,7 @@ func TestCatalogStockQuotaAndReplay(t *testing.T) {
 	}
 	_, err := f.s.Catalog(context.Background(), sellerToken, CatalogChange{Action: "stock_adjust", ShopID: f.shop.ID, ID: f.variant.ID, Delta: 8, Reason: "received actual goods", Key: "receive"})
 	wantError(t, err, ErrConflict)
-	f.catalog(t, CatalogChange{Action: "create_variant", ProductID: f.product.ID, Title: "PDF", Price: Price{14900, "CNY"}, Quota: -1, Key: "pdf"}, &Variant{})
+	f.catalog(t, CatalogChange{Action: "create_variant", ProductID: f.product.ID, Title: "PDF", Price: Price{Amount: 14900, Currency: "CNY"}, Quota: -1, Key: "pdf"}, &Variant{})
 	o, err := f.purchase("one")
 	must(t, err)
 	_, err = f.s.Catalog(context.Background(), sellerToken, CatalogChange{Action: "stock_adjust", ShopID: f.shop.ID, ID: f.variant.ID, Delta: -7, Reason: "correction", Key: "bad-remove"})
@@ -267,7 +267,7 @@ func TestDisabledPaymentsNeverCreateFreeOrder(t *testing.T) {
 	if v.Reserved != 0 || v.Claimed != 0 {
 		t.Fatal("unavailable money reserved stock")
 	}
-	f.catalog(t, CatalogChange{Action: "variant_details", ID: v.ID, Title: "Explicit free sample", Price: Price{0, "CNY"}, Key: "free"}, &f.variant)
+	f.catalog(t, CatalogChange{Action: "variant_details", ID: v.ID, Title: "Explicit free sample", Price: Price{Amount: 0, Currency: "CNY"}, Key: "free"}, &f.variant)
 	o, err := f.purchase("free")
 	must(t, err)
 	if o.State != Paid || o.Total.Amount != 0 {
@@ -314,13 +314,13 @@ func TestOrderIdempotencyAndPriceSnapshot(t *testing.T) {
 	f := setup(t, 9900, 5, -1, false, true)
 	o, err := f.purchase("same")
 	must(t, err)
-	f.catalog(t, CatalogChange{Action: "variant_details", ID: f.variant.ID, Title: "New title", Price: Price{14900, "CNY"}, Key: "reprice"}, &f.variant)
+	f.catalog(t, CatalogChange{Action: "variant_details", ID: f.variant.ID, Title: "New title", Price: Price{Amount: 14900, Currency: "CNY"}, Key: "reprice"}, &f.variant)
 	repeat, err := f.purchase("same")
 	must(t, err)
 	if repeat.ID != o.ID || repeat.Total.Amount != 9900 || repeat.Title != "DOCX" {
 		t.Fatal(repeat)
 	}
-	_, err = f.s.Purchase(context.Background(), buyerToken, Purchase{f.shop.ID, f.variant.ID, o.Buyer, 2, "same"})
+	_, err = f.s.Purchase(context.Background(), buyerToken, Purchase{ShopID: f.shop.ID, VariantID: f.variant.ID, Buyer: o.Buyer, Quantity: 2, Key: "same"})
 	wantError(t, err, ErrConflict)
 	if f.stock(t).Reserved != 1 {
 		t.Fatal("duplicate reservation")
@@ -329,7 +329,7 @@ func TestOrderIdempotencyAndPriceSnapshot(t *testing.T) {
 	must(t, err)
 	_, err = f.change(buyerToken, o, "pay", "")
 	wantError(t, err, ErrConflict)
-	_, err = f.s.Purchase(context.Background(), buyerToken, Purchase{f.shop.ID, f.variant.ID, o.Buyer, math.MaxInt64, "overflow"})
+	_, err = f.s.Purchase(context.Background(), buyerToken, Purchase{ShopID: f.shop.ID, VariantID: f.variant.ID, Buyer: o.Buyer, Quantity: math.MaxInt64, Key: "overflow"})
 	wantError(t, err, ErrInvalid)
 }
 func TestLostPaymentResponseAndRestart(t *testing.T) {
@@ -488,7 +488,7 @@ func TestHTTPValidationAndPrivateCatalog(t *testing.T) {
 	if w.Code != 401 {
 		t.Fatal(w.Code)
 	}
-	p := Purchase{f.shop.ID, f.variant.ID, Account{"personal", 2}, 1, "http"}
+	p := Purchase{ShopID: f.shop.ID, VariantID: f.variant.ID, Buyer: Account{"personal", 2}, Quantity: 1, Key: "http"}
 	body, _ := json.Marshal(p)
 	r = httptest.NewRequest("POST", "/orders", strings.NewReader(string(body)))
 	r.Header.Set("X-LMM-User-Credential", buyerToken)

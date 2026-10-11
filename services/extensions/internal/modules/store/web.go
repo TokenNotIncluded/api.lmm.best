@@ -8,9 +8,16 @@ import (
 )
 
 type LocatedProduct struct {
-	ShopID  string
-	Owner   Account
-	Product Product
+	ShopID   string
+	Owner    Account
+	Product  Product
+	Variants []Variant
+	Stats    *CatalogueStats
+}
+type CatalogueStats struct {
+	PaidQuantity     int64 `json:"paid_quantity"`
+	ReservedQuantity int64 `json:"reserved_quantity"`
+	NetPaidQuantity  int64 `json:"net_paid_quantity"`
 }
 type LocatedOrder struct {
 	ShopID    string
@@ -57,7 +64,7 @@ func (s *Service) PublicCatalogue(ctx context.Context, seller int64, query strin
 	}
 	out := make([]map[string]any, 0, len(rows))
 	for _, row := range rows {
-		view, err := publicView(row)
+		view, err := s.publicLegacyView(row, true)
 		if err != nil {
 			return nil, err
 		}
@@ -70,7 +77,7 @@ func (s *Service) PublicProduct(ctx context.Context, id string) (map[string]any,
 	if err != nil {
 		return nil, err
 	}
-	return publicView(row)
+	return s.publicLegacyView(row, true)
 }
 
 func publicView(row LocatedProduct) (map[string]any, error) {
@@ -100,7 +107,7 @@ func publicView(row LocatedProduct) (map[string]any, error) {
 		return nil, ErrUnavailable
 	}
 	units, err := price.Int64()
-	if err != nil || units < 0 {
+	if err != nil || units < 0 || units > legacySafeInteger {
 		return nil, ErrUnavailable
 	}
 	if raw, exists := value["visibility"]; exists {
@@ -190,7 +197,7 @@ func publicField(key string, v any) bool {
 						return false
 					}
 					amount, err := n.Int64()
-					if err != nil || amount < 0 {
+					if err != nil || amount < 0 || amount > legacySafeInteger {
 						return false
 					}
 				}

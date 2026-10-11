@@ -33,20 +33,39 @@ type Client struct {
 }
 
 func ReadTokenFile(path string) ([]byte, error) {
-	f, err := os.Open(path)
+	data, err := ReadPrivateFile(path, 4096)
 	if err != nil {
-		return nil, errors.New("cannot open core RPC credential file")
-	}
-	data, readErr := io.ReadAll(io.LimitReader(f, 4097))
-	closeErr := f.Close()
-	if readErr != nil || closeErr != nil || len(data) > 4096 {
-		return nil, errors.New("cannot read bounded core RPC credential file")
+		return nil, err
 	}
 	token := strings.TrimSpace(string(data))
 	if !validToken(token) {
 		return nil, errors.New("core RPC credential must contain 32 to 256 visible ASCII bytes")
 	}
 	return []byte(token), nil
+}
+
+// ReadPrivateFile accepts only bounded owner/root-owned 0400 or 0600 regular
+// files. Errors deliberately omit paths and contents from operator secrets.
+func ReadPrivateFile(path string, max int) ([]byte, error) {
+	info, err := os.Lstat(path)
+	if err != nil || info == nil || !info.Mode().IsRegular() || (info.Mode().Perm() != 0400 && info.Mode().Perm() != 0600) || !privateOwner(info) || info.Size() > int64(max) {
+		return nil, errors.New("private credential file unavailable or unsafe")
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, errors.New("private credential file unavailable")
+	}
+	opened, statErr := f.Stat()
+	if statErr != nil || !os.SameFile(info, opened) || !opened.Mode().IsRegular() || (opened.Mode().Perm() != 0400 && opened.Mode().Perm() != 0600) || !privateOwner(opened) || opened.Size() > int64(max) {
+		_ = f.Close()
+		return nil, errors.New("private credential file changed")
+	}
+	data, readErr := io.ReadAll(io.LimitReader(f, int64(max)+1))
+	closeErr := f.Close()
+	if readErr != nil || closeErr != nil || len(data) > max {
+		return nil, errors.New("cannot read bounded private credential file")
+	}
+	return data, nil
 }
 func validToken(token string) bool {
 	if len(token) < 32 || len(token) > 256 {

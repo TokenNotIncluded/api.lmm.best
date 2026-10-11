@@ -34,7 +34,7 @@ func TestMocklabStripeAdapter(t *testing.T) {
 	defer cancel()
 	s, err := NewStripe(StripeConfig{
 		Channel: Channel{ID: 1, Provider: "stripe", Merchant: lab.StripeMerchant, Environment: "test", Currency: "USD", Enabled: true},
-		APIKey:  lab.StripeKey, APIVersion: lab.StripeVersion, WebhookSecrets: []string{lab.StripeSecret},
+		APIKey:  lab.StripeKey, APIVersion: lab.StripeVersion,
 		SuccessURL: "https://return.mock.invalid/paid", CancelURL: "https://return.mock.invalid/canceled",
 	})
 	if err != nil {
@@ -86,7 +86,7 @@ func TestMocklabStripeAdapter(t *testing.T) {
 		t.Fatal(err)
 	}
 	request.Body = io.NopCloser(strings.NewReader(`{"not":"the signed body"}`))
-	if _, err = s.Verify(request, now); !errors.Is(err, ErrDenied) {
+	if _, err = s.Verify(request, now); !errors.Is(err, ErrInvalid) {
 		t.Fatal("changed body was not rejected", err)
 	}
 	observations, err := s.Lookup(ctx, order)

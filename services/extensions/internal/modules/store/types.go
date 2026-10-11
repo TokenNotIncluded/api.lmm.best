@@ -10,20 +10,28 @@ import (
 	"math"
 	"reflect"
 	"strings"
+	"sync"
 )
 
 var (
-	ErrInvalid            = errors.New("invalid_request")
-	ErrUnauthorized       = errors.New("unauthorized")
-	ErrForbidden          = errors.New("forbidden")
-	ErrNotFound           = errors.New("not_found")
-	ErrConflict           = errors.New("state_or_idempotency_conflict")
-	ErrUnavailable        = errors.New("dependency_unavailable")
-	ErrPaymentUnavailable = errors.New("payments_unavailable")
-	ErrPending            = errors.New("money_result_pending")
-	ErrSoldOut            = errors.New("stock_or_quota_exhausted")
-	ErrRateLimited        = errors.New("rate_limit_exceeded")
+	ErrInvalid                  = errors.New("invalid_request")
+	ErrUnauthorized             = errors.New("unauthorized")
+	ErrForbidden                = errors.New("forbidden")
+	ErrNotFound                 = errors.New("not_found")
+	ErrConflict                 = errors.New("state_or_idempotency_conflict")
+	ErrUnavailable              = errors.New("dependency_unavailable")
+	ErrPaymentUnavailable       = errors.New("payments_unavailable")
+	ErrPending                  = errors.New("money_result_pending")
+	ErrSoldOut                  = errors.New("stock_or_quota_exhausted")
+	ErrRateLimited              = errors.New("rate_limit_exceeded")
+	ErrSellerTermsRequired      = errors.New("seller_terms_required")
+	ErrSellerTermsNotConfigured = errors.New("seller_terms_not_configured")
+	ErrDisclaimerRequired       = errors.New("disclaimer_required")
 )
+
+type TermsUpdatedError struct{ RequestKey string }
+
+func (*TermsUpdatedError) Error() string { return "seller_terms_updated" }
 
 type Account struct {
 	Kind string `json:"kind"`
@@ -49,9 +57,18 @@ type Authority interface {
 type Price struct {
 	Amount   int64  `json:"amount_minor"`
 	Currency string `json:"currency"`
+	// Unit is explicitly credits for legacy quota prices; an empty unit retains
+	// the external currency minor-unit contract. Never relabel credits as USD.
+	Unit string `json:"-"`
 }
 
 func (p Price) valid() bool {
+	if p.Unit == "credits" {
+		return p.Amount >= 0 && p.Currency == ""
+	}
+	if p.Unit != "" {
+		return false
+	}
 	if p.Amount < 0 || len(p.Currency) != 3 {
 		return false
 	}
@@ -74,19 +91,21 @@ type Product struct {
 	Published bool   `json:"published"`
 	// LegacyPublic is an explicitly imported public catalogue DTO. Its integer
 	// credit prices are never derived from Variant.Price external minor units.
-	LegacyPublic        json.RawMessage `json:"legacy_public,omitempty"`
-	LegacyPublicVersion int             `json:"legacy_public_version,omitempty"`
+	LegacyPublic        json.RawMessage        `json:"legacy_public,omitempty"`
+	LegacyPublicVersion int                    `json:"legacy_public_version,omitempty"`
+	Legacy              *LegacyProductMetadata `json:"legacy,omitempty"`
 }
 type Variant struct {
-	ID         string `json:"id"`
-	ProductID  string `json:"product_id"`
-	Title      string `json:"title"`
-	Price      Price  `json:"price"`
-	TrackStock bool   `json:"track_stock"`
-	Stock      int64  `json:"stock"`
-	Reserved   int64  `json:"reserved"`
-	Quota      int64  `json:"quota"`
-	Claimed    int64  `json:"claimed"`
+	ID         string                 `json:"id"`
+	ProductID  string                 `json:"product_id"`
+	Title      string                 `json:"title"`
+	Price      Price                  `json:"price"`
+	TrackStock bool                   `json:"track_stock"`
+	Stock      int64                  `json:"stock"`
+	Reserved   int64                  `json:"reserved"`
+	Quota      int64                  `json:"quota"`
+	Claimed    int64                  `json:"claimed"`
+	Legacy     *LegacyVariantMetadata `json:"legacy,omitempty"`
 }
 
 // Stock includes reserved physical units. Quota is an absolute sales ceiling;
@@ -112,25 +131,26 @@ func (v *Variant) release(n int64) error {
 }
 
 type Order struct {
-	ID            string  `json:"id"`
-	Buyer         Account `json:"buyer"`
-	Seller        Account `json:"seller"`
-	CreatedBy     int64   `json:"created_by"`
-	VariantID     string  `json:"variant_id"`
-	Title         string  `json:"title"`
-	ProductTitle  string  `json:"product_title"`
-	Quantity      int64   `json:"quantity"`
-	UnitPrice     Price   `json:"unit_price"`
-	Total         Price   `json:"total"`
-	State         string  `json:"state"`
-	RequestHash   string  `json:"request_hash"`
-	Delivered     bool    `json:"delivered"`
-	Delivery      string  `json:"delivery,omitempty"`
-	RefundReason  string  `json:"refund_reason,omitempty"`
-	RefundState   string  `json:"refund_state,omitempty"`
-	PaymentRef    string  `json:"payment_ref,omitempty"`
-	SettlementRef string  `json:"settlement_ref,omitempty"`
-	RefundRef     string  `json:"refund_ref,omitempty"`
+	ID            string               `json:"id"`
+	Buyer         Account              `json:"buyer"`
+	Seller        Account              `json:"seller"`
+	CreatedBy     int64                `json:"created_by"`
+	VariantID     string               `json:"variant_id"`
+	Title         string               `json:"title"`
+	ProductTitle  string               `json:"product_title"`
+	Quantity      int64                `json:"quantity"`
+	UnitPrice     Price                `json:"unit_price"`
+	Total         Price                `json:"total"`
+	State         string               `json:"state"`
+	RequestHash   string               `json:"request_hash"`
+	Delivered     bool                 `json:"delivered"`
+	Delivery      string               `json:"delivery,omitempty"`
+	RefundReason  string               `json:"refund_reason,omitempty"`
+	RefundState   string               `json:"refund_state,omitempty"`
+	PaymentRef    string               `json:"payment_ref,omitempty"`
+	SettlementRef string               `json:"settlement_ref,omitempty"`
+	RefundRef     string               `json:"refund_ref,omitempty"`
+	Legacy        *LegacyOrderMetadata `json:"legacy,omitempty"`
 }
 
 const (
@@ -169,9 +189,11 @@ func Key(s string) bool   { return Text(s, 128) }
 func Page(limit int) bool { return limit > 0 && limit <= 100 }
 
 type Service struct {
-	repo  Repository
-	auth  Authority
-	funds Funds
+	repo          Repository
+	auth          Authority
+	funds         Funds
+	recoveryMu    sync.Mutex
+	recoveryAfter string
 }
 
 func New(repo Repository, auth Authority, funds Funds) (*Service, error) {

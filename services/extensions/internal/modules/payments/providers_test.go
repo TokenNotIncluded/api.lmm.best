@@ -26,14 +26,14 @@ func response(s string) *http.Response {
 }
 func stripeFixture(t *testing.T) *Stripe {
 	t.Helper()
-	s, err := NewStripe(StripeConfig{Channel: Channel{ID: 1, Provider: "stripe", Merchant: "acct_fixture", Environment: "test", Currency: "USD", Enabled: true}, APIKey: "sk_test_not_a_real_secret", APIVersion: "fixture-api-version", WebhookSecrets: []string{"whsec_fixture_current_secret", "whsec_fixture_old_secret"}, SuccessURL: "https://example.com/paid", CancelURL: "https://example.com/canceled"})
+	s, err := NewStripe(StripeConfig{Channel: Channel{ID: 1, Provider: "stripe", Merchant: "acct_fixture", Environment: "test", Currency: "USD", Enabled: true}, APIKey: "sk_test_not_a_real_secret", APIVersion: "fixture-api-version", SuccessURL: "https://example.com/paid", CancelURL: "https://example.com/canceled"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	return s
 }
 
-const paymentObject = `{"id":"pi_top_1","object":"payment_intent","status":"succeeded","amount":1000,"amount_received":1000,"currency":"usd","livemode":false,"metadata":{"lmm_order_id":"top_1"}}`
+const paymentObject = `{"id":"pi_top_1","object":"payment_intent","status":"succeeded","amount":1000,"amount_received":1000,"currency":"usd","livemode":false,"metadata":{"lmm_order_id":"top_1","lmm_core_intent_id":"1","lmm_merchant":"acct_fixture"}}`
 
 func envelope(kind, id, object string) string {
 	return `{"id":"` + id + `","type":"` + kind + `","livemode":false,"created":1,"data":{"object":` + object + `}}`
@@ -69,32 +69,38 @@ func TestStripeRawSignatureAndMerchantProof(t *testing.T) {
 			return nil, ErrInvalid
 		}
 	})}
-	e, err := s.Verify(stripeRequest(raw, s.cfg.WebhookSecrets[0], now), now)
+	e, err := s.Verify(stripeRequest(raw, "whsec_fixture_current_secret", now), now)
 	if err != nil || e.AmountMinor != 1000 || e.OrderID != "top_1" || e.Evidence.Source != "webhook" || string(e.Evidence.Payload) != raw || calls != 2 {
 		t.Fatal(e, err, calls)
 	} // Event creation time is old, but this delivery was freshly signed.
-	tampered := stripeRequest(raw, s.cfg.WebhookSecrets[0], now)
+	tampered := stripeRequest(raw, "whsec_fixture_current_secret", now)
 	tampered.Body = io.NopCloser(strings.NewReader(strings.Replace(raw, "1000", "1001", 1)))
-	if _, err = s.Verify(tampered, now); !errors.Is(err, ErrDenied) || calls != 2 {
-		t.Fatal("tampered body reached provider", err, calls)
+	if _, err = s.Verify(tampered, now); !errors.Is(err, ErrConflict) || calls != 2 {
+		t.Fatal("changed body escaped provider observation check", err, calls)
 	}
 }
-func TestStripeSignatureRotationFreshnessAndHeaderAmbiguity(t *testing.T) {
-	now := time.Unix(1791633600, 0)
-	secret := "whsec_fixture_old_secret"
-	payload := []byte(`{"x":1}`)
-	good := signatureFor(string(payload), secret, now)
-	for _, tc := range []struct {
-		name, header string
-		when         time.Time
-		ok           bool
-	}{{"valid", good, now, true}, {"old_delivery", good, now.Add(301 * time.Second), false}, {"future_delivery", good, now.Add(-301 * time.Second), false}, {"duplicate_timestamp", good + ",t=1", now, false}, {"multiple_signatures", good + ",v1=" + strings.Repeat("0", 64), now, true}, {"bad_hex", "t=1791633600,v1=z", now, false}, {"missing_signature", "t=1791633600", now, false}} {
-		t.Run(tc.name, func(t *testing.T) {
-			got := stripeSignature(payload, tc.header, []string{"whsec_fixture_new_secret", secret}, tc.when)
-			if got != tc.ok {
-				t.Fatal(got)
-			}
-		})
+func TestStripeGoRejectsWebhookSecretConfiguration(t *testing.T) {
+	s := stripeFixture(t)
+	cfg := s.cfg
+	cfg.WebhookSecrets = []string{"whsec_must_only_live_in_rust"}
+	if _, err := NewStripe(cfg); !errors.Is(err, ErrInvalid) {
+		t.Fatal("Go retained a webhook secret", err)
+	}
+}
+func TestStripeGoForwardsSignatureWithoutAuthenticatingIt(t *testing.T) {
+	s := stripeFixture(t)
+	raw := envelope("payment_intent.succeeded", "evt_fixture", paymentObject)
+	s.client = &http.Client{Transport: transportFunc(func(r *http.Request) (*http.Response, error) {
+		if r.URL.Path == "/v1/account" {
+			return response(`{"id":"acct_fixture"}`), nil
+		}
+		return response(raw), nil
+	})}
+	req := httptest.NewRequest("POST", "https://example.com/callbacks/1", strings.NewReader(raw))
+	req.Header.Set("Stripe-Signature", "untrusted-original-header")
+	e, err := s.Verify(req, time.Unix(1, 0))
+	if err != nil || string(e.Evidence.Payload) != raw || string(e.Evidence.Signature) != "untrusted-original-header" || e.Evidence.AcceptedProofID != "" {
+		t.Fatal("parser altered bytes or invented Rust acceptance", err)
 	}
 }
 func TestStripeRejectsMerchantEnvironmentAndDuplicateJSON(t *testing.T) {
@@ -124,7 +130,7 @@ func TestStripeRejectsMerchantEnvironmentAndDuplicateJSON(t *testing.T) {
 				}
 				return response(raw), nil
 			})}
-			if _, err := s.Verify(stripeRequest(raw, s.cfg.WebhookSecrets[0], now), now); err == nil {
+			if _, err := s.Verify(stripeRequest(raw, "whsec_fixture_current_secret", now), now); err == nil {
 				t.Fatal("bad provider binding accepted")
 			}
 		})
@@ -147,7 +153,7 @@ func TestStripeExternalRefundResolvesOriginalPayment(t *testing.T) {
 			return nil, ErrInvalid
 		}
 	})}
-	e, err := s.Verify(stripeRequest(raw, s.cfg.WebhookSecrets[0], now), now)
+	e, err := s.Verify(stripeRequest(raw, "whsec_fixture_current_secret", now), now)
 	if err != nil || e.OrderID != "top_1" || e.RefundID != "re_external" || e.Type != RefundSucceeded || e.LocalRefundID != "" {
 		t.Fatal(e, err)
 	}
@@ -176,7 +182,7 @@ func TestStripeCheckoutAndRefundUseStableKeysAndIntegerAmounts(t *testing.T) {
 			if req.Form.Get("line_items[0][price_data][unit_amount]") != "1000" || req.Form.Get("payment_intent_data[metadata][lmm_order_id]") != "top_1" || req.Form.Get("adaptive_pricing[enabled]") != "false" {
 				t.Error(req.Form)
 			}
-			return response(`{"id":"cs_fixture","object":"checkout.session","mode":"payment","client_reference_id":"top_1","metadata":{"lmm_order_id":"top_1"},"amount_total":1000,"currency":"usd","livemode":false,"url":"https://checkout.stripe.com/c/pay/test"}`), nil
+			return response(`{"id":"cs_fixture","object":"checkout.session","mode":"payment","client_reference_id":"top_1","metadata":{"lmm_order_id":"top_1","lmm_core_intent_id":"1","lmm_merchant":"acct_fixture"},"amount_total":1000,"currency":"usd","livemode":false,"url":"https://checkout.stripe.com/c/pay/test"}`), nil
 		case "/v1/refunds":
 			if req.Form.Get("amount") != "300" || req.Form.Get("metadata[lmm_refund_id]") != r.ID {
 				t.Error(req.Form)
@@ -367,6 +373,9 @@ func TestPaymentHTTPCallbackAckMeansDurableReceiptOnly(t *testing.T) {
 	c := newCore(e.Channel())
 	s, err := New(m, c, e)
 	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = s.Create(context.Background(), "user", PrepareRequest{Key: "create_fixture_0001", AccountID: 99, ChannelID: 2, Currency: "CNY", AmountMinor: 1000}); err != nil {
 		t.Fatal(err)
 	}
 	r := httptest.NewRequest("GET", "/callbacks/2?"+epayValues().Encode(), nil)
