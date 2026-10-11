@@ -9,6 +9,7 @@
 | 主题 | 文档 |
 | --- | --- |
 | 架构、模块状态与剩余工作 | [架构与状态](core-migration.md) |
+| 架构收尾的并行分工与串行验收 | [10 个并行任务与 1 个串行收尾提示词](architecture-completion-prompts.md) |
 | 新安装、服务隔离与日常启停 | [Docker 开发栈](../deployment/docker/README.md) |
 | 环境、命令与测试 | [开发指南](development.md)、[本地质量门禁](quality.md) |
 | TOML 配置、文件路径与升级保留规则 | [配置与文件路径](filesystem-layout.md) |
