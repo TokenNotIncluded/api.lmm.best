@@ -37,7 +37,10 @@ class DocsBrandTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'mark.svg'
             path.write_text('<svg viewBox="0 0 128 128"><path d="old"/></svg>')
-            self.assertTrue(any('differs' in error for error in CHECK.check_svg(path, 'new')))
+            self.assertTrue(any(
+                'paths or viewBox differ from master' in error
+                for error in CHECK.check_svg(path, ['new'], '0 0 128 128')
+            ))
 
     def test_scripts_and_external_entities_are_rejected(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -49,7 +52,7 @@ class DocsBrandTests(unittest.TestCase):
             ):
                 with self.subTest(text=text):
                     path.write_text(text)
-                    self.assertTrue(CHECK.check_svg(path, 'new'))
+                    self.assertTrue(CHECK.check_svg(path, ['new'], '0 0 128 128'))
 
 
 if __name__ == '__main__':

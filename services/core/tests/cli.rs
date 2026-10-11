@@ -263,21 +263,19 @@ async fn default_and_explicit_serve_keep_health_behavior_and_reject_contract_cha
             );
         }
     }
-    let original: i32 = sqlx::query_scalar("SELECT version FROM core_meta.schema_contract")
-        .fetch_one(&pool)
-        .await
-        .unwrap();
-    sqlx::query("UPDATE core_meta.schema_contract SET version=version+1")
-        .execute(&pool)
-        .await
-        .unwrap();
+    let incompatible_version: i32 = sqlx::query_scalar(
+        "UPDATE core_meta.schema_contract SET version=version+1 RETURNING version",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     let output = run(&["serve"], b"", &[("LMM_CORE_DATABASE_URL", &url)]);
     assert!(!output.status.success());
     let version: i32 = sqlx::query_scalar("SELECT version FROM core_meta.schema_contract")
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(version, original + 1);
+    assert_eq!(version, incompatible_version);
     role.cleanup().await;
 }
 

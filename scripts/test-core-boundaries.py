@@ -2,12 +2,59 @@
 """Offline source boundaries. Runtime, database and Docker tests are separate."""
 import configparser
 import json
+import re
 from pathlib import Path
 import subprocess
 import tomllib
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
+COMPOSITION_STORAGE = "services/extensions/internal/composition/storage.go"
+# Source guards are an offline contract only. The PostgreSQL role/schema/grant
+# mutations in composition/guards_integration_test.go require a real test DB.
+COMPOSITION_STORAGE_GUARDS = (
+    '(c.Component != "store" && c.Component != "support")',
+    '!databaseName.MatchString(c.Database)',
+    'strings.HasPrefix(c.Database, "lmm_"+c.Component)',
+    'if err := c.validate(); err != nil',
+    'os.Lstat(c.URLFile)',
+    '!info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0',
+    'io.LimitReader(f, 8193)',
+    'len(b) > 8192',
+    'name != c.Database',
+    'key != "sslmode" && key != "sslrootcert" && key != "connect_timeout" && key != "application_name"',
+    'len(values) != 1',
+    'sql.Open("postgres", dsn)',
+    'db.SetMaxOpenConns(2)',
+    'db.SetMaxIdleConns(2)',
+    'context.WithTimeout(ctx, 3*time.Second)',
+    'rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication',
+    r"nspname LIKE 'core\_%' ESCAPE '\'",
+    r"nspname LIKE 'lmm\_%' ESCAPE '\' AND nspname <> $1",
+    "datname LIKE '%core%'",
+    r"datname LIKE 'lmm\_%' ESCAPE '\' AND datname <> $2",
+    "has_database_privilege(current_user,oid,'CONNECT')",
+    "pg_has_role(current_user,oid,'SET')",
+    "pg_has_role(current_user,oid,'USAGE')",
+    "pg_has_role(current_user,oid,'MEMBER')",
+    'if name != c.Database || privileged || foreignSchema || coreConnect || rolePaths',
+    'return nil, errors.New("extension storage guard unavailable")',
+    'return nil, errors.New("extension storage isolation rejected")',
+    "has_table_privilege(current_user,to_regclass($1),'SELECT')",
+    "has_table_privilege(current_user,to_regclass($1),'INSERT')",
+    "has_table_privilege(current_user,to_regclass($1),'UPDATE')",
+    'err != nil || !allowed',
+    'return nil, errors.New("extension storage schema or runtime grants unavailable")',
+    'if failed {',
+    '_ = db.Close()',
+)
+COMPOSITION_RUNTIME_GUARDS = (
+    'openStorage(ctx, cfg.Store)',
+    'openStorage(ctx, cfg.Support)',
+    'store.NewPostgres(db)',
+    'support.NewPostgres(db)',
+    'store.New(repo, auth, store.DisabledFunds{})',
+)
 
 
 class CoreBoundaryTests(unittest.TestCase):
@@ -50,7 +97,7 @@ class CoreBoundaryTests(unittest.TestCase):
         module = (ROOT / "services/extensions/go.mod").read_text()
         for forbidden in ("gorm.io", "go-sql-driver", "jackc/pgx", "sqlite"):
             self.assertNotIn(forbidden, module)
-        self.assertIn("github.com/lib/pq v1.10.9", module)
+        self.assertRegex(module, r"(?m)^\s*github\.com/lib/pq v[0-9.]+\s*$")
         for path in (ROOT / "services/extensions").rglob("*.go"):
             if path.name.endswith("_test.go"):
                 continue
@@ -69,18 +116,6 @@ class CoreBoundaryTests(unittest.TestCase):
         self.assertIn("corepb", identity)
 
     def assert_extension_storage(self, path, text):
-        if path == "services/extensions/internal/composition/storage.go":
-            self.assertEqual(text.count('sql.Open("postgres", dsn)'), 1, path)
-            self.assertNotIn("sql.OpenDB(", text, path)
-            for forbidden in ("core_identity.", "core_billing.", "core_events.",
-                              "core_meta.", "core_runtime.", "AutoMigrate("):
-                self.assertNotIn(forbidden, text, path)
-            for required in ("current_database()", "has_database_privilege", "has_table_privilege",
-                             "pg_has_role(current_user,oid,'SET')", "pg_has_role(current_user,oid,'MEMBER')",
-                             "rolsuper OR rolcreatedb OR rolcreaterole OR rolreplication",
-                             "extension storage isolation rejected"):
-                self.assertIn(required, text, path)
-            return
         stores = {
             "services/extensions/internal/coreclient/sqlinbox.go": "extension_events.",
             "services/extensions/internal/modules/store/postgres.go": "lmm_store.",
@@ -91,19 +126,67 @@ class CoreBoundaryTests(unittest.TestCase):
             "services/extensions/internal/modules/promotions/postgres.go": "lmm_promotions.",
             "services/extensions/internal/modules/payments/postgres.go": "payment_",
         }
-        if path not in stores:
+        # Exactly one production file owns the driver and opens bounded pools.
+        # Adapters still receive only injected pools for their own schema.
+        for forbidden in ("gorm.io", "go-sql-driver", "jackc/pgx", "sqlite"):
+            self.assertNotIn(forbidden, text, path)
+        if path != COMPOSITION_STORAGE:
+            self.assertNotIn("github.com/lib/pq", text, path)
+            self.assertNotRegex(text, r"\bsql\s*\.\s*(?:Open|OpenDB)\s*\(", path)
+        if path not in stores and path != COMPOSITION_STORAGE:
             self.assertNotIn('"database/sql"', text, path)
             return
-        # Only an injected extension pool. Never open a connection, reference a
-        # core table, or access another extension's schema from these adapters.
-        self.assertNotIn("sql.Open(", text, path)
-        self.assertNotIn("sql.OpenDB(", text, path)
-        self.assertIn(stores[path], text, path)
+        if path == COMPOSITION_STORAGE:
+            self.assertIn('"github.com/lib/pq"', text, path)
+            self.assertEqual(len(re.findall(r"\bsql\s*\.\s*(?:Open|OpenDB)\s*\(", text)), 1)
+            for required in COMPOSITION_STORAGE_GUARDS:
+                self.assertIn(required, text, path)
+        else:
+            self.assertIn(stores[path], text, path)
         schemas = ("core_meta.", "core_identity.", "core_billing.",
                    "core_events.", "core_runtime.") + tuple(stores.values())
         for schema in schemas:
-            if schema != stores[path]:
+            if schema != stores.get(path):
                 self.assertNotIn(schema, text, path)
+
+    def test_only_exact_composition_storage_file_may_import_driver_or_open_pools(self):
+        for path in ("services/extensions/internal/app/unapproved.go",
+                     "services/extensions/internal/composition/unapproved.go",
+                     "services/extensions/internal/modules/store/postgres.go"):
+            source = (ROOT / path).read_text() if (ROOT / path).is_file() else "package example\n"
+            for forbidden in ('import _ "github.com/lib/pq"', 'sql.Open("postgres", dsn)',
+                              'sql.OpenDB(connector)', 'sql . Open ("postgres", dsn)'):
+                with self.subTest(path=path, forbidden=forbidden):
+                    with self.assertRaises(AssertionError):
+                        self.assert_extension_storage(path, source + "\n" + forbidden)
+        with self.assertRaises(AssertionError):
+            self.assert_extension_storage("services/extensions/internal/composition/unapproved.go",
+                                          'package composition\nimport "database/sql"')
+
+    def test_composition_storage_guards_cannot_be_removed_or_gain_table_access(self):
+        source = (ROOT / COMPOSITION_STORAGE).read_text()
+        self.assert_extension_storage(COMPOSITION_STORAGE, source)
+        for required in COMPOSITION_STORAGE_GUARDS:
+            with self.subTest(required=required), self.assertRaises(AssertionError):
+                self.assert_extension_storage(COMPOSITION_STORAGE, source.replace(required, ""))
+        for forbidden in ("core_identity.users", "core_billing.balance_state", "core_events.outbox",
+                          "lmm_store.orders", "lmm_support.messages", "lmm_assistant.records",
+                          "lmm_promotions.records", "payment_orders", 'sql.OpenDB(connector)'):
+            with self.subTest(forbidden=forbidden), self.assertRaises(AssertionError):
+                self.assert_extension_storage(COMPOSITION_STORAGE, source + "\n" + forbidden)
+
+    def assert_composition_runtime(self, text):
+        for required in COMPOSITION_RUNTIME_GUARDS:
+            self.assertIn(required, text)
+        self.assertEqual(text.count("openStorage("), 2)
+        self.assertEqual(text.count("r.close = append(r.close, db.Close)"), 2)
+
+    def test_composition_keeps_distinct_module_pools_and_disabled_funds(self):
+        source = (ROOT / "services/extensions/internal/composition/runtime.go").read_text()
+        self.assert_composition_runtime(source)
+        for required in COMPOSITION_RUNTIME_GUARDS:
+            with self.subTest(required=required), self.assertRaises(AssertionError):
+                self.assert_composition_runtime(source.replace(required, ""))
 
     def test_extension_storage_guard_rejects_core_and_cross_module_access(self):
         path = "services/extensions/internal/modules/store/postgres.go"

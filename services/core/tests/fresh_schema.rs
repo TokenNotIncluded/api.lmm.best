@@ -129,3 +129,50 @@ async fn duplicate_user_creation_does_not_leave_orphan_accounts_or_policies(pool
         Err(E::Unauthorized)
     ));
 }
+
+#[sqlx::test(migrations = false)]
+async fn browser_session_defaults_share_statement_time_and_enforce_maximum_lifetime(pool: PgPool) {
+    let store = IdentityStore::from_pool(pool.clone());
+    store.init_database().await.unwrap();
+    let credential = store.bootstrap_user(9001, 1).await.unwrap();
+    let sid = "a".repeat(64);
+    // Delay within the INSERT to distinguish its stable statement time from
+    // independently sampled wall-clock defaults, even on a fast database.
+    let coherent: (bool, bool, bool) = sqlx::query_as(
+        "INSERT INTO core_identity.web_sessions
+         (sid,user_id,user_version,current_credential_id,refresh_digest,ip,user_agent)
+         SELECT $1,id,auth_version,$2,$3,'127.0.0.1','schema-regression'
+         FROM core_identity.users, pg_sleep(0.01) WHERE id=9001
+         RETURNING created_at=statement_timestamp(),last_active_at=created_at,
+                   expires_at=created_at+interval '30 days'",
+    )
+    .bind(&sid)
+    .bind(credential.id)
+    .bind(vec![7_u8; 32])
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(coherent, (true, true, true));
+
+    let error = sqlx::query(
+        "UPDATE core_identity.web_sessions
+         SET expires_at=created_at+interval '30 days 1 microsecond' WHERE sid=$1",
+    )
+    .bind(&sid)
+    .execute(&pool)
+    .await
+    .unwrap_err();
+    assert_eq!(
+        error.as_database_error().unwrap().code().as_deref(),
+        Some("23514")
+    );
+    let unchanged: bool = sqlx::query_scalar(
+        "SELECT expires_at=created_at+interval '30 days'
+         FROM core_identity.web_sessions WHERE sid=$1",
+    )
+    .bind(&sid)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(unchanged);
+}
