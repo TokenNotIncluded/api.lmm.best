@@ -46,7 +46,12 @@ func TestSchemaMaintenanceRPCProtocolIsClosedAndCanonical(t *testing.T) {
 			t.Fatalf("accepted noncanonical or expanded request: %s", invalid)
 		}
 	}
-	for _, action := range []string{"shell", "adopt-all", "migrate", "", "worker --execute"} {
+	for _, action := range []string{"capture-recovery", "capture-ready", "capture-backup-source", "finish"} {
+		if timeout, err := schemaMaintenanceRPCActionTimeout(action); err != nil || timeout != 30*time.Second {
+			t.Fatalf("fixed action %q did not retain its bounded timeout: %v, %v", action, timeout, err)
+		}
+	}
+	for _, action := range []string{"shell", "adopt-all", "migrate", "", "worker --execute", "finish --execute", "capture-ready /tmp", "capture-backup-source; command"} {
 		if _, err := schemaMaintenanceRPCActionTimeout(action); err == nil {
 			t.Fatalf("accepted arbitrary action %q", action)
 		}
