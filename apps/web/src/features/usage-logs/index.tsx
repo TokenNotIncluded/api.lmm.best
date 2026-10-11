@@ -24,7 +24,9 @@ import { SectionPageLayout } from '@/components/layout'
 import type { NavGroup } from '@/components/layout/types'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { CacheStatsDialog } from '@/features/system-settings/general/channel-affinity/cache-stats-dialog'
+import { useMediaQuery } from '@/hooks'
 import { useSidebarConfig } from '@/hooks/use-sidebar-config'
+import { cn } from '@/lib/utils'
 
 import { UserInfoDialog } from './components/dialogs/user-info-dialog'
 import {
@@ -58,6 +60,7 @@ const SECTION_META: Record<UsageLogsSectionId, { titleKey: string }> = {
 function UsageLogsContent() {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const isMobile = useMediaQuery('(max-width: 640px)')
   const params = route.useParams()
   const activeCategory: UsageLogsSectionId =
     params.section && isUsageLogsSectionId(params.section)
@@ -123,7 +126,7 @@ function UsageLogsContent() {
 
   return (
     <>
-      <SectionPageLayout fixedContent>
+      <SectionPageLayout fixedContent={!isMobile}>
         <SectionPageLayout.Title>
           {t(pageMeta.titleKey)}
         </SectionPageLayout.Title>
@@ -138,7 +141,9 @@ function UsageLogsContent() {
           </SectionPageLayout.Actions>
         )}
         <SectionPageLayout.Content>
-          <div className='flex h-full min-h-0 flex-col gap-4'>
+          <div
+            className={cn('flex min-h-0 flex-col gap-4', !isMobile && 'h-full')}
+          >
             {showTaskSwitcher && (
               <Tabs value={activeCategory} onValueChange={handleSectionChange}>
                 <TabsList variant='navigation'>
@@ -150,7 +155,7 @@ function UsageLogsContent() {
                 </TabsList>
               </Tabs>
             )}
-            <div className='min-h-0 flex-1'>
+            <div className={cn('min-h-0', !isMobile && 'flex-1')}>
               <UsageLogsTable logCategory={activeCategory} />
             </div>
           </div>

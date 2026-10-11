@@ -233,6 +233,8 @@ export function UsageLogsTable({ logCategory }: UsageLogsTableProps) {
       columns={columns as ColumnDef<Record<string, unknown>>[]}
       isLoading={isLoadingData}
       isFetching={isFetching}
+      fixedHeight={!isMobile}
+      paginationInFooter={!isMobile}
       emptyTitle={t('No Logs Found')}
       emptyDescription={emptyDescription}
       emptyAction={emptyAction}
