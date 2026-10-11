@@ -5,7 +5,10 @@ import { after, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 
-import { DEFAULT_ASSISTANT_TOOL_POLICY } from './assistant-tool-policy'
+import {
+  DEFAULT_ASSISTANT_TOOL_POLICY,
+  parseAssistantToolCatalog,
+} from './assistant-tool-policy'
 
 const domWindow = new Window({
   url: 'https://console.example.test/system-settings/content/assistant',
@@ -577,24 +580,19 @@ test('weekly discount dialog edits member ceilings but never grants administrato
   }
 })
 
-// Read the authoritative Go catalogue so new tools cannot silently miss this test.
-const toolSource = readFileSync(
-  new URL(
-    '../../../../../api-go/setting/assistant_tool_policy.go',
-    import.meta.url
-  ),
-  'utf8'
+// Keep every historical tool covered without reading the removed monolith.
+// This is a frontend compatibility fixture, not the active extension registry.
+const compatibilityCatalog = parseAssistantToolCatalog(
+  JSON.parse(
+    readFileSync(
+      new URL('./testdata/assistant-tool-catalog.json', import.meta.url),
+      'utf8'
+    )
+  )
 )
-const registeredTools = [
-  ...toolSource.matchAll(
-    /^\s*\{("[^"\n]+"), ("[^"\n]+"), ("[^"\n]+"), ("(?:read_only|navigation|confirmation|server_guarded)"), ("[^"\n]+")\},$/gm
-  ),
-].map((match) => {
-  const [name, label, description, effect, access] = match
-    .slice(1)
-    .map((value) => JSON.parse(value) as string)
-  return { name, label, description, effect, access }
-})
+assert.ok(compatibilityCatalog)
+assert.equal(compatibilityCatalog.length, 17)
+const registeredTools = compatibilityCatalog.flatMap((group) => group.tools)
 assert.equal(registeredTools.length, 72)
 for (const tool of registeredTools) {
   test(`configuration opens and saves a switch for ${tool.name}`, async () => {

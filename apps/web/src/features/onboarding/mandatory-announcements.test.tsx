@@ -576,7 +576,8 @@ test('an in-flight acknowledgement from one user cannot acknowledge the next use
   )
 })
 
-test('two required announcements advance in order and then open the workspace', async () => {
+test('one confirmation acknowledges all visible announcements in order before opening the workspace', async () => {
+  const finalAcknowledgement = deferred<unknown>()
   const read = new Set<number>()
   const items = () => [
     {
@@ -600,18 +601,39 @@ test('two required announcements advance in order and then open the workspace', 
     async (container) => {
       assert.equal(container.querySelector('[data-testid="workspace"]'), null)
       assert.ok(container.textContent?.includes('Announcement 1 of 2'))
+      const visibleNotices = container.querySelectorAll(
+        '[role="region"] article'
+      )
+      assert.equal(visibleNotices.length, 2)
+      assert.deepEqual(
+        [...visibleNotices].map(
+          (article) => article.querySelector('h2')?.textContent
+        ),
+        ['Announcement 1 of 2', 'Announcement 2 of 2']
+      )
       await confirmAnnouncement(container)
-      assert.deepEqual(acknowledged, [1])
+      assert.deepEqual(acknowledged, [1, 2])
       assert.ok(container.textContent?.includes('Announcement 2 of 2'))
-      await confirmAnnouncement(container)
+      assert.equal(container.querySelector('[data-testid="workspace"]'), null)
+      assert.equal(
+        container.querySelector('footer button')?.hasAttribute('disabled'),
+        true
+      )
+      await act(async () => {
+        finalAcknowledgement.resolve({ data: { success: true, data: items() } })
+      })
+      await flushQuery()
       assert.deepEqual(acknowledged, [1, 2])
       assert.ok(container.querySelector('[data-testid="workspace"]'))
     },
     true,
     async (_url, body) => {
       acknowledged.push(body.id)
+      assert.equal(body.revision, `r${body.id}`)
       read.add(body.id)
-      return { data: { success: true, data: items() } }
+      return body.id === 2
+        ? finalAcknowledgement.promise
+        : { data: { success: true, data: items() } }
     }
   )
 })
