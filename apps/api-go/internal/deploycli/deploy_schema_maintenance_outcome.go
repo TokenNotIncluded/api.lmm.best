@@ -397,11 +397,18 @@ func (f *productionSchemaMaintenanceFence) requireSchemaMaintenanceNoOtherClient
 	if err := f.CheckPhysical(ctx); err != nil {
 		return err
 	}
+	f.lease.mu.Lock()
+	if f.lease.closed {
+		f.lease.mu.Unlock()
+		return errors.New("schema outcome physical session is unavailable")
+	}
 	if _, err := f.lease.connection.Exec(ctx, "SELECT pg_catalog.pg_stat_clear_snapshot()"); err != nil {
+		f.lease.mu.Unlock()
 		return errors.New("schema outcome client visibility is unavailable")
 	}
 	var others int
 	err := f.lease.connection.QueryRow(ctx, `SELECT count(*)::int FROM pg_catalog.pg_stat_activity WHERE datid=(SELECT oid FROM pg_catalog.pg_database WHERE datname=current_database()) AND backend_type='client backend' AND pid<>pg_backend_pid()`).Scan(&others)
+	f.lease.mu.Unlock()
 	if err != nil || others != 0 {
 		return errors.New("schema outcome still has an unclassified database client")
 	}
