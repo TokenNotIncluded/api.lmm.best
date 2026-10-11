@@ -1,5 +1,11 @@
 {
   "translation": {
+    "Continue with human beings": "Продолжить с подтверждением человека",
+    "Unable to load HumanGrant setting": "Не удалось загрузить настройку HumanGrant",
+    "HumanGrant setting saved": "Настройка HumanGrant сохранена",
+    "Unable to save HumanGrant setting": "Не удалось сохранить настройку HumanGrant",
+    "HumanGrant remote authorization": "Удалённая авторизация HumanGrant",
+    "Allow AI clients to request limited access with explicit human approval. Existing login methods stay available.": "Разрешить ИИ-клиентам запрашивать ограниченный доступ с явного согласия человека. Прежние способы входа остаются доступными.",
     "360": "360",
     "1000": "1000",
     "10000": "10000",
