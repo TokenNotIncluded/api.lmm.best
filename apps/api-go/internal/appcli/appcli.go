@@ -24,15 +24,17 @@ const (
 	ModeServe
 	ModeMigrateApply
 	ModeMigrateVerify
+	ModeMigrateSchemaOnly
 	ModeMerchantStoreWriterGate
 )
 
 // Result is the side-effect-free command dispatch result.
 type Result struct {
-	Mode      Mode
-	ExitCode  int
-	ServeArgs []string
-	GateArgs  []string
+	Mode          Mode
+	ExitCode      int
+	ServeArgs     []string
+	GateArgs      []string
+	MigrationArgs []string
 }
 
 // Dispatch runs client-only commands or returns the arguments for the server.
@@ -79,6 +81,9 @@ func Dispatch(args []string, version string, stdout, stderr io.Writer) Result {
 }
 
 func dispatchMigration(args []string, stdout, stderr io.Writer) Result {
+	if len(args) > 0 && args[0] == "--schema-only" {
+		return Result{Mode: ModeMigrateSchemaOnly, MigrationArgs: append([]string(nil), args[1:]...)}
+	}
 	if len(args) == 1 {
 		switch args[0] {
 		case "--apply":
@@ -97,6 +102,7 @@ func dispatchMigration(args []string, stdout, stderr io.Writer) Result {
 
 func writeMigrationUsage(output io.Writer) {
 	_, _ = fmt.Fprintf(output, "Usage: %s migrate --apply|--verify\n", ProgramName)
+	_, _ = fmt.Fprintf(output, "       %s migrate --schema-only --maintenance-owner FILE --maintenance-owner-sha256 SHA256\n", ProgramName)
 }
 
 func runRouteCommand(args []string, route, version string, stdout, stderr io.Writer) int {
@@ -113,6 +119,7 @@ func WriteUsage(output io.Writer) {
 	_, _ = fmt.Fprintln(output, `Usage:
   lmm-api [serve] [server options]
   lmm-api migrate --apply|--verify
+  lmm-api migrate --schema-only --maintenance-owner FILE --maintenance-owner-sha256 SHA256
   lmm-api merchant-store-writer-gate capability|status|bootstrap|activate|activate-lifecycle|activate-refunds|prepare-schema|activate-access|activate-phase-six|prepare-fixed-content|verify-fixed-content|activate-fixed-content|activate-refund-sync [operator options]
   lmm-api request [request options] [URL-or-path]
   lmm-api geoip update
@@ -126,7 +133,11 @@ func WriteUsage(output io.Writer) {
 The lmm-api invocation is a one-hop provider-selection symlink. This Go build is
 installed as lmm-api-go; backend status/select validates and atomically manages
 the canonical link. Migration mode is explicit: --apply may change the database,
-while --verify is read-only. The request, status, and doctor commands use the
+while --verify is read-only. --schema-only is a dedicated maintenance worker:
+its native controller must
+quiesce all writers and retain the exact live maintenance owner. It applies only
+the PostgreSQL schema in one transaction, without application data migrations.
+The request, status, and doctor commands use the
 binary's native HTTP client and do not initialize the server, database, or cache.
 Deployment is a separate tool. Use scripts/lmm-api-deploy.sh or the installed
 /usr/bin/lmm-api-deploy script; this backend does not implement operator commands.`)

@@ -149,6 +149,15 @@ func (runtime *productionRuntime) captureExistingSchemaContract(ctx context.Cont
 }
 
 func decodeExistingSchemaSnapshot(output []byte) (productionExistingSchemaContract, error) {
+	return decodeExistingSchemaSnapshotAccessMode(output, "on")
+}
+
+// The ordinary entry stays strictly read-only. A dedicated exact owner-CAS
+// transaction needs a truthful RW snapshot; its caller explicitly expects off.
+func decodeExistingSchemaSnapshotAccessMode(output []byte, expectedReadOnly string) (productionExistingSchemaContract, error) {
+	if expectedReadOnly != "on" && expectedReadOnly != "off" {
+		return productionExistingSchemaContract{}, errors.New("existing schema inspection access mode is invalid")
+	}
 	var snapshot struct {
 		SystemIdentifier    string          `json:"system_identifier"`
 		Database            string          `json:"database"`
@@ -160,7 +169,7 @@ func decodeExistingSchemaSnapshot(output []byte) (productionExistingSchemaContra
 	}
 	decoder := json.NewDecoder(bytes.NewReader(output))
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&snapshot); err != nil || decoder.Decode(&struct{}{}) != io.EOF || snapshot.TransactionReadOnly != "on" {
+	if err := decoder.Decode(&snapshot); err != nil || decoder.Decode(&struct{}{}) != io.EOF || snapshot.TransactionReadOnly != expectedReadOnly {
 		return productionExistingSchemaContract{}, errors.New("existing schema inspection did not return one read-only identity snapshot")
 	}
 	metadataDecoder := json.NewDecoder(bytes.NewReader(snapshot.Metadata))

@@ -72,6 +72,29 @@ class LocalReleaseTests(unittest.TestCase):
         self.assertEqual(1, result.returncode)
         self.assertIn('differ', result.stderr)
 
+    def test_go_evidence_binds_schema_guardian_and_its_protocol_tests(self):
+        paths = ('schema-maintenance-lock-guardian.py',
+                 'test-schema-maintenance-lock-guardian.py')
+        for name in paths:
+            shutil.copyfile(ROOT / 'scripts' / name, self.repo / 'scripts' / name)
+        self.commit()
+        for number, name in enumerate(paths):
+            with self.subTest(path=name):
+                record = self.root / f'go-record-{number}.json'
+                result = self.call('run', '--component', 'go', '--output', str(record), '--',
+                                   sys.executable, '-c', 'print("completed Go component check")')
+                self.assertEqual(0, result.returncode, result.stderr)
+                (self.repo / 'README.md').write_text(f'unrelated commit {number}\n')
+                self.commit()
+                args = ('--component', 'go', '--evidence', str(record))
+                self.assertEqual(0, self.call('verify', self.git('rev-parse', 'HEAD'), *args).returncode)
+                with (self.repo / 'scripts' / name).open('a') as stream:
+                    stream.write('\n# changed schema maintenance source\n')
+                self.commit()
+                result = self.call('verify', self.git('rev-parse', 'HEAD'), *args)
+                self.assertEqual(1, result.returncode)
+                self.assertIn('differ', result.stderr)
+
     def test_failure_record_is_preserved_and_rejected(self):
         self.assertEqual(1, self.run_check(3).returncode)
         self.assertTrue(self.record.exists())

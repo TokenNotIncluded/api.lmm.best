@@ -81,7 +81,7 @@ func buildPostgresSchemaInventory(db *gorm.DB, schema string, models []interface
 		table := statement.Schema.Table
 		inventory.Objects = append(inventory.Objects, postgresSchemaObject{model: model, table: table})
 		for _, field := range statement.Schema.Fields {
-			if field.DBName == "" {
+			if field.DBName == "" || field.IgnoreMigration {
 				continue
 			}
 			inventory.Objects = append(inventory.Objects, postgresSchemaObject{model: model, table: table, column: field.DBName})

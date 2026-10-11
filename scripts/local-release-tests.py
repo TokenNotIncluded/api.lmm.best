@@ -26,6 +26,8 @@ PATHS = {
     'go': ('apps/api-go', 'contracts', 'packaging/common/lmm-api',
            'scripts/native-shared-pg-deploy.py', 'scripts/deploy-systemd.py',
            'scripts/maintenance-deploy-guardian.py', 'scripts/lmm-api-deploy.sh',
+           'scripts/schema-maintenance-lock-guardian.py',
+           'scripts/test-schema-maintenance-lock-guardian.py',
            'scripts/build-credit-financial-plan.py', 'scripts/run-credit-financial-maintenance.py',
            'packaging/local/lmm-api-go', 'packaging/aur/lmm-api-go',
            'packaging/aur/lmm-api-go-bin', 'packaging/aur/lmm-api-go-git',
