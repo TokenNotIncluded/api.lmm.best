@@ -9,6 +9,10 @@ import "strings"
 // the existing migration lock. Never hold the migration lock across VERIFY.
 const AdvisoryKey int64 = 0x4c4d4d4150490002
 
+// OwnerClaimKey serializes the durable owner set after acquiring the shared
+// deployment fence, before acquiring the startup migration lock.
+const OwnerClaimKey int64 = 0x4c4d4d4150490003
+
 // OptionPrefix marks durable ACTIVE owners in the existing options table.
 // Every matching row, including unknown or malformed values, blocks activation
 // until its exact sealed owner completes an explicitly reviewed CAS cleanup.

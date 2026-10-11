@@ -24,7 +24,7 @@ const merchantStoreDeploymentFenceKey = deploymentfence.AdvisoryKey
 
 // Owner INSERTs serialize independently of activation and migrate --verify.
 // Always acquire the already-held shared fence before this transaction key.
-const merchantStoreDeploymentOwnerClaimKey int64 = 0x4c4d4d4150490003
+const merchantStoreDeploymentOwnerClaimKey int64 = deploymentfence.OwnerClaimKey
 
 type productionMerchantStoreFenceOwner = deploymentfence.OwnerBinding
 
