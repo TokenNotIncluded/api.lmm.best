@@ -3,7 +3,31 @@ import assert from 'node:assert/strict'
 import { test } from 'node:test'
 
 import type { Vec3 } from './geometry'
-import * as marks from './marks'
+import {
+  claudeMark,
+  deepseekMark,
+  geminiMark,
+  glmMark,
+  grokMark,
+  kimiMark,
+  mistralMark,
+  ollamaMark,
+  openaiMark,
+  qwenMark,
+} from './marks'
+
+const marks = {
+  claudeMark,
+  deepseekMark,
+  geminiMark,
+  glmMark,
+  grokMark,
+  kimiMark,
+  mistralMark,
+  ollamaMark,
+  openaiMark,
+  qwenMark,
+}
 
 const expected = [
   'claudeMark',
@@ -18,8 +42,11 @@ const expected = [
   'ollamaMark',
 ] as const
 
-test('the brand registry contains only the ten requested AI mark factories', () => {
-  assert.deepEqual(Object.keys(marks).sort(), [...expected].sort())
+test('the brand registry contains only the ten requested AI mark factories', async () => {
+  assert.deepEqual(
+    Object.keys(await import('./marks')).sort(),
+    [...expected].sort()
+  )
 })
 
 for (const id of expected) {
@@ -98,7 +125,7 @@ for (const id of expected) {
 }
 
 test('the OpenAI knot keeps its central hole while Claude keeps its solid center', () => {
-  const center = (factory: typeof marks.claudeMark) =>
+  const center = (factory: typeof claudeMark) =>
     factory().points.filter((p) => Math.hypot(p.x, p.y) < 0.2).length
   assert.equal(center(marks.openaiMark), 0)
   assert.ok(center(marks.claudeMark) > 100)

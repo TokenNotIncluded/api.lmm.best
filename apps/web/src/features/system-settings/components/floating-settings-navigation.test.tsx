@@ -279,7 +279,11 @@ for (const scenario of [
 
       await click('.settings-scrub-handle')
       assert.ok(document.querySelector('[data-slot="sheet-content"]'))
-      assert.equal(requestedOpen, true, 'the observer must detect open requests')
+      assert.equal(
+        requestedOpen,
+        true,
+        'the observer must detect open requests'
+      )
       assert.ok(createdOverlays.size > 0, 'the observer must detect real opens')
       await click('[data-slot="sheet-close"]')
       assert.equal(document.querySelector(overlaySelector), null)

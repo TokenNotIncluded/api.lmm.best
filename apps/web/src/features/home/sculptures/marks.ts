@@ -24,7 +24,7 @@ function mark(outlines: readonly Outline[], color: Vec3): Shape {
       for (let i = 0; i < outline.length; i++) {
         const a = outline[i],
           b = outline[(i + 1) % outline.length]
-        if ((a[1] > y) !== (b[1] > y)) {
+        if (a[1] > y !== b[1] > y) {
           crossings.push(a[0] + ((y - a[1]) * (b[0] - a[0])) / (b[1] - a[1]))
         }
       }
