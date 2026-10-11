@@ -1,7 +1,7 @@
 //! Restricted HumanGrant Protocol 0.1 request-signature verification.
 //! Signature material and credentials must never be written to logs.
 use axum::http::{HeaderMap, Method, Uri};
-use base64::{Engine as _, engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD}};
+use base64::{Engine, engine::general_purpose::{STANDARD, URL_SAFE_NO_PAD}};
 use ring::signature::{UnparsedPublicKey, ED25519};
 use sha2::{Digest, Sha256};
 use std::time::{SystemTime, UNIX_EPOCH};
