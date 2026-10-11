@@ -17,6 +17,12 @@ func runProductionSchemaMaintenance(args []string, stdout, stderr io.Writer) int
 		return ExitUsage
 	}
 	action := args[0]
+	if action == "dead-holder-phase" {
+		return runProductionSchemaMaintenanceDeadHolderPhase(args[1:], stdout, stderr)
+	}
+	if action == "dead-holder-serve" || action == "dead-holder-rpc" {
+		return runProductionSchemaMaintenanceDeadHolder(action, args[1:], stdout, stderr)
+	}
 	if action == "phase" || action == "observe" || action == "backup-verify" || action == "backup-collect" {
 		return runProductionSchemaMaintenanceControllerAction(action, args[1:], stdout, stderr)
 	}
