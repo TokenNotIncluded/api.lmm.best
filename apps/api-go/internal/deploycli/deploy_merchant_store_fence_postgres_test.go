@@ -299,6 +299,41 @@ GRANT EXECUTE ON FUNCTION pg_catalog.pg_control_system() TO lmm_fence_business;`
 			t.Fatal("maintenance did not preserve physical authority while granting dedicated child RW")
 		}
 	})
+	t.Run("maintenance recovery reads actual same-session business state without rewriting rows", func(t *testing.T) {
+		if _, err := admin.Exec(ctx, `CREATE TABLE merchant_fence.referral_rewards(top_up_id bigint);
+CREATE TABLE merchant_fence.tool_market_calls(settlement_status text,provider_run_id text);
+CREATE TABLE merchant_fence.tool_market_results(builtin_billing_pending boolean);
+GRANT SELECT ON merchant_fence.referral_rewards,merchant_fence.tool_market_calls,merchant_fence.tool_market_results TO lmm_fence_business;`); err != nil {
+			t.Fatal(err)
+		}
+		held, err := acquireMerchantStoreDeploymentFence(ctx, values, contract)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer held.Close()
+		if err := held.checkSchemaMaintenanceRecoveryBusiness(ctx); err != nil {
+			t.Fatal(err)
+		}
+		for _, statement := range []string{
+			"INSERT INTO merchant_fence.options VALUES('ReferralRegistrationRewardQuota','1')",
+			"INSERT INTO merchant_fence.referral_rewards VALUES(NULL)",
+			"INSERT INTO merchant_fence.tool_market_calls VALUES('held','provider-run')",
+			"INSERT INTO merchant_fence.tool_market_results VALUES(true)",
+		} {
+			if _, err := admin.Exec(ctx, statement); err != nil {
+				t.Fatal(err)
+			}
+			if held.checkSchemaMaintenanceRecoveryBusiness(ctx) == nil {
+				t.Fatal("native PG recovery gate ignored incompatible business rows")
+			}
+			if _, err := admin.Exec(ctx, "TRUNCATE merchant_fence.referral_rewards,merchant_fence.tool_market_calls,merchant_fence.tool_market_results; DELETE FROM merchant_fence.options WHERE key='ReferralRegistrationRewardQuota'"); err != nil {
+				t.Fatal(err)
+			}
+		}
+		if err := held.checkSchemaMaintenanceRecoveryBusiness(ctx); err != nil {
+			t.Fatal(err)
+		}
+	})
 	t.Run("dedicated schema owner excludes start and preserves exact CAS", func(t *testing.T) {
 		held, err := acquireMerchantStoreDeploymentFence(ctx, values, contract)
 		if err != nil {

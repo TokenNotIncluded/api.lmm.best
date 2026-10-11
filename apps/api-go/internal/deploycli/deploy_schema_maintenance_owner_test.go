@@ -90,3 +90,26 @@ func TestSchemaMaintenanceOwnerMissingAuthorityCannotClaim(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestSchemaMaintenanceRecoveryBusinessRejectsFinanciallyIncompatibleNMinusOne(t *testing.T) {
+	good := productionSchemaMaintenanceRecoveryBusiness{RegistrationQuota: "0"}
+	if err := validateSchemaMaintenanceRecoveryBusiness(good); err != nil {
+		t.Fatal(err)
+	}
+	for name, change := range map[string]func(*productionSchemaMaintenanceRecoveryBusiness){
+		"registration rewards":  func(b *productionSchemaMaintenanceRecoveryBusiness) { b.RegistrationQuota = "1" },
+		"corrupt quota":         func(b *productionSchemaMaintenanceRecoveryBusiness) { b.RegistrationQuota = "unknown" },
+		"new nullable referral": func(b *productionSchemaMaintenanceRecoveryBusiness) { b.NullReferralRewards = 1 },
+		"outstanding hold":      func(b *productionSchemaMaintenanceRecoveryBusiness) { b.HeldToolCalls = 1 },
+		"provider pending":      func(b *productionSchemaMaintenanceRecoveryBusiness) { b.PendingProviderCalls = 1 },
+		"pending builtin bill":  func(b *productionSchemaMaintenanceRecoveryBusiness) { b.PendingBuiltinBills = 1 },
+	} {
+		t.Run(name, func(t *testing.T) {
+			b := good
+			change(&b)
+			if validateSchemaMaintenanceRecoveryBusiness(b) == nil {
+				t.Fatal("N-1 recovery accepted incompatible business state")
+			}
+		})
+	}
+}

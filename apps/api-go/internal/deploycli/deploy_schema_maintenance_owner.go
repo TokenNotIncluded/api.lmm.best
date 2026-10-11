@@ -33,6 +33,7 @@ type productionSchemaMaintenanceAuthority struct {
 	CheckStoppedOrigins  func(context.Context) error
 	CheckRecoveryOrigins func(context.Context) error
 	CheckPlan            func(context.Context) error
+	CheckBackup          func(context.Context) error
 }
 
 type productionSchemaMaintenanceFence struct {
@@ -51,7 +52,7 @@ func (runtime *productionRuntime) claimSchemaMaintenanceFence(ctx context.Contex
 	}
 	if !productionIDPattern.MatchString(a.TransitionID) || !productionSHA256Pattern.MatchString(a.PlanSHA256) ||
 		a.Workspace != schemaMaintenanceHostWorkspace(runtime.paths, a.TransitionID) || localLease == nil ||
-		a.CheckPlan == nil || a.CheckStoppedOrigins == nil || a.CheckRecoveryOrigins == nil ||
+		a.CheckPlan == nil || a.CheckBackup == nil || a.CheckStoppedOrigins == nil || a.CheckRecoveryOrigins == nil ||
 		a.Artifacts.Format != 1 || a.Artifacts.StartupPolicy != "held" || a.OldCapsule.Format != 1 || a.OldCapsule.StartupPolicy != "per-start" {
 		return nil, errors.New("schema maintenance lacks its separate immutable controller authority")
 	}
@@ -78,7 +79,7 @@ func (runtime *productionRuntime) claimSchemaMaintenanceFence(ctx context.Contex
 	if pre != old {
 		return nil, errors.New("schema maintenance signed artifact plan does not bind the original physical catalog")
 	}
-	for _, check := range []func(context.Context) error{a.CheckPlan, localLease.Check, a.CheckStoppedOrigins} {
+	for _, check := range []func(context.Context) error{a.CheckPlan, localLease.Check, a.CheckStoppedOrigins, a.CheckBackup} {
 		if err := check(ctx); err != nil {
 			return nil, err
 		}
@@ -121,6 +122,9 @@ func (runtime *productionRuntime) claimSchemaMaintenanceFence(ctx context.Contex
 		}
 	}()
 	if err := lease.requireNoDurableOwner(ctx); err != nil {
+		return nil, err
+	}
+	if err := lease.checkSchemaMaintenanceRecoveryBusiness(ctx); err != nil {
 		return nil, err
 	}
 	invocation := os.Getenv("INVOCATION_ID")
@@ -168,7 +172,9 @@ func (runtime *productionRuntime) claimSchemaMaintenanceFence(ctx context.Contex
 	return &productionSchemaMaintenanceFence{runtime: runtime, authority: a, lease: lease, owner: owner, ownerRaw: raw, localLease: localLease}, nil
 }
 
-func (f *productionSchemaMaintenanceFence) Check(ctx context.Context) error {
+// CheckPhysical is the heartbeat safe while the worker owns its DDL TX. It
+// uses only the original PG connection and never launches a third client.
+func (f *productionSchemaMaintenanceFence) CheckPhysical(ctx context.Context) error {
 	if f == nil || f.lease == nil || f.localLease == nil || f.released {
 		return errors.New("schema maintenance physical owner is unavailable")
 	}
@@ -178,10 +184,14 @@ func (f *productionSchemaMaintenanceFence) Check(ctx context.Context) error {
 	if err := f.localLease.Check(ctx); err != nil {
 		return err
 	}
-	if err := f.authority.CheckStoppedOrigins(ctx); err != nil {
+	return f.lease.CheckOwner(ctx)
+}
+
+func (f *productionSchemaMaintenanceFence) Check(ctx context.Context) error {
+	if err := f.CheckPhysical(ctx); err != nil {
 		return err
 	}
-	return f.lease.CheckOwner(ctx)
+	return f.authority.CheckStoppedOrigins(ctx)
 }
 
 // Release is allowed only with both origins still stopped/closed and actual
@@ -192,6 +202,9 @@ func (f *productionSchemaMaintenanceFence) Release(ctx context.Context) error {
 		return err
 	}
 	if err := f.authority.CheckRecoveryOrigins(ctx); err != nil {
+		return err
+	}
+	if err := f.lease.checkSchemaMaintenanceRecoveryBusiness(ctx); err != nil {
 		return err
 	}
 	if err := f.Check(ctx); err != nil {
