@@ -43,6 +43,7 @@ test('reads only the scoped feed and passes the backend pagination cursor', asyn
       [
         '/api/ratio-notifications',
         {
+          timeout: 10_000,
           params: { before: 'cursor-100' },
           skipBusinessError: true,
           skipErrorHandler: true,
