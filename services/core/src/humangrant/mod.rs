@@ -300,10 +300,19 @@ mod tests {
     use super::*;
     #[test]
     fn permissions_are_positive_allowlist_only() {
-        let read = Permission { action:"lmm.profile.read".into(),resource:"self".into() };
+        let read = Permission {
+            action: "lmm.profile.read".into(),
+            resource: "self".into(),
+        };
         assert!(permissions(std::slice::from_ref(&read)).is_ok());
         assert!(permissions(&[]).is_err());
-        assert!(permissions(&[read.clone(),read]).is_err());
-        assert!(permissions(&[Permission{action:"lmm.profile.write".into(),resource:"self".into()}]).is_err());
+        assert!(permissions(&[read.clone(), read]).is_err());
+        assert!(
+            permissions(&[Permission {
+                action: "lmm.profile.write".into(),
+                resource: "self".into()
+            }])
+            .is_err()
+        );
     }
 }
