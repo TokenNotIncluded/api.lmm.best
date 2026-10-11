@@ -1,0 +1,41 @@
+name: Security access development checks
+
+on:
+  push:
+    branches: [work/newapi-access-snapshot-20261011]
+    paths: [.github/workflows/newapi-access-check.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      GOMAXPROCS: '2'
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 1fef8f64d9f20c751f4182dc8c7835a67def29a9
+          persist-credentials: false
+      - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
+        with:
+          go-version-file: apps/api-go/go.mod
+          cache-dependency-path: apps/api-go/go.sum
+      - name: Baseline authentication tests
+        working-directory: apps/api-go
+        run: go test -p 2 ./model ./service ./middleware ./controller ./router -run 'AccessToken|SecurityProof|Verification|SessionAuth' -count=1
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: 1fef8f64d9f20c751f4182dc8c7835a67def29a9
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6
+        with:
+          bun-version: '1.3.14'
+      - run: bun install --frozen-lockfile
+      - run: bun run --filter @lmm/web typecheck
