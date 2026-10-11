@@ -101,6 +101,13 @@ in a patch-only directory; it must not be reported as a full checkout build.
 Component rows with a server record their own run IDs and counters. The parent
 report run ID identifies the separately running provider process.
 
+`network_isolated: null` means the kernel interface inspection failed, not that
+isolation was established. `network_inspection_error` retains the diagnostic and
+an environment `network-inspection` row is BLOCKED. Completed component results
+are still saved. If isolated startup fails, its BLOCKED report and child log also
+remain available. Go transport/adapter checks and the isolated child require a
+positive loopback-only inspection; unknown status never permits them to run.
+
 `component-tests.log`, bounded Go JSON logs, `provider-trace.json` and
 `provider-final.json` supply evidence. Traces omit authorization headers, raw
 form arguments and callback signatures. Tests use only visibly fake test values.

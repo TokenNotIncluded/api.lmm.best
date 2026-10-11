@@ -16,7 +16,7 @@ import time
 from .client import Client, private_write
 from .config import Config, Invalid, MARKER, loads, local_url, object_fields, wire
 from .probes import running_probes
-from .report import go_adapters, go_transport, isolated_network, row, run_process, save_report, selftests, source_info
+from .report import go_adapters, go_transport, network_status, row, run_process, save_report, selftests, source_info
 from .scenarios import requirements
 from .server import Lab
 
@@ -89,7 +89,7 @@ def acceptance_rows(target_path: Path | None):
 
 
 def metadata(root:Path, manifest=None):
-    return {"created_unix":int(time.time()),"source":source_info(root),"network_isolated":isolated_network(),
+    return {"created_unix":int(time.time()),"source":source_info(root),**network_status(),
             "run_id":manifest["run_id"] if manifest else None,"seed":manifest["seed"] if manifest else 7}
 
 
@@ -163,8 +163,10 @@ def isolated(args):
 
 def isolated_child(args):
     subprocess.run([shutil.which("ip") or "ip","link","set","lo","up"],check=True,timeout=3)
-    if not isolated_network():
-        raise Invalid("kernel network namespace has non-loopback interfaces")
+    network = network_status()
+    if network["network_isolated"] is not True:
+        reason = network["network_inspection_error"] or "kernel network namespace has non-loopback interfaces"
+        raise Invalid("cannot verify loopback-only network isolation: " + reason)
     # Manifest and all mutable provider state die with this scope. Reports survive.
     with tempfile.TemporaryDirectory(prefix="lmm-mocklab-") as directory:
         manifest=Path(directory)/"run.json"

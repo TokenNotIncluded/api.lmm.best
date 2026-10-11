@@ -41,10 +41,18 @@ def source_info(root: Path) -> dict:
             "patch_code_sha256": digest.hexdigest(), "sha_note": "null means this is an additions-only patch tree, not a checked-out repository"}
 
 
-def isolated_network() -> bool:
+def network_status() -> dict:
     # Kernel-observed network namespace, not trust in an environment flag.
-    names = {name for _, name in socket.if_nameindex()}
-    return names == {"lo"}
+    # An inspection failure is unknown, never evidence of isolation.
+    try:
+        names = {name for _, name in socket.if_nameindex()}
+    except OSError as exc:
+        return {"network_isolated": None, "network_inspection_error": f"{type(exc).__name__}: {exc}"}
+    return {"network_isolated": names == {"lo"}, "network_inspection_error": None}
+
+
+def isolated_network() -> bool:
+    return network_status()["network_isolated"] is True
 
 
 def row(ident, layer, status, started=None, **evidence):
@@ -145,8 +153,12 @@ def go_adapters(root: Path, manifest: Path, output: Path, enabled=True) -> list[
         if not enabled:
             all_rows.append(row(ident, "production-adapter", "NOT RUN", reason="explicit --skip-adapters"))
             continue
-        if not isolated_network():
-            all_rows.append(row(ident, "production-adapter", "BLOCKED", reason="run isolated: actual application tests require a kernel network namespace with only lo"))
+        network = network_status()
+        if network["network_isolated"] is not True:
+            reason = "run isolated: actual application tests require a kernel network namespace with only lo"
+            if network["network_inspection_error"]:
+                reason += "; inspection failed: " + network["network_inspection_error"]
+            all_rows.append(row(ident, "production-adapter", "BLOCKED", reason=reason))
             continue
         module = root / "apps/lmm-extensions"
         if not (module / "go.mod").is_file() or not (module / "internal/modules" / domain / "mocklab_test.go").is_file():
@@ -194,8 +206,12 @@ def go_transport(root: Path, output: Path) -> dict:
     go=shutil.which("go")
     if go is None:
         return row("go.test-transport", "test-transport", "BLOCKED", reason="Go toolchain missing")
-    if not isolated_network():
-        return row("go.test-transport", "test-transport", "BLOCKED", reason="use isolated command for socket tests")
+    network = network_status()
+    if network["network_isolated"] is not True:
+        reason = "use isolated command for socket tests"
+        if network["network_inspection_error"]:
+            reason += "; inspection failed: " + network["network_inspection_error"]
+        return row("go.test-transport", "test-transport", "BLOCKED", reason=reason)
     env={k:os.environ[k] for k in ("PATH","HOME","TMPDIR","GOCACHE","GOPATH") if k in os.environ}
     env.update(GO111MODULE="off",GOTOOLCHAIN="local",GOPROXY="off",GOSUMDB="off",GOENV="off",GOWORK="off")
     command=[go,"test","-race","-count=1","-timeout=20s","-json","."]
@@ -217,6 +233,11 @@ def go_transport(root: Path, output: Path) -> dict:
 
 
 def save_report(output: Path, metadata: dict, rows: list[dict], *, requirements=None):
+    if metadata.get("network_inspection_error"):
+        # Keep completed results and the environmental blocker even when the
+        # kernel cannot supply metadata. Do not mutate the caller's rows.
+        rows = [*rows, row("network-inspection", "environment", "BLOCKED",
+                          reason="cannot inspect network isolation: " + metadata["network_inspection_error"])]
     counts = {status: sum(r["status"] == status for r in rows) for status in ("PASS", "FAIL", "BLOCKED", "NOT RUN")}
     report = {"schema_version": 1, **metadata, "summary": counts, "results": rows,
               "acceptance_requirements": requirements or [],
