@@ -44,18 +44,20 @@ export function HumanGrantSection() {
         return response.json()
       })
       .then((data) => {
-        if (typeof data.enabled !== 'boolean' || typeof data.csrf !== 'string')
+        if (typeof data.enabled !== 'boolean' || typeof data.csrf !== 'string') {
           throw new Error('load')
+        }
         if (!controller.signal.aborted) {
           setEnabled(data.enabled)
           setCSRF(data.csrf)
         }
       })
       .catch(() => {
-        if (!controller.signal.aborted)
+        if (!controller.signal.aborted) {
           setMessage(
             'HumanGrant settings could not be loaded. Sign in again or retry.'
           )
+        }
       })
     return () => controller.abort()
   }, [revision])

@@ -32,8 +32,9 @@ export function HumanGrantButton({ disabled = false }: { disabled?: boolean }) {
       })
         .then(async (response) => (response.ok ? response.json() : null))
         .then((data) => {
-          if (!controller.signal.aborted)
+          if (!controller.signal.aborted) {
             setAvailable(data?.enabled === true && data?.ready === true)
+          }
         })
         .catch(() => {
           if (!controller.signal.aborted) setAvailable(false)
