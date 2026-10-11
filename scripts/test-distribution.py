@@ -8,6 +8,7 @@ import shutil
 import struct
 import tarfile
 import tempfile
+import tomllib
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -63,10 +64,11 @@ class DistributionTests(unittest.TestCase):
         second = self.build(output=self.root / "second")
         self.assertEqual(first.read_bytes(), second.read_bytes())
         with tarfile.open(first) as archive:
-            config = json.load(archive.extractfile("config/legal/site.example.json"))
+            config = tomllib.loads(archive.extractfile("config/legal/site.example.toml").read().decode("utf-8"))
             self.assertFalse(config["published"])
             self.assertTrue(all(value == "" for value in config["variables"].values()))
-        self.assertNotIn("config/legal/site.json", DIST.verify(first)["files"])
+        self.assertNotIn("config/legal/legal.toml", DIST.verify(first)["files"])
+        self.assertNotIn("config/legal/site.toml", DIST.verify(first)["files"])
 
     def test_cli_archive_preserves_port_attribution_and_magpie_mit_license(self):
         archive = self.build("cli")
@@ -104,7 +106,7 @@ class DistributionTests(unittest.TestCase):
             self.build()
 
     def test_web_rejects_secrets_and_links(self):
-        for name in (".env", "private.key", "site.json", "symlink"):
+        for name in (".env", "private.key", "site.json", "site.toml", "legal.toml", "symlink"):
             with self.subTest(name=name):
                 path = self.inputs / name
                 if name == "symlink":

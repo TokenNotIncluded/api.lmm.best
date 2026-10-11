@@ -32,7 +32,7 @@ def safe_path(name: str) -> str:
                    for part in path.parts)
             or any(ord(char) < 32 for char in name)):
         raise ValueError("unsafe archive path")
-    if any(part in {"node_modules", "target", "__pycache__", "site.json"} for part in path.parts):
+    if any(part in {"node_modules", "target", "__pycache__", "site.json", "site.toml", "legal.toml"} for part in path.parts):
         raise ValueError("private configuration or build cache in archive")
     if path.suffix.lower() in {".pem", ".key", ".p12", ".pfx"}:
         raise ValueError("credential file in archive")
@@ -132,10 +132,13 @@ def build(root: Path, component: str, version: str, revision: str,
               "MANIFEST.json records the contents; it is not a signature. "
               "Do not overwrite local settings when replacing a program.\n")
     if component == "extensions":
-        readme += ("\nPolicy drafts are in config/legal. Copy that directory to a private "
-                   "configuration directory, fill and review site.example.json, save it "
-                   "as site.json, then set LMM_LEGAL_CONFIG_FILE. Never edit installed "
-                   "templates in place. See docs/legal/README.md.\n")
+        readme += ("\nPolicy drafts are in config/legal. Fill and review site.example.toml, "
+                   "save the private site configuration as /etc/lmm.conf.d/legal.toml, "
+                   "and reference it from [legal].config_file in extensions.toml. "
+                   "Set template_root to the absolute path of the separately installed "
+                   "read-only templates (normally /usr/share/lmm/legal). Never edit "
+                   "installed templates in place. See docs/legal/README.md and "
+                   "docs/filesystem-layout.md.\n")
     add("README.md", readme.encode())
     manifest = {"schema_version": 1, "component": component, "package": package,
                 "version": version, "revision": revision, "platform": platform,

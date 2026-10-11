@@ -165,9 +165,13 @@ test('obsolete database upgrade tooling is not an alternate installation path', 
     'scripts/ci/qualify-go-migration-startup.sh', 'packaging/common/lmm-api/migration-compatibility.env']) {
     assert.throws(() => read(path), /ENOENT/);
   }
-  const sample = read('.env.example');
-  assert.match(sample, /LMM_EXTENSION_TOKEN_FILE=/);
-  assert.doesNotMatch(sample, /SQL_DSN=|SESSION_SECRET=|SKIP_64BIT_QUOTA_SCHEMA_CHECK/);
+  assert.throws(() => read('.env.example'), /ENOENT/);
+  for (const path of ['config/core.example.toml', 'config/extensions.example.toml']) {
+    const sample = read(path);
+    assert.match(sample, /version = 1/);
+    assert.match(sample, /\/etc\/lmm\.conf\.d\/secrets\//);
+    assert.doesNotMatch(sample, /SQL_DSN=|SESSION_SECRET=|SKIP_64BIT_QUOTA_SCHEMA_CHECK/);
+  }
   for (const path of ['README.md', 'README_EN.md', 'docs/development.md']) {
     const text = read(path);
     assert.doesNotMatch(text, /Startup applies schema migrations by default|服务启动时默认执行数据库迁移/);

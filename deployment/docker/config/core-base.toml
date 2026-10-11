@@ -1,0 +1,7 @@
+# No database or model provider: liveness only, readiness remains unavailable.
+version = 1
+[server]
+listen = "0.0.0.0:8080"
+worker_threads = 1
+max_inflight = 16
+drain_timeout_seconds = 30

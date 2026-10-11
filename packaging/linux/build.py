@@ -199,18 +199,24 @@ def prepare(root: Path, archive: Path, expected_hash: str, revision: str,
             add(f"/usr/share/licenses/{name}/{path}", get(path))
         add(f"/usr/share/doc/{name}/README.archive.md", get("README.md"))
         for path in spec["resources"]:
-            add(f"/usr/share/{name}/{path}", get(path))
+            if path == f"config/{component}.example.toml":
+                add(f"/etc/lmm.conf.d/{component}.toml", get(path), 0o644, "config|noreplace")
+            elif path.startswith("config/legal/"):
+                add("/usr/share/lmm/legal/" + path.removeprefix("config/legal/"), get(path))
+            elif path == "docs/filesystem-layout.md":
+                add(f"/usr/share/doc/{name}/filesystem-layout.md", get(path))
+            else:
+                add(f"/usr/share/{name}/{path}", get(path))
         if component == "web":
             for path in sorted(actual):
                 if path.startswith("dist/"):
-                    add("/usr/share/lmm-web/" + path, get(path))
+                    add("/usr/share/lmm/web/" + path.removeprefix("dist/"), get(path))
     scripts = {}
     if package["service"]:
-        credential = "database-url" if component == "core" else "service-token"
-        env_name = "LMM_CORE_DATABASE_URL_FILE" if component == "core" else "LMM_EXTENSION_TOKEN_FILE"
-        values = {"PACKAGE": name, "CREDENTIAL": credential, "CREDENTIAL_ENV": env_name,
+        if f"/etc/lmm.conf.d/{component}.toml" not in installed:
+            raise ValueError("service archive is missing its canonical TOML example")
+        values = {"PACKAGE": name, "COMPONENT": component,
                   "MEMORY": "256M" if component == "core" else "192M"}
-        add(f"/etc/{name}/service.env", template(root, component + ".env", values), 0o600, "config|noreplace")
         if fmt == "apk":
             add(f"/etc/init.d/{name}", template(root, "service.openrc", values), 0o755, "config|noreplace")
             script = stage / "preinstall.sh"
@@ -220,6 +226,11 @@ def prepare(root: Path, archive: Path, expected_hash: str, revision: str,
             scripts["preinstall"] = str(script.resolve())
         else:
             add(f"/usr/lib/systemd/system/{name}.service", template(root, "service.systemd", values))
+            accounts = template(root, "service.sysusers", values)
+            if component == "core":
+                accounts += b'g lmm-rpc -\n'
+            add(f"/usr/lib/sysusers.d/{name}.conf", accounts)
+            add(f"/usr/share/doc/{name}/rpc.service.conf.example", template(root, f"rpc-{component}.systemd", values))
     deps = dependencies(reports, fmt, package["service"], bool(package["binaries"]))
     info = {"schema_version": 1, "package": name, "component": component,
             "version": manifest["version"], "release": release, "format": fmt, "arch": arch,

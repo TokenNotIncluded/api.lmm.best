@@ -1,0 +1,10 @@
+# Only the identity RPC adapter is enabled, using a separate service token.
+version = 1
+[host]
+listen = "0.0.0.0:8081"
+token_file = "/run/secrets/extension_token"
+modules = ["identity"]
+web_compat = false
+[core]
+socket = "/run/lmm-core-rpc/core.sock"
+identity_token_file = "/run/secrets/core_rpc_token"

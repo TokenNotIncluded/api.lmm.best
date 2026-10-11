@@ -47,18 +47,30 @@ done
 /usr/bin/lmm-core --version
 # Installation must not start the daemons, modify a database or need Go/Docker.
 if curl --silent --fail --max-time 1 http://127.0.0.1:8080/health/live; then exit 1; fi
-printf '\n# operator-setting-survives\n' >> /etc/lmm-core/service.env
-mkdir -p /var/lib/lmm-core
-printf 'operator-data\n' > /var/lib/lmm-core/keep
+printf '\n# operator-setting-survives\n' >> /etc/lmm.conf.d/core.toml
+mkdir -p /var/lib/lmm/core /etc/lmm.conf.d/secrets/core
+chmod 0700 /etc/lmm.conf.d/secrets/core
+printf 'operator-data\n' > /var/lib/lmm/core/keep
+printf 'synthetic-preservation-fixture\n' > /etc/lmm.conf.d/secrets/core/keep
+chmod 0600 /etc/lmm.conf.d/secrets/core/keep
 install_packages 2
-grep -q operator-setting-survives /etc/lmm-core/service.env
-[ "$(cat /var/lib/lmm-core/keep)" = operator-data ]
+grep -q operator-setting-survives /etc/lmm.conf.d/core.toml
+[ "$(cat /var/lib/lmm/core/keep)" = operator-data ]
+[ "$(cat /etc/lmm.conf.d/secrets/core/keep)" = synthetic-preservation-fixture ]
 if [ "$format" != apk ]; then
     systemd-analyze verify /usr/lib/systemd/system/lmm-core.service /usr/lib/systemd/system/lmm-extensions.service
 fi
 # Exercise installed product executables without a DB, external upstream or funds.
 # Core's business readiness must stay 503, not become a fake success.
-LMM_CORE_LISTEN=127.0.0.1:18080 /usr/bin/lmm-core >/tmp/lmm-core.log 2>&1 &
+smoke_dir=$(mktemp -d /tmp/lmm-package-smoke.XXXXXX)
+chmod 0700 "$smoke_dir"
+cat > "$smoke_dir/core.toml" <<'TOML'
+version = 1
+[server]
+listen = "127.0.0.1:18080"
+TOML
+chmod 0600 "$smoke_dir/core.toml"
+/usr/bin/lmm-core --config "$smoke_dir/core.toml" >/tmp/lmm-core.log 2>&1 &
 core_pid=$!
 trap 'kill "$core_pid" 2>/dev/null || true' EXIT HUP INT TERM
 ready=0
@@ -71,9 +83,18 @@ done
 kill "$core_pid"
 wait "$core_pid"
 trap - EXIT HUP INT TERM
-printf '0123456789abcdef0123456789abcdef\n' > /tmp/test-extension-token
-LMM_EXTENSION_TOKEN_FILE=/tmp/test-extension-token LMM_EXTENSION_MODULES=none \
-LMM_EXTENSION_LISTEN=127.0.0.1:18081 /usr/bin/lmm-extensions >/tmp/lmm-extensions.log 2>&1 &
+printf '0123456789abcdef0123456789abcdef\n' > "$smoke_dir/extension-token"
+chmod 0600 "$smoke_dir/extension-token"
+cat > "$smoke_dir/extensions.toml" <<TOML
+version = 1
+[host]
+listen = "127.0.0.1:18081"
+token_file = "$smoke_dir/extension-token"
+modules = ["none"]
+web_compat = false
+TOML
+chmod 0600 "$smoke_dir/extensions.toml"
+/usr/bin/lmm-extensions --config "$smoke_dir/extensions.toml" >/tmp/lmm-extensions.log 2>&1 &
 ext_pid=$!
 trap 'kill "$ext_pid" 2>/dev/null || true' EXIT HUP INT TERM
 ready=0
@@ -86,5 +107,6 @@ kill "$ext_pid"
 wait "$ext_pid"
 trap - EXIT HUP INT TERM
 remove_packages
-[ "$(cat /var/lib/lmm-core/keep)" = operator-data ]
+[ "$(cat /var/lib/lmm/core/keep)" = operator-data ]
+[ "$(cat /etc/lmm.conf.d/secrets/core/keep)" = synthetic-preservation-fixture ]
 printf 'PASS: %s/%s install, upgrade, config preservation, product process, removal\n' "$format" "$arch"

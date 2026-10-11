@@ -1,18 +1,22 @@
 #!/usr/bin/env python3
 """Disposable fresh-install test: Go -> Protobuf -> Rust -> PostgreSQL."""
 import json
+import copy
 import os
 from pathlib import Path
 import secrets
 import subprocess
 import tempfile
 import time
+import tomllib
 import urllib.error
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
 DOCKER = ROOT / "deployment/docker"
-SECRET_NAMES = ("database-password", "database-url", "rpc-token", "extension-token")
+DOCKER_ENDPOINT = "unix:///var/run/docker.sock"
+SECRET_NAMES = ("database-password", "database-owner-url", "database-url",
+                "rpc-token", "extension-token")
 PREPARE_SECRETS = """
 for path in "$@"; do
     test -f "$path"
@@ -43,6 +47,8 @@ chmod 0400 "$fixture_secret_path"
 
 
 def run(*args, data=None, env=None):
+    if args and args[0] == "docker":
+        args = (args[0], "--host", DOCKER_ENDPOINT, *args[1:])
     return subprocess.run(args, cwd=ROOT, input=data, text=True,
                           stdout=subprocess.PIPE, check=True, env=env).stdout.strip()
 
@@ -55,6 +61,36 @@ def write_fixture_secrets(temp, values):
             file.write(values[name])
 
 
+def validate_file_configuration(document, service, component, *, init=False):
+    """Check the rendered operator contract before starting any container."""
+    spec = document["services"][service]
+    if init:
+        assert spec["entrypoint"] == ["/usr/bin/lmm-core"]
+    target = f"/etc/lmm.conf.d/{component}.toml"
+    command = ["--config", target] + (["init-db"] if init else [])
+    assert spec["command"] == command
+    assert not any(name.startswith("LMM_") for name in spec.get("environment", {}))
+    selected = [value for value in spec["configs"] if value["target"] == target]
+    assert len(selected) == 1
+    with open(document["configs"][selected[0]["source"]]["file"], "rb") as file:
+        config = tomllib.load(file)
+    assert config["version"] == 1
+    mounted = {value["source"] for value in spec.get("secrets", [])}
+    if component == "core":
+        database = config.get("database")
+        if database:
+            secret = "core_database_owner_url" if init else "core_database_url"
+            assert database["url_file"] == "/run/secrets/" + secret
+            assert secret in mounted
+        assert ("core_database_owner_url" in mounted) == init
+        assert "core_database_password" not in mounted
+    else:
+        assert config["host"]["token_file"] == "/run/secrets/extension_token"
+        assert "extension_token" in mounted
+        assert not any(name.startswith("core_database") for name in mounted)
+    return config
+
+
 def fixture_secrets(image, temp, names, script, *, data=None, prepare=False):
     # Mount only these disposable files, never their parent or any host secrets.
     # Compose file secrets retain bind-source ownership/mode, so uid/mode fields
@@ -65,7 +101,8 @@ def fixture_secrets(image, temp, names, script, *, data=None, prepare=False):
         args.extend(["--user", "0:0", "--cap-add", "CHOWN", "--cap-add", "FOWNER"])
     paths = []
     for name in names:
-        assert name in SECRET_NAMES
+        if name not in SECRET_NAMES:
+            raise AssertionError("Only exact disposable fixture names can be mounted")
         path = "/fixture-" + name
         mount = f"type=bind,source={temp / name},target={path}"
         if not prepare and data is None:
@@ -97,16 +134,23 @@ def main():
     projects = {"core": "lmm-fresh-core-" + suffix, "extensions": "lmm-fresh-ext-" + suffix}
     with tempfile.TemporaryDirectory(prefix="lmm-fresh-test-") as directory:
         temp = Path(directory)
-        password, rpc_token, ext_token = (secrets.token_hex(32) for _ in range(3))
+        password, runtime_password, rpc_token, ext_token = (secrets.token_hex(32) for _ in range(4))
         values = {"database-password": password,
-                  "database-url": f"postgres://lmm_core:{password}@core-db:5432/lmm_core",
+                  "database-owner-url": f"postgres://lmm_core_admin:{password}@core-db:5432/lmm_core?options=-c%20role%3Dlmm_core_owner",
+                  "database-url": f"postgres://lmm_core_runtime:{runtime_password}@core-db:5432/lmm_core",
                   "rpc-token": rpc_token, "extension-token": ext_token}
         write_fixture_secrets(temp, values)
-        env = dict(os.environ,
-                   LMM_CORE_DATABASE_URL_SECRET_FILE=str(temp / "database-url"),
-                   LMM_CORE_DATABASE_PASSWORD_SECRET_FILE=str(temp / "database-password"),
-                   LMM_CORE_RPC_TOKEN_SECRET_FILE=str(temp / "rpc-token"),
-                   LMM_CORE_RPC_VOLUME=projects["core"] + "-rpc")
+        env = dict(os.environ, COMPOSE_DISABLE_ENV_FILE="true",
+                   LMM_DOCKER_DATABASE_URL_SECRET_FILE=str(temp / "database-url"),
+                   LMM_DOCKER_DATABASE_OWNER_URL_SECRET_FILE=str(temp / "database-owner-url"),
+                   LMM_DOCKER_DATABASE_PASSWORD_SECRET_FILE=str(temp / "database-password"),
+                   LMM_DOCKER_RPC_TOKEN_SECRET_FILE=str(temp / "rpc-token"),
+                   LMM_DOCKER_EXTENSIONS_TOKEN_SECRET_FILE=str(temp / "extension-token"),
+                   LMM_DOCKER_CORE_CONFIG_FILE=str(DOCKER / "config/core-identity-rpc.toml"),
+                   LMM_DOCKER_INIT_CONFIG_FILE=str(DOCKER / "config/core-init.toml"),
+                   LMM_DOCKER_EXTENSIONS_CONFIG_FILE=str(DOCKER / "config/extensions-identity.toml"),
+                   LMM_DOCKER_NETWORK=projects["core"] + "-runtime",
+                   LMM_DOCKER_RPC_VOLUME=projects["core"] + "-rpc")
         configs = {}
         for group, files in (("core", ["core", "identity", "rpc-core"]),
                              ("extensions", ["extensions", "rpc-extensions"])):
@@ -134,13 +178,50 @@ def main():
         assert mount["read_only"]
         core["services"]["core-init"]["image"] = core["services"]["core"]["image"]
         core["networks"]["identity"]["name"] = projects["core"] + "-database"
-        core["volumes"]["core-identity-data"]["name"] = projects["core"] + "-data"
+        core["volumes"]["core-database-data"]["name"] = projects["core"] + "-data"
+        runtime_secrets = {value["source"] for value in core["services"]["core"]["secrets"]}
+        install_secrets = {value["source"] for value in core["services"]["core-init"]["secrets"]}
+        assert "core_database_owner_url" not in runtime_secrets
+        assert "core_database_password" not in runtime_secrets
+        assert install_secrets == {"core_database_owner_url"}
         ext["secrets"]["extension_token"]["file"] = str(temp / "extension-token")
+        validate_file_configuration(core, "core", "core")
+        validate_file_configuration(core, "core-init", "core", init=True)
+        validate_file_configuration(ext, "extensions", "extensions")
         for group, data in configs.items():
             (temp / (group + ".json")).write_text(json.dumps(data))
 
         def compose(group, *args, data=None):
             return run("docker", "compose", "-f", str(temp / (group + ".json")), *args, data=data)
+
+        def psql(sql, *variables):
+            args = ["exec", "-T", "core-db", "psql", "-X", "-q", "-At", "-U",
+                    "lmm_core_admin", "-d", "lmm_core", "-v", "ON_ERROR_STOP=1"]
+            for variable in variables:
+                args.extend(["-v", variable])
+            return compose("core", *args, data=sql)
+
+        def reject_runtime(owner=False):
+            rejected = copy.deepcopy(core)
+            if owner:
+                # Select a separate owner TOML; never restore the removed env path.
+                rejected["configs"]["core_config"]["file"] = core["configs"]["core_init_config"]["file"]
+                rejected["services"]["core"]["secrets"] = [{"source": "core_database_owner_url"}]
+            config_path = temp / ("reject-owner.json" if owner else "reject-missing.json")
+            config_path.write_text(json.dumps(rejected))
+            name = projects["core"] + ("-owner-rejected" if owner else "-missing-rejected")
+            try:
+                result = subprocess.run(
+                    ["docker", "--host", DOCKER_ENDPOINT, "compose", "-f", str(config_path),
+                     "run", "--rm", "-T", "--no-deps", "--name", name, "core"],
+                    cwd=ROOT, text=True, capture_output=True, timeout=30)
+                expected = ("UnsafePrivileges", "core runtime database authority is unsafe") if owner else (
+                    "MissingPrivileges", "core runtime database authority is incomplete")
+                assert result.returncode != 0
+                assert any(message in result.stderr for message in expected)
+            finally:
+                subprocess.run(["docker", "--host", DOCKER_ENDPOINT, "rm", "-f", name],
+                               cwd=ROOT, capture_output=True, check=False)
 
         def endpoint(group):
             return "http://" + compose(group, "port", group, "8080" if group == "core" else "8081")
@@ -178,21 +259,64 @@ def main():
             fixture_secrets(image, temp, SECRET_NAMES, PREPARE_SECRETS, prepare=True)
             fixture_secrets(image, temp, SECRET_NAMES, VERIFY_SECRETS)
             compose("core", "up", "-d", "--wait", "core-db")
+            psql((ROOT / "deployment/postgres/create-core-roles.sql").read_text())
+            # Synthetic password travels on stdin, never in a process argument.
+            psql(f"ALTER ROLE lmm_core_runtime PASSWORD '{runtime_password}';")
             compose("core", "run", "--rm", "-T", "--no-deps", "--entrypoint", "/bin/sh",
                     "core-init", "-ec", VERIFY_SECRETS, "fixture-secrets",
-                    "/run/secrets/core_database_url")
-            compose("core", "run", "--rm", "-T", "core-init", "init-db")
+                    "/run/secrets/core_database_owner_url")
+            compose("core", "run", "--rm", "-T", "core-init",
+                    "--config", "/etc/lmm.conf.d/core.toml", "init-db")
+            components = json.loads(psql("SELECT json_agg(name ORDER BY name) FROM core_meta.component_contract;"))
+            assert set(components) == {"identity", "ledger", "payments", "charging", "routing",
+                                      "events", "charging-ledger", "migration", "console",
+                                      "model-gateway", "commerce"}
+            assert psql("SELECT bool_and(n.nspowner='lmm_core_owner'::regrole) FROM pg_namespace n WHERE n.nspname LIKE 'core\\_%' ESCAPE '\\';").strip() == "t"
+            assert psql("""SELECT NOT EXISTS (
+                SELECT FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+                WHERE (n.nspname LIKE 'core\\_%' ESCAPE '\\' OR n.nspname='public')
+                  AND c.relowner<>'lmm_core_owner'::regrole
+                UNION ALL
+                SELECT FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+                WHERE (n.nspname LIKE 'core\\_%' ESCAPE '\\' OR n.nspname='public')
+                  AND p.proowner<>'lmm_core_owner'::regrole);
+                """).strip() == "t"
+            assert psql("SELECT NOT rolcanlogin FROM pg_roles WHERE rolname='lmm_core_owner';").strip() == "t"
+            assert psql("SELECT NOT EXISTS(SELECT FROM pg_auth_members WHERE member='lmm_core_runtime'::regrole);").strip() == "t"
             try:
-                compose("core", "run", "--rm", "-T", "core-init", "init-db")
+                compose("core", "run", "--rm", "-T", "core-init",
+                        "--config", "/etc/lmm.conf.d/core.toml", "init-db")
             except subprocess.CalledProcessError:
                 pass
             else:
                 raise AssertionError("second initialization must reject the existing database")
             user_id = 9007199254740993
-            session = json.loads(compose("core", "run", "--rm", "-T", "core-init", "bootstrap-user",
+            session = json.loads(compose("core", "run", "--rm", "-T", "core-init",
+                                         "--config", "/etc/lmm.conf.d/core.toml", "bootstrap-user",
                                          data=json.dumps({"user_id": user_id, "platform_level": 1})))
+            reject_runtime(owner=True)
+            # Namespace lookup is allowed, but table/function rights remain absent.
+            psql("GRANT USAGE ON SCHEMA core_meta,core_identity,core_billing TO lmm_core_runtime;")
+            reject_runtime()
+            psql((ROOT / "deployment/postgres/grant-core-runtime.sql").read_text(),
+                 "enable_events=true")
+            assert psql("""SET SESSION AUTHORIZATION lmm_core_runtime;
+                SELECT current_user=session_user
+                  AND NOT has_database_privilege(current_database(),'CREATE,TEMP')
+                  AND NOT has_schema_privilege('public','CREATE')
+                  AND NOT has_table_privilege('core_billing.ledger_entries','INSERT,UPDATE,DELETE,TRUNCATE')
+                  AND NOT has_table_privilege('core_billing.opening_imports','INSERT,UPDATE,DELETE,TRUNCATE')
+                  AND NOT has_table_privilege('core_migration.import_runs','INSERT,UPDATE,DELETE,TRUNCATE')
+                  AND NOT has_function_privilege('core_billing.import_opening_balance(jsonb)','EXECUTE')
+                  AND NOT has_function_privilege('core_billing.import_account_opening_counters(jsonb)','EXECUTE')
+                  AND NOT has_table_privilege('core_billing.account_opening_counters','INSERT,UPDATE,DELETE,TRUNCATE')
+                  AND NOT has_table_privilege('core_charging.requests','INSERT,UPDATE,DELETE,TRUNCATE')
+                  AND NOT has_any_column_privilege('core_charging.requests','INSERT,UPDATE');
+                """).strip() == "t"
             compose("core", "up", "-d", "core")
             wait(lambda: core_call("/health/live"))
+            assert core_call("/health/ready")[0] == 200
+            assert core_call("/health/model-ready")[0] == 503
             status, body = core_call("/core/v1/teams", session["secret"], "POST")
             assert status == 201
             team_id = json.loads(body)["id"]
@@ -246,12 +370,12 @@ def main():
             wait(lambda: rpc("self", key["secret"]))
             assert core_call(f'/core/v1/credentials/{key["id"]}', session["secret"], "DELETE")[0] == 204
             assert rpc("self", key["secret"])[0] == 401
-            assert core_call("/health/ready")[0] == 503
+            assert core_call("/health/ready")[0] == 200
             assert core_call("/v1/models", key["secret"])[0] == 503
             print("PASS: reconnect, bounded database failure, persistent keys, immediate revocation and closed model routes", flush=True)
         finally:
             for group in ("extensions", "core"):
-                subprocess.run(["docker", "compose", "-f", str(temp / (group + ".json")),
+                subprocess.run(["docker", "--host", DOCKER_ENDPOINT, "compose", "-f", str(temp / (group + ".json")),
                                 "down", "--remove-orphans", "--volumes"], cwd=ROOT, check=False)
 
 

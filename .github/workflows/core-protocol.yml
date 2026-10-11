@@ -19,7 +19,7 @@ on:
       - scripts/workflow-topology.test.mjs
       - scripts/local-release-tests.py
       - scripts/test-local-release-tests.py
-      - .env.example
+      - config/*.toml
       - services/core/**
       - services/extensions/**
       - contracts/**

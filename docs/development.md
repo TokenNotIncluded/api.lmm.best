@@ -1,12 +1,12 @@
 # 开发与测试
 
-这是全新安装分支。不要连接现有站点数据库。服务分工见[架构与状态](core-migration.md)，隔离数据库与密钥的要求见 [Docker 指南](../deployment/docker/README.md)。当前 Docker 的单一数据库账号流程仍待拆分，指南中的历史示例不可直接执行；本机原生验收使用独立安装账号与受限运行账号。
+这是全新安装分支。不要连接现有站点数据库。服务分工见[架构与状态](core-migration.md)，隔离数据库与密钥的要求见 [Docker 指南](../deployment/docker/README.md)。本机原生验收和 Docker 流程都必须分开安装 owner 与受限 runtime；实际部署和功能验收须另行记录。
 
 全新核心库通过 `lmm-core init-db` 显式安装一次；已有应用对象时拒绝。
 
-安装使用独立的 owner 账号，网络服务使用受限的 runtime 账号；不要用 owner 启动服务。`init-db` 原子安装身份、账本、支付、计费、路由、事件、计费账本适配和迁移记录共 8 个组件，普通启动只校验结构和账号权限。
+安装使用独立的 owner 账号，网络服务使用受限的 runtime 账号；不要用 owner 启动服务。`init-db` 原子安装[当前完整 schema 契约](../services/core/schema/README.md)，普通启动只校验结构和账号权限。
 
-本地控制台身份接入使用 `LMM_CORE_DATABASE_URL_FILE`、`LMM_CORE_WEB_ORIGIN` 和 `LMM_CORE_WEB_REFRESH_KEY_FILE`。私有文件须为普通文件、权限 `0600`；本地 HTTP 须显式设置 `LMM_CORE_WEB_LOCAL_HTTP=true`。同时明确配置 `LMM_CORE_WEB_USER_AGREEMENT_ENABLED` 和 `LMM_CORE_WEB_PRIVACY_POLICY_ENABLED` 为 `true` 或 `false`，与实际公布的协议一致。注册开关为 `LMM_CORE_REGISTRATION_ENABLED`。模型和支付默认关闭；核心就绪不代表这些功能已就绪。
+运行配置使用 TOML，默认路径和权限见[配置与文件路径](filesystem-layout.md)。开发时可显式传入私有绝对路径：`lmm-core --config /absolute/private/core.toml`。本地控制台使用 `database.url_file`、`identity.web.origin` 和 `identity.web.refresh_key_file`；私密文件权限为 `0600` 或只读 `0400`。本地 HTTP 须显式设置 `identity.web.local_http=true`，并明确填写 `user_agreement_enabled` 和 `privacy_policy_enabled`，与实际公布的协议一致。注册开关为 `identity.registration_enabled`。模型和支付默认关闭；核心就绪不代表这些功能已就绪。
 
 ## 工具与目录
 
@@ -48,17 +48,17 @@ mise exec -- just test-pgroll
 
 ## 启动扩展与前端
 
-Go 只读取已导出的环境变量，不自动加载 `.env`。`.env.example` 是字段说明，不含可直接使用的密钥。`LMM_EXTENSION_TOKEN_FILE` 指向新建的私有服务凭证；`LMM_EXTENSION_MODULES=none` 关闭所有受保护业务模块。启用 `identity` 还必须提供 RPC socket 和 RPC 凭证。
+Go 默认从固定 TOML 或显式 `--config` 文件读取运行设置，不加载 `.env`；文件模式拒绝旧运行时环境变量。参考 [extensions.example.toml](../config/extensions.example.toml)：`host.token_file` 指向私有服务凭据，`host.modules=["none"]` 关闭受保护业务模块。启用 `identity` 还须配置 RPC socket 和独立凭据，且验证跨服务用户和 socket 权限。
 
 ```sh
-# 先按 Docker 指南创建隔离凭证。不要复用生产环境。
-just dev-go
-bun run --filter @lmm/web dev --port 5173 --host 127.0.0.1 --strict-port
+# 先准备隔离的 TOML 与凭据；该路径是操作者自行创建的绝对路径。
+(cd services/extensions && mise exec -- go run . --config /absolute/private/extensions.toml)
+mise exec -- bun run --filter @lmm/web dev --port 5173 --host 127.0.0.1 --strict-port
 ```
 
 前端启动不等于后端业务已接通。调试公开协议页面时，将前端的 `VITE_REACT_APP_SERVER_URL` 指向本地扩展服务；只有[协议文档](legal/README.md)列出的公开 API 不需要核心。
 
-Go 拒绝旧单体及核心数据库变量，包括 `SQL_DSN`、`DATABASE_URL` 和 `LMM_CORE_DATABASE_URL`。数据库测试环境变量不要传给实际扩展进程。
+Go 始终拒绝旧单体和核心数据库变量，包括 `SQL_DSN`、`DATABASE_URL` 和 `LMM_CORE_DATABASE_URL`。数据库测试环境变量不要传给实际扩展进程。两个服务的显式 `--legacy-env` 都仅供待移除的旧测试兼容，与 `--config` 互斥；不能作为新服务模板或新部署入口。
 
 ## 验证
 

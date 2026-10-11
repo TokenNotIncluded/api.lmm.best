@@ -13,14 +13,11 @@ COMPOSITION_STORAGE = "services/extensions/internal/composition/storage.go"
 # Source guards are an offline contract only. The PostgreSQL role/schema/grant
 # mutations in composition/guards_integration_test.go require a real test DB.
 COMPOSITION_STORAGE_GUARDS = (
-    '(c.Component != "store" && c.Component != "support")',
+    '(c.Component != "store" && c.Component != "support" && c.Component != "assistant" && c.Component != "payments")',
     '!databaseName.MatchString(c.Database)',
     'strings.HasPrefix(c.Database, "lmm_"+c.Component)',
     'if err := c.validate(); err != nil',
-    'os.Lstat(c.URLFile)',
-    '!info.Mode().IsRegular() || info.Mode().Perm()&0077 != 0',
-    'io.LimitReader(f, 8193)',
-    'len(b) > 8192',
+    'coreclient.ReadPrivateFile(c.URLFile, 8192)',
     'name != c.Database',
     'key != "sslmode" && key != "sslrootcert" && key != "connect_timeout" && key != "application_name"',
     'len(values) != 1',
@@ -40,9 +37,8 @@ COMPOSITION_STORAGE_GUARDS = (
     'if name != c.Database || privileged || foreignSchema || coreConnect || rolePaths',
     'return nil, errors.New("extension storage guard unavailable")',
     'return nil, errors.New("extension storage isolation rejected")',
-    "has_table_privilege(current_user,to_regclass($1),'SELECT')",
-    "has_table_privilege(current_user,to_regclass($1),'INSERT')",
-    "has_table_privilege(current_user,to_regclass($1),'UPDATE')",
+    'for _, privilege := range table.privileges',
+    "has_table_privilege(current_user,to_regclass($1),$2)",
     'err != nil || !allowed',
     'return nil, errors.New("extension storage schema or runtime grants unavailable")',
     'if failed {',
@@ -51,9 +47,14 @@ COMPOSITION_STORAGE_GUARDS = (
 COMPOSITION_RUNTIME_GUARDS = (
     'openStorage(ctx, cfg.Store)',
     'openStorage(ctx, cfg.Support)',
+    'openStorage(ctx, cfg.Assistant)',
     'store.NewPostgres(db)',
     'support.NewPostgres(db)',
-    'store.New(repo, auth, store.DisabledFunds{})',
+    'var funds store.Funds = store.DisabledFunds{}',
+    'if cfg.CommerceTokenFile != ""',
+    'commerce and identity RPC credentials must be distinct',
+    'rustfunds.New(r.CommerceClient, caps.GetFeatures())',
+    'store.New(repo, auth, funds)',
 )
 
 
@@ -108,7 +109,8 @@ class CoreBoundaryTests(unittest.TestCase):
                 for forbidden in ("SQL_DSN", "LMM_CORE_DATABASE_URL"):
                     self.assertNotIn(forbidden, text, str(path))
         startup = (ROOT / "services/extensions/internal/app/run.go").read_text()
-        self.assertLess(startup.index("validateEnvironment(os.Getenv)"), startup.index("readHostCredential(os.Getenv"))
+        self.assertLess(startup.index("validateEnvironment(os.Getenv)"), startup.index("LoadConfig(path)"))
+        self.assertLess(startup.index("LoadConfig(path)"), startup.index("readHostCredential(cfg.Host.TokenFile)"))
         identity = (ROOT / "services/extensions/internal/modules/identity/identity.go").read_text()
         self.assertIn("type Core interface", identity)
         for operation in ("Capabilities", "Authorize", "ListTeams"):
@@ -123,6 +125,7 @@ class CoreBoundaryTests(unittest.TestCase):
             "services/extensions/internal/modules/support/postgres.go": "lmm_support.",
             "services/extensions/internal/modules/support/postgres_web.go": "lmm_support.",
             "services/extensions/internal/modules/assistant/postgres.go": "lmm_assistant.",
+            "services/extensions/internal/modules/assistant/history_postgres.go": "lmm_assistant.",
             "services/extensions/internal/modules/promotions/postgres.go": "lmm_promotions.",
             "services/extensions/internal/modules/payments/postgres.go": "payment_",
         }
@@ -147,7 +150,13 @@ class CoreBoundaryTests(unittest.TestCase):
                    "core_events.", "core_runtime.") + tuple(stores.values())
         for schema in schemas:
             if schema != stores.get(path):
-                self.assertNotIn(schema, text, path)
+                if path == COMPOSITION_STORAGE or schema == "payment_":
+                    # Permission introspection names are not business-table
+                    # access. The resource boundary must never query those rows.
+                    qualifier = r"(?:public\.)?" if schema == "payment_" else ""
+                    self.assertNotRegex(text, r"(?i)\b(?:FROM|JOIN|UPDATE|INTO|TRUNCATE)\s+" + qualifier + re.escape(schema), path)
+                else:
+                    self.assertNotIn(schema, text, path)
 
     def test_only_exact_composition_storage_file_may_import_driver_or_open_pools(self):
         for path in ("services/extensions/internal/app/unapproved.go",
@@ -173,13 +182,13 @@ class CoreBoundaryTests(unittest.TestCase):
                           "lmm_store.orders", "lmm_support.messages", "lmm_assistant.records",
                           "lmm_promotions.records", "payment_orders", 'sql.OpenDB(connector)'):
             with self.subTest(forbidden=forbidden), self.assertRaises(AssertionError):
-                self.assert_extension_storage(COMPOSITION_STORAGE, source + "\n" + forbidden)
+                self.assert_extension_storage(COMPOSITION_STORAGE, source + "\nSELECT * FROM " + forbidden)
 
     def assert_composition_runtime(self, text):
         for required in COMPOSITION_RUNTIME_GUARDS:
             self.assertIn(required, text)
-        self.assertEqual(text.count("openStorage("), 2)
-        self.assertEqual(text.count("r.close = append(r.close, db.Close)"), 2)
+        self.assertEqual(text.count("openStorage("), 3)
+        self.assertEqual(text.count("r.close = append(r.close, db.Close)"), 3)
 
     def test_composition_keeps_distinct_module_pools_and_disabled_funds(self):
         source = (ROOT / "services/extensions/internal/composition/runtime.go").read_text()
@@ -198,7 +207,7 @@ class CoreBoundaryTests(unittest.TestCase):
                           "sql.Open(", "sql.OpenDB("):
             with self.subTest(forbidden=forbidden):
                 with self.assertRaises(AssertionError):
-                    self.assert_extension_storage(path, source + "\n" + forbidden)
+                    self.assert_extension_storage(path, source + "\nSELECT * FROM " + forbidden)
         with self.assertRaises(AssertionError):
             self.assert_extension_storage("services/extensions/internal/app/unapproved.go", source)
 
@@ -212,11 +221,11 @@ class CoreBoundaryTests(unittest.TestCase):
                               "lmm_store.records", "lmm_support.records", "sql.Open(", "sql.OpenDB("):
                 with self.subTest(module=module, forbidden=forbidden):
                     with self.assertRaises(AssertionError):
-                        self.assert_extension_storage(path, source + "\n" + forbidden)
+                        self.assert_extension_storage(path, source + "\nSELECT * FROM " + forbidden)
             for other in ("lmm_assistant.", "lmm_promotions.", "payment_"):
                 if other != own:
                     with self.assertRaises(AssertionError):
-                        self.assert_extension_storage(path, source + "\n" + other + "records")
+                        self.assert_extension_storage(path, source + "\nSELECT * FROM " + other + "records")
 
     def test_fresh_schema_is_explicit_and_relational(self):
         schema = (ROOT / "services/core/schema/identity.sql").read_text()
@@ -272,10 +281,10 @@ class CoreBoundaryTests(unittest.TestCase):
         self.assertIn("COPY services/core/schema", (ROOT / "deployment/docker/core.Dockerfile").read_text())
 
     def test_development_and_qualification_use_only_new_entry_points(self):
-        sample = (ROOT / ".env.example").read_text()
-        for retired in ("SQL_DSN=", "SESSION_SECRET=", "SKIP_64BIT_QUOTA_SCHEMA_CHECK", "LMM_DB_MIGRATION_MODE="):
-            self.assertNotIn(retired, sample)
-        self.assertIn("LMM_EXTENSION_TOKEN_FILE=", sample)
+        self.assertFalse((ROOT / ".env.example").exists())
+        for component in ("core", "extensions"):
+            sample = tomllib.loads((ROOT / f"config/{component}.example.toml").read_text())
+            self.assertEqual(sample["version"], 1)
         for name in ("ci.yml", "server-release-qualification.yml"):
             body = (ROOT / ".github/workflows" / name).read_text()
             self.assertIn("uses: ./.github/workflows/core-protocol.yml", body)
@@ -301,19 +310,20 @@ class CoreBoundaryTests(unittest.TestCase):
         ignore = (ROOT / ".dockerignore").read_text().splitlines()
         self.assertIn("experiments/", ignore)
         compose = (ROOT / "deployment/docker/compose.core-standalone.yml").read_text()
-        for expected in ("LMM_CORE_WORKER_THREADS: \"1\"",
-                         "LMM_CORE_DB_CONNECTIONS: \"2\"",
-                         "LMM_CORE_PASSWORD_SLOTS: \"1\"",
-                         "LMM_CORE_MAX_INFLIGHT: \"16\"",
-                         "LMM_CORE_DATABASE_URL_FILE: /run/secrets/core_database_url"):
-            self.assertIn(expected, compose)
+        configuration = tomllib.loads((ROOT / "deployment/docker/config/core-standalone.toml").read_text())
+        self.assertEqual(configuration["server"]["worker_threads"], 1)
+        self.assertEqual(configuration["server"]["max_inflight"], 16)
+        self.assertEqual(configuration["database"]["max_connections"], 2)
+        self.assertEqual(configuration["identity"]["password_slots"], 1)
+        self.assertEqual(configuration["database"]["url_file"], "/run/secrets/core_database_url")
+        self.assertIn("./config/core-standalone.toml", compose)
         self.assertNotIn("extensions:", compose)
         self.assertNotIn("core-db:", compose)
-        self.assertIn("lmm-core-standalone-runtime", compose)
+        self.assertIn("name: ${COMPOSE_PROJECT_NAME}-runtime", compose)
         core = (ROOT / "services/core/src/main.rs").read_text()
         self.assertIn("config::database_pool", core)
         configuration = (ROOT / "services/core/src/config.rs").read_text()
-        self.assertIn(".max_connections(database_connections()?)", configuration)
+        self.assertIn("bounded_database_pool(url, database_connections()?)", configuration)
         self.assertIn("Lifecycle::with_capacity", core)
         self.assertIn("with_password_slots", core)
         self.assertNotIn("lmm_extensions", core)

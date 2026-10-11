@@ -24,6 +24,7 @@ Initialize a new core database explicitly with `lmm-core init-db`; normal startu
 | Understand ownership and remaining work | [Architecture and status](docs/core-migration.md) |
 | Start an isolated environment | [Docker development stack](deployment/docker/README.md) |
 | Develop and test with mise | [Development](docs/development.md) |
+| Configure TOML, service directories and upgrade preservation | [Configuration and filesystem layout](docs/filesystem-layout.md) |
 | Configure user, privacy and refund policies | [Policy templates](docs/legal/README.md) |
 | Build and inspect separate archives | [Packaging and distribution](docs/release-architecture.md) |
 | Find detailed contracts and historical material | [Documentation](docs/README.md) |
@@ -39,6 +40,8 @@ Initialize a new core database explicitly with `lmm-core init-db`; normal startu
 The Rust `lmm` client is maintained in [TokenNotIncluded/lmm](https://github.com/TokenNotIncluded/lmm) and pinned here as the `apps/cli` Git submodule. Initialize it with `git submodule update --init --depth 1 -- apps/cli`; see the [client README](https://github.com/TokenNotIncluded/lmm#readme) for implemented features and Magpie parity progress.
 
 `apps/web` produces a separate static Web archive served by a Web server. It does not add an executable program. `contracts` holds cross-process contracts, `config/legal` holds editable policy drafts, and `packaging/distribution.json` defines archive contents.
+
+New installations use `/etc/lmm.conf.d/core.toml` and `/etc/lmm.conf.d/extensions.toml`, selected by their fixed defaults or an explicit `--config` path. Secrets, persistent state and runtime files use `/etc/lmm.conf.d/secrets/<service>/`, `/var/lib/lmm/<service>/` and `/run/lmm/<service>/`. See [configuration and filesystem layout](docs/filesystem-layout.md) for ownership, upgrades and legacy package boundaries. This convention does not automatically migrate an existing installation or prove business acceptance.
 
 Core and extensions use separate Compose projects. Updating extensions must not restart the core or its database. A responding health route does not make model routes ready. Public policy reads do not need the core. Other business flows still require explicit integration and acceptance tests.
 

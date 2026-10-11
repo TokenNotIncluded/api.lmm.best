@@ -1,12 +1,12 @@
 # Optional overlay for the extensions project only.
 services:
   extensions:
-    environment:
-      LMM_LEGAL_CONFIG_FILE: /etc/lmm/legal/site.json
-    volumes:
-      - type: bind
-        source: ${LMM_LEGAL_DIRECTORY:?Set a reviewed legal configuration directory}
-        target: /etc/lmm/legal
-        read_only: true
-        bind:
-          create_host_path: false
+    configs:
+      - source: legal_config
+        target: /etc/lmm.conf.d/legal.toml
+configs:
+  # Supply the complete host config so adding legal never silently drops modules.
+  extensions_config:
+    file: ${LMM_DOCKER_EXTENSIONS_CONFIG_FILE:?Set a complete extensions TOML with legal.config_file}
+  legal_config:
+    file: ${LMM_DOCKER_LEGAL_CONFIG_FILE:?Set a reviewed absolute legal TOML file}

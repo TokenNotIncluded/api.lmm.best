@@ -1,0 +1,51 @@
+# Non-secret runtime configuration; install as /etc/lmm.conf.d/core.toml.
+# Provision the restricted runtime database credential separately (0600).
+# Use a separate private owner TOML for explicit init-db; never run as owner.
+version = 1
+
+[server]
+listen = "127.0.0.1:8080"
+worker_threads = 1
+max_inflight = 16
+drain_timeout_seconds = 30
+
+[database]
+url_file = "/etc/lmm.conf.d/secrets/core/database-url"
+max_connections = 2
+
+[identity]
+registration_enabled = false
+password_slots = 1
+# Optional recoverable API Key encryption: a stable, independently generated
+# exact 32-byte raw key. Never regenerate it on startup or use the Web key.
+# api_key_encryption_key_file = "/etc/lmm.conf.d/secrets/core/api-key-encryption-key"
+
+[console]
+enabled = false
+
+# Optional browser authentication; supply an exact trusted origin and a private key.
+# [identity.web]
+# origin = "https://api.example.invalid"
+# refresh_key_file = "/etc/lmm.conf.d/secrets/core/web-refresh-key"
+# local_http = false
+# user_agreement_enabled = false
+# privacy_policy_enabled = false
+
+# Optional extension RPC; separately provision socket access and module grants.
+# [rpc]
+# socket = "/run/lmm/core/core.sock"
+# token_file = "/etc/lmm.conf.d/secrets/core/rpc-token"
+# Shared Unix group is opt-in. Set the actual numeric GID of lmm-rpc;
+# also apply the matching service-manager group and directory permissions.
+# shared_group_id = 12345
+
+# Optional functionality is disabled until its TOML and credentials are supplied.
+# [model]
+# config_file = "/etc/lmm.conf.d/core-model.toml"
+# local_http = false
+# [payments]
+# config_file = "/etc/lmm.conf.d/core-payments.toml"
+# token_file = "/etc/lmm.conf.d/secrets/core/payments-token"
+# [commerce]
+# config_file = "/etc/lmm.conf.d/core-commerce.toml"
+# token_file = "/etc/lmm.conf.d/secrets/core/commerce-token"

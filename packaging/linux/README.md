@@ -11,12 +11,12 @@ model, payment or database migration paths are ready for production.
 | `core` | `/usr/bin/lmm-core` and optional service definition | None; PostgreSQL is configured separately |
 | `extensions` | `/usr/bin/lmm-extensions` and external policy templates | None; remote core configured only when needed |
 | `cli` | `/usr/bin/lmm` | None |
-| `web` | `/usr/share/lmm-web/dist/` | None; no reverse proxy configuration is installed |
+| `web` | `/usr/share/lmm/web/` | None; no reverse proxy configuration is installed |
 
 The product has three executable programs: `lmm`, `lmm-core` and `lmm-extensions`.
 Database initialization and the first administrator are explicit `lmm-core init-db`
-and `lmm-core bootstrap-user` subcommands. `init-db` installs all eight core
-components in one transaction; ordinary startup verifies the complete contract
+and `lmm-core bootstrap-user` subcommands. `init-db` installs the complete core
+schema in one transaction; ordinary startup verifies the complete contract
 and live catalog fingerprint. These subcommands are never run during installation
 or ordinary service startup. Installing extensions does not install or restart
 core. Each package is independent; the user CLI is installed only by selecting
@@ -55,7 +55,7 @@ version in `packages.json`. Nothing here downloads or upgrades them. CI pins the
 nFPM release archive SHA-256. Work only on a build machine, not a 1-core service node.
 
 ```sh
-python3 packaging/linux/build.py \
+mise exec -- python3 packaging/linux/build.py \
   --archive out/distributions/lmm-core-0.1.0-preview-linux-amd64.tar.gz \
   --sha256 "$TRUSTED_ARCHIVE_SHA256" \
   --revision "$VERIFIED_SOURCE_SHA" \
@@ -87,16 +87,28 @@ packaging a static executable does not provide a desktop session or keyring daem
 
 ## Installation does not activate services
 
-On systemd systems, service files use `DynamicUser`, private runtime/state
-directories and `LoadCredential`. Create the required credential as a root-owned
-0600 file, not as a command-line argument or a value in a public example:
+The service entry points are `/etc/lmm.conf.d/core.toml` and
+`/etc/lmm.conf.d/extensions.toml`. Both templates pass the exact absolute file
+through `--config`; they never scan a configuration directory or source TOML as
+shell. Unknown, duplicate or missing required settings must fail before bind.
+See the canonical [filesystem and configuration contract](../../docs/filesystem-layout.md).
 
-- Core: `/etc/lmm-core/database-url`, containing a restricted runtime URL for an explicitly selected isolated test database, never the installation-owner URL.
-- Extensions: `/etc/lmm-extensions/service-token`, independently generated.
+On systemd systems, templates use static `lmm-core` and `lmm-extensions` users,
+private runtime/state directories and the journal. The package provides
+`/usr/lib/sysusers.d/<program>.conf`; the operator explicitly provisions accounts
+with `systemd-sysusers` before starting a service. No installation hook runs it.
+Current templates do not use `LoadCredential` or dynamic users: the TOML parser
+does not expand `%d`, and a root-only file cannot simply be handed to an
+unprivileged process. Separately provision service-owned 0600 secrets:
 
-Non-secret controls live in `/etc/<package>/service.env`. Package upgrades retain
-local changes. Use `systemctl daemon-reload`, then explicitly start or restart
-only the intended service after checking the configuration and readiness.
+- Core: `/etc/lmm.conf.d/secrets/core/database-url`, containing only a restricted runtime URL for the explicitly selected isolated database, never the installation-owner URL.
+- Extensions: `/etc/lmm.conf.d/secrets/extensions/host-token`, independently generated.
+
+The shipped TOML is non-secret and root-owned 0644. Secrets and state are not
+package files. Package upgrades retain locally modified TOML with
+`config|noreplace`; inspect package-manager merge candidates. Use
+`systemctl daemon-reload`, then explicitly start or restart only the intended
+service after checking accounts, configuration and readiness.
 The default service binds loopback. Configure the edge listener separately.
 No package hook enables a unit, restarts a daemon, downloads a file, creates a
 secret, initializes/migrates a database, creates database roles, grants privileges,
@@ -104,30 +116,41 @@ clears data or touches the old Go service.
 
 Provision the installation owner and restricted runtime separately, with explicit
 offline GRANTs before starting the service. Keep owner credentials out of the
-service's credential file. The runtime must not own application objects, switch to
+service's TOML or credential file. The runtime must not own application objects, switch to
 an owner role or directly write immutable ledger tables; see the
 [runtime authority check](../../services/core/src/runtime_database.rs) and
 [schema contract](../../services/core/schema/README.md). The templates load the URL
-provided by the operator and do not provision these roles. The current Docker
-identity/standalone examples reuse an owner URL and are rejected by the runtime
-guard; they are not a validated substitute for this missing provisioning step.
+provided by the operator and do not provision these roles. Docker uses its own
+explicit owner/runtime mounting and authorization process; reading a Compose
+file is not evidence that this process or a native installation passed.
 
 Alpine packages create only their own non-login system account. OpenRC service
-scripts load the same non-secret environment. Credential files must be owned by
-root and the matching service group, mode 0640, so the unprivileged service can
-read them. Explicitly use `rc-service <package> start`; adding it to a boot runlevel
+scripts pass the same fixed TOML path, without executing its content. Private
+files must be owned by the matching service user, mode 0600 (or readable 0400);
+group-readable 0640 secrets are not accepted. Explicitly use
+`rc-service <package> start`; adding it to a boot runlevel
 is the operator's decision. OpenRC does not inherit the systemd memory limit:
 configure cgroup limits separately and measure actual usage.
+
+Default state and runtime directories are `/var/lib/lmm/<component>` and
+`/run/lmm/<component>`, mode 0700. Core RPC is optional. For cross-user IPC, the
+operator explicitly enables `rpc.shared_group_id` with the actual numeric GID
+of `lmm-rpc`, and reviews the supplied
+`/usr/share/doc/<program>/rpc.service.conf.example`. Core uses that primary group
+and an IPC-only directory mode 0750; extensions gain supplementary group access.
+The socket is 0660, while lock files and each service's separate token remain
+0600. No shared-group membership or unit override is installed automatically.
+OpenRC needs equivalent explicit service-account/group configuration. Different
+UID connectivity requires a separate process test, not a template-only claim.
 
 Removal never deletes operator-created credential files, data, audit history or
 the remote database. Stop the intended service explicitly before final removal.
 Package upgrades replace disk files but do not prove a running process has loaded
 them. Core's 256 MiB systemd limit is a ceiling, not a measured footprint. With
 restricted privileges, complete schema and configured identity, readiness can be
-200 while models remain disabled; model readiness then stays 503. The model API
-defaults to closed, and the current optional gateway only accepts explicit local
-numeric-loopback synthetic upstreams without streaming. Payment HTTP APIs are
-not mounted. A single service restart can still break a
+200 while models remain disabled; model readiness then stays 503. Optional model
+and financial interfaces require their own explicit configuration and acceptance.
+A single service restart can still break a
 stream; this package change does not claim zero-interruption deployment.
 
 Identity-only ETL was verified using an isolated restored snapshot and a separate
@@ -139,8 +162,8 @@ native package installation on every supported distribution.
 ## Validation
 
 ```sh
-python3 -B packaging/linux/test_build.py -v
-python3 -B packaging/linux/test_native.py -v   # requires reviewed nFPM
+mise exec -- python3 -B packaging/linux/test_build.py -v
+mise exec -- python3 -B packaging/linux/test_native.py -v   # requires reviewed nFPM
 ```
 
 `test_build.py` uses synthetic native ELF fixtures to test packaging contracts,
@@ -152,6 +175,6 @@ architecture before claiming any installation matrix passed. No release or
 production deployment is part of that workflow.
 
 Primary references: nFPM's pinned `nfpm.go`/`files` schema, Debian Policy chapter
-10 (configuration preservation and `/usr` paths), systemd.exec (DynamicUser and
-LoadCredential), and OpenRC's service-script guide. The implemented minimum for
+10 (configuration preservation and `/usr` paths), systemd.exec (directory and
+credential ownership), systemd-sysusers, and OpenRC's service-script guide. The implemented minimum for
 systemd service packages is 247; older systems need a separately qualified unit.

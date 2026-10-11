@@ -1,0 +1,7 @@
+# Authenticated module host with no installed business module or core DB access.
+version = 1
+[host]
+listen = "0.0.0.0:8081"
+token_file = "/run/secrets/extension_token"
+modules = ["none"]
+web_compat = false

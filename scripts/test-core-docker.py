@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Disposable real-container isolation test. Never uses the production deployment."""
 import json
+import importlib.util
+import os
 from pathlib import Path
 import secrets
 import subprocess
@@ -10,9 +12,15 @@ import urllib.error
 import urllib.request
 
 ROOT = Path(__file__).resolve().parents[1]
+DOCKER_ENDPOINT = "unix:///var/run/docker.sock"
+SPEC = importlib.util.spec_from_file_location("rpc_fixture", Path(__file__).with_name("test-core-rpc-docker.py"))
+FIXTURE = importlib.util.module_from_spec(SPEC)
+SPEC.loader.exec_module(FIXTURE)
 
-def run(*args):
-    result = subprocess.run(args, cwd=ROOT, text=True, stdout=subprocess.PIPE, check=True)
+def run(*args, env=None):
+    if args and args[0] == "docker":
+        args = (args[0], "--host", DOCKER_ENDPOINT, *args[1:])
+    result = subprocess.run(args, cwd=ROOT, text=True, stdout=subprocess.PIPE, check=True, env=env)
     return result.stdout.strip()
 
 def response(url, credential=None):
@@ -38,7 +46,11 @@ def main():
     core_project, ext_project = "lmm-test-core-" + suffix, "lmm-test-ext-" + suffix
     docker = ROOT / "deployment/docker"
     def config(file, project):
-        return json.loads(run("docker", "compose", "-p", project, "-f", str(docker/file), "config", "--format", "json"))
+        env = dict(os.environ, COMPOSE_DISABLE_ENV_FILE="true",
+                   LMM_DOCKER_NETWORK=core_project + "-runtime",
+                   LMM_DOCKER_CORE_CONFIG_FILE=str(docker / "config/core-base.toml"),
+                   LMM_DOCKER_EXTENSIONS_CONFIG_FILE=str(docker / "config/extensions-base.toml"))
+        return json.loads(run("docker", "compose", "-p", project, "-f", str(docker/file), "config", "--format", "json", env=env))
     # Validate the actual checked-in YAML before adapting only test identity/ports/secrets.
     core, ext = config("compose.core.yml", core_project), config("compose.extensions.yml", ext_project)
     assert set(core["services"]) == {"core"}
@@ -47,9 +59,9 @@ def main():
     with tempfile.TemporaryDirectory(prefix="lmm-core-isolation-") as directory:
         temp = Path(directory)
         token = secrets.token_hex(32)
-        secret = temp / "token"
-        secret.write_text(token)
-        secret.chmod(0o444)
+        # Same private creation/UID/mode boundary as the fresh RPC scenario.
+        FIXTURE.write_fixture_secrets(temp, {name: token for name in FIXTURE.SECRET_NAMES})
+        secret = temp / "extension-token"
         for data, project, service, port in ((core, core_project, "core", 8080), (ext, ext_project, "extensions", 8081)):
             data["name"] = project
             spec = data["services"][service]
@@ -62,6 +74,7 @@ def main():
             if service == "extensions":
                 for value in data["secrets"].values():
                     value["file"] = str(secret)
+            FIXTURE.validate_file_configuration(data, service, service)
             (temp / (service + ".json")).write_text(json.dumps(data))
         def compose(service, *args):
             return run("docker", "compose", "-f", str(temp / (service + ".json")), *args)
@@ -75,6 +88,8 @@ def main():
             wait(url + "/health/live")
             assert response(url + "/health/ready")[0] == 503
             assert response(url + "/v1/models")[0] == 503
+            FIXTURE.fixture_secrets(core["services"]["core"]["image"], temp,
+                                    ("extension-token",), FIXTURE.PREPARE_SECRETS, prepare=True)
             compose("extensions", "up", "-d", "--build", "extensions")
             ext_url = endpoint("extensions", 8081)
             wait(ext_url + "/health/live")
@@ -100,7 +115,7 @@ def main():
         finally:
             # Remove only random test projects; no default project or production volumes.
             for service in ("extensions", "core"):
-                subprocess.run(["docker", "compose", "-f", str(temp / (service + ".json")), "down", "--remove-orphans"], cwd=ROOT, check=False)
+                subprocess.run(["docker", "--host", DOCKER_ENDPOINT, "compose", "-f", str(temp / (service + ".json")), "down", "--remove-orphans"], cwd=ROOT, check=False)
 
 if __name__ == "__main__":
     main()

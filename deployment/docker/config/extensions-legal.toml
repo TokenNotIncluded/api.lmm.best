@@ -1,0 +1,9 @@
+# Complete legal-only example. Add explicit core/modules sections for RPC use.
+version = 1
+[host]
+listen = "0.0.0.0:8081"
+token_file = "/run/secrets/extension_token"
+modules = ["none"]
+web_compat = false
+[legal]
+config_file = "/etc/lmm.conf.d/legal.toml"

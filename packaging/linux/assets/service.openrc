@@ -2,10 +2,11 @@
 name="@PACKAGE@"
 description="@PACKAGE@ (preview)"
 command="/usr/bin/@PACKAGE@"
+command_args="--config /etc/lmm.conf.d/@COMPONENT@.toml"
 command_user="@PACKAGE@:@PACKAGE@"
 command_background=true
-pidfile="/run/@PACKAGE@/service.pid"
-directory="/var/lib/@PACKAGE@"
+pidfile="/run/lmm/@COMPONENT@/service.pid"
+directory="/var/lib/lmm/@COMPONENT@"
 retry="TERM/1800"
 umask=0077
 
@@ -14,10 +15,7 @@ depend() {
 }
 
 start_pre() {
-    set -a
-    . /etc/@PACKAGE@/service.env || return 1
-    @CREDENTIAL_ENV@="/etc/@PACKAGE@/@CREDENTIAL@"
-    set +a
+    checkpath --directory --mode 0755 --owner root:root /run/lmm /var/lib/lmm
     checkpath --directory --mode 0700 --owner @PACKAGE@:@PACKAGE@ \
-        /run/@PACKAGE@ /var/lib/@PACKAGE@
+        /run/lmm/@COMPONENT@ /var/lib/lmm/@COMPONENT@
 }

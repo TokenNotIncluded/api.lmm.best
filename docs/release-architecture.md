@@ -35,7 +35,9 @@ CLI 使用 `cargo build --manifest-path apps/cli/Cargo.toml --locked --release`�
 python3 scripts/build-distribution.py verify   out/distributions/lmm-core-0.1.0-preview-linux-amd64.tar.gz   --revision "$(git rev-parse HEAD)"
 ```
 
-校验器检查内容清单，不解包、不执行程序。拒绝路径越界、链接、重复条目、额外文件及校验不符。构建拒绝覆盖已有产物。私有配置、密钥和构建缓存不得进入分发包；协议资源只按清单收集示例及指定模板，绝不收集 `site.json`。
+校验器检查内容清单，不解包、不执行程序。拒绝路径越界、链接、重复条目、额外文件及校验不符。构建拒绝覆盖已有产物。私有配置、密钥和构建缓存不得进入分发包；服务配置只收集 `config/core.example.toml`、`config/extensions.example.toml`，协议资源只按清单收集 `site.example.toml` 及指定模板，不收集运营方的 `legal.toml` 或旧 `site.json`。
+
+原生包将服务示例安装为 `/etc/lmm.conf.d/{core,extensions}.toml`，升级使用 `config|noreplace`；Web 和协议只读资源分别进入 `/usr/share/lmm/web/`、`/usr/share/lmm/legal/`。私密文件、持久状态、临时 IPC、日志及客户端个人路径统一见[配置与文件路径](filesystem-layout.md)。旧预览包不自动移动数据或转换配置；新配置仍须通过真实程序解析和部署验收。
 
 SHA-256 不是发布者签名。只有与可信构建记录核对后，才能确认来源；不要把校验成功当成正式发行或生产验收。
 

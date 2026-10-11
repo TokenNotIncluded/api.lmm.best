@@ -8,17 +8,16 @@ StartLimitBurst=3
 
 [Service]
 Type=exec
-DynamicUser=yes
 User=@PACKAGE@
-StateDirectory=@PACKAGE@
+Group=@PACKAGE@
+StateDirectory=lmm/@COMPONENT@
 StateDirectoryMode=0700
-RuntimeDirectory=@PACKAGE@
+RuntimeDirectory=lmm/@COMPONENT@
 RuntimeDirectoryMode=0700
-WorkingDirectory=/var/lib/@PACKAGE@
-EnvironmentFile=/etc/@PACKAGE@/service.env
-LoadCredential=@CREDENTIAL@:/etc/@PACKAGE@/@CREDENTIAL@
-Environment=@CREDENTIAL_ENV@=%d/@CREDENTIAL@
-ExecStart=/usr/bin/@PACKAGE@
+WorkingDirectory=/var/lib/lmm/@COMPONENT@
+ExecStart=/usr/bin/@PACKAGE@ --config /etc/lmm.conf.d/@COMPONENT@.toml
+StandardOutput=journal
+StandardError=journal
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=30min

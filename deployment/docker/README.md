@@ -1,118 +1,91 @@
 # 全新微内核 Docker 开发栈（WIP）
 
-本分支的部署默认面向新安装，不自动升级或转换旧数据库。真实快照的身份 ETL 已在隔离克隆库与独立本地核心目标库之间验证，完成时覆盖 888 位旧用户；资金记录、API Key 和 session 均未迁移，也未写入生产。该结果不是整站迁移或 Docker 部署验收。不要连接生产数据，不要把本栈部署成现有网站的替代品。
+本栈只用于全新、隔离的本地安装，不升级或清空旧站点数据库，不部署生产。产品只有 `lmm`、`lmm-core`、`lmm-extensions` 三个可执行程序；`core-init` 调用同一个 Rust 核心的离线子命令，不是第四个产品。
 
-Rust 位于 `services/core`。Go 扩展的唯一目录为 `services/extensions`，不再有 `apps/extensions-go` 或旧单体运行入口。身份、账号、团队和只读内部查询已有宿主入口。账本、计费、路由、转发及业务扩展需要按实际装配和测试分别验收，不能从模块存在推导整站已迁移。模块状态见[架构指南](../../docs/core-migration.md)。
+Compose 已拆开安装 owner 与运行时凭据，并提供[显式离线授权步骤](../postgres/README.md)。**本轮实际 Docker 集成验收尚待执行，不能把配置或文档检查当成容器部署通过。** 旧的单一 owner URL 初始化和运行方案已移除；运行时仍拒绝 owner 或权限不足的账户。
 
-核心成功启动后，`/health/live` 返回 200。配置受限数据库账户、完整 schema 和身份服务并通过检查后，`/health/ready` 可以返回 200，即使 `models` 为 `false`；模型入口默认关闭，`/health/model-ready` 此时返回 503。当前可选模型配置只支持显式开启的数字回环地址合成上游，流式和外部供应商尚未开放。readiness 不代表模型供应商健康、支付已挂载或功能已对齐 main。扩展健康检查只证明宿主可响应，不保证每项业务已经实现。
+真实快照的身份 ETL 曾在隔离克隆库与独立本地核心目标库之间验证，完成时覆盖 888 位旧用户；资金、API Key 和 session 未迁移，生产未写入。这是当时的身份迁移基线，不是当前用户总数或完整业务迁移。
 
-**当前 Docker 配置存在启动阻断。** `compose.identity.yml` 把同一数据库 URL 提供给 `core-init` 和运行服务；下面历史示例生成的是初始化 owner 账户。新的运行时权限检查会在监听前拒绝该账户，而不是启动后仅返回 readiness 503。初始化 owner 与受限 runtime 的凭据拆分、显式离线授权和 Docker 验收仍待完成。
+## 凭据与网络
 
-## 仅部署 Rust 核心
+本地 PostgreSQL 固定为已缓存的 18.6 镜像摘要。18 的数据卷挂载 `/var/lib/postgresql`，不要复用 17 的旧数据卷。数据库仅加入内部 `identity` 网络，不映射宿主端口；Go 不获得核心数据库网络、凭据或数据卷。核心网络随实际 Compose 项目命名为 `<项目名>-runtime`；扩展必须显式选择 `LMM_DOCKER_NETWORK`，RPC 两侧也必须明确选择同一个本次自有 `LMM_DOCKER_RPC_VOLUME`，不会默认连接一个固定共享卷。
 
-核心可以不部署 Go 扩展；无需配置内部 RPC。若使用独立 PostgreSQL，请使用
-[单核低内存部署说明](../../docs/core-standalone.md) 和
-`compose.core-standalone.yml` 覆盖文件。该模式的服务清单只有 `core`，
-不会启动 `extensions` 或本机 PostgreSQL；数据库仍是必要的独立依赖。
-它只能运行已接通的身份/账户功能，不能替代线上计费网关。
+| Compose 挂载路径变量 | 使用者 | 内容 |
+| --- | --- | --- |
+| `LMM_DOCKER_DATABASE_PASSWORD_SECRET_FILE` | PostgreSQL 容器 | `lmm_core_admin` 管理口令 |
+| `LMM_DOCKER_DATABASE_OWNER_URL_SECRET_FILE` | 仅离线 `core-init` | 管理员认证并切换到 NOLOGIN `lmm_core_owner` 的安装 URL |
+| `LMM_DOCKER_DATABASE_URL_SECRET_FILE` | 仅运行服务 `core` | `lmm_core_runtime` 的受限 URL |
+| `LMM_DOCKER_RPC_TOKEN_SECRET_FILE` | 配置 RPC 的核心和扩展 | 独立 RPC 服务口令 |
+| `LMM_DOCKER_EXTENSIONS_TOKEN_SECRET_FILE` | 仅扩展 | 独立扩展宿主口令 |
 
-## 历史新栈示例（当前不可直接执行）
+安装 URL 使用 `options=-c%20role%3Dlmm_core_owner`。runtime 不得拥有管理员或 owner 的成员资格，也不能读取安装 URL。核心镜像使用 UID/GID `65532:65532`，绑定挂载的核心 URL/RPC 文件须由该 UID/GID 持有且为 `0400`，宿主父目录保持 `0700`。文件从创建起保持私有；Compose 的 `uid`/`mode` 不能代替实际文件权限，不要用 `0444` 规避读取错误，也不挂载整个凭据目录。
 
-以下保留旧流程供修复时核对，**不是当前已验收可用的安装方案，不要整段照抄执行**。它缺少 owner/runtime 账户分离及 GRANT 步骤。原流程从仓库根目录执行，要求 Docker Engine、Compose v2、Bash 和 Python 3；当前 Compose 默认宿主端口实际为 18080/18081，旧示例中的 8080/8081 也需同步修正。本指南不使用现有生产 Compose 项目、数据库或密钥。
+## 只读 TOML 配置
 
-生成四份新凭证，已有文件时拒绝覆盖。宿主目录限制为 0700，文件只读以供容器专用 UID 读取。文件型 secret 不是加密密钥库；不要将此目录提交到 Git。
+镜像程序与 Linux 包统一安装到 `/usr/bin/lmm-core`、`/usr/bin/lmm-extensions`。运行进程显式使用 `--config /etc/lmm.conf.d/core.toml` 或 `--config /etc/lmm.conf.d/extensions.toml`。Compose `configs` 只读挂载非秘密 TOML；配置内仅引用单独挂载的秘密文件，不填写密码或 URL。文件模式拒绝旧业务环境变量，本栈不使用 `--legacy-env`。上表的 `LMM_DOCKER_*` 仅供 Compose 选择宿主文件，不传给核心或扩展。
 
-```text
-# 历史记录：运行账户权限尚未配置，以下流程不能完成当前核心启动。
-umask 077
-python3 - <<'PY'
-from pathlib import Path
-import secrets
-root = Path('deployment/docker/.secrets')
-root.mkdir(mode=0o700, parents=True, exist_ok=True)
-root.chmod(0o700)
-password = secrets.token_hex(32)
-values = {
-    'identity-password': password,
-    'identity-url': f'postgres://lmm_core:{password}@core-db:5432/lmm_core',
-    'core-rpc-token': secrets.token_hex(32),
-    'extensions-token': secrets.token_hex(32),
-}
-if any((root / name).exists() for name in values):
-    raise SystemExit('Credential file already exists; nothing was overwritten.')
-for name, value in values.items():
-    path = root / name
-    with path.open('x') as file:
-        file.write(value + '\n')
-    path.chmod(0o444)
-PY
-export LMM_CORE_DATABASE_PASSWORD_SECRET_FILE="$PWD/deployment/docker/.secrets/identity-password"
-export LMM_CORE_DATABASE_URL_SECRET_FILE="$PWD/deployment/docker/.secrets/identity-url"
-export LMM_CORE_RPC_TOKEN_SECRET_FILE="$PWD/deployment/docker/.secrets/core-rpc-token"
+覆盖文件选择 [config](config/) 中的完整版本 1 模板：基础核心没有数据库；identity 加受限数据库；RPC 版本再加 socket 与口令；standalone 保持低资源限制。`core-init.toml` 仅引用 owner URL，离线工具也显式选择此文件。RPC 核心覆盖必须同时使用 identity 或 standalone 数据库覆盖。
 
+需要其他功能时，复制并审查完整 TOML，通过绝对路径 `LMM_DOCKER_CORE_CONFIG_FILE`、`LMM_DOCKER_INIT_CONFIG_FILE` 或 `LMM_DOCKER_EXTENSIONS_CONFIG_FILE` 选择；Compose 不拼接 TOML 段落。文件内路径必须是容器中的绝对路径，相关配置和秘密须另行只读挂载。修改普通 TOML 不会执行初始化或授权。
+
+可选 legal 覆盖要求显式提供完整的 `LMM_DOCKER_EXTENSIONS_CONFIG_FILE`，其中 `[legal] config_file = "/etc/lmm.conf.d/legal.toml"`，以及 `LMM_DOCKER_LEGAL_CONFIG_FILE` 指向运营方法律文档 TOML。`config/extensions-legal.toml` 是未启用 RPC 的独立示例；同时使用 RPC 时须在完整配置中保留其模块和 `[core]` 设置，不能把添加法律文档当成关闭现有模块。覆盖文件只挂载法律配置本身；自定义模板目录需另加对应只读挂载，或使用镜像内置模板。
+
+## 显式安装顺序
+
+先为一个全新随机命名的本地项目准备上述绝对路径凭据文件，默认端口为核心 `18080`、扩展 `18081`；不得使用已有服务、卷或生产凭据。将 `LMM_LOCAL_CORE_PROJECT` 设置为本次随机项目名，再选择其网络和全新 RPC 卷。以下命令从仓库根目录执行：
+
+```sh
+export LMM_DOCKER_NETWORK="${LMM_LOCAL_CORE_PROJECT:?Set a new random project}-runtime"
+export LMM_DOCKER_RPC_VOLUME="${LMM_LOCAL_CORE_PROJECT}-rpc"
 dc() {
-  docker compose -f deployment/docker/compose.core.yml \
+  mise exec -- docker --host unix:///var/run/docker.sock compose \
+    -p "$LMM_LOCAL_CORE_PROJECT" \
+    -f deployment/docker/compose.core.yml \
     -f deployment/docker/compose.identity.yml \
     -f deployment/docker/compose.rpc-core.yml "$@"
 }
-de() {
-  docker compose -f deployment/docker/compose.extensions.yml \
-    -f deployment/docker/compose.rpc-extensions.yml "$@"
-}
-
 dc build core
 dc up -d --wait core-db
-# 一次性空库安装；不是可重复执行的升级命令。
+# 显式创建角色；已有同名角色拒绝。
+dc exec -T core-db psql -X -U lmm_core_admin -d lmm_core \
+  -v ON_ERROR_STOP=1 < deployment/postgres/create-core-roles.sql
+```
+
+此时 runtime 尚无密码。使用交互式 psql 的 `\password lmm_core_runtime` 设置与 runtime URL 一致的口令，见[离线角色说明](../postgres/README.md)。不要把密码放进命令行或日志。随后才安装、显式授权、启动：
+
+```sh
 dc --profile tools run --rm -T core-init
-dc up -d core
-de up -d --build extensions
-curl -f http://127.0.0.1:8080/health/live
-curl -f http://127.0.0.1:8081/health/live
-# 历史预期，已过时；当前 owner 账户会使 core 在监听前退出。
-curl -i http://127.0.0.1:8080/health/ready
+# 启用 RPC 需要 events；其他模块仍默认不授权。
+dc exec -T core-db psql -X -U lmm_core_admin -d lmm_core \
+  -v ON_ERROR_STOP=1 -v enable_events=true \
+  < deployment/postgres/grant-core-runtime.sql
+dc up -d --no-deps core
+curl --fail http://127.0.0.1:${LMM_DOCKER_CORE_PORT:-18080}/health/live
+curl --fail http://127.0.0.1:${LMM_DOCKER_CORE_PORT:-18080}/health/ready
+curl -i http://127.0.0.1:${LMM_DOCKER_CORE_PORT:-18080}/health/model-ready
 ```
 
-`core-init` 是一次性 Compose 工具服务，调用同一个 `lmm-core init-db`，不是第四个程序。`init-db` 在一个事务中安装 8 个组件：identity、ledger、payments、charging、routing、events、charging-ledger 和 migration，并记录组件契约与完整 catalog 指纹。数据库已有应用对象时拒绝，第二次执行同样拒绝，不会删表或清空数据。普通启动检查运行账户权限、完整结构契约及实时 catalog 指纹，不自动安装、升级或修复。安装某个 schema 不等于对应 HTTP 业务已经挂载。
+`init-db` 一次事务安装当前完整契约的 11 个组件：identity、ledger、payments、charging、routing、events、charging-ledger、migration、console、model-gateway、commerce。已有应用对象或重复安装拒绝，不删表、不清库。普通启动校验运行账户权限、完整组件契约及实时 catalog 指纹，不创建角色、不 GRANT、不安装或升级 schema。安装组件不等于其 HTTP 业务已启用。
 
-数据库只加入内部 `identity` 网络，不映射宿主端口。只有核心和离线管理命令可以访问。Go 不获得数据库网络、密码或数据卷。修复部署流程时，应只给离线初始化提供 owner 凭据，运行服务只挂载受限 runtime URL；显式授权由离线管理步骤完成，不能改成普通启动自动授权。权限要求见[运行时检查](../../services/core/src/runtime_database.rs)，[隔离测试中的授权设置](../../services/core/tests/common/runtime.rs)仅作为参考；启用 RPC 还需要 `core_events` 权限。runtime 不能拥有应用对象、切换到 owner，或直接写不可变账本表。当前 Compose 尚未实现这些步骤。
+配置完整身份和数据库后，`/health/ready` 可以返回 200，即使 `models` 为 `false`；模型默认关闭时 `/health/model-ready` 返回 503。这不证明供应商健康、支付已启用或功能对齐 main。
 
-核心与扩展是两个独立 Compose 项目。共同网络名称是 `lmm-core-backplane`；核心先创建网络与 socket 卷，扩展只引用外部资源。socket 目录在 Go 容器中只读。详细接口见 [身份指南](../../docs/core-identity.md) 和 [通信指南](../../docs/core-protocol.md)。
+## 独立核心与扩展
 
-## 只更新扩展
+独立核心使用基础 Compose 加 `compose.core-standalone.yml`，不加 RPC 覆盖文件。默认服务只有 `core`；离线 `core-init` 仅在 `tools` profile 中可用。它不启动 Go 或本机数据库，独立数据库的角色创建及授权仍需显式离线执行。[低内存说明](../../docs/core-standalone.md)中的旧单 URL 命令不能替代这里的凭据分离。
 
-以下维护命令仅适用于已完成账户分离、授权并通过验收的隔离栈。保持 `dc`、`de` 的完整文件组合；历史示例中的函数定义不代表核心已可启动。不要为了更新 Go 重建核心或数据库。
+扩展使用独立项目及 `compose.extensions.yml`、`compose.rpc-extensions.yml`。RPC 使用 socket 卷，Go 的 socket 挂载只读；两个项目通过相同的 `LMM_DOCKER_RPC_VOLUME` 选择本次自有卷。更新 Go 时保持完整覆盖文件，只重建扩展，不重建核心或数据库。接口见[身份指南](../../docs/core-identity.md)和[通信指南](../../docs/core-protocol.md)。
+
+`--build` 只适用于开发机，运行资源限制不限制构建过程。核心 Compose 停止宽限为 30 分钟，扩展 35 秒，不保证单节点更新不断流；双核心切换、长流、排空、恢复和 1C1G 工作负载需另行验收。
+
+## 验证与清理
 
 ```sh
-de up -d --build --no-deps extensions
+mise exec -- python3 -B scripts/test-core-boundaries.py
+mise exec -- python3 -B -m unittest discover -s scripts -p test_core_rpc_fixture.py
+# 仅在最终源码冻结后运行，避免重复冷构建：
+mise exec -- python3 -B scripts/test-core-rpc-docker.py
 ```
 
-`--build` 只用于开发机。之后的发布应使用独立构建机和固定镜像摘要，不在资源紧张的核心主机编译。运行容器的资源限制不限制镜像构建过程。
+离线 fixture 验证私有文件创建、精确单文件挂载参数、原 inode 轮换及可捕获信号退出后恢复 `0400`。Compose 客户端检查另验证八种覆盖组合中的 TOML、命令和凭据隔离；这些检查不证明真实容器挂载或二进制能启动。Docker 脚本只连接本机 Docker socket，创建随机项目、合成凭据、隔离端口及自有卷，验证安装、owner/缺权限拒绝、受限身份 readiness、RPC 和恢复，并仅清理本次创建的资源。本指南尚不声称新增容器断言已经通过。
 
-Go 的 CPU、内存和进程名额独立配置。单个模块最多同时处理 8 个请求，满额立即返回 503；其他模块和健康检查不排在它后面。这不是不可信代码沙箱，也不能隔离宿主机或共享数据库的全部故障。
-
-只停止开发服务、保留数据：
-
-```sh
-de down
-dc down
-```
-
-不要添加 `--volumes`。不要用缺少身份或 RPC 覆盖文件的基础命令重建已经启用这些功能的核心。
-
-## 验证与剩余边界
-
-```sh
-python3 -B scripts/test-core-boundaries.py
-# 先修复账户分离、授权步骤及脚本，再执行 Docker 集成验收：
-# python3 -B scripts/test-core-rpc-docker.py
-```
-
-现有 Docker 脚本仍使用同一 owner URL，尚未适配新的权限检查，不能作为当前部署已通过的证据。修复后应在随机命名的临时测试项目验证新库安装、重复安装拒绝、owner 运行拒绝、受限账户启动、实际 Protobuf 查询、团队权限、扩展独立重建、核心重启重连、数据库故障与恢复、Key 撤销，并仅清理本次创建的测试数据卷。文档检查或本机原生进程验收不能代替这项 Docker 验证。
-
-单容器重启无法保证正在输出的 token 不断。当前 Compose 停止宽限为核心 30 分钟、扩展 35 秒；这不是无损承诺，也不能代替核心内部排空和持久化恢复验证。双核心切换、真实长流、结算排空、数据库故障恢复和性能测试仍是上线前的独立验收项目。本栈未接入生产反向代理或自动发布。
-
-## 可选协议配置与独立分发
-
-协议默认关闭。按[模板指南](../../docs/legal/README.md)准备 `site.json` 及模板目录后，给扩展的完整文件组合追加 `-f deployment/docker/compose.legal.yml`，并导出 `LMM_LEGAL_DIRECTORY`。该目录只读挂载；每次扩展更新必须保留相同覆盖文件。核心无需这些文件，也不因协议更新而重启。
-
-镜像默认仍生成运行时镜像；`--target binaries` 只导出构建好的程序。不要把该空基础导出阶段当作可运行镜像。归档、校验和预览工作流见[打包指南](../../docs/release-architecture.md)。
+手工栈只停止对应随机项目，保留数据；不要顺手增加 `--volumes`，不清理其他人的项目或卷。可选协议默认关闭，按[模板指南](../../docs/legal/README.md)配置 `/etc/lmm.conf.d/legal.toml`、明确的绝对 `template_root` 与 `compose.legal.yml`，运营方 TOML 不打包。只读模板位于 `/usr/share/lmm/legal/`。进程运行设置使用 TOML，Compose 的路径插值变量只决定挂载；完整路径约定见[配置与文件路径](../../docs/filesystem-layout.md)。`--target binaries` 只导出程序，不是运行镜像；预览归档见[独立分发](../../docs/release-architecture.md)。本栈不接生产反向代理、自动发布或生产部署。

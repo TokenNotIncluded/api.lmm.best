@@ -1,0 +1,24 @@
+# Non-secret runtime configuration; install as /etc/lmm.conf.d/extensions.toml.
+# Provision an independently generated private host token (service-owned 0600).
+version = 1
+
+[host]
+listen = "127.0.0.1:8081"
+token_file = "/etc/lmm.conf.d/secrets/extensions/host-token"
+modules = ["none"]
+web_compat = false
+
+# Enable a module only after provisioning its narrow credentials and storage.
+# No core database credential belongs in this file or this service.
+# [core]
+# socket = "/run/lmm/core/core.sock"
+# identity_token_file = "/etc/lmm.conf.d/secrets/extensions/core-rpc-token"
+# commerce_token_file = "/etc/lmm.conf.d/secrets/extensions/commerce-rpc-token"
+# [store]
+# database_name = "lmm_store"
+# database_url_file = "/etc/lmm.conf.d/secrets/extensions/store-database-url"
+# [support]
+# database_name = "lmm_support"
+# database_url_file = "/etc/lmm.conf.d/secrets/extensions/support-database-url"
+# [legal]
+# config_file = "/etc/lmm.conf.d/legal.toml"

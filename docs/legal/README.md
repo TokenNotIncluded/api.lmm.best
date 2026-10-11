@@ -4,11 +4,11 @@
 
 ## 配置一次，独立分发
 
-扩展分发包带有 `config/legal/site.example.json` 和 `config/legal/templates/`。Docker 镜像中位于 `/usr/share/lmm/legal`。它们不含站点名称、运营主体、联系方式、金额、退款天数或指定司法地区；`published` 默认为 `false`。
+扩展分发包带有 `config/legal/site.example.toml` 和 `config/legal/templates/`。Docker 镜像与原生 Linux 包的只读资源位于 `/usr/share/lmm/legal`。它们不含站点名称、运营主体、联系方式、金额、退款天数或指定司法地区；`published` 默认为 `false`。运行配置遵循[固定 TOML 与目录规则](../filesystem-layout.md)。
 
-1. 将整个示例目录复制到自己的配置目录，保留 `templates/` 相对位置。将 `site.example.json` 另存为 `site.json`，不要在安装目录内直接改默认文件。
+1. 将 `site.example.toml` 另存为 `/etc/lmm.conf.d/legal.toml`。模板可使用已安装的只读目录，或复制到操作者独立维护的绝对路径；将 `template_root` 设置为该目录。文档路径相对于这个明确的根目录，不相对于当前工作目录。不要在软件包目录内直接改运营配置。
 2. 填写所有被模板引用的 `variables`，编辑各语言的 Markdown。占位符只支持 `{{variable_name}}`，没有代码执行、文件包含或环境变量读取。字段不会自动翻译；不同语言的长条款可直接写进对应 Markdown。
-3. 审查完成后将 `published` 设为 `true`，设置 `LMM_LEGAL_CONFIG_FILE=/你的配置目录/site.json`，重启扩展进程。无需重编译，也无需重启核心。
+3. 审查完成后将 `published` 设为 `true`，在 `/etc/lmm.conf.d/extensions.toml` 的 `[legal]` 中设置 `config_file="/etc/lmm.conf.d/legal.toml"`，明确重启扩展进程。无需重编译，也无需重启核心。
 
 默认配置不能直接发布。缺少变量、空白条款、残留占位符、未知文档、缺少默认语言、越界路径、符号链接或过大文件都会使已启用的配置加载失败。配置文件最多 64 KiB，单篇文档最多 128 KiB；每个文档最多 8 种语言。
 
@@ -34,4 +34,4 @@
 
 反向代理只把上述三个精确公共路径转给扩展；不要向浏览器开放 `/extensions/v1/`，也不要下发宿主服务凭证。旧 `/legal/terms.html`、`/legal/privacy.html` 和 `/legal/safety-review.html` 只保留本站页面跳转，不再携带写死的运营政策。
 
-Docker 可追加 `deployment/docker/compose.legal.yml`，并设置 `LMM_LEGAL_DIRECTORY` 指向审查后的目录。该目录只读挂载；后续每次扩展更新都要保留此覆盖文件。模板随程序升级，运营方已发布的配置不会被覆盖。
+Docker 可追加 `deployment/docker/compose.legal.yml`，以只读挂载提供审查后的 TOML 和明确的模板根目录。`LMM_LEGAL_DIRECTORY` 等 Compose 插值变量只用于构造挂载，不是进程读取的运行配置；以当前 Compose 文件的明确契约为准。后续每次扩展更新都要保留此覆盖文件。模板随程序升级，运营方已发布的配置不会被覆盖。旧 `site.json` 与 `LMM_LEGAL_CONFIG_FILE` 属于旧版本流程，不能直接传给新的 TOML 解析器。

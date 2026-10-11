@@ -41,8 +41,8 @@ class NativePackageTests(fixtures.PackageTests):
         subprocess.run(["dpkg", "--compare-versions", version, "lt", "0.1.0-1"], check=True)
         target = self.work / "unpacked"
         subprocess.run(["dpkg-deb", "--raw-extract", str(package), str(target)], check=True)
-        self.assertIn("/etc/lmm-core/service.env", (target / "DEBIAN/conffiles").read_text())
-        self.assertEqual((target / "etc/lmm-core/service.env").stat().st_mode & 0o777, 0o600)
+        self.assertIn("/etc/lmm.conf.d/core.toml", (target / "DEBIAN/conffiles").read_text())
+        self.assertEqual((target / "etc/lmm.conf.d/core.toml").stat().st_mode & 0o777, 0o644)
         info = json.loads((target / "usr/share/doc/lmm-core/BUILDINFO.json").read_text())
         for path, expected in info["files"].items():
             file = target / path.lstrip("/")

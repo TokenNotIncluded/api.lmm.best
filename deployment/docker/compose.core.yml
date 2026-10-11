@@ -1,14 +1,16 @@
 name: lmm-core
 services:
   core:
-    image: lmm-core:${LMM_CORE_IMAGE_TAG:-dev}
+    image: lmm-core:${LMM_DOCKER_CORE_IMAGE_TAG:-dev}
     build:
       context: ../..
       dockerfile: deployment/docker/core.Dockerfile
     ports:
-      - "127.0.0.1:${LMM_CORE_PORT:-18080}:8080"
-    environment:
-      LMM_CORE_LISTEN: "0.0.0.0:8080"
+      - "127.0.0.1:${LMM_DOCKER_CORE_PORT:-18080}:8080"
+    command: [--config, /etc/lmm.conf.d/core.toml]
+    configs:
+      - source: core_config
+        target: /etc/lmm.conf.d/core.toml
     restart: unless-stopped
     stop_grace_period: 30m
     read_only: true
@@ -21,4 +23,7 @@ services:
     networks: [core]
 networks:
   core:
-    name: lmm-core-runtime
+    name: ${COMPOSE_PROJECT_NAME}-runtime
+configs:
+  core_config:
+    file: ${LMM_DOCKER_CORE_CONFIG_FILE:-./config/core-base.toml}

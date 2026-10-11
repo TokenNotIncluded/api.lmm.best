@@ -1,9 +1,8 @@
 # Combine with compose.core.yml for a fresh-install core database.
-# Run lmm-core init-db once. Startup never creates or upgrades tables.
+# Explicitly create roles, run lmm-core init-db once, then grant runtime access.
+# See deployment/postgres/README.md. Startup never installs schema or grants.
 services:
   core:
-    environment:
-      LMM_CORE_DATABASE_URL_FILE: /run/secrets/core_database_url
     secrets: [core_database_url]
     networks: [core, identity]
     depends_on:
@@ -11,14 +10,15 @@ services:
         condition: service_healthy
 
   core-db:
-    image: postgres:17-alpine
+    image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
     environment:
       POSTGRES_DB: lmm_core
-      POSTGRES_USER: lmm_core
+      POSTGRES_USER: lmm_core_admin
       POSTGRES_PASSWORD_FILE: /run/secrets/core_database_password
     secrets: [core_database_password]
     volumes:
-      - core-identity-data:/var/lib/postgresql/data
+      # PostgreSQL 18 keeps PGDATA below this parent. Use a new isolated volume.
+      - core-database-data:/var/lib/postgresql
     tmpfs:
       - /var/run/postgresql
       - /tmp
@@ -30,7 +30,7 @@ services:
     pids_limit: 128
     command: [postgres, -c, max_connections=32, -c, shared_buffers=64MB]
     healthcheck:
-      test: [CMD, pg_isready, -U, lmm_core, -d, lmm_core]
+      test: [CMD, pg_isready, -U, lmm_core_admin, -d, lmm_core]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -38,12 +38,13 @@ services:
 
   core-init:
     profiles: [tools]
-    image: lmm-core:${LMM_CORE_IMAGE_TAG:-dev}
-    entrypoint: [/usr/local/bin/lmm-core]
-    command: [init-db]
-    environment:
-      LMM_CORE_DATABASE_URL_FILE: /run/secrets/core_database_url
-    secrets: [core_database_url]
+    image: lmm-core:${LMM_DOCKER_CORE_IMAGE_TAG:-dev}
+    entrypoint: [/usr/bin/lmm-core]
+    command: [--config, /etc/lmm.conf.d/core.toml, init-db]
+    configs:
+      - source: core_init_config
+        target: /etc/lmm.conf.d/core.toml
+    secrets: [core_database_owner_url]
     networks: [identity]
     depends_on:
       core-db:
@@ -61,9 +62,16 @@ networks:
   identity:
     internal: true
 volumes:
-  core-identity-data:
+  core-database-data:
 secrets:
   core_database_url:
-    file: ${LMM_CORE_DATABASE_URL_SECRET_FILE:?Set an absolute database URL secret file}
+    file: ${LMM_DOCKER_DATABASE_URL_SECRET_FILE:?Set an absolute restricted runtime URL secret file}
+  core_database_owner_url:
+    file: ${LMM_DOCKER_DATABASE_OWNER_URL_SECRET_FILE:-./.secrets/core-database-owner-url}
   core_database_password:
-    file: ${LMM_CORE_DATABASE_PASSWORD_SECRET_FILE:?Set an absolute database password secret file}
+    file: ${LMM_DOCKER_DATABASE_PASSWORD_SECRET_FILE:?Set an absolute database password secret file}
+configs:
+  core_config:
+    file: ${LMM_DOCKER_CORE_CONFIG_FILE:-./config/core-identity.toml}
+  core_init_config:
+    file: ${LMM_DOCKER_INIT_CONFIG_FILE:-./config/core-init.toml}

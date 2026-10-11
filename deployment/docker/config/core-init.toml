@@ -1,0 +1,5 @@
+# Offline init-db/bootstrap only; contains no runtime or RPC credential reference.
+version = 1
+[database]
+url_file = "/run/secrets/core_database_owner_url"
+max_connections = 2

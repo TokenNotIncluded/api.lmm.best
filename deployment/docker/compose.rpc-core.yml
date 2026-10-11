@@ -1,15 +1,16 @@
-# Combine with compose.core.yml (and optionally compose.identity.yml).
+# Combine with compose.core.yml and compose.identity.yml (or core-standalone).
+# The complete RPC template requires the separately mounted runtime URL secret.
 services:
   core:
-    environment:
-      LMM_CORE_RPC_SOCKET: /run/lmm-core-rpc/core.sock
-      LMM_CORE_RPC_TOKEN_FILE: /run/secrets/core_rpc_token
     secrets: [core_rpc_token]
     volumes:
       - core-rpc:/run/lmm-core-rpc
 secrets:
   core_rpc_token:
-    file: ${LMM_CORE_RPC_TOKEN_SECRET_FILE:-./.secrets/core-rpc-token}
+    file: ${LMM_DOCKER_RPC_TOKEN_SECRET_FILE:-./.secrets/core-rpc-token}
 volumes:
   core-rpc:
-    name: ${LMM_CORE_RPC_VOLUME:-lmm-core-rpc}
+    name: ${LMM_DOCKER_RPC_VOLUME:?Set an isolated core RPC volume name}
+configs:
+  core_config:
+    file: ${LMM_DOCKER_CORE_CONFIG_FILE:-./config/core-identity-rpc.toml}

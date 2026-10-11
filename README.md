@@ -24,6 +24,7 @@
 | 了解边界与剩余工作 | [架构与状态](docs/core-migration.md) |
 | 启动隔离环境 | [Docker 开发栈](deployment/docker/README.md) |
 | 使用 mise 开发、测试 | [开发指南](docs/development.md) |
+| 统一 TOML 配置、服务目录与升级保留规则 | [配置与文件路径](docs/filesystem-layout.md) |
 | 配置用户、隐私、退款协议 | [协议模板](docs/legal/README.md) |
 | 构建和检查分发包 | [打包与分发](docs/release-architecture.md) |
 | 查阅详细接口及历史资料 | [文档目录](docs/README.md) |
@@ -39,6 +40,8 @@
 `lmm` 客户端独立维护于 [TokenNotIncluded/lmm](https://github.com/TokenNotIncluded/lmm)，通过 `apps/cli` Git 子模块固定版本；首次检出运行 `git submodule update --init --depth 1 -- apps/cli`。客户端使用 Rust，当前能力及 Magpie 对齐进度见[客户端说明](https://github.com/TokenNotIncluded/lmm#readme)。
 
 `apps/web` 输出独立的静态 Web 包，由 Web 服务器提供，不新增可执行程序。`contracts` 保存跨进程契约，`config/legal` 保存可编辑协议草稿，`packaging/distribution.json` 定义各分发包的内容。
+
+新安装的服务配置使用 `/etc/lmm.conf.d/core.toml` 和 `/etc/lmm.conf.d/extensions.toml`，通过固定文件或显式 `--config` 读取。私密文件、状态和临时目录分别位于 `/etc/lmm.conf.d/secrets/<服务>/`、`/var/lib/lmm/<服务>/`、`/run/lmm/<服务>/`；完整规则及旧包迁移边界见[配置与文件路径](docs/filesystem-layout.md)。路径统一不代表旧安装已自动转换或业务验收已完成。
 
 核心与扩展使用独立 Compose 项目。更新扩展不应重启核心或其数据库。核心健康接口可响应，不表示模型接口已就绪。当前公共协议读取无需核心服务；其他业务仍须逐项完成接入和验收。
 

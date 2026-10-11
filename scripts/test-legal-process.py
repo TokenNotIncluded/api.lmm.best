@@ -9,9 +9,33 @@ import socket
 import subprocess
 import tempfile
 import time
+import tomllib
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def toml_string(value):
+    return json.dumps(value, ensure_ascii=False)
+
+
+def legal_toml(config):
+    """Write this fixture's fixed schema; tomllib remains the TOML parser."""
+    lines = [
+        f"version = {config['version']}",
+        f"published = {'true' if config['published'] else 'false'}",
+        f"default_language = {toml_string(config['default_language'])}",
+        f"template_root = {toml_string(config['template_root'])}",
+        "",
+        "[variables]",
+    ]
+    lines += [f"{toml_string(key)} = {toml_string(value)}"
+              for key, value in config["variables"].items()]
+    for name, translations in config["documents"].items():
+        lines += ["", f"[documents.{toml_string(name)}]"]
+        lines += [f"{toml_string(language)} = {toml_string(path)}"
+                  for language, path in translations.items()]
+    return "\n".join(lines) + "\n"
 
 
 class LegalProcessTests(unittest.TestCase):
@@ -22,14 +46,16 @@ class LegalProcessTests(unittest.TestCase):
         self.binary = str(Path(executable).resolve())
         temporary = tempfile.TemporaryDirectory()
         self.addCleanup(temporary.cleanup)
-        self.root = Path(temporary.name)
+        self.root = Path(temporary.name).resolve()
         shutil.copytree(ROOT / "config/legal", self.root / "legal")
-        self.config = json.loads((self.root / "legal/site.example.json").read_text())
+        self.config = tomllib.loads((self.root / "legal/site.example.toml").read_text())
         self.config["published"] = True
+        self.config["template_root"] = str(self.root / "legal")
         for key in self.config["variables"]:
             self.config["variables"][key] = "Isolated test value"
         self.config["variables"]["service_name"] = "Isolated policy test"
-        self.path = self.root / "legal/site.json"
+        self.path = self.root / "legal.toml"
+        self.host_path = self.root / "extensions.toml"
         (self.root / "token").write_text("test-only-host-credential-" * 3)
         (self.root / "token").chmod(0o600)
         self.process = None
@@ -46,16 +72,31 @@ class LegalProcessTests(unittest.TestCase):
             self.process = None
 
     def start(self):
-        self.path.write_text(json.dumps(self.config))
+        policy = legal_toml(self.config)
+        # Validate the generated fixture with the standard parser before the
+        # Go child reads it; this writer is not an alternative TOML parser.
+        self.assertEqual(tomllib.loads(policy), self.config)
+        self.path.write_text(policy, encoding="utf-8")
         with socket.socket() as listener:
             listener.bind(("127.0.0.1", 0))
             self.port = listener.getsockname()[1]
+        host_config = (
+            "version = 1\n"
+            "[host]\n"
+            f"listen = {toml_string(f'127.0.0.1:{self.port}')}\n"
+            f"token_file = {toml_string(str(self.root / 'token'))}\n"
+            'modules = ["none"]\n'
+            "web_compat = false\n"
+            "[legal]\n"
+            f"config_file = {toml_string(str(self.path))}\n"
+        )
+        self.host_path.write_text(host_config, encoding="utf-8")
+        # The host deliberately rejects legacy runtime environment variables.
+        # Do not inherit developer service credentials or database connection
+        # settings into this isolated policy-only child.
         env = {key: value for key, value in os.environ.items()
                if not key.startswith("LMM_") and key not in {"SQL_DSN", "LOG_SQL_DSN", "DATABASE_URL"}}
-        env.update(LMM_EXTENSION_LISTEN=f"127.0.0.1:{self.port}",
-                   LMM_EXTENSION_TOKEN_FILE=str(self.root / "token"),
-                   LMM_EXTENSION_MODULES="none", LMM_LEGAL_CONFIG_FILE=str(self.path))
-        self.process = subprocess.Popen([self.binary], env=env,
+        self.process = subprocess.Popen([self.binary, "--config", str(self.host_path)], env=env,
                                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         deadline = time.monotonic() + 10
         while time.monotonic() < deadline:

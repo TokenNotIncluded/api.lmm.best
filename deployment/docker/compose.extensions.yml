@@ -1,15 +1,17 @@
 name: lmm-extensions
 services:
   extensions:
-    image: lmm-extensions:${LMM_EXTENSIONS_IMAGE_TAG:-dev}
+    image: lmm-extensions:${LMM_DOCKER_EXTENSIONS_IMAGE_TAG:-dev}
     build:
       context: ../..
       dockerfile: deployment/docker/extensions.Dockerfile
     ports:
-      - "127.0.0.1:${LMM_EXTENSIONS_PORT:-18081}:8081"
+      - "127.0.0.1:${LMM_DOCKER_EXTENSIONS_PORT:-18081}:8081"
+    command: [--config, /etc/lmm.conf.d/extensions.toml]
+    configs:
+      - source: extensions_config
+        target: /etc/lmm.conf.d/extensions.toml
     environment:
-      LMM_EXTENSION_LISTEN: "0.0.0.0:8081"
-      LMM_EXTENSION_TOKEN_FILE: /run/secrets/extension_token
       GOMEMLIMIT: 128MiB
     secrets: [extension_token]
     restart: unless-stopped
@@ -23,8 +25,11 @@ services:
     networks: [core]
 secrets:
   extension_token:
-    file: ./.secrets/extensions-token
+    file: ${LMM_DOCKER_EXTENSIONS_TOKEN_SECRET_FILE:-./.secrets/extensions-token}
+configs:
+  extensions_config:
+    file: ${LMM_DOCKER_EXTENSIONS_CONFIG_FILE:-./config/extensions-base.toml}
 networks:
   core:
-    name: lmm-core-runtime
+    name: ${LMM_DOCKER_NETWORK:?Set the selected core project runtime network}
     external: true

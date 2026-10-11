@@ -1,10 +1,13 @@
 """Offline fixture regressions; real Docker bind mounts are tested separately."""
 import importlib.util
+import json
 import os
 from pathlib import Path
 import stat
+import shutil
 import subprocess
 import tempfile
+from types import SimpleNamespace
 import unittest
 from unittest import mock
 
@@ -16,6 +19,14 @@ SPEC.loader.exec_module(FIXTURE)
 
 
 class PrivateFixtureTests(unittest.TestCase):
+    def test_docker_commands_pin_local_socket_and_keep_secret_input_off_argv(self):
+        with mock.patch.object(FIXTURE.subprocess, "run", return_value=SimpleNamespace(stdout="ok\n")) as run:
+            self.assertEqual(FIXTURE.run("docker", "version", data="synthetic-private-input"), "ok")
+        self.assertEqual(run.call_args.args[0],
+                         ("docker", "--host", "unix:///var/run/docker.sock", "version"))
+        self.assertEqual(run.call_args.kwargs["input"], "synthetic-private-input")
+        self.assertNotIn("synthetic-private-input", run.call_args.args[0])
+
     def test_secrets_are_private_from_creation_and_never_overwritten(self):
         with tempfile.TemporaryDirectory() as directory:
             temp = Path(directory)
@@ -28,7 +39,7 @@ class PrivateFixtureTests(unittest.TestCase):
 
             with mock.patch.object(FIXTURE.os, "fdopen", side_effect=private_writer) as opened:
                 FIXTURE.write_fixture_secrets(temp, values)
-                self.assertEqual(opened.call_count, 4)
+                self.assertEqual(opened.call_count, len(FIXTURE.SECRET_NAMES))
             for name, value in values.items():
                 path = temp / name
                 self.assertEqual(path.read_text(), value)
@@ -140,6 +151,79 @@ class PrivateFixtureTests(unittest.TestCase):
                     self.assertNotEqual(result.returncode, 0)
                     self.assertEqual(path.stat().st_ino, inode)
                     self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o400)
+
+
+@unittest.skipUnless(shutil.which("docker"), "Docker Compose client is not installed")
+class ComposeConfigurationTests(unittest.TestCase):
+    def test_actual_compose_overlays_keep_file_only_configuration_and_authority_separate(self):
+        # `compose config` needs only the local client. It creates no containers,
+        # networks, volumes, database roles or processes from these definitions.
+        with tempfile.TemporaryDirectory(prefix="lmm-compose-contract-") as directory:
+            temp = Path(directory)
+            env = {key: value for key, value in os.environ.items()
+                   if not key.startswith(("LMM_DOCKER_", "COMPOSE_"))}
+            env.update(COMPOSE_DISABLE_ENV_FILE="true",
+                       LMM_DOCKER_DATABASE_URL_SECRET_FILE=str(temp / "runtime-url"),
+                       LMM_DOCKER_DATABASE_OWNER_URL_SECRET_FILE=str(temp / "owner-url"),
+                       LMM_DOCKER_DATABASE_PASSWORD_SECRET_FILE=str(temp / "password"),
+                       LMM_DOCKER_RPC_TOKEN_SECRET_FILE=str(temp / "rpc-token"),
+                       LMM_DOCKER_EXTENSIONS_TOKEN_SECRET_FILE=str(temp / "host-token"),
+                       LMM_DOCKER_NETWORK="lmm-compose-contract-runtime",
+                       LMM_DOCKER_RPC_VOLUME="lmm-compose-contract-rpc",
+                       LMM_DOCKER_LEGAL_CONFIG_FILE=str(FIXTURE.ROOT / "config/legal/site.example.toml"))
+            for name in ("runtime-url", "owner-url", "password", "rpc-token", "host-token"):
+                (temp / name).touch(mode=0o600)
+
+            def render(files, tools=False, without=None):
+                selected_env = env.copy()
+                if "legal" in files:
+                    selected_env["LMM_DOCKER_EXTENSIONS_CONFIG_FILE"] = str(
+                        FIXTURE.DOCKER / "config/extensions-legal.toml")
+                if without:
+                    selected_env.pop(without, None)
+                args = ["docker", "--host", FIXTURE.DOCKER_ENDPOINT, "compose", "-p", "lmm-compose-contract"]
+                for name in files:
+                    args += ["-f", str(FIXTURE.DOCKER / ("compose." + name + ".yml"))]
+                if tools:
+                    args += ["--profile", "tools"]
+                result = subprocess.run([*args, "config", "--format", "json"],
+                                        cwd=FIXTURE.ROOT, env=selected_env,
+                                        text=True, capture_output=True)
+                if without:
+                    self.assertNotEqual(result.returncode, 0)
+                    return None
+                self.assertEqual(result.returncode, 0, result.stderr)
+                return json.loads(result.stdout)
+
+            cases = (("core",), ("extensions",), ("core", "identity"),
+                     ("core", "identity", "rpc-core"), ("core", "core-standalone"),
+                     ("extensions", "rpc-extensions"), ("extensions", "legal"))
+            for files in cases:
+                with self.subTest(files=files):
+                    document = render(files, tools="identity" in files)
+                    self.assertEqual(document["networks"]["core"]["name"], "lmm-compose-contract-runtime")
+                    if "rpc-core" in files or "rpc-extensions" in files:
+                        self.assertEqual(document["volumes"]["core-rpc"]["name"], "lmm-compose-contract-rpc")
+                    for service, spec in document["services"].items():
+                        if service == "core-db":
+                            self.assertFalse(spec.get("ports"))
+                            continue
+                        component = "extensions" if service == "extensions" else "core"
+                        cfg = FIXTURE.validate_file_configuration(document, service, component,
+                                                                  init=service == "core-init")
+                        if "rpc-core" in files:
+                            self.assertEqual(cfg.get("rpc", {}).get("socket"),
+                                             None if service == "core-init" else "/run/lmm-core-rpc/core.sock")
+                        if "legal" in files:
+                            self.assertEqual(cfg["legal"]["config_file"], "/etc/lmm.conf.d/legal.toml")
+                            self.assertIn("/etc/lmm.conf.d/legal.toml",
+                                          [value["target"] for value in spec["configs"]])
+            standalone = render(("core", "core-standalone"), tools=True)
+            self.assertEqual(set(standalone["services"]), {"core", "core-init"})
+            FIXTURE.validate_file_configuration(standalone, "core-init", "core", init=True)
+            render(("extensions",), without="LMM_DOCKER_NETWORK")
+            render(("core", "identity", "rpc-core"), without="LMM_DOCKER_RPC_VOLUME")
+            render(("extensions", "rpc-extensions"), without="LMM_DOCKER_RPC_VOLUME")
 
 
 if __name__ == "__main__":

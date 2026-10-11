@@ -7,6 +7,7 @@ from pathlib import Path
 import shutil
 import subprocess
 import tempfile
+import tomllib
 import unittest
 from unittest.mock import patch
 
@@ -33,7 +34,7 @@ class PackageTests(unittest.TestCase):
         for name in resources:
             dest = cls.root / name
             dest.parent.mkdir(parents=True, exist_ok=True)
-            if name.startswith("apps/cli/"):
+            if name.startswith("apps/cli/") or name.endswith(".toml"):
                 shutil.copyfile(PKG.ROOT / name, dest)
             else:
                 dest.write_text("Synthetic packaging test resource. Not a product license or policy.\n")
@@ -131,8 +132,9 @@ class PackageTests(unittest.TestCase):
     def test_extensions_are_separate_and_templates_are_shipped(self):
         config, info = self.prepare(self.archive("extensions"), component="extensions")
         self.assertNotIn("lmm-core", config["depends"])
-        self.assertTrue(any("config/legal/site.example.json" in p for p in info["files"]))
-        self.assertFalse(any(p.endswith("/site.json") for p in info["files"]))
+        self.assertIn("/usr/share/lmm/legal/site.example.toml", info["files"])
+        self.assertIn("/etc/lmm.conf.d/extensions.toml", info["files"])
+        self.assertFalse(any(p.endswith(("/site.json", "/site.toml")) for p in info["files"]))
         self.assertNotIn("/usr/bin/lmm-core", info["files"])
 
     def test_web_is_noarch_data_not_a_server(self):
@@ -140,23 +142,73 @@ class PackageTests(unittest.TestCase):
         self.assertEqual(config["arch"], "all")
         self.assertEqual(config["depends"], [])
         self.assertEqual(config["scripts"], {})
-        self.assertIn("/usr/share/lmm-web/dist/index.html", info["files"])
+        self.assertIn("/usr/share/lmm/web/index.html", info["files"])
 
     def test_configuration_is_preserved_and_contains_no_credentials(self):
         config, _ = self.prepare(self.archive())
-        conf = next(c for c in config["contents"] if c["dst"].endswith("/service.env"))
+        conf = next(c for c in config["contents"] if c["dst"] == "/etc/lmm.conf.d/core.toml")
         self.assertEqual(conf["type"], "config|noreplace")
-        self.assertEqual(conf["file_info"]["mode"], 0o600)
+        self.assertEqual(conf["file_info"]["mode"], 0o644)
         text = Path(conf["src"]).read_text()
         self.assertNotIn("postgres://", text)
-        self.assertNotIn("TOKEN_FILE=", text)
+        self.assertEqual(tomllib.loads(text)["version"], 1)
+        self.assertEqual(tomllib.loads(text)["database"]["url_file"], "/etc/lmm.conf.d/secrets/core/database-url")
         unit = next(c for c in config["contents"] if c["dst"].endswith(".service"))
         service = Path(unit["src"]).read_text()
-        self.assertIn("DynamicUser=yes", service)
-        self.assertIn("LoadCredential=database-url:/etc/lmm-core/database-url", service)
+        self.assertIn("User=lmm-core", service)
+        self.assertIn("Group=lmm-core", service)
+        self.assertIn("StateDirectory=lmm/core", service)
+        self.assertIn("RuntimeDirectory=lmm/core", service)
+        self.assertIn("ExecStart=/usr/bin/lmm-core --config /etc/lmm.conf.d/core.toml", service)
+        self.assertIn("StandardOutput=journal", service)
+        self.assertNotIn("EnvironmentFile=", service)
+        self.assertNotIn("LoadCredential=", service)
         self.assertIn("SendSIGKILL=no", service)
         self.assertNotIn("extensions", service)
         self.assertEqual(config["scripts"], {})
+
+    def test_service_configuration_and_paths_match_across_formats(self):
+        for component in ("core", "extensions"):
+            archive = self.archive(component)
+            for fmt in PKG.FORMATS:
+                with self.subTest(component=component, fmt=fmt):
+                    config, info = self.prepare(archive, component=component, fmt=fmt)
+                    contents = {entry["dst"]: entry for entry in config["contents"]}
+                    expected = f"/etc/lmm.conf.d/{component}.toml"
+                    entry = contents[expected]
+                    self.assertEqual(entry["type"], "config|noreplace")
+                    self.assertEqual(Path(entry["src"]).read_bytes(),
+                        (self.root / f"config/{component}.example.toml").read_bytes())
+                    data = tomllib.loads(Path(entry["src"]).read_text())
+                    self.assertEqual(data["version"], 1)
+                    if component == "extensions":
+                        self.assertEqual(data["host"]["modules"], ["none"])
+                        self.assertEqual(data["host"]["token_file"], "/etc/lmm.conf.d/secrets/extensions/host-token")
+                    self.assertFalse(any(p.endswith(".env") for p in info["files"]))
+                    self.assertFalse(any(p.startswith(("/var/", "/run/", "/etc/lmm.conf.d/secrets/")) for p in info["files"]))
+                    name = "lmm-" + component
+                    if fmt == "apk":
+                        script = Path(contents[f"/etc/init.d/{name}"]["src"]).read_text()
+                        self.assertIn(f'command_args="--config {expected}"', script)
+                        self.assertIn(f'/run/lmm/{component}/service.pid', script)
+                        self.assertNotRegex(script, r"(?m)^\s*(?:source\s+|\.\s+|eval\s+)")
+                    else:
+                        self.assertIn(f"/usr/lib/sysusers.d/{name}.conf", contents)
+                        accounts = Path(contents[f"/usr/lib/sysusers.d/{name}.conf"]["src"]).read_text()
+                        self.assertNotRegex(accounts, r"(?m)^m\s+")
+                        self.assertEqual("g lmm-rpc -" in accounts, component == "core")
+                        rpc = Path(contents[f"/usr/share/doc/{name}/rpc.service.conf.example"]["src"]).read_text()
+                        if component == "core":
+                            self.assertIn("Group=lmm-rpc", rpc)
+                            self.assertIn("RuntimeDirectoryMode=0750", rpc)
+                        else:
+                            self.assertIn("SupplementaryGroups=lmm-rpc", rpc)
+                        self.assertFalse(any(".service.d/" in path for path in info["files"]))
+                        unit = Path(contents[f"/usr/lib/systemd/system/{name}.service"]["src"]).read_text()
+                        self.assertIn(f"ExecStart=/usr/bin/{name} --config {expected}", unit)
+                        self.assertNotIn("--legacy-env", unit)
+                        self.assertIn("StateDirectoryMode=0700", unit)
+                    self.assertFalse(any(hook in config["scripts"] for hook in ("postinstall", "preremove", "postremove")))
 
     def test_apk_account_hook_does_not_activate_service_or_touch_database(self):
         config, _ = self.prepare(self.archive(), fmt="apk")

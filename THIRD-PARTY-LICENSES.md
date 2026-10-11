@@ -4,12 +4,16 @@ This file summarizes direct third-party dependencies used by distributed builds 
 It is an engineering compliance artifact and should be kept with Docker images, standalone binaries, frontend bundles, and Electron installers.
 
 Scope: direct dependencies from `services/extensions/go.mod` and `apps/web/package.json`.
+The new Rust TOML parser from `services/core/Cargo.toml` is also recorded below;
+this addition is not a complete audit of all Rust or transitive dependencies.
 Transitive dependencies should be audited before a final external release.
 
 ## Dependency Inventory
 
 | Area | Scope | Ecosystem | Dependency | Version | License |
 | ------------- | ------------- | ----------- | ------------------------------------------------------- | -------------------------------------- | ---------------------------------------------------- |
+| extensions | production | Go | `github.com/BurntSushi/toml` | `v1.6.0` | MIT |
+| core | production | Rust | `toml` | `1.1.6+spec-1.1.0` (manifest `=1.1.6`) | MIT OR Apache-2.0 |
 | backend | production | Go | `github.com/Calcium-Ion/go-epay` | `v0.0.4` | Proprietary/Internal - owned by project maintainer |
 | backend | production | Go | `github.com/abema/go-mp4` | `v1.4.1` | MIT |
 | backend | test | Go | `github.com/alicebob/miniredis/v2` | `v2.38.0` | MIT |
@@ -132,6 +136,14 @@ Transitive dependencies should be audited before a final external release.
 | electron | development | npm | `cross-env` | `7.0.3` | MIT |
 | electron | development | npm | `electron` | `39.8.5` | MIT |
 | electron | development | npm | `electron-builder` | `26.7.0` | MIT |
+
+## TOML configuration parser attribution
+
+- `github.com/BurntSushi/toml` v1.6.0: Copyright (c) 2013 TOML authors. MIT; verified against the module's `COPYING` file. Source: <https://github.com/BurntSushi/toml/tree/v1.6.0>.
+- Rust `toml` 1.1.6+spec-1.1.0: Copyright (c) Individual contributors. MIT OR Apache-2.0; verified against the crate's `Cargo.toml`, `LICENSE-MIT` and `LICENSE-APACHE`. Source: <https://github.com/toml-rs/toml>. The core enables `std`, `serde` and `parse`; lockfile presence alone does not mean every optional dependency is compiled.
+
+Existing dependency notices and license texts below are retained. A final release
+must separately audit the selected dependency graph and preserve its notices.
 
 ## Historical package attributions
 

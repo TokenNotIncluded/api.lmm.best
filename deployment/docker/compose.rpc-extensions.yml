@@ -1,9 +1,6 @@
 # Combine only with compose.extensions.yml. Never owns the core or its DB.
 services:
   extensions:
-    environment:
-      LMM_CORE_RPC_SOCKET: /run/lmm-core-rpc/core.sock
-      LMM_CORE_RPC_TOKEN_FILE: /run/secrets/core_rpc_token
     secrets: [core_rpc_token]
     volumes:
       - type: volume
@@ -12,8 +9,11 @@ services:
         read_only: true
 secrets:
   core_rpc_token:
-    file: ${LMM_CORE_RPC_TOKEN_SECRET_FILE:-./.secrets/core-rpc-token}
+    file: ${LMM_DOCKER_RPC_TOKEN_SECRET_FILE:-./.secrets/core-rpc-token}
 volumes:
   core-rpc:
-    name: ${LMM_CORE_RPC_VOLUME:-lmm-core-rpc}
+    name: ${LMM_DOCKER_RPC_VOLUME:?Set the selected core RPC volume name}
     external: true
+configs:
+  extensions_config:
+    file: ${LMM_DOCKER_EXTENSIONS_CONFIG_FILE:-./config/extensions-identity.toml}

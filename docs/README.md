@@ -4,13 +4,14 @@
 
 本目录以微服务分支为准：可执行程序只有 `lmm` 客户端、`lmm-core` 核心和 `lmm-extensions` 扩展；Web 是单独构建的静态文件。线上 Go 单体的历史说明不是新架构安装步骤。
 
-## 六个入口
+## 主要入口
 
 | 主题 | 文档 |
 | --- | --- |
 | 架构、模块状态与剩余工作 | [架构与状态](core-migration.md) |
 | 新安装、服务隔离与日常启停 | [Docker 开发栈](../deployment/docker/README.md) |
 | 环境、命令与测试 | [开发指南](development.md)、[本地质量门禁](quality.md) |
+| TOML 配置、文件路径与升级保留规则 | [配置与文件路径](filesystem-layout.md) |
 | 可编辑协议与发布规则 | [用户、隐私、退款模板](legal/README.md) |
 | 独立分发包、校验与发布边界 | [打包与分发](release-architecture.md) |
 | 历史资料的使用范围 | [历史文档](archive.md) |

@@ -1,5 +1,6 @@
 """Prevent retired deployment instructions and fixed policy copies returning."""
 import json
+import tomllib
 from pathlib import Path
 import unittest
 
@@ -44,7 +45,7 @@ class MicroserviceDocsTests(unittest.TestCase):
             self.assertIn("{{effective_date}}", text)
             self.assertNotIn("support@", text)
             self.assertNotIn("api.lmm.best", text)
-        config = json.loads((ROOT / "config/legal/site.example.json").read_text())
+        config = tomllib.loads((ROOT / "config/legal/site.example.toml").read_text())
         self.assertIs(config["published"], False)
 
     def test_web_build_no_longer_reads_a_deleted_controller(self):

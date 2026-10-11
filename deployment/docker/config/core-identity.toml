@@ -1,0 +1,13 @@
+# Non-secret runtime configuration. Never mount the owner URL into this service.
+version = 1
+[server]
+listen = "0.0.0.0:8080"
+worker_threads = 1
+max_inflight = 16
+drain_timeout_seconds = 30
+[database]
+url_file = "/run/secrets/core_database_url"
+max_connections = 2
+[identity]
+registration_enabled = false
+password_slots = 1

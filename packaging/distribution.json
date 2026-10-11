@@ -15,7 +15,10 @@
         "linux-amd64",
         "linux-arm64"
       ],
-      "resources": []
+      "resources": [
+        "config/core.example.toml",
+        "docs/filesystem-layout.md"
+      ]
     },
     "extensions": {
       "package": "lmm-extensions",
@@ -27,7 +30,9 @@
         "linux-arm64"
       ],
       "resources": [
-        "config/legal/site.example.json",
+        "config/extensions.example.toml",
+        "docs/filesystem-layout.md",
+        "config/legal/site.example.toml",
         "docs/legal/README.md",
         "config/legal/templates/zh-CN/user-agreement.md",
         "config/legal/templates/zh-CN/privacy-policy.md",
