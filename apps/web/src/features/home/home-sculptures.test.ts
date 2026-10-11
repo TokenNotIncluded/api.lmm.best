@@ -20,13 +20,42 @@ import {
 } from './sculptures/bicycle'
 import { palette, Shape, type Vec3 } from './sculptures/geometry'
 
-test('five sequences include the reference portrait and preserve the existing scenes', () => {
+test('the first chapter contains only AI marks and later chapters are unchanged', () => {
   assert.deepEqual(
     HOME_SEQUENCES.map((list) => list.length),
-    [9, 3, 6, 7, 4]
+    [10, 3, 6, 7, 4]
   )
-  assert.equal(new Set(HOME_SEQUENCES.flat()).size, 29)
-  assert.equal(HOME_SEQUENCES[0].at(-1), 'moonFarSide')
+  assert.equal(new Set(HOME_SEQUENCES.flat()).size, 30)
+  assert.deepEqual(HOME_SEQUENCES[0], [
+    'claudeMark',
+    'openaiMark',
+    'grokMark',
+    'glmMark',
+    'kimiMark',
+    'deepseekMark',
+    'qwenMark',
+    'geminiMark',
+    'mistralMark',
+    'ollamaMark',
+  ])
+  assert.deepEqual(HOME_SEQUENCES[1], ['shop', 'vending', 'stall'])
+  assert.deepEqual(HOME_SEQUENCES[2], [
+    'socket',
+    'gyroscope',
+    'mobius',
+    'trefoil',
+    'helix',
+    'ribbon',
+  ])
+  assert.deepEqual(HOME_SEQUENCES[3], [
+    'earth',
+    'moon',
+    'mars',
+    'sun',
+    'solarSystem',
+    'galaxy',
+    'blackHole',
+  ])
   assert.deepEqual(HOME_SEQUENCES[4], [
     'pelicanBicycle',
     'spacexRocket',
@@ -37,11 +66,24 @@ test('five sequences include the reference portrait and preserve the existing sc
 
 test('retired scenes are absent and scene clocks continue across morphs', () => {
   const ids = new Set<string>(HOME_SEQUENCES.flat())
-  for (const id of ['lotus', 'rose', 'emperorBicycle', 'catBomb', 'cloud']) {
+  for (const id of [
+    'lotus',
+    'rose',
+    'emperorBicycle',
+    'catBomb',
+    'cloud',
+    'smilingPortrait',
+    'blueWhale',
+    'fish',
+    'jellyfish',
+    'dandelion',
+    'dragonfly',
+    'moonFarSide',
+  ]) {
     assert.equal(ids.has(id), false)
   }
-  assert.equal(HOME_SEQUENCES[0][0], 'smilingPortrait')
-  assert.equal(HOME_SEQUENCES[0][1], 'blueWhale')
+  assert.equal(HOME_SEQUENCES[0][0], 'claudeMark')
+  assert.equal(HOME_SEQUENCES[0][1], 'openaiMark')
   assert.ok(ids.has('claudeMark') && ids.has('openaiMark'))
   for (const [chapter, list] of HOME_SEQUENCES.entries()) {
     for (let index = 1; index <= list.length; index++) {
@@ -231,8 +273,8 @@ test('gyroscope rings tilt out of their original planes, not just spin in place'
   assert.ok(max - min > 0.5)
 })
 
-test('fish and helix stay inside phone and desktop frames through their motion', () => {
-  for (const id of ['fish', 'helix'] as const) {
+test('AI marks and helix stay inside phone and desktop frames through their motion', () => {
+  for (const id of [...HOME_SEQUENCES[0], 'helix'] as const) {
     const model = getSculpture(id)
     const [yaw, pitch] = model.view ?? [0, 0]
     for (const [width, height] of [
