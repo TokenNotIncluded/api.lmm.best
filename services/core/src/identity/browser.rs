@@ -153,6 +153,13 @@ impl BrowserAuth {
             .and_then(|v| v.get("session_auto_logout").and_then(Value::as_bool))
             .unwrap_or(true);
         sqlx::query("INSERT INTO core_identity.web_sessions(sid,user_id,user_version,current_credential_id,refresh_digest,ip,user_agent,weekly_logout) SELECT $1,$2,auth_version,$3,$4,$5,$6,$7 FROM core_identity.users WHERE id=$2").bind(&sid).bind(user).bind(credential.id).bind(digest(&refresh)?).bind(&metadata.ip).bind(&metadata.user_agent).bind(weekly).execute(&mut *tx).await?;
+        sqlx::query(
+            "INSERT INTO core_identity.web_session_credentials(credential_id,sid) VALUES ($1,$2)",
+        )
+        .bind(credential.id)
+        .bind(&sid)
+        .execute(&mut *tx)
+        .await?;
         let bundle = make_bundle(&mut tx, &sid, &access, format!("{sid}.{refresh}")).await?;
         tx.commit().await?;
         Ok(bundle)
@@ -191,6 +198,8 @@ impl BrowserAuth {
             sqlx::query("UPDATE core_identity.invites SET inviter_credential_id=$1 WHERE inviter_credential_id=$2 AND accepted_at IS NULL AND rejected_at IS NULL AND withdrawn_at IS NULL AND expires_at>clock_timestamp()")
                 .bind(issued.id).bind(old).execute(&mut *tx).await?;
             sqlx::query("UPDATE core_identity.web_sessions SET previous_refresh_digest=refresh_digest,previous_valid_until=clock_timestamp()+interval '30 seconds',refresh_digest=$2,current_credential_id=$3,last_active_at=clock_timestamp() WHERE sid=$1").bind(sid).bind(digest(&next)?).bind(issued.id).execute(&mut *tx).await?;
+            sqlx::query("INSERT INTO core_identity.web_session_credentials(credential_id,sid) VALUES ($1,$2)")
+                .bind(issued.id).bind(sid).execute(&mut *tx).await?;
             let bundle = make_bundle(&mut tx, sid, &access, format!("{sid}.{next}")).await?;
             tx.commit().await?;
             Ok(bundle)
@@ -246,25 +255,25 @@ impl BrowserAuth {
         }
         if let Some(access) = access {
             let mut tx = self.store.pool.begin().await?;
-            // Resolve only the candidate family without taking credential
-            // locks. All browser mutations lock family before credentials.
-            let sid: Option<String> = sqlx::query_scalar("SELECT s.sid FROM core_identity.web_sessions s JOIN core_identity.credentials c ON c.id=s.current_credential_id WHERE c.digest=$1")
-                .bind(digest(access)?).fetch_optional(&mut *tx).await?;
+            let hash = digest(access)?;
+            // Resolve a trusted historical binding without taking credential
+            // locks. Caller-supplied SID is never a revocation target.
+            let sid: Option<String> = sqlx::query_scalar("SELECT m.sid FROM core_identity.web_session_credentials m JOIN core_identity.credentials c ON c.id=m.credential_id WHERE c.digest=$1")
+                .bind(&hash).fetch_optional(&mut *tx).await?;
             let Some(sid) = sid else {
                 return Err(IdentityError::Unauthorized.into());
             };
             let _ = lock_family(&mut tx, &sid).await?;
-            let actor = match session(&mut tx, access).await {
-                Ok(actor) => actor,
-                Err(IdentityError::Unauthorized) => return Ok(()),
-                Err(error) => return Err(error.into()),
-            };
-            let sid:Option<String>=sqlx::query_scalar("SELECT sid FROM core_identity.web_sessions WHERE current_credential_id=$1 FOR UPDATE").bind(actor.credential_id).fetch_optional(&mut *tx).await?;
-            let Some(sid) = sid else {
-                return Err(IdentityError::Forbidden.into());
-            };
             if expected_sid.is_some_and(|expected| expected != sid) {
                 return Err(BrowserAuthError::SessionMismatch);
+            }
+            // Revoked historical bearers gain only the ability to revoke this
+            // same family, within their original 15-minute lifetime. They do
+            // not regain self, key, model, funds or refresh authority.
+            let credential: Option<i64> = sqlx::query_scalar("SELECT c.id FROM core_identity.web_session_credentials m JOIN core_identity.credentials c ON c.id=m.credential_id JOIN core_identity.web_sessions s ON s.sid=m.sid JOIN core_identity.users u ON u.id=s.user_id JOIN core_identity.accounts a ON a.id=u.personal_account_id WHERE m.sid=$1 AND c.digest=$2 AND c.kind='session' AND c.user_id=s.user_id AND c.user_version=s.user_version AND c.user_version=u.auth_version AND c.expires_at>clock_timestamp() AND u.active AND a.active FOR SHARE OF u,a,c")
+                .bind(&sid).bind(hash).fetch_optional(&mut *tx).await?;
+            if credential.is_none() {
+                return Err(IdentityError::Unauthorized.into());
             }
             revoke_family(&mut tx, &sid).await?;
             tx.commit().await?;

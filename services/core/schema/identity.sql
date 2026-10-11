@@ -326,3 +326,39 @@ BEGIN
 END $$;
 CREATE TRIGGER profile_policy_generation AFTER UPDATE ON core_identity.user_profiles
     FOR EACH ROW EXECUTE FUNCTION core_identity.profile_policy_changed();
+
+-- Retain only a one-way historical binding for logout. A rotated bearer stays
+-- revoked for every authorization path, but can revoke its own stable family
+-- until that original short-lived bearer expires.
+CREATE TABLE core_identity.web_session_credentials (
+    credential_id BIGINT PRIMARY KEY REFERENCES core_identity.credentials(id),
+    sid TEXT NOT NULL REFERENCES core_identity.web_sessions(sid)
+);
+CREATE INDEX web_session_credentials_family ON core_identity.web_session_credentials(sid);
+CREATE FUNCTION core_identity.check_web_session_credential() RETURNS TRIGGER
+LANGUAGE plpgsql SET search_path = pg_catalog AS $$
+BEGIN
+    IF TG_OP IN ('DELETE','TRUNCATE') THEN
+        RAISE EXCEPTION 'browser credential binding is append-only' USING ERRCODE = '23514';
+    END IF;
+    IF TG_OP = 'UPDATE' AND (NEW.credential_id,NEW.sid) IS DISTINCT FROM
+       (OLD.credential_id,OLD.sid) THEN
+        RAISE EXCEPTION 'browser credential binding is immutable' USING ERRCODE = '23514';
+    END IF;
+    IF NOT EXISTS (
+        SELECT 1 FROM core_identity.credentials c
+        JOIN core_identity.web_sessions s ON s.sid=NEW.sid
+        WHERE c.id=NEW.credential_id AND c.kind='session'
+          AND c.user_id=s.user_id AND c.user_version=s.user_version
+          AND c.expires_at<=s.expires_at
+    ) THEN
+        RAISE EXCEPTION 'invalid browser credential binding' USING ERRCODE = '23514';
+    END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER web_credential_binding BEFORE INSERT OR UPDATE OR DELETE
+    ON core_identity.web_session_credentials
+    FOR EACH ROW EXECUTE FUNCTION core_identity.check_web_session_credential();
+CREATE TRIGGER web_credential_binding_truncate BEFORE TRUNCATE
+    ON core_identity.web_session_credentials
+    FOR EACH STATEMENT EXECUTE FUNCTION core_identity.check_web_session_credential();

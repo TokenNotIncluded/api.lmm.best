@@ -654,23 +654,219 @@ async fn invalid_cookie_recovers_valid_bearer_logout_and_mutation_races_do_not_d
             "{:?}",
             refresh.2
         );
-        if refresh.0 == StatusCode::OK {
-            let final_cookie = cookie_from(&refresh.1);
-            assert_eq!(
-                call(
-                    &app,
-                    "POST",
-                    "/api/user/auth/logout",
-                    None,
-                    &[("cookie", &final_cookie)]
-                )
-                .await
-                .0,
-                StatusCode::OK
-            );
-        }
+        let final_cookie = if refresh.0 == StatusCode::OK {
+            cookie_from(&refresh.1)
+        } else {
+            cookie.clone()
+        };
+        assert_eq!(
+            call(
+                &app,
+                "POST",
+                "/api/user/auth/refresh",
+                None,
+                &[("cookie", &final_cookie)]
+            )
+            .await
+            .0,
+            StatusCode::UNAUTHORIZED,
+            "Logout must revoke the family regardless of the refresh winner"
+        );
     }
 }
 fn cookie_from(headers: &HeaderMap) -> String {
     cookie(headers)
+}
+
+#[sqlx::test(migrations = false)]
+async fn historical_bearer_logout_revokes_stable_family_after_refresh(pool: PgPool) {
+    let (store, app) = setup(pool.clone()).await;
+    register(&app, "history").await;
+    let (original_headers, original_bundle) = login(&app, "history").await;
+    let original_cookie = cookie(&original_headers);
+    let old_access = original_bundle["access_token"].as_str().unwrap();
+    let sid = original_bundle["session"]["sid"].as_str().unwrap();
+    let renewed = call(
+        &app,
+        "POST",
+        "/api/user/auth/refresh",
+        None,
+        &[("cookie", &original_cookie)],
+    )
+    .await;
+    assert_eq!(renewed.0, StatusCode::OK);
+    let renewed_cookie = cookie(&renewed.1);
+    let new_access = renewed.2["data"]["access_token"].as_str().unwrap();
+    assert!(store.authorize(old_access).await.is_err());
+    assert!(store.refresh_session(old_access).await.is_err());
+    assert!(store.authorize(new_access).await.is_ok());
+    let old_bearer = format!("Bearer {old_access}");
+    let logout = call(
+        &app,
+        "POST",
+        "/api/user/auth/logout",
+        None,
+        &[("authorization", &old_bearer), ("x-auth-session", sid)],
+    )
+    .await;
+    assert_eq!(logout.0, StatusCode::OK);
+    assert!(store.authorize(new_access).await.is_err());
+    assert!(store.authorize(old_access).await.is_err());
+    let revoked = call(
+        &app,
+        "POST",
+        "/api/user/auth/refresh",
+        None,
+        &[("cookie", &renewed_cookie)],
+    )
+    .await;
+    assert_eq!(revoked.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(revoked.2["code"], "AUTH_SESSION_REVOKED");
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core_identity.web_session_credentials WHERE sid=$1",
+    )
+    .bind(sid)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 2);
+}
+
+#[sqlx::test(migrations = false)]
+async fn logout_history_never_accepts_unknown_expired_key_or_other_sid(pool: PgPool) {
+    let (store, app) = setup(pool.clone()).await;
+    register(&app, "limits").await;
+    let (headers, bundle) = login(&app, "limits").await;
+    let original_cookie = cookie(&headers);
+    let original_access = bundle["access_token"].as_str().unwrap();
+    let sid = bundle["session"]["sid"].as_str().unwrap();
+    let user = bundle["user"]["id"].as_i64().unwrap();
+    let renewed = call(
+        &app,
+        "POST",
+        "/api/user/auth/refresh",
+        None,
+        &[("cookie", &original_cookie)],
+    )
+    .await;
+    assert_eq!(renewed.0, StatusCode::OK);
+    let mut current_cookie = cookie(&renewed.1);
+    let current_access = renewed.2["data"]["access_token"].as_str().unwrap();
+    let wrong_sid = call(
+        &app,
+        "POST",
+        "/api/user/auth/logout",
+        None,
+        &[
+            ("authorization", &format!("Bearer {original_access}")),
+            ("x-auth-session", "caller-selected-family"),
+        ],
+    )
+    .await;
+    assert_eq!(wrong_sid.0, StatusCode::CONFLICT);
+    assert_eq!(wrong_sid.2["code"], "AUTH_SESSION_MISMATCH");
+    assert!(wrong_sid.1.get("set-cookie").is_none());
+    assert!(store.authorize(current_access).await.is_ok());
+    let key = store
+        .issue_key(
+            current_access,
+            Account {
+                kind: AccountKind::Personal,
+                id: user,
+            },
+            FundingPolicy::new_personal_key(),
+            3600,
+        )
+        .await
+        .unwrap();
+    assert!(
+        sqlx::query(
+            "INSERT INTO core_identity.web_session_credentials(credential_id,sid) VALUES ($1,$2)"
+        )
+        .bind(key.id)
+        .bind(sid)
+        .execute(&pool)
+        .await
+        .is_err()
+    );
+    assert!(
+        sqlx::query("DELETE FROM core_identity.web_session_credentials WHERE sid=$1")
+            .bind(sid)
+            .execute(&pool)
+            .await
+            .is_err()
+    );
+    assert!(
+        sqlx::query("TRUNCATE core_identity.web_session_credentials")
+            .execute(&pool)
+            .await
+            .is_err()
+    );
+    let (other_headers, other_bundle) = login(&app, "limits").await;
+    let other_sid = other_bundle["session"]["sid"].as_str().unwrap();
+    let other_access = other_bundle["access_token"].as_str().unwrap();
+    assert!(sqlx::query("UPDATE core_identity.web_session_credentials SET sid=$2 WHERE credential_id=(SELECT id FROM core_identity.credentials WHERE digest=$1)").bind(Sha256::digest(original_access.as_bytes()).to_vec()).bind(other_sid).execute(&pool).await.is_err());
+    for token in [format!("lmms_{}", "d".repeat(64)), key.secret.clone()] {
+        let response = call(
+            &app,
+            "POST",
+            "/api/user/auth/logout",
+            None,
+            &[
+                ("authorization", &format!("Bearer {token}")),
+                ("x-auth-session", sid),
+            ],
+        )
+        .await;
+        assert_eq!(response.0, StatusCode::OK);
+        let probe = call(
+            &app,
+            "POST",
+            "/api/user/auth/refresh",
+            None,
+            &[("cookie", &current_cookie)],
+        )
+        .await;
+        assert_eq!(probe.0, StatusCode::OK);
+        current_cookie = cookie(&probe.1);
+        assert!(store.authorize(other_access).await.is_ok());
+    }
+    sqlx::query("UPDATE core_identity.credentials SET expires_at=clock_timestamp()-interval '1 second' WHERE digest=$1").bind(Sha256::digest(original_access.as_bytes()).to_vec()).execute(&pool).await.unwrap();
+    let expired = call(
+        &app,
+        "POST",
+        "/api/user/auth/logout",
+        None,
+        &[
+            ("authorization", &format!("Bearer {original_access}")),
+            ("x-auth-session", sid),
+        ],
+    )
+    .await;
+    assert_eq!(expired.0, StatusCode::OK);
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            "/api/user/auth/refresh",
+            None,
+            &[("cookie", &current_cookie)]
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
+    assert!(store.authorize(other_access).await.is_ok());
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            "/api/user/auth/logout",
+            None,
+            &[("cookie", &cookie(&other_headers))]
+        )
+        .await
+        .0,
+        StatusCode::OK
+    );
 }
