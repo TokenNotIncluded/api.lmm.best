@@ -510,7 +510,7 @@ func (h *productionSchemaMaintenanceHost) finishAbortOld(ctx context.Context, pl
 	if err != nil || capture.Phase != "ADMISSION_RESTORED" {
 		return finished, errors.New("schema abort finish requires its actual retained writer and restored admission")
 	}
-	_, startSHA, err := h.readAbortStartIntent(plan, preSHA, binding, index, bindingSHA)
+	startIntent, startSHA, err := h.readAbortStartIntent(plan, preSHA, binding, index, bindingSHA)
 	if err != nil {
 		return finished, err
 	}
@@ -522,7 +522,7 @@ func (h *productionSchemaMaintenanceHost) finishAbortOld(ctx context.Context, pl
 	origin := binding.Origins[index]
 	finished = productionSchemaMaintenanceAbortHostFinished{Format: "lmm-schema-maintenance-abort-host-finished-v1", TransitionID: plan.TransitionID, PrePlanSHA256: preSHA, Host: h.binding.Host, AbortBindingSHA256: bindingSHA, PreparedSHA256: origin.Prepared.SHA256, GuardianBindingSHA256: origin.GuardianBinding.SHA256, OldCapsule: origin.OldCapsule, ProviderSHA256: capture.ConfirmedProviderSHA256, StartIntentSHA256: startSHA, RestoredCaptureSHA256: startupContentSHA256(restoredRaw), PID: capture.ConfirmedPID, InvocationID: capture.ConfirmedInvocationID}
 	intent := productionSchemaMaintenanceAbortFinishIntent{Format: "lmm-schema-maintenance-abort-finish-intent-v1", Target: finished, StartedUTC: h.runtime.now().UTC()}
-	if intent.StartedUTC.IsZero() {
+	if intent.StartedUTC.IsZero() || intent.StartedUTC.Before(startIntent.StartedUTC) {
 		return finished, errors.New("schema abort finish lacks valid native chronology")
 	}
 	raw, err := json.MarshalIndent(intent, "", "  ")
@@ -535,6 +535,11 @@ func (h *productionSchemaMaintenanceHost) finishAbortOld(ctx context.Context, pl
 		return finished, err
 	}
 	finished.FinishIntentSHA256 = startupContentSHA256(append(raw, '\n'))
+	sealedTarget := finished
+	sealedTarget.FinishedUTC = intent.StartedUTC
+	if err := h.validateAbortFinishIntent(sealedTarget, startIntent.StartedUTC); err != nil {
+		return finished, err
+	}
 	if err := h.checkAbortNeverClaimed(ctx, checkNeverClaimed, true); err != nil {
 		return finished, err
 	}
@@ -544,11 +549,18 @@ func (h *productionSchemaMaintenanceHost) finishAbortOld(ctx context.Context, pl
 	if err := h.checkAbortNeverClaimed(ctx, checkNeverClaimed, true); err != nil {
 		return finished, err
 	}
+	fresh, err := h.captureAbortOldReady(ctx, plan, preSHA, binding, checkNeverClaimed)
+	if err != nil || fresh.Phase != "ADMISSION_RESTORED" || fresh.ConfirmedCapsuleSHA256 != finished.OldCapsule.SHA256 || fresh.ConfirmedProviderSHA256 != finished.ProviderSHA256 || fresh.ConfirmedPID != finished.PID || fresh.ConfirmedInvocationID != finished.InvocationID {
+		return finished, errors.New("schema abort finish changed the sealed retained writer generation before release")
+	}
+	if err := h.checkAbortNeverClaimed(ctx, checkNeverClaimed, true); err != nil {
+		return finished, err
+	}
 	if err := finishSchemaMaintenanceHostLocks(ctx, h.lease); err != nil {
 		return finished, errors.New("schema abort native finish is uncertain; preserve its one-shot intent and do not retry")
 	}
 	finished.FinishedUTC = h.runtime.now().UTC()
-	if err := h.validateAbortFinishIntent(finished, intent.StartedUTC); err != nil {
+	if err := h.validateAbortFinishIntent(finished, startIntent.StartedUTC); err != nil {
 		return finished, err
 	}
 	raw, err = json.MarshalIndent(finished, "", "  ")
