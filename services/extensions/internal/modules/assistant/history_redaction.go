@@ -11,6 +11,9 @@ import (
 const assistantHistoryMessageMaxRunes = 4000
 const assistantConversationTitleMaxRunes = 120
 
+// These names cover pasted credential fields, not arbitrary private text.
+const assistantHistoryCredentialField = `cookie|set-cookie|session(?:[_ -]?id)?|csrf(?:[_ -]?token)?|password|passwd|pwd|api[ _-]?key|access[ _-]?token|refresh[ _-]?token|id[ _-]?token|client[ _-]?secret|secret|token|bearer|authorization|proxy-authorization|密碼|密码|密钥|令牌`
+
 var coreCredentialPattern = regexp.MustCompile(`(?i)\blmm[ksp]_[a-z0-9_-]{12,}\b`)
 var (
 	assistantHistoryAPIKeyPattern = regexp.MustCompile(`(?i)\b(?:sk|rk|pk|ak|tok|token|key|secret)[_-][a-z0-9._~+/-]{8,}\b`)
@@ -23,16 +26,27 @@ var (
 	assistantHistoryCookiePattern  = regexp.MustCompile(`(?i)\b(cookie|set-cookie|session(?:[_ -]?id)?|csrf(?:[_ -]?token)?)\s*[:=：]\s*[^\s;,]+`)
 	assistantHistoryBearerPattern  = regexp.MustCompile(`(?i)\bbearer\s+[a-z0-9._~+/-]{6,}=*`)
 	assistantHistorySecretPattern  = regexp.MustCompile(`(?i)\b(password|passwd|pwd|api[ _-]?key|access[ _-]?token|refresh[ _-]?token|bearer|authorization|密碼|密码|密钥|令牌)\s*[:=：]\s*[^\s,;]+`)
-	assistantHistoryURLSecret      = regexp.MustCompile(`(?i)([?&](?:api[_-]?key|access[_-]?token|token|password|passwd|secret)=)[^&#\s]+`)
-	assistantHistoryPEMPrivateKey  = regexp.MustCompile(`(?s)-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----`)
-	assistantHistoryIPv4Pattern    = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
-	assistantHistoryIPv6Pattern    = regexp.MustCompile(`[0-9A-Fa-f:]{2,39}`)
-	assistantHistoryPhonePattern   = regexp.MustCompile(`(^|[^\w])((?:\+?86[\s-]?)?1[3-9]\d{9}|\+\d{1,3}(?:[\s.-]?\d{2,4}){2,4})([^\w]|$)`)
-	assistantHistoryCardPattern    = regexp.MustCompile(`(^|[^0-9])([0-9][0-9 -]{11,22}[0-9])([^0-9]|$)`)
+	assistantHistoryURLSecret      = regexp.MustCompile(`(?i)([?&](?:api[_-]?key|access[_-]?token|refresh[_-]?token|id[_-]?token|client[_-]?secret|token|password|passwd|secret)=)[^&#\s]+`)
+	assistantHistoryPEMPrivateKey  = regexp.MustCompile(`(?s)-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)`)
+	// Consume complete quoted values, including spaces and escaped quotes.
+	// This also works for JSON fragments pasted inside prose or a code block.
+	assistantHistoryQuotedCredential = regexp.MustCompile(`(?i)(["'](?:` + assistantHistoryCredentialField + `)["'][\t \r\n]*[:=：][\t \r\n]*)(?:"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*')`)
+	// A Cookie header has multiple values, and Authorization schemes can have
+	// multiple words. Redact the entire value, but never the next header line.
+	assistantHistoryCredentialHeader = regexp.MustCompile(`(?i)\b(cookie|set-cookie|authorization|proxy-authorization)[\t ]*[:=：][\t ]*[^\r\n]*`)
+	assistantHistoryURLUserInfo      = regexp.MustCompile(`(?i)(\b[a-z][a-z0-9+.-]*://)[^/\s?#@]+@`)
+
+	assistantHistoryIPv4Pattern  = regexp.MustCompile(`\b(?:\d{1,3}\.){3}\d{1,3}\b`)
+	assistantHistoryIPv6Pattern  = regexp.MustCompile(`[0-9A-Fa-f:]{2,39}`)
+	assistantHistoryPhonePattern = regexp.MustCompile(`(^|[^\w])((?:\+?86[\s-]?)?1[3-9]\d{9}|\+\d{1,3}(?:[\s.-]?\d{2,4}){2,4})([^\w]|$)`)
+	assistantHistoryCardPattern  = regexp.MustCompile(`(^|[^0-9])([0-9][0-9 -]{11,22}[0-9])([^0-9]|$)`)
 )
 
 func RedactAssistantHistoryContent(value string) string {
 	value = strings.TrimSpace(value)
+	value = assistantHistoryQuotedCredential.ReplaceAllString(value, `${1}"[REDACTED]"`)
+	value = assistantHistoryCredentialHeader.ReplaceAllString(value, "$1: [REDACTED]")
+	value = assistantHistoryURLUserInfo.ReplaceAllString(value, "${1}[REDACTED]@")
 	value = coreCredentialPattern.ReplaceAllString(value, "[REDACTED_CORE_CREDENTIAL]")
 	value = assistantHistoryPEMPrivateKey.ReplaceAllString(value, "[REDACTED_PRIVATE_KEY]")
 	value = assistantHistoryURLSecret.ReplaceAllString(value, "$1[REDACTED]")
