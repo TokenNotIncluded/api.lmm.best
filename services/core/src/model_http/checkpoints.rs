@@ -6,17 +6,81 @@ use crate::{
     relay::{OutputCheckpoint, RelayError, Reservation},
 };
 
+/// A discovery row carries evidence, not permission to change the payer or price.
+type CompletedStream = (String, i64, serde_json::Value, i64);
+
+impl super::ModelGateway {
+    /// Scan one bounded recovery page. Only the trusted Rust host may call this.
+    /// The returned pair is (confirmed settlements, next request ID). Continue
+    /// with the returned ID even when the count is zero. None ends this sweep;
+    /// start the next sweep with None so earlier/newly eligible IDs are revisited.
+    ///
+    /// Requires S11's EXECUTE-only completed_streams_after(integer,text) contract.
+    /// An older database returns Unsupported; never silently fall back to a
+    /// first-page query that can starve later requests. No upstream is contacted.
+    pub async fn reconcile_completed_streams_page(
+        &self,
+        limit: i32,
+        after_request_id: Option<&str>,
+    ) -> Result<(usize, Option<String>), RelayError> {
+        validate_recovery_page(limit, after_request_id)?;
+        let rows: Vec<CompletedStream> = sqlx::query_as(
+            "SELECT request_id,revision,provider_usage,sequence \
+             FROM core_model.completed_streams_after($1,$2)",
+        )
+        .bind(limit)
+        .bind(after_request_id)
+        .fetch_all(&self.bridge.pool)
+        .await
+        .map_err(|error| {
+            if error.as_database_error().and_then(|e| e.code()).as_deref() == Some("42883") {
+                RelayError::Unsupported("paged model recovery requires the database contract")
+            } else {
+                RelayError::BillingUnavailable
+            }
+        })?;
+        // Advance by scanned rows, not successful settlements. A full page of
+        // malformed or concurrently resolved receipts must still yield a cursor.
+        let next = next_recovery_page(&rows, limit as usize);
+        let recovered = self.bridge.reconcile_stream_rows(rows).await?;
+        Ok((recovered, next))
+    }
+}
+
+fn validate_recovery_page(limit: i32, after: Option<&str>) -> Result<(), RelayError> {
+    if !(1..=1000).contains(&limit)
+        || after.is_some_and(|id| {
+            id.is_empty()
+                || id.len() > 128
+                || !id
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"-_.:/".contains(&b))
+        })
+    {
+        return Err(RelayError::Invalid("model recovery page"));
+    }
+    Ok(())
+}
+
+fn next_recovery_page(rows: &[CompletedStream], limit: usize) -> Option<String> {
+    rows.last()
+        .filter(|_| rows.len() == limit)
+        .map(|row| row.0.clone())
+}
+
 impl Bridge {
     pub(super) async fn reconcile_completed_streams(
         &self,
         limit: i32,
     ) -> Result<usize, RelayError> {
-        if !(1..=1000).contains(&limit) {
-            return Err(RelayError::Invalid("model recovery limit"));
-        }
-        let rows: Vec<(String,i64,serde_json::Value,i64)> = sqlx::query_as(
+        validate_recovery_page(limit, None)?;
+        let rows: Vec<CompletedStream> = sqlx::query_as(
             "SELECT request_id,revision,provider_usage,sequence FROM core_model.completed_streams($1)"
         ).bind(limit).fetch_all(&self.pool).await.map_err(|_| RelayError::BillingUnavailable)?;
+        self.reconcile_stream_rows(rows).await
+    }
+
+    async fn reconcile_stream_rows(&self, rows: Vec<CompletedStream>) -> Result<usize, RelayError> {
         let mut recovered = 0;
         for (id, revision, value, sequence) in rows {
             // A malformed historical receipt must not block the other rows in
@@ -179,6 +243,43 @@ fn recovery_usage(value: serde_json::Value, sequence: i64) -> Option<charging::U
 mod a07_recovery_tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn recovery_page_rejects_unbounded_or_invalid_cursors() {
+        for limit in [i32::MIN, -1, 0, 1001, i32::MAX] {
+            assert!(validate_recovery_page(limit, None).is_err());
+        }
+        for cursor in ["", "has space", "line\nbreak", "查询", "quote'", "\0"] {
+            assert!(validate_recovery_page(1, Some(cursor)).is_err());
+        }
+        assert!(validate_recovery_page(1, Some(&"a".repeat(129))).is_err());
+        for limit in [1, 1000] {
+            for cursor in [None, Some("a-_.:/Z09")] {
+                assert!(validate_recovery_page(limit, cursor).is_ok());
+            }
+        }
+        assert!(validate_recovery_page(1, Some(&"a".repeat(128))).is_ok());
+    }
+
+    #[test]
+    fn full_invalid_page_still_advances_by_the_last_scanned_id() {
+        let rows = vec![
+            ("a".into(), 1, json!({"input_tokens":-1,"output_tokens":2}), 1),
+            ("b".into(), 1, json!({"input_tokens":1,"output_tokens":2,"cached_input_tokens":2}), 1),
+        ];
+        assert!(rows.iter().all(|row| recovery_usage(row.2.clone(), row.3).is_none()));
+        assert_eq!(next_recovery_page(&rows, 2), Some("b".into()));
+        assert_eq!(next_recovery_page(&rows[..1], 1), Some("a".into()));
+    }
+
+    #[test]
+    fn short_or_empty_page_ends_the_sweep_not_the_recovery_service() {
+        let rows = vec![("last".into(), 1, json!({"input_tokens":0,"output_tokens":0}), 1)];
+        assert_eq!(next_recovery_page(&rows, 2), None);
+        assert_eq!(next_recovery_page(&[], 1), None);
+        // A page exactly at the limit needs a further (possibly empty) query.
+        assert_eq!(next_recovery_page(&rows, 1), Some("last".into()));
+    }
 
     #[test]
     fn malformed_receipt_does_not_hide_the_next_valid_receipt() {
