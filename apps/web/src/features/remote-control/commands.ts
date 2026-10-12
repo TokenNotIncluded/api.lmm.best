@@ -1,3 +1,4 @@
+import { validRemoteImages, type RemoteImage } from './images'
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
 import type { RemoteControlMessage } from './types'
 
@@ -20,7 +21,12 @@ export const remoteKeys = [
 ] as const
 export type RemoteKey = (typeof remoteKeys)[number]
 export type RemoteCommandInput =
-  | { action: 'prompt'; content: string; delivery?: 'steer' | 'followUp' }
+  | {
+      action: 'prompt'
+      content: string
+      delivery?: 'steer' | 'followUp'
+      images?: RemoteImage[]
+    }
   | { action: 'abort' }
   | {
       action: 'ui_response'
@@ -55,10 +61,17 @@ function hasUnsupportedControlCharacters(text: string): boolean {
 export function createRemoteCommand(input: RemoteCommandInput): RemoteCommand {
   if (
     input.action === 'prompt' &&
-    (!input.content.trim() ||
+    ((!input.content.trim() && input.images === undefined) ||
       new TextEncoder().encode(input.content).length > 32_000)
   ) {
     throw new Error('Invalid task length')
+  }
+  if (
+    input.action === 'prompt' &&
+    input.images !== undefined &&
+    !validRemoteImages(input.images)
+  ) {
+    throw new Error('Unable to prepare this image. Choose a smaller image.')
   }
   if (
     (input.action === 'ui_input' || input.action === 'ui_response') &&
@@ -86,13 +99,17 @@ export function createRemoteCommand(input: RemoteCommandInput): RemoteCommand {
       throw new Error('Missing input')
     }
   }
-  return {
+  const command: RemoteCommand = {
     ...input,
     version: 1,
     type: 'command',
     id: crypto.randomUUID(),
     issued_at: Date.now(),
   }
+  if (new TextEncoder().encode(JSON.stringify(command)).length > 48 * 1024) {
+    throw new Error('Invalid task length')
+  }
+  return command
 }
 
 /** Same-ID stream snapshots replace older copies. Control events stay out of chat. */

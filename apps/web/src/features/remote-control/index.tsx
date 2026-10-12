@@ -31,11 +31,10 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Markdown } from '@/components/ui/markdown'
 import { api } from '@/lib/api'
-import { RemoteComposer, RemoteQuestionCard } from './controls'
-import { latestRemoteState, remoteConversation } from './commands'
-import { useRemoteCommands } from './use-remote-commands'
 import { formatTimestampToDate } from '@/lib/format'
 
+import { latestRemoteState, remoteConversation } from './commands'
+import { RemoteComposer, RemoteQuestionCard } from './controls'
 import {
   decryptPiRemoteMessage,
   decryptPiSessionMetadata,
@@ -53,6 +52,7 @@ import type {
   PiSessionsResponse,
   RemoteControlMessage,
 } from './types'
+import { useRemoteCommands } from './use-remote-commands'
 
 function displayTime(value: string | number | undefined) {
   if (value === undefined) return null
@@ -111,11 +111,16 @@ export function SessionMessages({
           return (
             <details
               key={message.id || `${message.type}-${index}`}
-              className='bg-muted/30 rounded-xl p-3'
+              className='group border-l-2 py-2 pl-3'
             >
               <summary className='flex cursor-pointer list-none items-center justify-between gap-3 text-sm font-medium'>
-                <span>{title}</span>
-                <ChevronDown className='size-4' aria-hidden='true' />
+                <span className='text-muted-foreground min-w-0 truncate'>
+                  {title}
+                </span>
+                <ChevronDown
+                  className='size-4 shrink-0 transition-transform group-open:rotate-180 motion-reduce:transition-none'
+                  aria-hidden='true'
+                />
               </summary>
               <div className='mt-3 border-t pt-3'>
                 <MessageBody message={message} />
@@ -126,7 +131,7 @@ export function SessionMessages({
         return (
           <div
             key={message.id || `${message.type}-${index}`}
-            className='bg-muted/30 rounded-xl p-3'
+            className={`min-w-0 py-3 ${message.type === 'user' ? 'bg-primary/5 ml-auto max-w-[90%] rounded-lg px-4' : ''}`}
           >
             <div className='text-muted-foreground mb-2 text-xs font-medium uppercase'>
               {title}
@@ -152,11 +157,20 @@ function SessionDetail({
 }) {
   const { t } = useTranslation()
   const queryClient = useQueryClient()
-  useEffect(() => () => {
-    const queryKey = ['remote-control', 'pi', 'messages', session.id, unlockRevision]
-    void queryClient.cancelQueries({ queryKey, exact: true })
-    queryClient.removeQueries({ queryKey, exact: true })
-  }, [queryClient, session.id, unlockRevision])
+  useEffect(
+    () => () => {
+      const queryKey = [
+        'remote-control',
+        'pi',
+        'messages',
+        session.id,
+        unlockRevision,
+      ]
+      void queryClient.cancelQueries({ queryKey, exact: true })
+      queryClient.removeQueries({ queryKey, exact: true })
+    },
+    [queryClient, session.id, unlockRevision]
+  )
   const messagesQuery = useQuery({
     queryKey: ['remote-control', 'pi', 'messages', session.id, unlockRevision],
     queryFn: async ({ signal }) => {
@@ -164,31 +178,41 @@ function SessionDetail({
         `/api/remote-control/v1/pi/sessions/${encodeURIComponent(session.id)}/messages?after=0`,
         { skipBusinessError: true, signal }
       )
-      if (!response.data.success) throw new Error(response.data.message || 'Unable to load messages')
+      if (!response.data.success) {
+        throw new Error(response.data.message || 'Unable to load messages')
+      }
       const results = await Promise.allSettled(
         normalizePiMessageEnvelopes(response.data.data)
           .filter((message) => message.sender === 'plugin')
-          .map((message) => decryptPiRemoteMessage(session.id, message, sessionKey))
+          .map((message) =>
+            decryptPiRemoteMessage(session.id, message, sessionKey)
+          )
       )
       signal.throwIfAborted()
       return {
-        messages: results.flatMap((result) => result.status === 'fulfilled' ? [result.value] : []),
+        messages: results.flatMap((result) =>
+          result.status === 'fulfilled' ? [result.value] : []
+        ),
         failed: results.filter((result) => result.status === 'rejected').length,
       }
     },
     refetchInterval: 1_000,
     gcTime: 0,
   })
-  const messages = [...session.messages, ...(messagesQuery.data?.messages ?? [])]
+  const messages = [
+    ...session.messages,
+    ...(messagesQuery.data?.messages ?? []),
+  ]
   const state = latestRemoteState(messages)
   const { send, pending } = useRemoteCommands(session.id, sessionKey, messages)
   const stateTime = typeof state?.created_at === 'number' ? state.created_at : 0
-  const stale = !stateTime || Date.now() - stateTime > 45_000 || messagesQuery.isError
+  const stale =
+    !stateTime || Date.now() - stateTime > 45_000 || messagesQuery.isError
   const questions = state?.requests ?? []
   const canControl = session.capabilities?.includes('prompt') === true
 
   return (
-    <div className='min-w-0 space-y-4'>
+    <div className='flex h-[min(76dvh,52rem)] min-h-96 min-w-0 flex-col gap-4 lg:border-l lg:pl-6'>
       <div className='flex min-w-0 items-center justify-between gap-3'>
         <div className='min-w-0'>
           <h2 className='truncate text-sm font-semibold'>
@@ -209,33 +233,45 @@ function SessionDetail({
           {t('Lock')}
         </Button>
       </div>
-      <div className='grid gap-3 sm:grid-cols-2'>
-        <div className='bg-muted/30 rounded-xl p-3'>
-          <div className='text-muted-foreground text-xs'>ID</div>
-          <code className='text-sm break-all'>{session.id}</code>
-        </div>
-        <div className='bg-muted/30 rounded-xl p-3'>
-          <div className='text-muted-foreground text-xs'>{t('Runtime')}</div>
-          <div className='text-sm'>{session.runtime || t('Unknown')}</div>
-        </div>
-        <div className='bg-muted/30 rounded-xl p-3 sm:col-span-2'>
-          <div className='text-muted-foreground text-xs'>{t('Started')}</div>
-          <div className='text-sm'>
-            {displayTime(session.startedAt) || t('Unknown')}
+      <details className='text-muted-foreground border-b pb-3 text-xs'>
+        <summary className='cursor-pointer'>{t('Session details')}</summary>
+        <dl className='mt-3 grid gap-3 sm:grid-cols-2'>
+          <div>
+            <dt>ID</dt>
+            <dd className='font-mono break-all'>{session.id}</dd>
           </div>
-        </div>
-      </div>
-      <p className='text-muted-foreground text-sm' role='status'>
-        {stale ? t('Waiting for Pi connection') : state?.busy ? t('Pi is working') : t('Pi is ready')}
+          <div>
+            <dt>{t('Runtime')}</dt>
+            <dd>{session.runtime || t('Unknown')}</dd>
+          </div>
+          <div>
+            <dt>{t('Started')}</dt>
+            <dd>{displayTime(session.startedAt) || t('Unknown')}</dd>
+          </div>
+        </dl>
+      </details>
+      <p
+        className='text-muted-foreground flex flex-wrap items-center gap-2 text-xs'
+        role='status'
+      >
+        <span
+          aria-hidden='true'
+          className={`size-2 shrink-0 rounded-full ${stale ? 'bg-muted-foreground' : 'bg-primary'}`}
+        />
+        {stale
+          ? t('Waiting for Pi connection')
+          : state?.busy
+            ? t('Pi is working')
+            : t('Pi is ready')}
         {state?.provider ? ` · ${state.provider} / ${state.model ?? ''}` : ''}
       </p>
-      {canControl ? (
-        <>
-          {questions.map((question) => <RemoteQuestionCard key={question.request_id} question={question} send={send} disabled={stale || pending} />)}
-          <RemoteComposer send={send} disabled={stale} busy={state?.busy === true} hasQuestion={questions.length > 0} />
-        </>
-      ) : <p className='text-muted-foreground text-sm'>{t('Update the Pi plugin to send tasks and answer questions.')}</p>}
-      {messagesQuery.data?.failed ? <p role='alert' className='text-destructive text-sm'>{t('Some messages could not be decrypted. Other messages are still available.')}</p> : null}
+      {messagesQuery.data?.failed ? (
+        <p role='alert' className='text-destructive text-sm'>
+          {t(
+            'Some messages could not be decrypted. Other messages are still available.'
+          )}
+        </p>
+      ) : null}
       {messagesQuery.isPending ? (
         <p className='text-muted-foreground text-sm'>{t('Loading...')}</p>
       ) : messagesQuery.isError ? (
@@ -257,7 +293,37 @@ function SessionDetail({
           </Button>
         </Alert>
       ) : (
-        <SessionMessages messages={remoteConversation(messages)} />
+        <section
+          className='min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain pr-1'
+          aria-label={t('Session history')}
+        >
+          <SessionMessages messages={remoteConversation(messages)} />
+        </section>
+      )}
+      {canControl ? (
+        <>
+          {questions.map((question) => (
+            <RemoteQuestionCard
+              key={question.request_id}
+              question={question}
+              send={send}
+              disabled={stale || pending}
+            />
+          ))}
+          <RemoteComposer
+            send={send}
+            disabled={stale}
+            busy={state?.busy === true}
+            hasQuestion={questions.length > 0}
+            supportsImages={
+              session.capabilities?.includes('prompt_images') === true
+            }
+          />
+        </>
+      ) : (
+        <p className='text-muted-foreground text-sm'>
+          {t('Update the Pi plugin to send tasks and answer questions.')}
+        </p>
       )}
     </div>
   )
@@ -381,19 +447,35 @@ export function RemoteControl() {
       <SectionPageLayout.Content>
         <div className='mx-auto w-full max-w-6xl pb-16'>
           <div className='mb-6 max-w-2xl space-y-2'>
-            <p className='text-muted-foreground text-sm'>{t('Control Pi with any model. LMM login is only used to connect your account.')}</p>
+            <p className='text-muted-foreground text-sm'>
+              {t(
+                'Control Pi with any model. LMM login is only used to connect your account.'
+              )}
+            </p>
             <details className='text-sm'>
-              <summary className='cursor-pointer font-medium'>{t('Connect a Pi session')}</summary>
+              <summary className='cursor-pointer font-medium'>
+                {t('Connect a Pi session')}
+              </summary>
               <div className='text-muted-foreground mt-3 space-y-2'>
-                <p>{t('Install or update the LMM Pi plugin. In Pi, sign in and approve remote control, then enable it locally.')}</p>
-                <pre className='bg-muted rounded-xl p-3 text-xs'>/login lmm{'\n'}/lmm-remote on</pre>
-                <p>{t('Use the same LMM account here and enter the session PIN. Stop sharing with /lmm-remote off. Locking this page does not stop Pi.')}</p>
+                <p>
+                  {t(
+                    'Install or update the LMM Pi plugin. In Pi, sign in and approve remote control, then enable it locally.'
+                  )}
+                </p>
+                <pre className='bg-muted rounded-xl p-3 text-xs'>
+                  /login lmm{'\n'}/lmm-remote on
+                </pre>
+                <p>
+                  {t(
+                    'Use the same LMM account here and enter the session PIN. Stop sharing with /lmm-remote off. Locking this page does not stop Pi.'
+                  )}
+                </p>
               </div>
             </details>
           </div>
           <div className='pt-1'>
             <div
-              className={`grid gap-6 ${sessions.length > 0 ? 'lg:grid-cols-[minmax(16rem,0.36fr)_minmax(0,1fr)]' : ''}`}
+              className={`grid gap-6 ${sessions.length > 0 ? 'lg:grid-cols-[12rem_minmax(0,1fr)]' : ''}`}
             >
               <div className='space-y-2'>
                 {sessionsQuery.isPending ? (
@@ -431,7 +513,8 @@ export function RemoteControl() {
                       key={session.sessionId}
                       type='button'
                       onClick={() => setSelectedId(session.sessionId)}
-                      className={`focus-visible:border-ring focus-visible:ring-ring/50 w-full border p-3 text-left outline-none focus-visible:ring-3 ${selected?.sessionId === session.sessionId ? 'bg-muted' : ''}`}
+                      aria-pressed={selected?.sessionId === session.sessionId}
+                      className={`focus-visible:border-ring focus-visible:ring-ring/50 w-full rounded-lg border border-transparent p-3 text-left outline-none focus-visible:ring-3 ${selected?.sessionId === session.sessionId ? 'bg-muted border-border' : 'hover:bg-muted/50'}`}
                     >
                       <div className='flex items-center gap-2 text-sm font-medium'>
                         <MonitorCog className='size-4' aria-hidden='true' />

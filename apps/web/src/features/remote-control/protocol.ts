@@ -72,7 +72,10 @@ export function normalizeRemoteControlMessages(
         busy: source.busy === true,
         provider: text(source.provider),
         model: text(source.model),
-        requests: source.type === 'state' ? normalizeRemoteQuestions(source.requests) : undefined,
+        requests:
+          source.type === 'state'
+            ? normalizeRemoteQuestions(source.requests)
+            : undefined,
         question: text(source.question),
         options: Array.isArray(source.options)
           ? source.options.filter(
@@ -179,7 +182,19 @@ export function normalizePiSessionMetadata(
     active: envelope.expiresAt * 1000 > Date.now(),
     startedAt,
     runtime: text(source.runtime),
-    capabilities: Array.isArray(source.capabilities) ? source.capabilities.filter((value): value is string => typeof value === 'string' && ['prompt', 'abort', 'ui_response', 'ui_input'].includes(value)) : [],
+    capabilities: Array.isArray(source.capabilities)
+      ? source.capabilities.filter(
+          (value): value is string =>
+            typeof value === 'string' &&
+            [
+              'prompt',
+              'prompt_images',
+              'abort',
+              'ui_response',
+              'ui_input',
+            ].includes(value)
+        )
+      : [],
     directory: text(source.directory) ?? text(source.cwd),
     summary: text(source.summary),
     messages: normalizeRemoteControlMessages(source.messages),
@@ -202,12 +217,38 @@ export function normalizeRemoteQuestions(value: unknown): RemoteQuestion[] {
   if (!Array.isArray(value)) return []
   return value.slice(0, 4).flatMap((item): RemoteQuestion[] => {
     const source = record(item)
-    if (!source || typeof source.request_id !== 'string' || !/^[A-Za-z0-9_-]{8,64}$/.test(source.request_id)) return []
+    if (
+      !source ||
+      typeof source.request_id !== 'string' ||
+      !/^[A-Za-z0-9_-]{8,64}$/.test(source.request_id)
+    ) {
+      return []
+    }
     const kind = source.kind
-    if (kind !== 'select' && kind !== 'confirm' && kind !== 'input' && kind !== 'custom') return []
-    return [{ request_id: source.request_id, kind, question: text(source.question)?.slice(0, 4000) ?? '',
-      title: text(source.title)?.slice(0, 1000), content: text(source.content)?.slice(0, 10000),
-      placeholder: text(source.placeholder)?.slice(0, 1000), expires_at: finiteNumber(source.expires_at),
-      options: Array.isArray(source.options) ? source.options.slice(0, 100).filter((option): option is string => typeof option === 'string').map((option) => option.slice(0, 512)) : undefined }]
+    if (
+      kind !== 'select' &&
+      kind !== 'confirm' &&
+      kind !== 'input' &&
+      kind !== 'custom'
+    ) {
+      return []
+    }
+    return [
+      {
+        request_id: source.request_id,
+        kind,
+        question: text(source.question)?.slice(0, 4000) ?? '',
+        title: text(source.title)?.slice(0, 1000),
+        content: text(source.content)?.slice(0, 10000),
+        placeholder: text(source.placeholder)?.slice(0, 1000),
+        expires_at: finiteNumber(source.expires_at),
+        options: Array.isArray(source.options)
+          ? source.options
+              .slice(0, 100)
+              .filter((option): option is string => typeof option === 'string')
+              .map((option) => option.slice(0, 512))
+          : undefined,
+      },
+    ]
   })
 }
