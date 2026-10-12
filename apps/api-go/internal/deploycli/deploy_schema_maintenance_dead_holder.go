@@ -32,6 +32,7 @@ type productionSchemaMaintenanceDeadHolderPrepared struct {
 	GuardianBinding     productionReleaseFilePlan   `json:"guardian_binding"`
 	OldCapsule          productionReleaseFilePlan   `json:"old_capsule"`
 	StoppedCapture      productionReleaseFilePlan   `json:"stopped_capture"`
+	PreExecRecovery     *productionReleaseFilePlan  `json:"preexec_recovery,omitempty"`
 }
 type productionSchemaMaintenanceDeadHolderBinding struct {
 	Format              string                                          `json:"format"`
@@ -41,15 +42,18 @@ type productionSchemaMaintenanceDeadHolderBinding struct {
 	OwnerMode           string                                          `json:"owner_mode"`
 	OriginalOwnerSHA256 string                                          `json:"original_owner_sha256"`
 	Origins             []productionSchemaMaintenanceDeadHolderPrepared `json:"origins"`
+	PreExecRecovery     *productionReleaseFilePlan                      `json:"preexec_recovery,omitempty"`
 }
 type productionSchemaMaintenanceDeadHolderController struct {
-	base            *productionSchemaMaintenanceController
-	original        schemaMaintenanceRPCBinding
-	generation      schemaMaintenanceRPCBinding
-	ownerSHA        string
-	ownerMode       string
-	finished        bool
-	finishUncertain bool
+	base                 *productionSchemaMaintenanceController
+	original             schemaMaintenanceRPCBinding
+	generation           schemaMaintenanceRPCBinding
+	ownerSHA             string
+	ownerMode            string
+	preExecRecovery      *productionReleaseFilePlan
+	recoveryEngineSHA256 string
+	finished             bool
+	finishUncertain      bool
 }
 
 var schemaMaintenanceDeadHolderForbidden = []string{
@@ -70,12 +74,53 @@ func schemaMaintenanceDeadHolderNoWorker(workspace string) error {
 func schemaMaintenanceDeadHolderRPCWorkspace(origin productionSchemaMaintenanceOriginPlan, id string) string {
 	return filepath.Join("/run/lmm-schema-dead-holder", id)
 }
+func sameSchemaMaintenancePreExecReference(a, b *productionReleaseFilePlan) bool {
+	if a == nil || b == nil {
+		return a == nil && b == nil
+	}
+	return *a == *b
+}
+func (d *productionSchemaMaintenanceDeadHolderController) mode() string {
+	if d.preExecRecovery != nil {
+		return schemaMaintenancePreExecRejectedMode
+	}
+	return schemaMaintenanceDeadHolderMode
+}
+func (d *productionSchemaMaintenanceDeadHolderController) engineSHA256() string {
+	if d.preExecRecovery != nil {
+		return d.recoveryEngineSHA256
+	}
+	return d.base.plan.Worker.Provider.DeployEngineSHA256
+}
+func (d *productionSchemaMaintenanceDeadHolderController) checkRecoveryAuthority(ctx context.Context) error {
+	c := d.base
+	if d.preExecRecovery == nil {
+		if d.recoveryEngineSHA256 != "" {
+			return errors.New("legacy dead holder cannot override its signed engine")
+		}
+		return schemaMaintenanceDeadHolderNoWorker(c.origin.Workspace)
+	}
+	recoverer, err := c.runtime.checkSchemaMaintenancePreExecRecovery(ctx, c.plan, c.planSHA, *d.preExecRecovery)
+	if err != nil {
+		return err
+	}
+	if !productionSHA256Pattern.MatchString(d.recoveryEngineSHA256) || recoverer.Candidate.DeployEngineSHA256 != d.recoveryEngineSHA256 || sha256MustEqual("/proc/self/exe", d.recoveryEngineSHA256) != nil {
+		return errors.New("pre-execution recoverer lost its exact verified signed engine")
+	}
+	return nil
+}
 func (d *productionSchemaMaintenanceDeadHolderController) checkLocal(ctx context.Context) error {
 	c := d.base
 	if err := c.checkPlan(ctx); err != nil {
 		return err
 	}
-	if err := schemaMaintenanceDeadHolderNoWorker(c.origin.Workspace); err != nil {
+	if err := d.checkRecoveryAuthority(ctx); err != nil {
+		return err
+	}
+	if d.original.PlanSHA256 != c.planSHA || d.original.TransitionID != c.plan.TransitionID || d.original.DaemonExeSHA256 != c.plan.Worker.Provider.DeployEngineSHA256 || d.generation.PlanSHA256 != c.planSHA || d.generation.TransitionID != c.plan.TransitionID || d.generation.DaemonExeSHA256 != d.engineSHA256() {
+		return errors.New("dead holder original and recovery engines lost their distinct exact authorities")
+	}
+	if err := d.checkPreExecAdmissionState(); err != nil {
 		return err
 	}
 	raw, err := c.runtime.readExistingSchemaSealedFile(filepath.Join(c.origin.Workspace, "state", "daemon-binding.json"), true)
@@ -96,6 +141,80 @@ func (d *productionSchemaMaintenanceDeadHolderController) checkLocal(ctx context
 	recoverer, err := c.runtime.billingUnitState(ctx, "lmm-schema-dead-holder-"+c.plan.TransitionID+".service")
 	if err != nil || validateSchemaMaintenanceAbortDaemonUnit(d.generation, recoverer) != nil {
 		return errors.New("dead holder recovery is not its actual dedicated native process")
+	}
+	return nil
+}
+
+// The initial serve and owner-CAS gates require exact absence. Once our own
+// native old start has completed, our reopen/finished records may exist; they
+// must stay attached to this exact binding, CAS result and started generation.
+// This reads existing native records without recursively calling checkLocal.
+func (d *productionSchemaMaintenanceDeadHolderController) checkPreExecAdmissionState() error {
+	if d.preExecRecovery == nil {
+		return nil
+	}
+	c := d.base
+	present := false
+	restoredPresent := false
+	for _, name := range []string{"reopen-intent.json", "admission-restored.json"} {
+		if _, err := os.Lstat(filepath.Join(c.origin.Workspace, "state", name+".incoming")); !errors.Is(err, os.ErrNotExist) {
+			return errors.New("pre-execution admission has partial or uncertain material")
+		}
+		if _, err := os.Lstat(filepath.Join(c.origin.Workspace, "state", name)); err == nil {
+			present = true
+			if name == "admission-restored.json" {
+				restoredPresent = true
+			}
+		} else if !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+	}
+	if !present {
+		return nil
+	}
+	raw, err := c.runtime.readExistingSchemaSealedFile(filepath.Join(c.origin.Workspace, "state", "dead-holder-binding.json"), true)
+	var binding productionSchemaMaintenanceDeadHolderBinding
+	if err != nil || decodeControllerBackupJSON(raw, &binding) != nil {
+		return errors.New("pre-execution admission has no native recovery binding")
+	}
+	canonical, _ := json.MarshalIndent(binding, "", "  ")
+	if !bytes.Equal(raw, append(canonical, '\n')) || binding.Format != "lmm-schema-maintenance-dead-holder-binding-v1" || binding.Mode != d.mode() || !sameSchemaMaintenancePreExecReference(binding.PreExecRecovery, d.preExecRecovery) || binding.TransitionID != c.plan.TransitionID || binding.PrePlanSHA256 != c.planSHA || binding.OwnerMode != d.ownerMode || binding.OriginalOwnerSHA256 != d.ownerSHA || len(binding.Origins) != len(c.plan.Origins) {
+		return errors.New("pre-execution admission changed its native recovery binding")
+	}
+	for i, p := range binding.Origins {
+		if p.OwnerMode != d.ownerMode || p.OriginalOwnerSHA256 != d.ownerSHA || validateSchemaMaintenanceDeadHolderPreparedForRecovery(p, c.plan, c.planSHA, c.plan.Origins[i], d.mode(), d.preExecRecovery, d.engineSHA256()) != nil || (p.Host == c.origin.Host && (p.OriginalDaemon != d.original || p.RecoveryDaemon != d.generation)) {
+			return errors.New("pre-execution admission has another native recovery generation")
+		}
+	}
+	if _, err := d.readRecoveredResult(binding); err != nil {
+		return err
+	}
+	start, _, err := d.readStart(startupContentSHA256(raw))
+	if err != nil {
+		return err
+	}
+	started, err := c.host.readCapture("dead-holder-started.json")
+	if err != nil || started.Phase != "DEAD_PREWORKER_RUNNING" || !sameSchemaMaintenanceWriterCapture(started, start.Stopped) || started.ConfirmedCapsuleSHA256 != c.origin.OldCapsule.SHA256 || started.ConfirmedProviderSHA256 != c.origin.Recovery.Candidate.PayloadSHA256 || started.ConfirmedPID <= 1 || !existingSchemaInvocationPattern.MatchString(started.ConfirmedInvocationID) || started.ConfirmedInvocationID == start.Stopped.InvocationID {
+		return errors.New("pre-execution admission preceded its own native recovered writer start")
+	}
+	reopen := struct {
+		Format        int    `json:"format"`
+		TransitionID  string `json:"transition_id"`
+		PlanSHA256    string `json:"plan_sha256"`
+		Host          string `json:"host"`
+		CapsulePath   string `json:"capsule_path"`
+		CapsuleSHA256 string `json:"capsule_sha256"`
+	}{1, c.plan.TransitionID, c.planSHA, c.origin.Host, c.origin.OldCapsule.Path, c.origin.OldCapsule.SHA256}
+	want, _ := json.MarshalIndent(reopen, "", "  ")
+	actual, err := c.runtime.readExistingSchemaSealedFile(filepath.Join(c.origin.Workspace, "state", "reopen-intent.json"), true)
+	if err != nil || !bytes.Equal(actual, append(want, '\n')) {
+		return errors.New("pre-execution admission lost its exact own native reopen intent")
+	}
+	if restoredPresent {
+		restored, err := c.host.readCapture("admission-restored.json")
+		if err != nil || restored.Phase != "ADMISSION_RESTORED" || !sameSchemaMaintenanceWriterCapture(restored, start.Stopped) || restored.ConfirmedPID != started.ConfirmedPID || restored.ConfirmedInvocationID != started.ConfirmedInvocationID || restored.ConfirmedCapsuleSHA256 != started.ConfirmedCapsuleSHA256 || restored.ConfirmedProviderSHA256 != started.ConfirmedProviderSHA256 {
+			return errors.New("pre-execution restored admission differs from its own native recovered writer")
+		}
 	}
 	return nil
 }
@@ -123,7 +242,7 @@ func (d *productionSchemaMaintenanceDeadHolderController) prepared(ctx context.C
 		return result, err
 	}
 	canonical, _ := json.MarshalIndent(result, "", "  ")
-	if !bytes.Equal(raw, append(canonical, '\n')) || result.Mode != schemaMaintenanceDeadHolderMode || result.Format != "lmm-schema-maintenance-dead-holder-prepared-v1" || result.Host != c.origin.Host || result.TransitionID != c.plan.TransitionID || result.PrePlanSHA256 != c.planSHA || result.OriginalDaemon != d.original || result.RecoveryDaemon != d.generation || result.OwnerMode != d.ownerMode || result.OriginalOwnerSHA256 != d.ownerSHA || result.OldCapsule != c.origin.OldCapsule || result.StoppedCapture.Path != filepath.Join(c.origin.Workspace, "state", "writer-stopped.json") || result.OriginalDaemonFile.Path != filepath.Join(c.origin.Workspace, "state", "daemon-binding.json") || result.GuardianAdopted.Path != filepath.Join(c.origin.Workspace, "state", "guardian-adopted.json") || result.GuardianBinding.Path != c.host.binding.GuardianBindingPath || result.GuardianBinding.SHA256 != c.host.binding.GuardianBindingSHA256 {
+	if !bytes.Equal(raw, append(canonical, '\n')) || result.Mode != d.mode() || !sameSchemaMaintenancePreExecReference(result.PreExecRecovery, d.preExecRecovery) || result.Format != "lmm-schema-maintenance-dead-holder-prepared-v1" || result.Host != c.origin.Host || result.TransitionID != c.plan.TransitionID || result.PrePlanSHA256 != c.planSHA || result.OriginalDaemon != d.original || result.RecoveryDaemon != d.generation || result.OwnerMode != d.ownerMode || result.OriginalOwnerSHA256 != d.ownerSHA || result.OldCapsule != c.origin.OldCapsule || result.StoppedCapture.Path != filepath.Join(c.origin.Workspace, "state", "writer-stopped.json") || result.OriginalDaemonFile.Path != filepath.Join(c.origin.Workspace, "state", "daemon-binding.json") || result.GuardianAdopted.Path != filepath.Join(c.origin.Workspace, "state", "guardian-adopted.json") || result.GuardianBinding.Path != c.host.binding.GuardianBindingPath || result.GuardianBinding.SHA256 != c.host.binding.GuardianBindingSHA256 {
 		return result, errors.New("dead holder preparation differs from its exact fresh native authority")
 	}
 	for _, ref := range []productionReleaseFilePlan{result.OriginalDaemonFile, result.GuardianAdopted, result.GuardianBinding, result.StoppedCapture} {
@@ -144,7 +263,7 @@ func (d *productionSchemaMaintenanceDeadHolderController) prepare(ctx context.Co
 	if err != nil || capture.Phase != "WRITER_STOPPED" {
 		return result, errors.New("dead holder recovery requires the exact old sealed stop")
 	}
-	result = productionSchemaMaintenanceDeadHolderPrepared{Format: "lmm-schema-maintenance-dead-holder-prepared-v1", TransitionID: c.plan.TransitionID, PrePlanSHA256: c.planSHA, Mode: schemaMaintenanceDeadHolderMode, Host: c.origin.Host, OriginalDaemon: d.original, RecoveryDaemon: d.generation, OwnerMode: d.ownerMode, OriginalOwnerSHA256: d.ownerSHA, OldCapsule: c.origin.OldCapsule}
+	result = productionSchemaMaintenanceDeadHolderPrepared{Format: "lmm-schema-maintenance-dead-holder-prepared-v1", TransitionID: c.plan.TransitionID, PrePlanSHA256: c.planSHA, Mode: d.mode(), PreExecRecovery: d.preExecRecovery, Host: c.origin.Host, OriginalDaemon: d.original, RecoveryDaemon: d.generation, OwnerMode: d.ownerMode, OriginalOwnerSHA256: d.ownerSHA, OldCapsule: c.origin.OldCapsule}
 	refs := []*productionReleaseFilePlan{&result.OriginalDaemonFile, &result.GuardianAdopted, &result.GuardianBinding, &result.StoppedCapture}
 	paths := []string{filepath.Join(c.origin.Workspace, "state", "daemon-binding.json"), filepath.Join(c.origin.Workspace, "state", "guardian-adopted.json"), c.host.binding.GuardianBindingPath, filepath.Join(c.origin.Workspace, "state", "writer-stopped.json")}
 	for i, path := range paths {
@@ -165,11 +284,32 @@ func (d *productionSchemaMaintenanceDeadHolderController) prepare(ctx context.Co
 func (d *productionSchemaMaintenanceDeadHolderController) remote(ctx context.Context, origin productionSchemaMaintenanceOriginPlan, action string, result any) error {
 	c := d.base
 	engine := filepath.Join(filepath.Dir(origin.ArtifactCapsule.Path), "tmp", "migrations", "merchant-store-candidate", deployEngineName)
+	rpcEndpoint := "dead-holder-rpc"
+	if d.preExecRecovery != nil {
+		common, err := c.runtime.loadSchemaMaintenancePreExecRecovery(c.plan, c.planSHA, *d.preExecRecovery)
+		if err != nil {
+			return err
+		}
+		found := false
+		for _, peer := range common.Origins {
+			if peer.Host == origin.Host {
+				engine = filepath.Join(filepath.Dir(peer.RecoveryArtifactCapsule.Path), "tmp", "migrations", "merchant-store-candidate", deployEngineName)
+				found = true
+			}
+		}
+		if !found {
+			return errors.New("pre-execution recovery lacks its fixed peer artifact")
+		}
+		rpcEndpoint = "preexec-holder-rpc"
+	}
 	budget, err := schemaMaintenanceRPCActionTimeout(action)
 	if err != nil {
 		return err
 	}
-	words := []string{engine, "production", "schema-maintenance", "dead-holder-rpc", "--plan", filepath.Join(origin.Workspace, "schema-maintenance-plan.json"), "--plan-sha256", c.planSHA, "--action", action}
+	words := []string{engine, "production", "schema-maintenance", rpcEndpoint, "--plan", filepath.Join(origin.Workspace, "schema-maintenance-plan.json"), "--plan-sha256", c.planSHA, "--action", action}
+	if d.preExecRecovery != nil {
+		words = append(words, "--preexec-recovery-plan", d.preExecRecovery.Path, "--preexec-recovery-plan-sha256", d.preExecRecovery.SHA256)
+	}
 	for i := range words {
 		words[i] = schemaMaintenanceSSHWord(words[i])
 	}
@@ -178,7 +318,7 @@ func (d *productionSchemaMaintenanceDeadHolderController) remote(ctx context.Con
 		return errors.New("dead holder fixed peer reply is unknown; inspect without retrying mutation")
 	}
 	var reply schemaMaintenanceRPCReply
-	if schemaMaintenanceRPCDecode(bytes.TrimSuffix(output, []byte{'\n'}), &reply) != nil || !reply.OK || reply.Error != "" || reply.Protocol != schemaMaintenanceRPCProtocol || reply.Action != action || reply.Binding.PlanSHA256 != c.planSHA || reply.Binding.TransitionID != c.plan.TransitionID || reply.Binding.DaemonExeSHA256 != c.plan.Worker.Provider.DeployEngineSHA256 || validateSchemaMaintenanceRPCBinding(reply.Binding) != nil || !productionSHA256Pattern.MatchString(reply.Nonce) {
+	if schemaMaintenanceRPCDecode(bytes.TrimSuffix(output, []byte{'\n'}), &reply) != nil || !reply.OK || reply.Error != "" || reply.Protocol != schemaMaintenanceRPCProtocol || reply.Action != action || reply.Binding.PlanSHA256 != c.planSHA || reply.Binding.TransitionID != c.plan.TransitionID || reply.Binding.DaemonExeSHA256 != d.engineSHA256() || validateSchemaMaintenanceRPCBinding(reply.Binding) != nil || !productionSHA256Pattern.MatchString(reply.Nonce) {
 		return errors.New("dead holder peer native reply differs")
 	}
 	if err := schemaMaintenanceAbortTypedResult(reply, result); err != nil {
@@ -231,14 +371,14 @@ func (d *productionSchemaMaintenanceDeadHolderController) binding(ctx context.Co
 		return binding, "", err
 	}
 	canonical, _ := json.MarshalIndent(binding, "", "  ")
-	if !bytes.Equal(raw, append(canonical, '\n')) || binding.Format != "lmm-schema-maintenance-dead-holder-binding-v1" || binding.Mode != schemaMaintenanceDeadHolderMode || binding.TransitionID != c.plan.TransitionID || binding.PrePlanSHA256 != c.planSHA || binding.OwnerMode != d.ownerMode || binding.OriginalOwnerSHA256 != d.ownerSHA || len(binding.Origins) != len(c.plan.Origins) {
+	if !bytes.Equal(raw, append(canonical, '\n')) || binding.Format != "lmm-schema-maintenance-dead-holder-binding-v1" || binding.Mode != d.mode() || !sameSchemaMaintenancePreExecReference(binding.PreExecRecovery, d.preExecRecovery) || binding.TransitionID != c.plan.TransitionID || binding.PrePlanSHA256 != c.planSHA || binding.OwnerMode != d.ownerMode || binding.OriginalOwnerSHA256 != d.ownerSHA || len(binding.Origins) != len(c.plan.Origins) {
 		return binding, "", errors.New("dead holder binding differs from the immutable pre-worker recovery authority")
 	}
 	for i, p := range binding.Origins {
 		if p.OwnerMode != d.ownerMode || p.OriginalOwnerSHA256 != d.ownerSHA {
 			return binding, "", errors.New("dead holder origins disagree on the exact original owner mode")
 		}
-		if err := validateSchemaMaintenanceDeadHolderPrepared(p, c.plan, c.planSHA, c.plan.Origins[i]); err != nil {
+		if err := validateSchemaMaintenanceDeadHolderPreparedForRecovery(p, c.plan, c.planSHA, c.plan.Origins[i], d.mode(), d.preExecRecovery, d.engineSHA256()); err != nil {
 			return binding, "", err
 		}
 		if p.Host == c.origin.Host {
@@ -253,7 +393,7 @@ func (d *productionSchemaMaintenanceDeadHolderController) binding(ctx context.Co
 }
 func (d *productionSchemaMaintenanceDeadHolderController) createBinding(ctx context.Context) (productionSchemaMaintenanceDeadHolderBinding, error) {
 	c := d.base
-	binding := productionSchemaMaintenanceDeadHolderBinding{Format: "lmm-schema-maintenance-dead-holder-binding-v1", TransitionID: c.plan.TransitionID, PrePlanSHA256: c.planSHA, Mode: schemaMaintenanceDeadHolderMode, OwnerMode: d.ownerMode, OriginalOwnerSHA256: d.ownerSHA}
+	binding := productionSchemaMaintenanceDeadHolderBinding{Format: "lmm-schema-maintenance-dead-holder-binding-v1", TransitionID: c.plan.TransitionID, PrePlanSHA256: c.planSHA, Mode: d.mode(), PreExecRecovery: d.preExecRecovery, OwnerMode: d.ownerMode, OriginalOwnerSHA256: d.ownerSHA}
 	if c.origin.Host != c.plan.PrimaryHost {
 		return binding, errors.New("dead holder binding must originate at the fixed primary")
 	}
@@ -268,7 +408,7 @@ func (d *productionSchemaMaintenanceDeadHolderController) createBinding(ctx cont
 		if err != nil {
 			return binding, err
 		}
-		if p.Host != origin.Host || p.Mode != schemaMaintenanceDeadHolderMode || p.OwnerMode != d.ownerMode || p.OriginalOwnerSHA256 != d.ownerSHA {
+		if p.Host != origin.Host || p.Mode != d.mode() || !sameSchemaMaintenancePreExecReference(p.PreExecRecovery, d.preExecRecovery) || p.OwnerMode != d.ownerMode || p.OriginalOwnerSHA256 != d.ownerSHA {
 			return binding, errors.New("dead holder peer is not prepared under the original locks")
 		}
 		binding.Origins = append(binding.Origins, p)
@@ -334,11 +474,22 @@ func schemaMaintenanceDeadHolderUnitGone(generation schemaMaintenanceRPCBinding,
 }
 
 func validateSchemaMaintenanceDeadHolderPrepared(p productionSchemaMaintenanceDeadHolderPrepared, plan productionSchemaMaintenancePlan, sha string, origin productionSchemaMaintenanceOriginPlan) error {
-	if p.Format != "lmm-schema-maintenance-dead-holder-prepared-v1" || p.Mode != schemaMaintenanceDeadHolderMode || p.Host != origin.Host || p.TransitionID != plan.TransitionID || p.PrePlanSHA256 != sha || p.OldCapsule != origin.OldCapsule || validateSchemaMaintenanceRPCBinding(p.OriginalDaemon) != nil || validateSchemaMaintenanceRPCBinding(p.RecoveryDaemon) != nil || p.OriginalDaemon == p.RecoveryDaemon || (p.OwnerMode != schemaMaintenanceDeadPreWorkerExactOwner && p.OwnerMode != schemaMaintenanceDeadPreWorkerZeroOwner) || (p.OwnerMode == schemaMaintenanceDeadPreWorkerExactOwner && !productionSHA256Pattern.MatchString(p.OriginalOwnerSHA256)) || (p.OwnerMode == schemaMaintenanceDeadPreWorkerZeroOwner && p.OriginalOwnerSHA256 != "") {
+	return validateSchemaMaintenanceDeadHolderPreparedForRecovery(p, plan, sha, origin, schemaMaintenanceDeadHolderMode, nil, plan.Worker.Provider.DeployEngineSHA256)
+}
+
+func validateSchemaMaintenanceDeadHolderPreparedForRecovery(p productionSchemaMaintenanceDeadHolderPrepared, plan productionSchemaMaintenancePlan, sha string, origin productionSchemaMaintenanceOriginPlan, mode string, preExec *productionReleaseFilePlan, engineSHA string) error {
+	if (preExec == nil && (mode != schemaMaintenanceDeadHolderMode || engineSHA != plan.Worker.Provider.DeployEngineSHA256)) || (preExec != nil && (mode != schemaMaintenancePreExecRejectedMode || validateSchemaMaintenanceReference(*preExec) != nil || preExec.Path != filepath.Join(origin.Workspace, "state", "preexec-recovery-plan.json"))) || !productionSHA256Pattern.MatchString(engineSHA) {
+		return errors.New("dead holder preparation lacks its explicit scoped recovery engine authority")
+	}
+	if p.Format != "lmm-schema-maintenance-dead-holder-prepared-v1" || p.Mode != mode || !sameSchemaMaintenancePreExecReference(p.PreExecRecovery, preExec) || p.Host != origin.Host || p.TransitionID != plan.TransitionID || p.PrePlanSHA256 != sha || p.OldCapsule != origin.OldCapsule || validateSchemaMaintenanceRPCBinding(p.OriginalDaemon) != nil || validateSchemaMaintenanceRPCBinding(p.RecoveryDaemon) != nil || p.OriginalDaemon == p.RecoveryDaemon || (p.OwnerMode != schemaMaintenanceDeadPreWorkerExactOwner && p.OwnerMode != schemaMaintenanceDeadPreWorkerZeroOwner) || (p.OwnerMode == schemaMaintenanceDeadPreWorkerExactOwner && !productionSHA256Pattern.MatchString(p.OriginalOwnerSHA256)) || (p.OwnerMode == schemaMaintenanceDeadPreWorkerZeroOwner && p.OriginalOwnerSHA256 != "") {
 		return errors.New("dead holder preparation changed a fixed origin or original/fresh generation")
 	}
-	for _, generation := range []schemaMaintenanceRPCBinding{p.OriginalDaemon, p.RecoveryDaemon} {
-		if generation.PlanSHA256 != sha || generation.TransitionID != plan.TransitionID || generation.DaemonExeSHA256 != plan.Worker.Provider.DeployEngineSHA256 {
+	for i, generation := range []schemaMaintenanceRPCBinding{p.OriginalDaemon, p.RecoveryDaemon} {
+		expectedEngine := plan.Worker.Provider.DeployEngineSHA256
+		if i == 1 {
+			expectedEngine = engineSHA
+		}
+		if generation.PlanSHA256 != sha || generation.TransitionID != plan.TransitionID || generation.DaemonExeSHA256 != expectedEngine {
 			return errors.New("dead holder preparation changed a native release generation")
 		}
 	}

@@ -17,6 +17,8 @@ type productionSchemaMaintenanceDeadHolderCLIState struct {
 	Mode                string                      `json:"mode"`
 	OriginalOwnerSHA256 string                      `json:"original_owner_sha256"`
 	Generation          schemaMaintenanceRPCBinding `json:"generation"`
+	PreExecRecovery     *productionReleaseFilePlan  `json:"preexec_recovery,omitempty"`
+	RecoveryMode        string                      `json:"recovery_mode,omitempty"`
 }
 
 func runProductionSchemaMaintenanceDeadHolder(action string, args []string, stdout, stderr io.Writer) int {
@@ -28,6 +30,8 @@ func runProductionSchemaMaintenanceDeadHolder(action string, args []string, stdo
 	projectionSHA := flags.String("host-binding-sha256", "", "original host projection SHA256")
 	mode := flags.String("owner-mode", "", "explicit EXACT_ORIGINAL_OWNER or ZERO_OWNER")
 	ownerSHA := flags.String("original-owner-sha256", "", "reviewed canonical original owner SHA256, exact mode only")
+	preExecPath := flags.String("preexec-recovery-plan", "", "exact canonical pre-execution rejection recovery plan")
+	preExecSHA := flags.String("preexec-recovery-plan-sha256", "", "exact canonical recovery authority SHA256")
 	rpcAction := flags.String("action", "", "fixed dedicated recovery action")
 	confirm := flags.String("confirm", "", "production authorization")
 	if err := flags.Parse(args); err != nil {
@@ -39,6 +43,10 @@ func runProductionSchemaMaintenanceDeadHolder(action string, args []string, stdo
 	if flags.NArg() != 0 || *planPath == "" || *planSHA == "" {
 		return ExitUsage
 	}
+	preExecEndpoint := action == "preexec-holder-serve" || action == "preexec-holder-rpc"
+	if (!preExecEndpoint && (*preExecPath != "" || *preExecSHA != "")) || (preExecEndpoint && (*preExecPath == "" || !productionSHA256Pattern.MatchString(*preExecSHA))) {
+		return ExitUsage
+	}
 	fail := func(err error) int { fmt.Fprintf(stderr, "schema-maintenance %s: %v\n", action, err); return ExitError }
 	runtime := defaultProductionRuntime()
 	ctx := context.Background()
@@ -48,9 +56,6 @@ func runProductionSchemaMaintenanceDeadHolder(action string, args []string, stdo
 	plan, err := runtime.loadSchemaMaintenancePlan(*planPath, *planSHA)
 	if err != nil {
 		return fail(err)
-	}
-	if sha256MustEqual("/proc/self/exe", plan.Worker.Provider.DeployEngineSHA256) != nil {
-		return fail(errors.New("dead holder endpoint is not the exact official signed engine"))
 	}
 	name, err := runtime.hostname()
 	if err != nil {
@@ -65,9 +70,27 @@ func runProductionSchemaMaintenanceDeadHolder(action string, args []string, stdo
 	if origin.Host == "" {
 		return fail(errors.New("dead holder endpoint is not a fixed original host"))
 	}
+	var preExec *productionReleaseFilePlan
+	engineSHA := plan.Worker.Provider.DeployEngineSHA256
+	recoveryMode := ""
+	if preExecEndpoint {
+		if *preExecPath != filepath.Join(origin.Workspace, "state", "preexec-recovery-plan.json") {
+			return fail(errors.New("pre-execution recovery is not the fixed original-workspace authority"))
+		}
+		preExec = &productionReleaseFilePlan{Path: *preExecPath, SHA256: *preExecSHA}
+		capsule, err := runtime.checkSchemaMaintenancePreExecRecovery(ctx, plan, *planSHA, *preExec)
+		if err != nil {
+			return fail(err)
+		}
+		engineSHA = capsule.Candidate.DeployEngineSHA256
+		recoveryMode = schemaMaintenancePreExecRejectedMode
+	}
+	if sha256MustEqual("/proc/self/exe", engineSHA) != nil {
+		return fail(errors.New("dead holder endpoint is not the exact verified signed recovery engine"))
+	}
 	workspace := schemaMaintenanceDeadHolderRPCWorkspace(origin, plan.TransitionID)
 	statePath := filepath.Join(origin.Workspace, "state", "dead-holder-authority.json")
-	if action == "dead-holder-rpc" {
+	if action == "dead-holder-rpc" || action == "preexec-holder-rpc" {
 		if *rpcAction == "" || *projectionPath != "" || *projectionSHA != "" || *mode != "" || *ownerSHA != "" || *confirm != "" {
 			return ExitUsage
 		}
@@ -83,7 +106,7 @@ func runProductionSchemaMaintenanceDeadHolder(action string, args []string, stdo
 			return fail(errors.New("dead holder RPC authority is malformed"))
 		}
 		canonical, _ := json.MarshalIndent(state, "", "  ")
-		if !bytes.Equal(raw, append(canonical, '\n')) || state.Format != "lmm-schema-maintenance-dead-holder-authority-v1" || state.Generation.PlanSHA256 != *planSHA || state.Generation.TransitionID != plan.TransitionID || state.Generation.DaemonExeSHA256 != plan.Worker.Provider.DeployEngineSHA256 || (state.Mode != schemaMaintenanceDeadPreWorkerExactOwner && state.Mode != schemaMaintenanceDeadPreWorkerZeroOwner) || (state.Mode == schemaMaintenanceDeadPreWorkerExactOwner && !productionSHA256Pattern.MatchString(state.OriginalOwnerSHA256)) || (state.Mode == schemaMaintenanceDeadPreWorkerZeroOwner && state.OriginalOwnerSHA256 != "") {
+		if !bytes.Equal(raw, append(canonical, '\n')) || state.Format != "lmm-schema-maintenance-dead-holder-authority-v1" || !sameSchemaMaintenancePreExecReference(state.PreExecRecovery, preExec) || state.RecoveryMode != recoveryMode || state.Generation.PlanSHA256 != *planSHA || state.Generation.TransitionID != plan.TransitionID || state.Generation.DaemonExeSHA256 != engineSHA || (state.Mode != schemaMaintenanceDeadPreWorkerExactOwner && state.Mode != schemaMaintenanceDeadPreWorkerZeroOwner) || (state.Mode == schemaMaintenanceDeadPreWorkerExactOwner && !productionSHA256Pattern.MatchString(state.OriginalOwnerSHA256)) || (state.Mode == schemaMaintenanceDeadPreWorkerZeroOwner && state.OriginalOwnerSHA256 != "") {
 			return fail(errors.New("dead holder RPC authority differs from the original plan"))
 		}
 		reply, err := callSchemaMaintenanceRPC(ctx, workspace, state.Generation, *rpcAction)
@@ -99,7 +122,7 @@ func runProductionSchemaMaintenanceDeadHolder(action string, args []string, stdo
 		}
 		return ExitOK
 	}
-	if action != "dead-holder-serve" || *confirm != "api.lmm.best" || *projectionPath == "" || *projectionSHA == "" || *rpcAction != "" || (*mode != "EXACT_ORIGINAL_OWNER" && *mode != "ZERO_OWNER") || (*mode == "EXACT_ORIGINAL_OWNER" && !productionSHA256Pattern.MatchString(*ownerSHA)) || (*mode == "ZERO_OWNER" && *ownerSHA != "") {
+	if (action != "dead-holder-serve" && action != "preexec-holder-serve") || *confirm != "api.lmm.best" || *projectionPath == "" || *projectionSHA == "" || *rpcAction != "" || (*mode != "EXACT_ORIGINAL_OWNER" && *mode != "ZERO_OWNER") || (*mode == "EXACT_ORIGINAL_OWNER" && !productionSHA256Pattern.MatchString(*ownerSHA)) || (*mode == "ZERO_OWNER" && *ownerSHA != "") {
 		return ExitUsage
 	}
 	raw, err := runtime.readExistingSchemaSealedFile(filepath.Join(origin.Workspace, "state", "daemon-binding.json"), true)
@@ -117,15 +140,24 @@ func runProductionSchemaMaintenanceDeadHolder(action string, args []string, stdo
 	if err := schemaMaintenanceDeadHolderProcessGone(original, unit); err != nil {
 		return fail(err)
 	}
-	if err := schemaMaintenanceDeadHolderNoWorker(origin.Workspace); err != nil {
+	if preExec == nil {
+		if err := schemaMaintenanceDeadHolderNoWorker(origin.Workspace); err != nil {
+			return fail(err)
+		}
+	} else if _, err := runtime.checkSchemaMaintenancePreExecRecovery(ctx, plan, *planSHA, *preExec); err != nil {
 		return fail(err)
+	}
+	if preExec != nil {
+		if err := runtime.checkSchemaMaintenancePreExecAdmissionUnattempted(plan); err != nil {
+			return fail(err)
+		}
 	}
 	for _, name := range []string{"dead-holder-authority.json", "dead-holder-prepared.json", "dead-holder-original-owner.json", "dead-preworker-cas-intent.json", "dead-preworker-cas-result.json", "dead-preworker-cas-reconciled.json"} {
 		if _, err := os.Lstat(filepath.Join(origin.Workspace, "state", name)); !errors.Is(err, os.ErrNotExist) {
 			return fail(errors.New("dead holder recovery has prior native authority; preserve its original process and inspect without restart"))
 		}
 	}
-	controller, err := runtime.newSchemaMaintenanceController(ctx, *planPath, *planSHA, *projectionPath, *projectionSHA)
+	controller, err := runtime.newSchemaMaintenanceControllerWithPreExec(ctx, *planPath, *planSHA, *projectionPath, *projectionSHA, preExec)
 	if err != nil {
 		return fail(err)
 	}
@@ -133,11 +165,14 @@ func runProductionSchemaMaintenanceDeadHolder(action string, args []string, stdo
 	if err := runtime.checkSchemaMaintenanceGuardianReadopted(controller.host, original); err != nil {
 		return fail(err)
 	}
-	generation, err := schemaMaintenanceRPCSelfBinding(plan.TransitionID, *planSHA, plan.Worker.Provider.DeployEngineSHA256)
+	generation, err := schemaMaintenanceRPCSelfBinding(plan.TransitionID, *planSHA, engineSHA)
 	if err != nil {
 		return fail(err)
 	}
 	d := &productionSchemaMaintenanceDeadHolderController{base: controller, original: original, generation: generation, ownerSHA: *ownerSHA, ownerMode: *mode}
+	if preExec != nil {
+		d.preExecRecovery, d.recoveryEngineSHA256 = preExec, engineSHA
+	}
 	controller.host.validate = d.checkLocal
 	if err := d.checkLeasedLocal(ctx); err != nil {
 		return fail(err)
@@ -147,7 +182,7 @@ func runProductionSchemaMaintenanceDeadHolder(action string, args []string, stdo
 			return fail(err)
 		}
 	}
-	state := productionSchemaMaintenanceDeadHolderCLIState{"lmm-schema-maintenance-dead-holder-authority-v1", *mode, *ownerSHA, generation}
+	state := productionSchemaMaintenanceDeadHolderCLIState{Format: "lmm-schema-maintenance-dead-holder-authority-v1", Mode: *mode, OriginalOwnerSHA256: *ownerSHA, Generation: generation, PreExecRecovery: preExec, RecoveryMode: recoveryMode}
 	if err := runtime.startupBaselineNewFile(statePath, state); err != nil {
 		return fail(errors.New("fresh dead holder authority already exists or is unknown; do not replace its process"))
 	}

@@ -78,7 +78,7 @@ func (runtime *productionRuntime) runSchemaMaintenanceWorker(ctx context.Context
 	// Nothing invokes the ordinary --apply path. The signed child independently
 	// verifies its executable, exact owner, holder PG session, sole-client rule
 	// and the final transaction state before committing its additive DDL.
-	output, runErr := runtime.runner.Run(ctx, productionCommand{Name: provider, Args: []string{"migrate", "--schema-only", "--maintenance-owner", ownerPath, "--maintenance-owner-sha256", ownerSHA}, Env: child, Sensitive: true, Timeout: 10 * time.Minute, OutputLimit: 1 << 20})
+	output, runErr := runtime.runSchemaMaintenanceWorkerProvider(ctx, provider, ownerPath, ownerSHA, child)
 	result.FinishedUTC, result.OutputSHA256 = runtime.now().UTC(), startupContentSHA256(output)
 	result.Phase = "WORKER_RESULT_UNCERTAIN"
 	if runErr == nil && bytes.Equal(output, []byte("PostgreSQL schema-only maintenance transaction committed; application data migrations were not run\n")) && sha256MustEqual(provider, fence.owner.ProviderSHA256) == nil {
@@ -103,6 +103,13 @@ func (runtime *productionRuntime) runSchemaMaintenanceWorker(ctx context.Context
 		return result, errors.New("schema worker result is uncertain; retain closed admission and the exact durable owner")
 	}
 	return result, nil
+}
+
+func (runtime *productionRuntime) runSchemaMaintenanceWorkerProvider(ctx context.Context, provider, ownerPath, ownerSHA string, child []string) ([]byte, error) {
+	// The default runner admits fixed native tools, not dynamic artifact paths.
+	// Reuse the verified-binary entry point without losing the worker's bounded
+	// output, private environment, or operation budget. Failure remains uncertain.
+	return runVerifiedBinaryWithOutputLimit(ctx, runtime.runner, provider, []string{"migrate", "--schema-only", "--maintenance-owner", ownerPath, "--maintenance-owner-sha256", ownerSHA}, child, "", 10*time.Minute, true, 1<<20)
 }
 
 func canonicalSchemaMaintenanceWorkerEnvironment(child []string) ([]byte, error) {

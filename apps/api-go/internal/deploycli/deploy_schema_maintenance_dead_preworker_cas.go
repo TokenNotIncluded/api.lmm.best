@@ -22,7 +22,14 @@ type productionSchemaMaintenanceDeadPreWorkerCASAuthority struct {
 	OriginalDaemon          schemaMaintenanceRPCBinding
 	OwnerMode               string
 	OriginalOwnerRaw        []byte
+	PreExecRecovery         *productionReleaseFilePlan
+	RecoveryEngineSHA256    string
 	CheckLocalDeadAuthority func(context.Context) error
+}
+
+type productionSchemaMaintenanceDeadPreExecData struct {
+	Before           productionSchemaMaintenanceBackupSource
+	OriginalOwnerRaw []byte
 }
 
 type productionSchemaMaintenanceDeadPreWorkerCASResult struct {
@@ -50,9 +57,12 @@ var errSchemaMaintenanceDeadCommitUncertain = errors.New("dead-preworker exact C
 // Guard must only inspect local immutable authority, dead process generations,
 // original transferred FDs and absence of worker files. It must not call this
 // lease, another DB client, migrate --verify, or remote full qualification.
-func (lease *productionMerchantStoreFence) recoverSchemaMaintenanceDeadPreWorkerOwner(ctx context.Context, expected productionExistingSchemaContract, ownerRaw []byte, mode string, guard func(context.Context) error) error {
+func (lease *productionMerchantStoreFence) recoverSchemaMaintenanceDeadPreWorkerOwner(ctx context.Context, expected productionExistingSchemaContract, ownerRaw []byte, mode string, guard func(context.Context) error, preExecData ...productionSchemaMaintenanceDeadPreExecData) error {
 	if expected.StartupSHA256 != "" || expected.SignedUnitSHA256 != "" || validateProductionExistingSchemaContract(&expected) != nil || guard == nil {
 		return errors.New("dead-preworker CAS lacks a physical pre-catalog or local recovery authority")
+	}
+	if len(preExecData) > 1 || len(preExecData) == 1 && (mode != schemaMaintenanceDeadPreWorkerExactOwner || !bytes.Equal(preExecData[0].OriginalOwnerRaw, ownerRaw) || schemaMaintenanceBackupSourceIdentity(preExecData[0].Before, expected) != nil) {
+		return errors.New("dead-preworker pre-execution data authority differs from its exact original owner or catalog")
 	}
 	var owner productionMerchantStoreFenceOwner
 	if mode == schemaMaintenanceDeadPreWorkerExactOwner {
@@ -88,8 +98,21 @@ func (lease *productionMerchantStoreFence) recoverSchemaMaintenanceDeadPreWorker
 	if err := checkSchemaMaintenanceDeadPreWorkerTransaction(ctx, tx, lease.identity, expected, owner, ownerRaw, mode, true); err != nil {
 		return err
 	}
+	if len(preExecData) == 1 {
+		if err := checkSchemaMaintenanceDeadPreExecData(ctx, tx, preExecData[0]); err != nil {
+			return err
+		}
+	}
 	if err := guard(ctx); err != nil {
 		return err
+	}
+	if len(preExecData) == 1 {
+		var deleteEffects int
+		if err := tx.QueryRow(ctx, `SELECT
+ (SELECT count(*) FROM pg_catalog.pg_trigger WHERE tgrelid=pg_catalog.to_regclass($1) AND NOT tgisinternal AND tgenabled<>'D' AND (tgtype & 8)<>0)
+ +(SELECT count(*) FROM pg_catalog.pg_rewrite WHERE ev_class=pg_catalog.to_regclass($1) AND ev_type='4' AND ev_enabled<>'D')`, schemaMaintenanceQuoteIdentifier(lease.identity.Schema)+`.options`).Scan(&deleteEffects); err != nil || deleteEffects != 0 {
+			return errors.New("dead-preworker pre-execution owner DELETE has active user DELETE triggers or rules")
+		}
 	}
 	if mode == schemaMaintenanceDeadPreWorkerExactOwner {
 		var returned string
@@ -97,11 +120,23 @@ func (lease *productionMerchantStoreFence) recoverSchemaMaintenanceDeadPreWorker
 			return errors.New("dead-preworker CAS did not return its sole exact original owner")
 		}
 	}
+	if len(preExecData) == 1 {
+		// Drain deferred DELETE triggers before the final catalog/data checks;
+		// otherwise a trigger could change old money only during COMMIT.
+		if _, err := tx.Exec(ctx, "SET CONSTRAINTS ALL IMMEDIATE"); err != nil {
+			return errors.New("dead-preworker pre-execution deferred constraints did not finish before data qualification")
+		}
+	}
 	if err := guard(ctx); err != nil {
 		return err
 	}
 	if err := checkSchemaMaintenanceDeadPreWorkerTransaction(ctx, tx, lease.identity, expected, owner, nil, schemaMaintenanceDeadPreWorkerZeroOwner, true); err != nil {
 		return err
+	}
+	if len(preExecData) == 1 {
+		if err := checkSchemaMaintenanceDeadPreExecData(ctx, tx, preExecData[0]); err != nil {
+			return err
+		}
 	}
 	if err := guard(ctx); err != nil {
 		return err
