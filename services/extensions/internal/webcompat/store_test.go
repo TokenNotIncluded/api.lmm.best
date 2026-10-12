@@ -583,6 +583,22 @@ func TestStoreTransportLegacyAuthenticatesBeforeReadingBody(t *testing.T) {
 	}
 }
 
+func TestStoreTransportListRejectsExpiredAndRevokedSessions(t *testing.T) {
+	for _, reason := range []string{"expired", "revoked"} {
+		for _, path := range []string{"/api/store/products", "/api/store/my/orders?role=buyer", "/api/store/my/orders?role=seller"} {
+			core := &authCore{fn: func(context.Context, string) (*pb.AuthorizeResponse, error) {
+				return nil, status.Error(codes.Unauthenticated, reason)
+			}}
+			service := newStoreLegacyTransportFake()
+			rec := httptest.NewRecorder()
+			storeTransportMux(t, core, service).ServeHTTP(rec, storeTransportRequest("GET", path, []string{"Bearer " + webToken}))
+			if rec.Code != 401 || len(service.calls) != 0 || core.calls != 1 {
+				t.Fatalf("%s %s: status=%d calls=%v core=%d", reason, path, rec.Code, service.calls, core.calls)
+			}
+		}
+	}
+}
+
 func TestStoreTransportLegacyRejectsMalformedBodiesBeforeDomain(t *testing.T) {
 	bodies := []string{"", `null`, `[]`, `true`, `{"title":"one","title":"two"}`, `{"title":"one","Title":"two"}`, `{"variants":[{"enabled":true,"enabled":false}]}`, `{"links":[{"url":"https://example.com","URL":"https://other.example"}]}`, `{"title":true} {}`, `{"title":`, "{\"title\":\"\xff\"}", `{"nested":` + strings.Repeat(`[`, 66) + `0` + strings.Repeat(`]`, 66) + `}`}
 	for i, body := range bodies {

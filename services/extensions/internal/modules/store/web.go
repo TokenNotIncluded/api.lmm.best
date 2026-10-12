@@ -80,6 +80,51 @@ func (s *Service) PublicProduct(ctx context.Context, id string) (map[string]any,
 	return s.publicLegacyView(row, true)
 }
 
+// nativeProductView is a read-only bridge, not a legacy checkout adapter.
+// Native prices retain their units; currency amounts are never relabeled credits.
+func nativeProductView(row LocatedProduct, public bool) (map[string]any, error) {
+	p := row.Product
+	if public && !p.Published {
+		return nil, ErrNotFound
+	}
+	if row.Owner.Kind != "personal" || !row.Owner.Valid() || !Text(p.ID, 128) || !Text(p.Title, 200) || len(row.Variants) == 0 {
+		return nil, ErrUnavailable
+	}
+	variants := make([]map[string]any, 0, len(row.Variants))
+	var min, max any
+	allCredits := true
+	for _, v := range row.Variants {
+		if v.Legacy != nil || v.ProductID != p.ID || !Text(v.ID, 128) || !v.Price.valid() || v.Price.Amount > legacySafeInteger || v.Stock < 0 || v.Stock > legacySafeInteger || v.Reserved < 0 || v.Reserved > v.Stock || v.Claimed < 0 || v.Claimed > legacySafeInteger || v.Quota < -1 {
+			return nil, ErrUnavailable
+		}
+		var credits any
+		if v.Price.Unit == "credits" {
+			credits = v.Price.Amount
+			if min == nil || v.Price.Amount < min.(int64) {
+				min = v.Price.Amount
+			}
+			if max == nil || v.Price.Amount > max.(int64) {
+				max = v.Price.Amount
+			}
+		} else {
+			allCredits = false
+		}
+		available := v.Stock - v.Reserved
+		if !v.TrackStock {
+			available = -1
+		}
+		variants = append(variants, map[string]any{"id": v.ID, "product_id": p.ID, "name": v.Title, "price_quota": credits, "price": v.Price, "enabled": true, "unlimited_supply": !v.TrackStock, "inventory_total": v.Stock, "inventory_available": available, "reserved_stock": v.Reserved, "trading_paused": true})
+	}
+	if !allCredits {
+		min, max = nil, nil
+	}
+	status := "draft"
+	if p.Published {
+		status = "published"
+	}
+	return map[string]any{"id": p.ID, "seller_id": row.Owner.ID, "title": p.Title, "record_kind": "native", "description": "", "image_urls": []string{}, "links": []any{}, "price_quota": min, "price_min_quota": min, "price_max_quota": max, "variants": variants, "status": status, "visibility": "public", "trading_paused": true, "payment_methods": []string{}, "purchase_login_required": true, "display_tags": []string{"trading_paused"}, "created_at": nil, "updated_at": nil}, nil
+}
+
 func publicView(row LocatedProduct) (map[string]any, error) {
 	if !row.Product.Published {
 		return nil, ErrNotFound

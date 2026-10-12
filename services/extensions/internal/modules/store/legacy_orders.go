@@ -88,7 +88,10 @@ func (s *Service) acceptLegacyDisclaimer(ctx context.Context, actor Account, r L
 func legacyOrderView(row LocatedOrder) (map[string]any, error) {
 	o := row.Order
 	m := o.Legacy
-	if m == nil || o.Total.Unit != "credits" || o.UnitPrice.Unit != "credits" || o.Total.Amount < 0 || o.Total.Amount > legacySafeInteger || o.UnitPrice.Amount > legacySafeInteger {
+	if m == nil {
+		return nativeOrderView(row)
+	}
+	if o.Total.Unit != "credits" || o.UnitPrice.Unit != "credits" || o.Total.Amount < 0 || o.Total.Amount > legacySafeInteger || o.UnitPrice.Amount > legacySafeInteger {
 		return nil, ErrUnavailable
 	}
 	status := "pending"
@@ -104,8 +107,45 @@ func legacyOrderView(row LocatedOrder) (map[string]any, error) {
 	case Cancelled:
 		status = "cancelled"
 	}
-	return map[string]any{"id": o.ID, "trade_no": o.ID, "buyer_id": o.Buyer.ID, "seller_id": o.Seller.ID, "product_id": m.ProductID, "product_title": o.ProductTitle, "variant_id": o.VariantID, "variant_name": o.Title, "delivery_template": m.DeliveryTemplate, "quantity": o.Quantity, "unit_price_quota": o.UnitPrice.Amount, "price_quota": o.Total.Amount, "fee_quota": 0, "payment_method": m.PaymentMethod, "status": status, "amount_minor": 0, "currency": "", "frozen_usd_fx": "0", "created_at": m.CreatedAt, "paid_at": m.PaidAt, "expires_at": 0, "pickup_login_required": true, "pickup_code_required": false, "email_pickup_link": false, "payment_issued": o.PaymentRef != "", "seller_terms_version": m.SellerTermsVersion, "seller_terms_content": m.SellerTermsContent, "seller_terms_accepted_at": m.SellerTermsAcceptedAt}, nil
+	return map[string]any{"record_kind": "legacy", "id": o.ID, "trade_no": o.ID, "buyer_id": o.Buyer.ID, "seller_id": o.Seller.ID, "product_id": m.ProductID, "product_title": o.ProductTitle, "variant_id": o.VariantID, "variant_name": o.Title, "delivery_template": m.DeliveryTemplate, "quantity": o.Quantity, "unit_price_quota": o.UnitPrice.Amount, "price_quota": o.Total.Amount, "fee_quota": 0, "payment_method": m.PaymentMethod, "status": status, "amount_minor": 0, "currency": "", "frozen_usd_fx": "0", "created_at": m.CreatedAt, "paid_at": m.PaidAt, "expires_at": 0, "pickup_login_required": true, "pickup_code_required": false, "email_pickup_link": false, "payment_issued": o.PaymentRef != "", "seller_terms_version": m.SellerTermsVersion, "seller_terms_content": m.SellerTermsContent, "seller_terms_accepted_at": m.SellerTermsAcceptedAt}, nil
 }
+
+// Native orders lack legacy timestamps, payment-method and delivery-template
+// metadata. Do not invent those facts or expose Delivery/financial RPC receipts.
+func nativeOrderView(row LocatedOrder) (map[string]any, error) {
+	o := row.Order
+	if !o.Buyer.Valid() || !o.Seller.Valid() || !o.UnitPrice.valid() || !o.Total.valid() || o.UnitPrice.Unit != o.Total.Unit || o.UnitPrice.Currency != o.Total.Currency || o.Quantity <= 0 || o.Quantity > legacySafeInteger || o.Total.Amount > legacySafeInteger || o.UnitPrice.Amount > legacySafeInteger {
+		return nil, ErrUnavailable
+	}
+	status := "pending"
+	switch o.State {
+	case AwaitingPayment:
+	case Paid, Fulfilled, Settled:
+		status = "paid"
+	case PaymentPending, SettlementPending:
+		status = "reconciliation_pending"
+	case RefundPending:
+		status = "refund_pending"
+	case Refunded:
+		status = "refunded"
+	case Cancelled:
+		status = "cancelled"
+	default:
+		return nil, ErrUnavailable
+	}
+	var unitCredits, totalCredits, minor any
+	if o.Total.Unit == "credits" {
+		unitCredits, totalCredits = o.UnitPrice.Amount, o.Total.Amount
+	} else {
+		minor = o.Total.Amount
+	}
+	return map[string]any{"record_kind": "native", "id": o.ID, "trade_no": o.ID, "buyer_id": o.Buyer.ID, "seller_id": o.Seller.ID, "product_id": row.ProductID, "product_title": o.ProductTitle, "variant_id": o.VariantID, "variant_name": o.Title, "quantity": o.Quantity, "unit_price_quota": unitCredits, "price_quota": totalCredits, "unit_price": o.UnitPrice, "total": o.Total, "amount_minor": minor, "currency": o.Total.Currency, "status": status, "created_at": nil, "paid_at": nil, "payment_method": "", "delivery_template": "", "payment_issued": o.PaymentRef != ""}, nil
+}
+
+type legacyOrderPageIndex interface {
+	ListLegacyOrdersPage(context.Context, Account, string, int, int) ([]LocatedOrder, int64, error)
+}
+
 func (s *Service) legacyOrder(ctx context.Context, token string, actor Account, r LegacyRequest) (any, error) {
 	switch r.Action {
 	case "my_orders":
@@ -119,19 +159,37 @@ func (s *Service) legacyOrder(ctx context.Context, token string, actor Account, 
 		if !ok {
 			return nil, ErrUnavailable
 		}
-		rows, err := idx.ListLegacyOrders(ctx, actor, r.Role, r.Offset, r.Limit)
+		var rows []LocatedOrder
+		var total int64
+		var err error
+		pageIndex, counted := s.repo.(legacyOrderPageIndex)
+		if counted {
+			rows, total, err = pageIndex.ListLegacyOrdersPage(ctx, actor, r.Role, r.Offset, r.Limit)
+		} else {
+			rows, err = idx.ListLegacyOrders(ctx, actor, r.Role, r.Offset, r.Limit)
+		}
 		if err != nil {
 			return nil, err
 		}
 		out := []map[string]any{}
 		for _, row := range rows {
+			// Location indexes are not authorities. Reject a faulty index rather
+			// than returning another account's order or silently filtering it.
+			if r.Role == "buyer" && row.Order.Buyer != actor || r.Role == "seller" && row.Order.Seller != actor {
+				return nil, ErrForbidden
+			}
 			v, err := legacyOrderView(row)
 			if err != nil {
 				return nil, err
 			}
 			out = append(out, v)
 		}
-		return legacyPage(out, len(out), r.Offset, r.Limit), nil
+		page := legacyPage(out, len(out), r.Offset, r.Limit)
+		if counted {
+			page["total"] = total
+			page["has_more"] = int64(r.Offset)+int64(len(out)) < total
+		}
+		return page, nil
 	case "create_order":
 		var in legacyCheckout
 		if legacyDecode(r.Body, &in) != nil || !Key(in.RequestKey) || in.Quantity < 1 {

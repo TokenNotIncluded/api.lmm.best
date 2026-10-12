@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"time"
 )
@@ -78,7 +79,7 @@ func (p *Postgres) ListPublishedQuery(ctx context.Context, q CatalogueQuery) ([]
 	// a parameter and matched literally, including percent/underscore/backslash.
 	created := `COALESCE(p.body->'legacy'->>'created_at',p.body->'legacy_public'->>'created_at','0')::bigint`
 	sales := `COALESCE((SELECT SUM((o.body->>'quantity')::bigint) FROM lmm_store.orders o JOIN lmm_store.variants ov ON ov.shop_id=o.shop_id AND ov.id=o.body->>'variant_id' WHERE o.shop_id=p.shop_id AND ov.body->>'product_id'=p.id AND o.body->>'state' IN ('paid','fulfilled','settled') AND COALESCE(o.body->'total'->>'amount_credits',o.body->'total'->>'amount_minor','0')::numeric>0),0)`
-	tradable := `($11::boolean AND COALESCE(p.body->'legacy'->>'status',p.body->'legacy_public'->>'status','published')='published' AND NOT COALESCE((p.body->'legacy'->>'test_mode')::boolean,false) AND COALESCE((p.body->'legacy'->>'approved')::boolean,true) AND (p.body->'legacy'->>'sale_limit' IS NULL OR (p.body->'legacy'->>'sale_limit')::bigint>COALESCE((SELECT SUM((qv.body->>'claimed')::bigint) FROM lmm_store.variants qv WHERE qv.shop_id=p.shop_id AND qv.body->>'product_id'=p.id),0)) AND EXISTS (SELECT 1 FROM lmm_store.variants av WHERE av.shop_id=p.shop_id AND av.body->>'product_id'=p.id AND COALESCE((av.body->'legacy'->>'enabled')::boolean,true) AND (NOT (av.body->>'track_stock')::boolean OR (av.body->>'stock')::bigint>(av.body->>'reserved')::bigint) AND ((av.body->>'quota')::bigint<0 OR (av.body->>'quota')::bigint>(av.body->>'claimed')::bigint)))`
+	tradable := `($11::boolean AND COALESCE(jsonb_typeof(p.body->'legacy')='object',false) AND COALESCE(p.body->'legacy'->>'status',p.body->'legacy_public'->>'status','published')='published' AND NOT COALESCE((p.body->'legacy'->>'test_mode')::boolean,false) AND COALESCE((p.body->'legacy'->>'approved')::boolean,true) AND (p.body->'legacy'->>'sale_limit' IS NULL OR (p.body->'legacy'->>'sale_limit')::bigint>COALESCE((SELECT SUM((qv.body->>'claimed')::bigint) FROM lmm_store.variants qv WHERE qv.shop_id=p.shop_id AND qv.body->>'product_id'=p.id),0)) AND EXISTS (SELECT 1 FROM lmm_store.variants av WHERE av.shop_id=p.shop_id AND av.body->>'product_id'=p.id AND COALESCE((av.body->'legacy'->>'enabled')::boolean,true) AND (NOT COALESCE((av.body->>'track_stock')::boolean,false) OR COALESCE((av.body->>'stock')::bigint,0)>COALESCE((av.body->>'reserved')::bigint,0)) AND (COALESCE((av.body->>'quota')::bigint,0)<0 OR COALESCE((av.body->>'quota')::bigint,0)>COALESCE((av.body->>'claimed')::bigint,0))))`
 	order := created + ` DESC,p.id ASC`
 	switch q.Sort {
 	case "", "comprehensive":
@@ -106,29 +107,47 @@ func (p *Postgres) ListLegacyProducts(ctx context.Context, seller int64, reviews
 	return p.productRows(ctx, legacyProductSelect+`WHERE s.body->'owner'->>'kind'='personal' AND (($2::boolean AND COALESCE(p.body->'legacy'->>'status',p.body->'legacy_public'->>'status')='pending') OR (NOT $2 AND (s.body->'owner'->>'id')::bigint=$1)) AND COALESCE(p.body->'legacy'->>'status','')<>'deleted' ORDER BY COALESCE(p.body->'legacy'->>'created_at',p.body->'legacy_public'->>'created_at','0')::bigint DESC,p.id ASC OFFSET $3 LIMIT $4`, seller, reviews, offset, limit)
 }
 func (p *Postgres) ListLegacyOrders(ctx context.Context, actor Account, role string, offset, limit int) ([]LocatedOrder, error) {
-	if role != "buyer" && role != "seller" {
-		return nil, ErrInvalid
+	rows, _, err := p.ListLegacyOrdersPage(ctx, actor, role, offset, limit)
+	return rows, err
+}
+
+// Count and page share one statement snapshot, including pages beyond the end.
+// The LEFT JOIN anchor yields exactly one NULL row only for an empty page.
+func (p *Postgres) ListLegacyOrdersPage(ctx context.Context, actor Account, role string, offset, limit int) ([]LocatedOrder, int64, error) {
+	if !actor.Valid() || role != "buyer" && role != "seller" || offset < 0 || offset > 100000 || !Page(limit) {
+		return nil, 0, ErrInvalid
 	}
 	ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	rows, err := p.db.QueryContext(ctx, `SELECT o.shop_id,o.body,COALESCE(v.body->>'product_id','') FROM lmm_store.orders o LEFT JOIN lmm_store.variants v ON v.shop_id=o.shop_id AND v.id=o.body->>'variant_id' WHERE o.body->($1::text)->>'kind'=$2 AND (o.body->($1::text)->>'id')::bigint=$3 ORDER BY o.id OFFSET $4 LIMIT $5`, role, actor.Kind, actor.ID, offset, limit)
+	rows, err := p.db.QueryContext(ctx, `WITH matched AS (
+ SELECT o.id,o.shop_id,o.body,COALESCE(o.body->'legacy'->>'product_id',v.body->>'product_id','') AS product_id
+ FROM lmm_store.orders o LEFT JOIN lmm_store.variants v ON v.shop_id=o.shop_id AND v.id=o.body->>'variant_id'
+ WHERE o.body->($1::text)->>'kind'=$2 AND (o.body->($1::text)->>'id')::bigint=$3
+), page AS (SELECT * FROM matched ORDER BY id,shop_id OFFSET $4 LIMIT $5)
+ SELECT page.shop_id,page.body,page.product_id,(SELECT COUNT(*) FROM matched)
+ FROM (SELECT 1) anchor LEFT JOIN page ON true ORDER BY page.id,page.shop_id`, role, actor.Kind, actor.ID, offset, limit)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	defer rows.Close()
 	out := []LocatedOrder{}
+	var total int64
 	for rows.Next() {
-		var v LocatedOrder
+		var shopID, productID sql.NullString
 		var raw []byte
-		if err = rows.Scan(&v.ShopID, &raw, &v.ProductID); err != nil {
-			return nil, err
+		if err = rows.Scan(&shopID, &raw, &productID, &total); err != nil {
+			return nil, 0, err
 		}
+		if !shopID.Valid { // SQL anchor, never a persisted order.
+			continue
+		}
+		v := LocatedOrder{ShopID: shopID.String, ProductID: productID.String}
 		if json.Unmarshal(raw, &v.Order) != nil {
-			return nil, ErrUnavailable
+			return nil, 0, ErrUnavailable
 		}
 		out = append(out, v)
 	}
-	return out, rows.Err()
+	return out, total, rows.Err()
 }
 
 func (p *Postgres) PendingDeliveries(ctx context.Context, after string, limit int) ([]LocatedOrder, error) {

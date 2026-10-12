@@ -777,7 +777,12 @@ func legacyProductView(row LocatedProduct, public, ready bool) (map[string]any, 
 	p := row.Product
 	m := p.Legacy
 	if m == nil {
-		return publicView(row)
+		// Versioned snapshots keep their strict legacy validation. Native
+		// records have neither legacy metadata nor a legacy public snapshot.
+		if p.LegacyPublicVersion != 0 || len(p.LegacyPublic) != 0 && string(p.LegacyPublic) != "null" {
+			return publicView(row)
+		}
+		return nativeProductView(row, public)
 	}
 	if public && (!p.Published || !m.Approved || m.Status != "published" || m.TestMode || m.Visibility != "public") {
 		return nil, ErrNotFound
@@ -858,7 +863,11 @@ func legacyProductView(row LocatedProduct, public, ready bool) (map[string]any, 
 	return map[string]any{"id": p.ID, "seller_id": row.Owner.ID, "category_id": "", "title": p.Title, "description": m.Description, "image_urls": m.ImageURLs, "contact": m.Contact, "links": m.Links, "price_quota": price, "test_mode": m.TestMode, "visibility": m.Visibility, "purchase_login_required": m.PurchaseLoginRequired, "sale_limit": m.SaleLimit, "max_quantity_per_order": m.MaxQuantityPerOrder, "max_quantity_per_buyer": m.MaxQuantityPerBuyer, "template": m.Template, "delivery_strategy": m.DeliveryStrategy, "payment_methods": methods, "pickup_login_required": m.PickupLoginRequired, "pickup_code_required": m.PickupCodeRequired, "email_pickup_link": m.EmailPickupLink, "status": m.Status, "review_note": reviewNote, "reviewed_by": reviewer, "reviewed_at": m.ReviewedAt, "promotion_expires_at": 0, "created_at": m.CreatedAt, "updated_at": m.UpdatedAt, "official": false, "unlimited_supply": unlimited, "available_stock": stock, "paid_quantity": claimed, "reserved_quantity": reserved, "sale_available": saleAvailable, "trading_paused": paused, "default_variant_id": m.DefaultVariantID, "variants": variants, "inventory_total": inventoryTotal, "inventory_available": stock, "price_min_quota": min, "price_max_quota": max, "display_tags": tags}, nil
 }
 func (s *Service) publicLegacyView(row LocatedProduct, public bool) (map[string]any, error) {
-	return legacyProductView(row, public, s.funds.Available())
+	view, err := legacyProductView(row, public, s.funds.Available())
+	if err == nil && view["record_kind"] == nil {
+		view["record_kind"] = "legacy"
+	}
+	return view, err
 }
 
 // The notice is the preserved main merchant-store-v1 public contract.
