@@ -57,7 +57,11 @@ struct UsageExportRow<'a> {
 impl<'a> From<&UsageExportInput<'a>> for UsageExportRow<'a> {
     fn from(row: &UsageExportInput<'a>) -> Self {
         Self {
-            money: project_log(LogQuotaInput { quota: row.quota, log_type: row.log_type, other: row.other }),
+            money: project_log(LogQuotaInput {
+                quota: row.quota,
+                log_type: row.log_type,
+                other: row.other,
+            }),
             log_id: row.log_id,
             user_id: row.user_id,
             created_at: row.created_at,
@@ -88,6 +92,17 @@ pub enum ExportError {
     Aborted,
 }
 
+impl From<io::Error> for ExportError {
+    fn from(error: io::Error) -> Self {
+        match error.kind() {
+            io::ErrorKind::FileTooLarge
+            | io::ErrorKind::StorageFull
+            | io::ErrorKind::QuotaExceeded => Self::ByteLimit,
+            _ => Self::Io,
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct ExportReceipt {
     pub rows: usize,
@@ -112,11 +127,22 @@ pub struct UsageJsonWriter<W: Write> {
 
 impl<W: Write> UsageJsonWriter<W> {
     pub fn new(mut writer: W, max_rows: usize, max_bytes: usize) -> Result<Self, ExportError> {
-        if max_rows == 0 || max_rows > MAX_EXPORT_ROWS || !(2..=MAX_EXPORT_BYTES).contains(&max_bytes) {
+        if max_rows == 0
+            || max_rows > MAX_EXPORT_ROWS
+            || !(2..=MAX_EXPORT_BYTES).contains(&max_bytes)
+        {
             return Err(ExportError::InvalidLimits);
         }
-        writer.write_all(b"[").map_err(|_| ExportError::Io)?;
-        Ok(Self { writer, max_rows, max_bytes, rows: 0, bytes: 1, last_order: None, failed: false })
+        writer.write_all(b"[").map_err(ExportError::from)?;
+        Ok(Self {
+            writer,
+            max_rows,
+            max_bytes,
+            rows: 0,
+            bytes: 1,
+            last_order: None,
+            failed: false,
+        })
     }
 
     pub fn push(&mut self, row: &UsageExportInput<'_>) -> Result<(), ExportError> {
@@ -134,9 +160,13 @@ impl<W: Write> UsageJsonWriter<W> {
         if self.rows == self.max_rows {
             return Err(ExportError::RowLimit);
         }
-        if row.log_id <= 0 || row.user_id <= 0 || row.created_at < 0
+        if row.log_id <= 0
+            || row.user_id <= 0
+            || row.created_at < 0
             || ![1, 2, 3, 4, 6].contains(&row.log_type)
-            || [row.username, row.token_name, row.model_name, row.group].into_iter().any(|value| value.len() > MAX_TEXT_BYTES)
+            || [row.username, row.token_name, row.model_name, row.group]
+                .into_iter()
+                .any(|value| value.len() > MAX_TEXT_BYTES)
         {
             return Err(ExportError::InvalidRow);
         }
@@ -146,9 +176,14 @@ impl<W: Write> UsageJsonWriter<W> {
         }
         let mut encoded = BoundedRow { bytes: Vec::new() };
         serde_json::to_writer(&mut encoded, &UsageExportRow::from(row))
-            .map_err(|_| ExportError::Encoding)?;
+            .map_err(|error| match error.io_error_kind() {
+                Some(kind) => ExportError::from(io::Error::from(kind)),
+                None => ExportError::Encoding,
+            })?;
         let separator = usize::from(self.rows > 0);
-        let required = self.bytes.checked_add(separator)
+        let required = self
+            .bytes
+            .checked_add(separator)
             .and_then(|value| value.checked_add(encoded.bytes.len()))
             .and_then(|value| value.checked_add(1)) // Reserve the closing bracket.
             .ok_or(ExportError::ByteLimit)?;
@@ -156,9 +191,11 @@ impl<W: Write> UsageJsonWriter<W> {
             return Err(ExportError::ByteLimit);
         }
         if separator != 0 {
-            self.writer.write_all(b",").map_err(|_| ExportError::Io)?;
+            self.writer.write_all(b",").map_err(ExportError::from)?;
         }
-        self.writer.write_all(&encoded.bytes).map_err(|_| ExportError::Io)?;
+        self.writer
+            .write_all(&encoded.bytes)
+            .map_err(ExportError::from)?;
         self.bytes = required - 1;
         self.rows += 1;
         self.last_order = Some(order);
@@ -171,9 +208,15 @@ impl<W: Write> UsageJsonWriter<W> {
         if self.failed {
             return Err(ExportError::Aborted);
         }
-        self.writer.write_all(b"]").map_err(|_| ExportError::Io)?;
-        self.writer.flush().map_err(|_| ExportError::Io)?;
-        Ok((self.writer, ExportReceipt { rows: self.rows, bytes: self.bytes + 1 }))
+        self.writer.write_all(b"]").map_err(ExportError::from)?;
+        self.writer.flush().map_err(ExportError::from)?;
+        Ok((
+            self.writer,
+            ExportReceipt {
+                rows: self.rows,
+                bytes: self.bytes + 1,
+            },
+        ))
     }
 }
 
@@ -184,7 +227,10 @@ struct BoundedRow {
 impl Write for BoundedRow {
     fn write(&mut self, data: &[u8]) -> io::Result<usize> {
         if data.len() > MAX_EXPORT_ROW_BYTES.saturating_sub(self.bytes.len()) {
-            return Err(io::Error::other("finance export row limit"));
+            return Err(io::Error::new(
+                io::ErrorKind::FileTooLarge,
+                "finance export row limit",
+            ));
         }
         self.bytes.extend_from_slice(data);
         Ok(data.len())
