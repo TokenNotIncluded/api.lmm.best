@@ -331,12 +331,17 @@ func productionSystemToolTargetAllowed(resolved string, candidates []string) boo
 
 // pi-lens-ignore: go-bare-error
 func runVerifiedBinary(ctx context.Context, runner productionCommandRunner, binary string, args []string, environment []string, directory string, timeout time.Duration, sensitive bool) ([]byte, error) {
+	return runVerifiedBinaryWithOutputLimit(ctx, runner, binary, args, environment, directory, timeout, sensitive, 0)
+}
+
+// pi-lens-ignore: go-bare-error
+func runVerifiedBinaryWithOutputLimit(ctx context.Context, runner productionCommandRunner, binary string, args []string, environment []string, directory string, timeout time.Duration, sensitive bool, outputLimit int) ([]byte, error) {
 	if !filepath.IsAbs(binary) {
 		return nil, errors.New("verified binary path must be absolute")
 	}
 	runuserArgs := append([]string{"--user", "root", "--", binary}, args...)
 	return runner.Run(ctx, productionCommand{
-		Name: commandRunuser, Args: runuserArgs, Env: environment, Dir: directory, Timeout: timeout, Sensitive: sensitive,
+		Name: commandRunuser, Args: runuserArgs, Env: environment, Dir: directory, Timeout: timeout, Sensitive: sensitive, OutputLimit: outputLimit,
 	})
 }
 
