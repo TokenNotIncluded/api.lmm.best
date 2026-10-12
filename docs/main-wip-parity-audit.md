@@ -2,6 +2,35 @@
 
 [文档目录](README.md) · [主线交接](development-branches.md) · [架构状态](core-migration.md)
 
+## 最新同步：2026-10-13 钱包、商店与 Pi 显示设置
+
+以下增量已在本机审查、验证并正常推送，不是候选部署或整站验收：
+
+- `6b3086de5`：Rust 个人 Web 钱包只读投影直接读取当前权威 ledger/balance_state，
+  可用额度、预留和债务分开；不再因缺少导入历史计数而丢弃已证明的钱包。
+  原生无资金钱包仅凭注册/bootstrap 审计依据显示零，导入数据缺依据仍 unknown；
+  没有虚构 USD/CNY 换算。真实隔离 PG 与相关调用方 **27 项通过**，
+  Clippy/范围格式通过；Rust **1.98 补充验证**，不是正式 1.99 或全仓验收。
+- `03ce0da8c`：Go 商店只读列表保留合法 native/legacy 混合记录，明确 record_kind、
+  原价格单位和未知时间；订单计数/分页在同一 SQL statement snapshot，权限隔离保持。
+  Store/webcompat **117 个顶层测试通过**，真实隔离 PG **2 个顶层回归通过**，
+  race/vet/格式通过。基线 overlay 在同一混合 fixture 确实失败，修复后通过；
+  没有删记录或将失败变成空列表。原生无 legacy checkout 能力的商品仍只读。
+- 独立 Pi 插件 `9ea8fc8cd` 已推送并更新本机：`/lmm-currency credits|usd|cny [rate]`
+  持久化钱包显示偏好，CNY 只用显式手动汇率并标估算，不改实际计费或授权预算。
+  价格报告先列 selectable chat models，区分表达式计费、只读项目与 Pi reference cost，
+  不把未知价格当免费、不推断图像/语音模型为聊天模型。**142 项测试**、类型检查、
+  loader/打包检查通过；本机 Pi **1.1.0** 隔离 offline 加载确认新命令注册。
+  已运行会话需 `/reload`；未替用户设置币种或人民币汇率。
+
+钱包与商店前端接线及实际组件浏览器验证由两路独立子 agent 继续进行，**尚未验收或
+提交**。尤其不能把 native currency minor amounts 当 credits、把未知时间当 1970、
+或把 `financial_projection_available=true` 当历史用量/推荐奖励均已知。
+原候选进程和数据库仍保持原版本，**49 credits 扣费及 280 待核对预留未操作**。
+没有生产变更、候选二进制替换、新付费模型请求、发布或远程 CI。
+证据在 `business-projection-parallel/{wallet,store}-result.md`；父 agent 逐一核对了
+11 个后台源码/测试 SHA256 与已完成检查输入一致，未重复堆叠同一检查。
+
 ## 最新交接：2026-10-13 独立候选与源码状态
 
 本节覆盖下文旧固定 WIP 的相应验收缺项，不删除历史记录，也不改变传统 main
