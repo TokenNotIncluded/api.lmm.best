@@ -62,6 +62,19 @@ pub(super) async fn issue_session_with_secret(
 ) -> Result<IssuedCredential> {
     let user = sqlx::query("SELECT u.personal_account_id,u.auth_version FROM core_identity.users u JOIN core_identity.accounts a ON a.id=u.personal_account_id WHERE u.id=$1 AND u.active AND a.active FOR SHARE OF u,a")
         .bind(user_id).fetch_optional(&mut *c).await?.ok_or(IdentityError::Unauthorized)?;
+    // This helper has no completed second-factor proof. A provider identity
+    // alone must not bypass an account's local second-factor requirement.
+    // Read after the user lock with a fresh statement snapshot. Do not lock
+    // the profile: profile_policy_generation takes the user lock in turn.
+    let second_factor_required: Option<bool> = sqlx::query_scalar(
+        "SELECT second_factor_required FROM core_identity.user_profiles WHERE user_id=$1",
+    )
+    .bind(user_id)
+    .fetch_optional(&mut *c)
+    .await?;
+    if second_factor_required == Some(true) {
+        return Err(IdentityError::Unauthorized);
+    }
     let id = sqlx::query_scalar("INSERT INTO core_identity.credentials(digest,kind,user_id,user_version,owner_account_id,expires_at) VALUES ($1,'session',$2,$3,$4,clock_timestamp()+interval '7 days') RETURNING id")
         .bind(digest(&secret)?).bind(user_id).bind(user.try_get::<i64,_>("auth_version")?)
         .bind(user.try_get::<i64,_>("personal_account_id")?).fetch_one(&mut *c).await?;
