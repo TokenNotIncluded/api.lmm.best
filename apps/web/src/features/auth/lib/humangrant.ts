@@ -31,43 +31,88 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 export function isHumanGrantAvailable(value: unknown): boolean {
-  return isRecord(value) && value.enabled === true && value.ready === true
+  return (
+    isRecord(value) &&
+    value.enabled === true &&
+    value.ready === true &&
+    value.success !== false &&
+    !('error' in value)
+  )
 }
 
 export function parseHumanGrantSettings(value: unknown): HumanGrantSettings {
   if (
     !isRecord(value) ||
     typeof value.enabled !== 'boolean' ||
+    value.success === false ||
+    'error' in value ||
     typeof value.csrf !== 'string' ||
-    value.csrf.trim().length === 0
+    !/^[\x21-\x7e]{1,512}$/.test(value.csrf)
   ) {
     throw new Error('Invalid HumanGrant settings')
   }
   return { enabled: value.enabled, csrf: value.csrf }
 }
 
+export class HumanGrantHttpError extends Error {
+  constructor(readonly status: number) {
+    super(`HumanGrant request failed (HTTP ${status})`)
+    this.name = 'HumanGrantHttpError'
+  }
+}
+
+// Main returns JSON with status 200 for config, settings and the PUT receipt.
+// A proxy's HTML login page or an accepted-but-pending response is not a receipt.
+async function responseJSON(response: Response, signal: AbortSignal): Promise<unknown> {
+  signal.throwIfAborted()
+  if (response.status !== 200) throw new HumanGrantHttpError(response.status)
+  const type = response.headers.get('content-type')?.split(';', 1)[0].trim().toLowerCase()
+  if (response.redirected || type !== 'application/json') {
+    throw new Error('Invalid HumanGrant response')
+  }
+  const value: unknown = await response.json()
+  signal.throwIfAborted()
+  return value
+}
+
+export function humanGrantReadErrorKey(error: unknown): string {
+  if (error instanceof HumanGrantHttpError) {
+    if (error.status === 401 || error.status === 403) {
+      return 'HumanGrant settings require a signed-in root account.'
+    }
+    if (error.status === 429) {
+      return 'Too many HumanGrant requests. Wait before reloading settings.'
+    }
+    if (error.status === 503) {
+      return 'HumanGrant is unavailable. Settings have not been loaded.'
+    }
+  }
+  return 'HumanGrant settings could not be loaded. Sign in again or retry.'
+}
+
 export async function readHumanGrantSettings(
   signal: AbortSignal,
   fetcher: typeof fetch = fetch
 ): Promise<HumanGrantSettings> {
+  signal.throwIfAborted()
   const response = await fetcher(HUMAN_GRANT_SETTINGS, {
     credentials: 'same-origin',
     cache: 'no-store',
     redirect: 'error',
     signal,
   })
-  if (!response.ok) throw new Error('HumanGrant settings unavailable')
-  return parseHumanGrantSettings(await response.json())
+  return parseHumanGrantSettings(await responseJSON(response, signal))
 }
 
-// One PUT only: transport failure does not prove the server rejected the write.
-// After successful acknowledgement, read back state and obtain a fresh proof.
+// One PUT only. A missing or invalid acknowledgement leaves the outcome unknown.
+// Reconciliation needs an explicit reload, never an automatic second PUT.
 export async function writeHumanGrantSettings(
   settings: HumanGrantSettings,
   signal: AbortSignal,
   fetcher: typeof fetch = fetch
 ): Promise<HumanGrantSettings> {
   const validated = parseHumanGrantSettings(settings)
+  signal.throwIfAborted()
   const response = await fetcher(HUMAN_GRANT_SETTINGS, {
     method: 'PUT',
     credentials: 'same-origin',
@@ -80,7 +125,15 @@ export async function writeHumanGrantSettings(
     },
     body: JSON.stringify({ enabled: validated.enabled }),
   })
-  if (!response.ok) throw new Error('HumanGrant write not confirmed')
+  const receipt = await responseJSON(response, signal)
+  if (
+    !isRecord(receipt) ||
+    receipt.enabled !== validated.enabled ||
+    receipt.success === false ||
+    'error' in receipt
+  ) {
+    throw new Error('HumanGrant write not confirmed')
+  }
   const current = await readHumanGrantSettings(signal, fetcher)
   if (current.enabled !== validated.enabled) {
     throw new Error('HumanGrant settings changed during save')
@@ -119,7 +172,7 @@ export function watchHumanGrantAvailability(
         redirect: 'error',
         signal: active.signal,
       })
-      const value: unknown = response.ok ? await response.json() : null
+      const value = await responseJSON(response, active.signal)
       if (!disposed && request === sequence && !active.signal.aborted) {
         onChange(isHumanGrantAvailable(value))
       }

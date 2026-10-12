@@ -16,24 +16,53 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import {
+  humanGrantReadErrorKey,
   readHumanGrantSettings,
   writeHumanGrantSettings,
   type HumanGrantSettings,
 } from '@/features/auth/lib/humangrant'
+import { createHumanGrantSessionScope } from '@/features/auth/lib/humangrant-session'
+import { useAuthStore } from '@/stores/auth-store'
+
+function currentIdentity() {
+  const { user, session } = useAuthStore.getState().auth
+  return { userId: user?.id, sessionId: session?.sid }
+}
 
 export function HumanGrantSection() {
+  const userId = useAuthStore((state) => state.auth.user?.id)
+  const sessionId = useAuthStore((state) => state.auth.session?.sid)
+  // A new session gets new drafts, proofs, pending requests and save guards.
+  return (
+    <HumanGrantSettingsForm
+      key={JSON.stringify([userId, sessionId])}
+      userId={userId}
+      sessionId={sessionId}
+    />
+  )
+}
+
+function HumanGrantSettingsForm({ userId, sessionId }: {
+  userId: number | undefined
+  sessionId: string | undefined
+}) {
   const { t } = useTranslation()
   const [settings, setSettings] = useState<HumanGrantSettings | null>(null)
   const [busy, setBusy] = useState(false)
   const [message, setMessage] = useState('')
   const request = useRef<AbortController | null>(null)
   // Ref guards against a second submission before React renders disabled.
-  const saving = useRef(false)
+  const saving = useRef<AbortController | null>(null)
+  const [scopeRevision, setScopeRevision] = useState(0)
+  const scope = useMemo(
+    () => createHumanGrantSessionScope({ userId, sessionId }, currentIdentity),
+    [userId, sessionId, scopeRevision]
+  )
 
   const reload = useCallback(async () => {
     if (saving.current) return
@@ -45,16 +74,15 @@ export function HumanGrantSection() {
     setSettings(null)
     setMessage('')
     try {
-      const current = await readHumanGrantSettings(active.signal)
+      const current = await readHumanGrantSettings(active.signal, scope.fetch)
+      scope.check()
       active.signal.throwIfAborted()
       if (request.current === active && !active.signal.aborted) {
         setSettings(current)
       }
-    } catch {
+    } catch (error: unknown) {
       if (request.current === active) {
-        setMessage(
-          'HumanGrant settings could not be loaded. Sign in again or retry.'
-        )
+        setMessage(humanGrantReadErrorKey(error))
       }
     } finally {
       clearTimeout(timer)
@@ -63,27 +91,46 @@ export function HumanGrantSection() {
         setBusy(false)
       }
     }
-  }, [])
+  }, [scope])
 
   useEffect(() => {
+    // Subscription observes A -> B -> A transitions even before React renders.
+    // An invalidated request must never become valid when an account returns.
+    const unsubscribe = useAuthStore.subscribe(() => {
+      try {
+        scope.check()
+      } catch {
+        request.current?.abort()
+        request.current = null
+        saving.current = null
+        setSettings(null)
+        setMessage('')
+        setBusy(false)
+        // Batched A -> B -> A changes still need a fresh proof and scope.
+        setScopeRevision((value) => value + 1)
+      }
+    })
     void reload()
     return () => {
+      unsubscribe()
       request.current?.abort()
       request.current = null
+      saving.current = null
     }
-  }, [reload])
+  }, [reload, scope])
 
   async function save() {
     if (saving.current || busy || settings === null) return
-    saving.current = true
     request.current?.abort()
     const active = new AbortController()
+    saving.current = active
     request.current = active
     const timer = setTimeout(() => active.abort(), 10_000)
     setBusy(true)
     setMessage('')
     try {
-      const current = await writeHumanGrantSettings(settings, active.signal)
+      const current = await writeHumanGrantSettings(settings, active.signal, scope.fetch)
+      scope.check()
       active.signal.throwIfAborted()
       if (request.current === active && !active.signal.aborted) {
         setSettings(current)
@@ -94,12 +141,12 @@ export function HumanGrantSection() {
         // UNKNOWN writes require reconciliation; never retry without a new proof.
         setSettings(null)
         setMessage(
-          'HumanGrant settings could not be saved. Reload the settings and retry.'
+          'The save result is unknown. Reload HumanGrant settings before making another change.'
         )
       }
     } finally {
       clearTimeout(timer)
-      saving.current = false
+      if (saving.current === active) saving.current = null
       if (request.current === active) {
         request.current = null
         setBusy(false)
@@ -115,7 +162,7 @@ export function HumanGrantSection() {
           'HumanGrant lets an AI act with approved, limited access. It does not share your login session.'
         )}
       </p>
-      <label className='flex items-center gap-3'>
+      <label className='flex min-h-11 cursor-pointer items-center gap-3'>
         <input
           type='checkbox'
           className='size-5'
