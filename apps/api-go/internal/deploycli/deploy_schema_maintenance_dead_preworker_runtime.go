@@ -71,46 +71,86 @@ func validateSchemaMaintenanceDeadOriginalOwner(raw []byte, plan productionSchem
 }
 
 func (runtime *productionRuntime) validateSchemaMaintenanceDeadAuthority(ctx context.Context, a productionSchemaMaintenanceDeadPreWorkerCASAuthority) (productionMerchantStoreCapsule, error) {
+	c, _, err := runtime.validateSchemaMaintenanceDeadAuthorityEngine(ctx, a)
+	return c, err
+}
+
+// The newer recoverer is permitted only by its typed, re-read pre-execution
+// rejection authority. A declared executable digest alone never selects it.
+func (runtime *productionRuntime) schemaMaintenanceDeadRecoveryEngine(ctx context.Context, a productionSchemaMaintenanceDeadPreWorkerCASAuthority) (string, error) {
+	engineSHA := a.Plan.Worker.Provider.DeployEngineSHA256
+	if a.PreExecRecovery == nil {
+		if a.RecoveryEngineSHA256 != "" {
+			return "", errors.New("dead-preworker legacy recovery cannot override its original executable")
+		}
+		if err := runtime.checkSchemaMaintenanceDeadNoWorker(schemaMaintenanceHostWorkspace(runtime.paths, a.Plan.TransitionID)); err != nil {
+			return "", err
+		}
+	} else {
+		if !productionSHA256Pattern.MatchString(a.RecoveryEngineSHA256) {
+			return "", errors.New("dead-preworker pre-execution recovery lacks its explicit signed engine digest")
+		}
+		c, err := runtime.checkSchemaMaintenancePreExecRecovery(ctx, a.Plan, a.PrePlanSHA256, *a.PreExecRecovery)
+		if err != nil {
+			return "", err
+		}
+		if a.RecoveryEngineSHA256 != c.Candidate.DeployEngineSHA256 {
+			return "", errors.New("dead-preworker pre-execution recovery engine differs from its verified artifact capsule")
+		}
+		engineSHA = c.Candidate.DeployEngineSHA256
+	}
+	if sha256MustEqual("/proc/self/exe", engineSHA) != nil {
+		return "", errors.New("dead-preworker recoverer executable differs from its validated signed authority")
+	}
+	return engineSHA, nil
+}
+
+func (runtime *productionRuntime) validateSchemaMaintenanceDeadAuthorityEngine(ctx context.Context, a productionSchemaMaintenanceDeadPreWorkerCASAuthority) (productionMerchantStoreCapsule, string, error) {
 	var empty productionMerchantStoreCapsule
 	if err := runtime.assertProductionMutation(); err != nil {
-		return empty, err
+		return empty, "", err
 	}
-	if a.CheckLocalDeadAuthority == nil || runtime.now == nil || !existingSchemaInvocationPattern.MatchString(os.Getenv("INVOCATION_ID")) || a.OriginalDaemon.DaemonPID == os.Getpid() || sha256MustEqual("/proc/self/exe", a.Plan.Worker.Provider.DeployEngineSHA256) != nil {
-		return empty, errors.New("dead-preworker recoverer is not its distinct actual signed process")
+	if a.CheckLocalDeadAuthority == nil || runtime.now == nil || !existingSchemaInvocationPattern.MatchString(os.Getenv("INVOCATION_ID")) || a.OriginalDaemon.DaemonPID == os.Getpid() {
+		return empty, "", errors.New("dead-preworker recoverer is not its distinct actual signed process")
 	}
 	c, err := runtime.schemaMaintenanceDeadArtifacts(ctx, a.Plan, a.PrePlanSHA256, a.OriginalDaemon)
 	if err != nil {
-		return empty, err
+		return empty, "", err
 	}
 	if a.OldCapsule.Host != a.Plan.PrimaryHost || merchantStoreCapsuleProjection(a.OldCapsule.Candidate, "rollback") != c.Rollback {
-		return empty, errors.New("dead-preworker recovery changed the retained primary provider")
+		return empty, "", errors.New("dead-preworker recovery changed the retained primary provider")
 	}
 	if a.OwnerMode == schemaMaintenanceDeadPreWorkerExactOwner {
 		if err := validateSchemaMaintenanceDeadOriginalOwner(a.OriginalOwnerRaw, a.Plan, a.PrePlanSHA256, a.OriginalDaemon, c, runtime.paths.Service); err != nil {
-			return empty, err
+			return empty, "", err
 		}
 	} else if a.OwnerMode != schemaMaintenanceDeadPreWorkerZeroOwner || len(a.OriginalOwnerRaw) != 0 {
-		return empty, errors.New("dead-preworker recovery mode is not explicit")
+		return empty, "", errors.New("dead-preworker recovery mode is not explicit")
 	}
 	workspace := schemaMaintenanceHostWorkspace(runtime.paths, a.Plan.TransitionID)
-	if err := runtime.checkSchemaMaintenanceDeadNoWorker(workspace); err != nil {
-		return empty, err
+	engineSHA, err := runtime.schemaMaintenanceDeadRecoveryEngine(ctx, a)
+	if err != nil {
+		return empty, "", err
 	}
 	ownerPath := filepath.Join(workspace, "state", "schema-owner.json")
 	if _, err := os.Lstat(ownerPath); !errors.Is(err, os.ErrNotExist) {
 		raw, readErr := runtime.readExistingSchemaSealedFile(ownerPath, true)
 		if readErr != nil || a.OwnerMode != schemaMaintenanceDeadPreWorkerExactOwner || !bytes.Equal(raw, a.OriginalOwnerRaw) {
-			return empty, errors.New("dead-preworker known original owner receipt differs or is unsafe")
+			return empty, "", errors.New("dead-preworker known original owner receipt differs or is unsafe")
 		}
 	}
 	if err := a.CheckLocalDeadAuthority(ctx); err != nil {
-		return empty, err
+		return empty, "", err
 	}
-	return c, nil
+	return c, engineSHA, nil
 }
 
 func newSchemaMaintenanceDeadCASResult(a productionSchemaMaintenanceDeadPreWorkerCASAuthority, now time.Time) productionSchemaMaintenanceDeadPreWorkerCASResult {
-	result := productionSchemaMaintenanceDeadPreWorkerCASResult{Format: "lmm-schema-maintenance-dead-preworker-cas-v1", TransitionID: a.Plan.TransitionID, PrePlanSHA256: a.PrePlanSHA256, Mode: a.OwnerMode, OriginalDaemon: a.OriginalDaemon, OldCapsule: productionReleaseFilePlan{Path: filepath.Join(a.OldCapsule.Root, "capsule.json"), SHA256: a.OldCapsuleSHA256}, PreSchema: a.Plan.PreSchema, ProviderSHA256: a.Plan.Worker.Provider.PayloadSHA256, RecovererEXESHA256: a.Plan.Worker.Provider.DeployEngineSHA256, RecovererPID: os.Getpid(), RecovererInvocationID: os.Getenv("INVOCATION_ID"), StartedUTC: now.UTC(), Outcome: "CAS_INTENT"}
+	return newSchemaMaintenanceDeadCASResultForEngine(a, now, a.Plan.Worker.Provider.DeployEngineSHA256)
+}
+
+func newSchemaMaintenanceDeadCASResultForEngine(a productionSchemaMaintenanceDeadPreWorkerCASAuthority, now time.Time, engineSHA string) productionSchemaMaintenanceDeadPreWorkerCASResult {
+	result := productionSchemaMaintenanceDeadPreWorkerCASResult{Format: "lmm-schema-maintenance-dead-preworker-cas-v1", TransitionID: a.Plan.TransitionID, PrePlanSHA256: a.PrePlanSHA256, Mode: a.OwnerMode, OriginalDaemon: a.OriginalDaemon, OldCapsule: productionReleaseFilePlan{Path: filepath.Join(a.OldCapsule.Root, "capsule.json"), SHA256: a.OldCapsuleSHA256}, PreSchema: a.Plan.PreSchema, ProviderSHA256: a.Plan.Worker.Provider.PayloadSHA256, RecovererEXESHA256: engineSHA, RecovererPID: os.Getpid(), RecovererInvocationID: os.Getenv("INVOCATION_ID"), StartedUTC: now.UTC(), Outcome: "CAS_INTENT"}
 	if len(a.OriginalOwnerRaw) != 0 {
 		result.OriginalOwnerSHA256 = startupContentSHA256(a.OriginalOwnerRaw)
 	}
@@ -126,7 +166,7 @@ func (runtime *productionRuntime) recoverSchemaMaintenanceDeadPreWorkerOwner(ctx
 			return result, errors.New("dead-preworker CAS already has an uncertain one-shot invocation; only read-only reconciliation is permitted")
 		}
 	}
-	artifacts, err := runtime.validateSchemaMaintenanceDeadAuthority(ctx, a)
+	artifacts, engineSHA, err := runtime.validateSchemaMaintenanceDeadAuthorityEngine(ctx, a)
 	if err != nil {
 		return result, err
 	}
@@ -147,7 +187,7 @@ func (runtime *productionRuntime) recoverSchemaMaintenanceDeadPreWorkerOwner(ctx
 	if ownerReceiptPresent && (a.OwnerMode != schemaMaintenanceDeadPreWorkerExactOwner || !bytes.Equal(ownerReceipt, a.OriginalOwnerRaw)) {
 		return result, errors.New("dead-preworker original owner receipt changed during qualification")
 	}
-	result = newSchemaMaintenanceDeadCASResult(a, runtime.now())
+	result = newSchemaMaintenanceDeadCASResultForEngine(a, runtime.now(), engineSHA)
 	raw, _ := json.MarshalIndent(result, "", "  ")
 	raw = append(raw, '\n')
 	if err := runtime.writeSchemaMaintenanceRawNewFile(filepath.Join(workspace, "state", "dead-preworker-cas-intent.json"), raw); err != nil {
@@ -163,11 +203,12 @@ func (runtime *productionRuntime) recoverSchemaMaintenanceDeadPreWorkerOwner(ctx
 		if err != nil || present != ownerReceiptPresent || !bytes.Equal(receipt, ownerReceipt) {
 			return errors.New("dead-preworker original owner receipt changed during its transaction")
 		}
-		if sha256MustEqual("/proc/self/exe", a.Plan.Worker.Provider.DeployEngineSHA256) != nil {
-			return errors.New("dead-preworker recoverer executable changed")
-		}
-		if err := runtime.checkSchemaMaintenanceDeadNoWorker(workspace); err != nil {
+		actualEngineSHA, err := runtime.schemaMaintenanceDeadRecoveryEngine(ctx, a)
+		if err != nil {
 			return err
+		}
+		if actualEngineSHA != engineSHA {
+			return errors.New("dead-preworker validated recovery engine changed during its transaction")
 		}
 		return a.CheckLocalDeadAuthority(ctx)
 	}
@@ -247,7 +288,8 @@ func (runtime *productionRuntime) readSchemaMaintenanceDeadPreWorkerOwner(ctx co
 func (runtime *productionRuntime) reconcileSchemaMaintenanceDeadPreWorkerOwner(ctx context.Context, a productionSchemaMaintenanceDeadPreWorkerCASAuthority) (productionSchemaMaintenanceDeadPreWorkerCASResult, error) {
 	var result productionSchemaMaintenanceDeadPreWorkerCASResult
 	workspace := schemaMaintenanceHostWorkspace(runtime.paths, a.Plan.TransitionID)
-	if _, err := runtime.validateSchemaMaintenanceDeadAuthority(ctx, a); err != nil {
+	_, engineSHA, err := runtime.validateSchemaMaintenanceDeadAuthorityEngine(ctx, a)
+	if err != nil {
 		return result, err
 	}
 	raw, err := runtime.readExistingSchemaSealedFile(filepath.Join(workspace, "state", "dead-preworker-cas-intent.json"), true)
@@ -260,7 +302,7 @@ func (runtime *productionRuntime) reconcileSchemaMaintenanceDeadPreWorkerOwner(c
 		return result, errors.New("dead-preworker CAS intent is invalid")
 	}
 	canonical, _ := json.MarshalIndent(result, "", "  ")
-	expected := newSchemaMaintenanceDeadCASResult(a, result.StartedUTC)
+	expected := newSchemaMaintenanceDeadCASResultForEngine(a, result.StartedUTC, engineSHA)
 	if !bytes.Equal(append(canonical, '\n'), raw) || result != expected || result.StartedUTC.IsZero() || result.StartedUTC.Location() != time.UTC || result.StartedUTC.After(runtime.now().UTC()) {
 		return result, errors.New("dead-preworker reconciliation changed the actual original recoverer intent")
 	}
@@ -291,11 +333,12 @@ func (runtime *productionRuntime) schemaMaintenanceDeadOwnerReceipt(workspace st
 // same fixed read-only transaction as reconciliation, with no DELETE or retry.
 func (runtime *productionRuntime) diagnoseSchemaMaintenanceDeadPreWorkerOwner(ctx context.Context, a productionSchemaMaintenanceDeadPreWorkerCASAuthority) (productionSchemaMaintenanceDeadPreWorkerCASResult, error) {
 	var result productionSchemaMaintenanceDeadPreWorkerCASResult
-	if _, err := runtime.validateSchemaMaintenanceDeadAuthority(ctx, a); err != nil {
+	_, engineSHA, err := runtime.validateSchemaMaintenanceDeadAuthorityEngine(ctx, a)
+	if err != nil {
 		return result, err
 	}
-	result = newSchemaMaintenanceDeadCASResult(a, runtime.now())
-	result, err := runtime.observeSchemaMaintenanceDeadPreWorkerOwner(ctx, a, result, nil)
+	result = newSchemaMaintenanceDeadCASResultForEngine(a, runtime.now(), engineSHA)
+	result, err = runtime.observeSchemaMaintenanceDeadPreWorkerOwner(ctx, a, result, nil)
 	if err == nil && result.Outcome == "OWNER_ABSENCE_RECONCILED" {
 		result.Outcome = "OWNER_ABSENCE_OBSERVED"
 	}
@@ -340,8 +383,12 @@ func (runtime *productionRuntime) observeSchemaMaintenanceDeadPreWorkerOwner(ctx
 	if err := checkSchemaMaintenanceDeadPreWorkerTransaction(ctx, tx, lease.identity, a.Plan.PreSchema, owner, ownerRaw, mode, false); err != nil {
 		return result, err
 	}
-	if err := runtime.checkSchemaMaintenanceDeadNoWorker(workspace); err != nil {
+	engineSHA, err := runtime.schemaMaintenanceDeadRecoveryEngine(ctx, a)
+	if err != nil {
 		return result, err
+	}
+	if engineSHA != result.RecovererEXESHA256 {
+		return result, errors.New("dead-preworker validated recovery engine changed during observation")
 	}
 	actualReceipt, receiptPresent, receiptErr := runtime.schemaMaintenanceDeadOwnerReceipt(workspace)
 	if receiptErr != nil || receiptPresent != ownerReceiptPresent || !bytes.Equal(actualReceipt, ownerReceipt) {

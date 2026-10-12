@@ -22,6 +22,8 @@ type productionSchemaMaintenanceDeadPreWorkerCASAuthority struct {
 	OriginalDaemon          schemaMaintenanceRPCBinding
 	OwnerMode               string
 	OriginalOwnerRaw        []byte
+	PreExecRecovery         *productionReleaseFilePlan
+	RecoveryEngineSHA256    string
 	CheckLocalDeadAuthority func(context.Context) error
 }
 
