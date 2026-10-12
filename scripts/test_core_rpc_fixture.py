@@ -19,6 +19,30 @@ SPEC.loader.exec_module(FIXTURE)
 
 
 class PrivateFixtureTests(unittest.TestCase):
+    def test_standalone_limits_are_read_from_the_current_toml_contract(self):
+        with (FIXTURE.DOCKER / "config/core-standalone.toml").open("rb") as file:
+            config = FIXTURE.tomllib.load(file)
+        self.assertEqual(config["server"]["worker_threads"], 1)
+        self.assertEqual(config["server"]["max_inflight"], 16)
+        self.assertEqual(config["database"]["max_connections"], 2)
+        self.assertEqual(config["database"]["url_file"], "/run/secrets/core_database_url")
+
+    def test_migration_audit_resolves_private_relation_before_switching_identity(self):
+        before, after = FIXTURE.RUNTIME_PRIVILEGES_SQL.split(
+            "SET SESSION AUTHORIZATION lmm_core_runtime;", 1)
+        self.assertIn("'core_migration.import_runs'::regclass::oid", before)
+        self.assertIn("AS migration_import_runs_oid \\gset", before)
+        self.assertNotIn("core_migration.import_runs", after)
+        for function, privileges in (
+            ("has_table_privilege", "INSERT,UPDATE,DELETE,TRUNCATE"),
+            ("has_any_column_privilege", "INSERT,UPDATE"),
+        ):
+            self.assertIn(
+                f"NOT {function}(:'migration_import_runs_oid'::oid,'{privileges}')", after)
+        self.assertIn("current_user=session_user", after)
+        self.assertIn("NOT has_schema_privilege('core_migration','USAGE,CREATE')", after)
+        self.assertNotRegex(FIXTURE.RUNTIME_PRIVILEGES_SQL, r"\b(?:GRANT|REVOKE)\b")
+
     def test_docker_commands_pin_local_socket_and_keep_secret_input_off_argv(self):
         with mock.patch.object(FIXTURE.subprocess, "run", return_value=SimpleNamespace(stdout="ok\n")) as run:
             self.assertEqual(FIXTURE.run("docker", "version", data="synthetic-private-input"), "ok")
@@ -221,6 +245,14 @@ class ComposeConfigurationTests(unittest.TestCase):
             standalone = render(("core", "core-standalone"), tools=True)
             self.assertEqual(set(standalone["services"]), {"core", "core-init"})
             FIXTURE.validate_file_configuration(standalone, "core-init", "core", init=True)
+            runtime = standalone["services"]["core"]
+            self.assertEqual(runtime["mem_limit"], 256 * 1024 * 1024)
+            self.assertEqual(runtime["pids_limit"], 64)
+            self.assertEqual(float(runtime["cpus"]), 1.0)
+            config = FIXTURE.validate_file_configuration(standalone, "core", "core")
+            self.assertEqual(config["server"]["worker_threads"], 1)
+            self.assertEqual(config["database"]["max_connections"], 2)
+            self.assertEqual(config["server"]["max_inflight"], 16)
             render(("extensions",), without="LMM_DOCKER_NETWORK")
             render(("core", "identity", "rpc-core"), without="LMM_DOCKER_RPC_VOLUME")
             render(("extensions", "rpc-extensions"), without="LMM_DOCKER_RPC_VOLUME")

@@ -46,6 +46,26 @@ chmod 0400 "$fixture_secret_path"
 """ + VERIFY_SECRETS
 
 
+# Resolve the private relation while still the installation user. The runtime
+# must not receive schema USAGE merely to inspect its lack of write privileges.
+RUNTIME_PRIVILEGES_SQL = r"""SELECT 'core_migration.import_runs'::regclass::oid AS migration_import_runs_oid \gset
+SET SESSION AUTHORIZATION lmm_core_runtime;
+SELECT current_user=session_user
+  AND NOT has_database_privilege(current_database(),'CREATE,TEMP')
+  AND NOT has_schema_privilege('public','CREATE')
+  AND NOT has_table_privilege('core_billing.ledger_entries','INSERT,UPDATE,DELETE,TRUNCATE')
+  AND NOT has_table_privilege('core_billing.opening_imports','INSERT,UPDATE,DELETE,TRUNCATE')
+  AND NOT has_table_privilege(:'migration_import_runs_oid'::oid,'INSERT,UPDATE,DELETE,TRUNCATE')
+  AND NOT has_any_column_privilege(:'migration_import_runs_oid'::oid,'INSERT,UPDATE')
+  AND NOT has_schema_privilege('core_migration','USAGE,CREATE')
+  AND NOT has_function_privilege('core_billing.import_opening_balance(jsonb)','EXECUTE')
+  AND NOT has_function_privilege('core_billing.import_account_opening_counters(jsonb)','EXECUTE')
+  AND NOT has_table_privilege('core_billing.account_opening_counters','INSERT,UPDATE,DELETE,TRUNCATE')
+  AND NOT has_table_privilege('core_charging.requests','INSERT,UPDATE,DELETE,TRUNCATE')
+  AND NOT has_any_column_privilege('core_charging.requests','INSERT,UPDATE');
+"""
+
+
 def run(*args, data=None, env=None):
     if args and args[0] == "docker":
         args = (args[0], "--host", DOCKER_ENDPOINT, *args[1:])
@@ -300,19 +320,7 @@ def main():
             reject_runtime()
             psql((ROOT / "deployment/postgres/grant-core-runtime.sql").read_text(),
                  "enable_events=true")
-            assert psql("""SET SESSION AUTHORIZATION lmm_core_runtime;
-                SELECT current_user=session_user
-                  AND NOT has_database_privilege(current_database(),'CREATE,TEMP')
-                  AND NOT has_schema_privilege('public','CREATE')
-                  AND NOT has_table_privilege('core_billing.ledger_entries','INSERT,UPDATE,DELETE,TRUNCATE')
-                  AND NOT has_table_privilege('core_billing.opening_imports','INSERT,UPDATE,DELETE,TRUNCATE')
-                  AND NOT has_table_privilege('core_migration.import_runs','INSERT,UPDATE,DELETE,TRUNCATE')
-                  AND NOT has_function_privilege('core_billing.import_opening_balance(jsonb)','EXECUTE')
-                  AND NOT has_function_privilege('core_billing.import_account_opening_counters(jsonb)','EXECUTE')
-                  AND NOT has_table_privilege('core_billing.account_opening_counters','INSERT,UPDATE,DELETE,TRUNCATE')
-                  AND NOT has_table_privilege('core_charging.requests','INSERT,UPDATE,DELETE,TRUNCATE')
-                  AND NOT has_any_column_privilege('core_charging.requests','INSERT,UPDATE');
-                """).strip() == "t"
+            assert psql(RUNTIME_PRIVILEGES_SQL).strip() == "t"
             compose("core", "up", "-d", "core")
             wait(lambda: core_call("/health/live"))
             assert core_call("/health/ready")[0] == 200

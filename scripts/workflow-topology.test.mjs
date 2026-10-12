@@ -163,7 +163,7 @@ test('the full manual gate cannot pass when an implemented component fails or is
 test('obsolete database upgrade tooling is not an alternate installation path', () => {
   for (const path of ['scripts/deploy-systemd.py', 'scripts/deploy-shared-postgres.py',
     'scripts/ci/qualify-go-migration-startup.sh', 'packaging/common/lmm-api/migration-compatibility.env']) {
-    assert.throws(() => read(path), /ENOENT/);
+    assert.throws(() => read(path), /ENOENT/, path);
   }
   assert.throws(() => read('.env.example'), /ENOENT/);
   for (const path of ['config/core.example.toml', 'config/extensions.example.toml']) {
@@ -177,4 +177,23 @@ test('obsolete database upgrade tooling is not an alternate installation path', 
     assert.doesNotMatch(text, /Startup applies schema migrations by default|服务启动时默认执行数据库迁移/);
     assert.match(text, /init-db/);
   }
+});
+
+
+test('S11 snapshots are manual read-only sources, not automatic Git writers', () => {
+  const source = workflow('s11-source-snapshot');
+  assert.match(source, /on:\n  workflow_dispatch:/);
+  assert.match(source, /permissions:\n  contents: read/);
+  assert.match(source, /persist-credentials: false/);
+  assert.match(source, /git bundle create/);
+  assert.match(source, /refs\/s11\/development refs\/s11\/a09 refs\/s11\/a04 refs\/s11\/a10/);
+  assert.doesNotMatch(source, /contents: write|GH_TOKEN|github\.token|s11-rebase\.py|git push/);
+});
+
+test('independent check failures do not skip the Go host required by Rust tests', () => {
+  const source = workflow('core-protocol');
+  assert.match(source, /name: Build actual Go host for Rust stream isolation\n        if: \$\{\{ !cancelled\(\) \}\}/);
+  assert.match(source, /scripts\/test_core_rpc_fixture\.py -v/);
+  assert.doesNotMatch(source, /LMM_CORE_DATABASE_URL_SECRET_FILE|LMM_CORE_WORKER_THREADS/);
+  assert.match(source, /pull_request:[\s\S]*?paths:[\s\S]*?\.github\/workflows\/\*\.yml/);
 });
