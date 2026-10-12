@@ -16,6 +16,9 @@ func (s *Service) reconcileOrderMoney(ctx context.Context, shopID, orderID strin
 		if err := tx.Get("orders", orderID, &out); err != nil {
 			return err
 		}
+		if out.ID != orderID {
+			return ErrConflict
+		}
 		var kind string
 		switch out.State {
 		case PaymentPending:
@@ -32,6 +35,9 @@ func (s *Service) reconcileOrderMoney(ctx context.Context, shopID, orderID strin
 		key := ID("store-money-v1", shopID, orderID, kind)
 		if err := tx.Get("money_operations", key, &op); err != nil {
 			return err
+		}
+		if op.Command.Key != key || op.Command.Kind != kind {
+			return ErrConflict
 		}
 		return validatePendingMoney(shopID, out, op)
 	})

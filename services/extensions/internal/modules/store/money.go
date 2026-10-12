@@ -62,7 +62,13 @@ func (s *Service) money(ctx context.Context, token string, c OrderChange) (Order
 		if err := tx.Get("orders", c.OrderID, &out); err != nil {
 			return err
 		}
+		if out.ID != c.OrderID {
+			return ErrConflict
+		}
 		if err := tx.Get("money_operations", key, &op); err == nil {
+			if op.Command.Key != key || op.Command.Kind != c.Action {
+				return ErrConflict
+			}
 			if !op.Done {
 				return validatePendingMoney(c.ShopID, out, op)
 			}
@@ -147,6 +153,9 @@ func (s *Service) finishMoney(ctx context.Context, shopID, orderID string, op op
 	err := s.repo.Within(ctx, shopID, func(tx Tx) error {
 		if err := tx.Get("orders", orderID, &out); err != nil {
 			return err
+		}
+		if out.ID != orderID {
+			return ErrConflict
 		}
 		var current operation
 		if err := tx.Get("money_operations", key, &current); err != nil {

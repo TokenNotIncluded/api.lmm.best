@@ -2,8 +2,6 @@ package store
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"time"
 )
@@ -31,6 +29,9 @@ func (s *Service) FinalizeDelivery(ctx context.Context, shopID, orderID string) 
 	err := s.repo.Within(ctx, shopID, func(tx Tx) error {
 		if err := tx.Get("orders", orderID, &out); err != nil {
 			return err
+		}
+		if out.ID != orderID {
+			return ErrConflict
 		}
 		if out.Legacy == nil || out.Legacy.DeliveryTemplate != "fixed-content" || out.Total.Amount <= 0 {
 			return ErrInvalid
@@ -81,10 +82,9 @@ func (s *Service) FinalizeDelivery(ctx context.Context, shopID, orderID string) 
 			out.Delivery = private.Content
 			out.State = Fulfilled
 		}
-		digest := sha256.Sum256([]byte(out.Delivery))
-		reference := ID("store-delivery-v1", shopID, out.ID, out.VariantID, out.Quantity, hex.EncodeToString(digest[:]))
+		reference := orderDeliveryReference(shopID, out)
 		if err := tx.Get("money_operations", key, &op); err == nil {
-			if op.DeliveryReference != reference || op.PaymentCommandHash != pay.Receipt.CommandHash {
+			if op.Command.Key != key || op.Command.Kind != "settle" || op.DeliveryReference != reference || op.PaymentCommandHash != pay.Receipt.CommandHash {
 				return ErrConflict
 			}
 		} else if !errors.Is(err, ErrNotFound) {
@@ -93,10 +93,9 @@ func (s *Service) FinalizeDelivery(ctx context.Context, shopID, orderID string) 
 			op = operation{Command: orderMoneyCommand(shopID, out, "settle"), Before: Fulfilled, PaymentCommandHash: pay.Receipt.CommandHash, DeliveryReference: reference}
 		}
 		if op.Done {
-			if op.Receipt.Outcome == "rejected" {
-				return ErrConflict
-			}
-			return nil
+			// A successful completion has already made the order Settled. A
+			// rejected or inconsistent terminal record must not dispatch again.
+			return ErrConflict
 		}
 		out.State = SettlementPending
 		if err := validatePendingMoney(shopID, out, op); err != nil {

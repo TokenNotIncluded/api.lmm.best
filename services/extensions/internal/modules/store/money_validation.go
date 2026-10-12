@@ -1,7 +1,16 @@
 // Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later.
 package store
 
-import "math"
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"math"
+)
+
+func orderDeliveryReference(shopID string, o Order) string {
+	digest := sha256.Sum256([]byte(o.Delivery))
+	return ID("store-delivery-v1", shopID, o.ID, o.VariantID, o.Quantity, hex.EncodeToString(digest[:]))
+}
 
 // orderMoneyCommand uses only persisted order facts. A pay command predates all
 // financial references; a settlement predates its own settlement reference.
@@ -55,6 +64,11 @@ func validatePendingMoney(shopID string, o Order, op operation) error {
 	case "settle":
 		if o.State != SettlementPending || op.Before != Fulfilled || !o.Delivered || o.RefundState == "requested" || o.SettlementRef != "" {
 			return ErrConflict
+		}
+		if op.PaymentCommandHash != "" || op.DeliveryReference != "" {
+			if op.PaymentCommandHash == "" || !Text(o.Delivery, 16000) || op.DeliveryReference != orderDeliveryReference(shopID, o) {
+				return ErrConflict
+			}
 		}
 	case "refund":
 		if o.State != RefundPending || o.RefundState != "requested" ||
