@@ -1,12 +1,7 @@
 name: HumanGrant web integration
 
 on:
-  pull_request:
-    branches: [wip/rust-core-go-extensions]
-    paths:
-      - apps/web/**
-      - services/core/src/humangrant/**
-      - .github/workflows/humangrant-web.yml
+  workflow_dispatch:
 
 permissions:
   contents: read
