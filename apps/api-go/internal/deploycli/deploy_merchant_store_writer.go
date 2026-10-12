@@ -40,19 +40,22 @@ type productionMerchantStoreWriterTarget struct {
 // memory alone. The startup seal includes every ordered root-private EnvFile;
 // the database tuple also records the actual business role used for status.
 type productionMerchantStoreWriterContract struct {
-	Format             int                                 `json:"format"`
-	RequiredCapability int                                 `json:"required_capability"`
-	SystemIdentifier   string                              `json:"system_identifier"`
-	Database           string                              `json:"database"`
-	DatabaseOID        int64                               `json:"database_oid"`
-	Schema             string                              `json:"schema"`
-	SchemaOID          int64                               `json:"schema_oid"`
-	Role               string                              `json:"role"`
-	StartupSHA256      string                              `json:"startup_sha256"`
-	SignedUnitSHA256   string                              `json:"signed_unit_sha256"`
-	RecoveryPolicy     string                              `json:"recovery_policy"`
-	Candidate          productionMerchantStoreWriterTarget `json:"candidate"`
-	Rollback           productionMerchantStoreWriterTarget `json:"rollback"`
+	Format                   int                                 `json:"format"`
+	RequiredCapability       int                                 `json:"required_capability"`
+	SystemIdentifier         string                              `json:"system_identifier"`
+	Database                 string                              `json:"database"`
+	DatabaseOID              int64                               `json:"database_oid"`
+	Schema                   string                              `json:"schema"`
+	SchemaOID                int64                               `json:"schema_oid"`
+	Role                     string                              `json:"role"`
+	StartupSHA256            string                              `json:"startup_sha256"`
+	SignedUnitSHA256         string                              `json:"signed_unit_sha256"`
+	RecoveryPolicy           string                              `json:"recovery_policy"`
+	Candidate                productionMerchantStoreWriterTarget `json:"candidate"`
+	Rollback                 productionMerchantStoreWriterTarget `json:"rollback"`
+	StartupPredecessorPath   string                              `json:"startup_predecessor_path,omitempty"`
+	StartupPredecessorSHA256 string                              `json:"startup_predecessor_sha256,omitempty"`
+	StartupTargetPath        string                              `json:"startup_target_path,omitempty"`
 }
 
 func validMerchantStoreCapability(value int) bool { return value >= 1 && value <= 8 }
@@ -187,6 +190,9 @@ func validateMerchantStoreWriterContract(contract *productionMerchantStoreWriter
 	if err := validateMerchantStoreWriterHostIdentity(contract); err != nil {
 		return err
 	}
+	if err := validateMerchantStoreStartupTransitionContract(contract); err != nil {
+		return err
+	}
 	if err := validateMerchantStoreWriterTarget(contract.Candidate, contract.RequiredCapability); err != nil {
 		return fmt.Errorf("merchant-store candidate: %w", err)
 	}
@@ -223,6 +229,9 @@ func validateMerchantStoreWriterPlan(plan productionReleasePlan) error {
 	}
 	if plan.SchemaMode != productionSchemaModeVerifyExisting || plan.ExistingSchemaContract == nil || plan.MaintenanceHandoff != nil {
 		return errors.New("ordinary merchant writer qualification requires the sealed verify-existing path")
+	}
+	if contract.StartupTargetPath != "" && (!plan.GoChanged || filepath.Base(filepath.Dir(contract.StartupTargetPath)) != plan.DeploymentID) {
+		return errors.New("ordinary startup transition target differs from its backend deployment")
 	}
 	schema := plan.ExistingSchemaContract
 	if schema.SystemIdentifier != contract.SystemIdentifier || schema.Database != contract.Database || schema.DatabaseOID != contract.DatabaseOID ||
@@ -288,8 +297,8 @@ func (runtime *productionRuntime) merchantStoreWriterEnvironment(ctx context.Con
 	if err != nil {
 		return nil, err
 	}
-	values, digest, unit, err := runtime.existingSchemaSealedStartup(ctx, loaded)
-	if err != nil || digest != contract.StartupSHA256 || unit != contract.SignedUnitSHA256 {
+	values, err := runtime.existingSchemaManifestStartup(ctx, manifest, loaded)
+	if err != nil {
 		return nil, errors.New("merchant writer effective environment or signed unit changed")
 	}
 	return runtime.merchantStoreWriterEnvironmentFromValues(ctx, contract, values)

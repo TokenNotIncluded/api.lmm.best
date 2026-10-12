@@ -129,7 +129,55 @@ class CapsuleHooks:
             held()
             if maintenance:
                 raise RuntimeError('financial maintenance is unavailable through this wrapper')
-            return original_stop(work)
+            transition = self.capsule.get('merchant_store_writer', {}).get('startup_predecessor_path')
+            if not transition:
+                return original_stop(work)
+            work = Path(work)
+            if work != module.ROOT / self.capsule['deployment_id']:
+                raise RuntimeError('ordinary stop is outside the exact capsule transaction')
+            proof_path, journal_path = work / 'ordinary-writer-stopped.json', work / 'shutdown.log'
+            for path in (proof_path, journal_path):
+                try:
+                    path.lstat()
+                except FileNotFoundError:
+                    pass
+                else:
+                    raise RuntimeError('ordinary stop evidence already exists; do not repeat stop')
+            pid = module.property_value('MainPID')
+            invocation = module.property_value('InvocationID')
+            previous = module.digest(module.BINARY)
+            if not pid.isdecimal() or int(pid) <= 1 or len(invocation) != 32 or any(c not in '0123456789abcdef' for c in invocation) or previous != self.capsule['rollback']['payload_sha256']:
+                raise RuntimeError('ordinary stop lost its exact retained writer generation')
+            original_stop(work)
+            # The original stop verified clean exit and the whole invocation
+            # journal. Preserve those actual bytes in a private immutable proof.
+            descriptor = os.open(journal_path, os.O_RDONLY | os.O_NOFOLLOW)
+            try:
+                info = os.fstat(descriptor)
+                if not stat.S_ISREG(info.st_mode) or info.st_uid != 0 or info.st_nlink != 1 or info.st_size > 8 * 1024 * 1024:
+                    raise RuntimeError('ordinary shutdown journal is unsafe')
+                os.fchmod(descriptor, 0o600)
+                journal = os.read(descriptor, 8 * 1024 * 1024 + 1)
+                if len(journal) != info.st_size or not journal:
+                    raise RuntimeError('ordinary shutdown journal changed')
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+            proof = {'format': 'lmm-ordinary-writer-stopped-v1', 'release': self.capsule['deployment_id'],
+                     'previous_sha256': previous, 'pid': int(pid), 'invocation_id': invocation,
+                     'shutdown_journal_sha256': hashlib.sha256(journal).hexdigest()}
+            descriptor = os.open(proof_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+            with os.fdopen(descriptor, 'wb') as stream:
+                stream.write((json.dumps(proof, indent=2) + '\n').encode())
+                stream.flush()
+                os.fsync(stream.fileno())
+            descriptor = os.open(work, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+            held()
+            self.native('bind-startup')
 
         def save(work, state):
             if state.get('migrate') or state.get('maintenance_handoff'):
