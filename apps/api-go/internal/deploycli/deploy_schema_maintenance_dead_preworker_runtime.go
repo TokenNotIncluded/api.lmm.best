@@ -9,6 +9,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
+	"strings"
 	"time"
 
 	"github.com/LIghtJUNction/api.lmm.best/internal/deploymentfence"
@@ -127,6 +129,15 @@ func (runtime *productionRuntime) validateSchemaMaintenanceDeadAuthorityEngine(c
 	} else if a.OwnerMode != schemaMaintenanceDeadPreWorkerZeroOwner || len(a.OriginalOwnerRaw) != 0 {
 		return empty, "", errors.New("dead-preworker recovery mode is not explicit")
 	}
+	if a.PreExecRecovery != nil {
+		recovery, err := runtime.qualifySchemaMaintenancePreExecRecovery(ctx, a.Plan, a.PrePlanSHA256, *a.PreExecRecovery)
+		if err != nil {
+			return empty, "", err
+		}
+		if a.RecoveryEngineSHA256 != recovery.Candidate.DeployEngineSHA256 {
+			return empty, "", errors.New("dead-preworker recovery engine differs from its qualified signed artifact")
+		}
+	}
 	workspace := schemaMaintenanceHostWorkspace(runtime.paths, a.Plan.TransitionID)
 	engineSHA, err := runtime.schemaMaintenanceDeadRecoveryEngine(ctx, a)
 	if err != nil {
@@ -175,6 +186,17 @@ func (runtime *productionRuntime) recoverSchemaMaintenanceDeadPreWorkerOwner(ctx
 			return result, err
 		}
 	}
+	var preExecData []productionSchemaMaintenanceDeadPreExecData
+	if a.PreExecRecovery != nil {
+		before, ownerRaw, err := runtime.schemaMaintenancePreExecRecoveryDataSource(a.Plan, a.PrePlanSHA256, *a.PreExecRecovery)
+		if err != nil {
+			return result, err
+		}
+		if !bytes.Equal(ownerRaw, a.OriginalOwnerRaw) {
+			return result, errors.New("dead-preworker signed backup projection changed its original owner")
+		}
+		preExecData = []productionSchemaMaintenanceDeadPreExecData{{Before: before, OriginalOwnerRaw: ownerRaw}}
+	}
 	lease, err := runtime.openSchemaMaintenanceOldFence(ctx, a.Plan, a.PrePlanSHA256, a.OldCapsule, a.OldCapsuleSHA256)
 	if err != nil {
 		return result, err
@@ -212,7 +234,7 @@ func (runtime *productionRuntime) recoverSchemaMaintenanceDeadPreWorkerOwner(ctx
 		}
 		return a.CheckLocalDeadAuthority(ctx)
 	}
-	if err := lease.recoverSchemaMaintenanceDeadPreWorkerOwner(ctx, a.Plan.PreSchema, a.OriginalOwnerRaw, a.OwnerMode, guard); err != nil {
+	if err := lease.recoverSchemaMaintenanceDeadPreWorkerOwner(ctx, a.Plan.PreSchema, a.OriginalOwnerRaw, a.OwnerMode, guard, preExecData...); err != nil {
 		return result, err
 	}
 	result.FinishedUTC = runtime.now().UTC()
@@ -225,6 +247,49 @@ func (runtime *productionRuntime) recoverSchemaMaintenanceDeadPreWorkerOwner(ctx
 		return result, errors.New("dead-preworker CAS result receipt is uncertain; only read-only reconciliation is permitted")
 	}
 	return result, nil
+}
+
+// Run the fixed projection on this very CAS transaction before and after its
+// exact owner DELETE. No additional connection or nested transaction is used.
+func checkSchemaMaintenanceDeadPreExecData(ctx context.Context, tx pgx.Tx, data productionSchemaMaintenanceDeadPreExecData) error {
+	query, err := schemaMaintenanceBackupProjectedSourceQuery(data.Before.Schema, data.Before, data.OriginalOwnerRaw)
+	if err != nil {
+		return err
+	}
+	const begin = "BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY;\n"
+	const settings = "SET LOCAL search_path=pg_catalog;\nSET LOCAL row_security=off;\nSET LOCAL TimeZone='UTC';\nSET LOCAL DateStyle='ISO, YMD';\nSET LOCAL IntervalStyle='postgres';\nSET LOCAL extra_float_digits=3;\nSET LOCAL bytea_output='hex';\n"
+	const end = "\nCOMMIT;"
+	if !strings.HasPrefix(query, begin+settings+"SELECT pg_catalog.json_build_object(\n") || !strings.HasSuffix(query, end) {
+		return errors.New("dead-preworker fixed backup projection wrapper changed")
+	}
+	for _, setting := range strings.Split(strings.TrimSpace(settings), "\n") {
+		if _, err := tx.Exec(ctx, setting); err != nil {
+			return errors.New("dead-preworker backup projection session settings are unavailable")
+		}
+	}
+	query = strings.TrimSuffix(strings.TrimPrefix(query, begin+settings), end)
+	var raw []byte
+	if err := tx.QueryRow(ctx, query).Scan(&raw); err != nil {
+		return errors.New("dead-preworker actual pre-execution data projection is unavailable")
+	}
+	var after productionSchemaMaintenanceBackupSource
+	if len(raw) > schemaMaintenanceBackupSourceMaxBytes || decodeControllerBackupJSON(raw, &after) != nil || after.TransactionReadOnly != "off" {
+		return errors.New("dead-preworker data projection is not from its actual read-write CAS transaction")
+	}
+	// Access mode was checked above against the actual transaction. Normalize
+	// only this comparison copy so the existing read-only backup inventory
+	// validator can compare its data; never persist or report this as a RO read.
+	normalized := after
+	normalized.TransactionReadOnly = "on"
+	if normalized.StructureSHA256 != data.Before.StructureSHA256 || validateSchemaMaintenanceBackupProjectedEqual(data.Before, normalized) != nil {
+		return errors.New("dead-preworker actual old table data, indexes or sequences changed from its signed backup")
+	}
+	for i := range data.Before.Tables {
+		if !reflect.DeepEqual(data.Before.Tables[i].Columns, normalized.Tables[i].Columns) {
+			return errors.New("dead-preworker actual old column semantics changed from its signed backup")
+		}
+	}
+	return nil
 }
 
 func beginSchemaMaintenanceDeadRead(ctx context.Context, lease *productionMerchantStoreFence) (pgx.Tx, error) {

@@ -27,6 +27,11 @@ type productionSchemaMaintenanceDeadPreWorkerCASAuthority struct {
 	CheckLocalDeadAuthority func(context.Context) error
 }
 
+type productionSchemaMaintenanceDeadPreExecData struct {
+	Before           productionSchemaMaintenanceBackupSource
+	OriginalOwnerRaw []byte
+}
+
 type productionSchemaMaintenanceDeadPreWorkerCASResult struct {
 	Format                string                           `json:"format"`
 	TransitionID          string                           `json:"transition_id"`
@@ -52,9 +57,12 @@ var errSchemaMaintenanceDeadCommitUncertain = errors.New("dead-preworker exact C
 // Guard must only inspect local immutable authority, dead process generations,
 // original transferred FDs and absence of worker files. It must not call this
 // lease, another DB client, migrate --verify, or remote full qualification.
-func (lease *productionMerchantStoreFence) recoverSchemaMaintenanceDeadPreWorkerOwner(ctx context.Context, expected productionExistingSchemaContract, ownerRaw []byte, mode string, guard func(context.Context) error) error {
+func (lease *productionMerchantStoreFence) recoverSchemaMaintenanceDeadPreWorkerOwner(ctx context.Context, expected productionExistingSchemaContract, ownerRaw []byte, mode string, guard func(context.Context) error, preExecData ...productionSchemaMaintenanceDeadPreExecData) error {
 	if expected.StartupSHA256 != "" || expected.SignedUnitSHA256 != "" || validateProductionExistingSchemaContract(&expected) != nil || guard == nil {
 		return errors.New("dead-preworker CAS lacks a physical pre-catalog or local recovery authority")
+	}
+	if len(preExecData) > 1 || len(preExecData) == 1 && (mode != schemaMaintenanceDeadPreWorkerExactOwner || !bytes.Equal(preExecData[0].OriginalOwnerRaw, ownerRaw) || schemaMaintenanceBackupSourceIdentity(preExecData[0].Before, expected) != nil) {
+		return errors.New("dead-preworker pre-execution data authority differs from its exact original owner or catalog")
 	}
 	var owner productionMerchantStoreFenceOwner
 	if mode == schemaMaintenanceDeadPreWorkerExactOwner {
@@ -90,6 +98,11 @@ func (lease *productionMerchantStoreFence) recoverSchemaMaintenanceDeadPreWorker
 	if err := checkSchemaMaintenanceDeadPreWorkerTransaction(ctx, tx, lease.identity, expected, owner, ownerRaw, mode, true); err != nil {
 		return err
 	}
+	if len(preExecData) == 1 {
+		if err := checkSchemaMaintenanceDeadPreExecData(ctx, tx, preExecData[0]); err != nil {
+			return err
+		}
+	}
 	if err := guard(ctx); err != nil {
 		return err
 	}
@@ -104,6 +117,11 @@ func (lease *productionMerchantStoreFence) recoverSchemaMaintenanceDeadPreWorker
 	}
 	if err := checkSchemaMaintenanceDeadPreWorkerTransaction(ctx, tx, lease.identity, expected, owner, nil, schemaMaintenanceDeadPreWorkerZeroOwner, true); err != nil {
 		return err
+	}
+	if len(preExecData) == 1 {
+		if err := checkSchemaMaintenanceDeadPreExecData(ctx, tx, preExecData[0]); err != nil {
+			return err
+		}
 	}
 	if err := guard(ctx); err != nil {
 		return err
