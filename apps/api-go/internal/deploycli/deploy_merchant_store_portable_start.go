@@ -595,6 +595,15 @@ func (runtime *productionRuntime) merchantStorePortableStart(ctx context.Context
 	if err := runtime.qualifyMerchantStoreCapsule(ctx, c, digest, invocation, false); err != nil {
 		return err
 	}
+	if c.Writer != nil && c.Writer.StartupPredecessorPath != "" {
+		parent, err := runtime.requestMerchantStoreOrdinaryParent(ctx, c, digest)
+		if err != nil {
+			return err
+		}
+		if parent {
+			return runtime.portableStartControlPID(ctx, c, invocation)
+		}
+	}
 	parent := merchantStorePortableOwnerPath(c, "")
 	if _, err := os.Lstat(parent); err == nil {
 		if c.Format == 2 {

@@ -1175,6 +1175,9 @@ func (runtime *productionRuntime) apply(ctx context.Context, workspace productio
 		} else if err := runtime.stopBillingWriter(ctx, workspace, &manifest); err != nil {
 			return productionStatus{}, err
 		}
+		if err := runtime.bindMerchantStoreManifestStartup(ctx, workspace, manifest); err != nil {
+			return productionStatus{}, fmt.Errorf("bind ordinary per-start startup after verified stop: %w", err)
+		}
 		if err := runtime.writeStatus(workspace, productionStatus{Phase: "MIGRATING", Version: options.ExpectedVersion, Previous: oldVersion}); err != nil {
 			return productionStatus{}, err
 		}

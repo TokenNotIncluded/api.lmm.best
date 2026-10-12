@@ -141,8 +141,8 @@ func (runtime *productionRuntime) verifyExistingSchemaStartupMode(ctx context.Co
 	files := loaded["EnvironmentFiles"]
 	sealed := manifest.ExistingSchemaContract != nil && manifest.ExistingSchemaContract.StartupSHA256 != ""
 	if sealed {
-		effective, digest, unitDigest, err := runtime.existingSchemaSealedStartup(ctx, loaded)
-		if err != nil || digest != manifest.ExistingSchemaContract.StartupSHA256 || unitDigest != manifest.ExistingSchemaContract.SignedUnitSHA256 {
+		effective, err := runtime.existingSchemaManifestStartup(ctx, manifest, loaded)
+		if err != nil {
 			return errors.New("effective production startup differs from its immutable seal")
 		}
 		values = effective
@@ -231,8 +231,7 @@ func (runtime *productionRuntime) verifyExistingSchemaStartupMode(ctx context.Co
 		return errors.New("verify-existing loaded unit or process generation changed during inspection")
 	}
 	if sealed {
-		_, digest, unitDigest, err := runtime.existingSchemaSealedStartup(ctx, current)
-		if err != nil || digest != manifest.ExistingSchemaContract.StartupSHA256 || unitDigest != manifest.ExistingSchemaContract.SignedUnitSHA256 {
+		if _, err := runtime.existingSchemaManifestStartup(ctx, manifest, current); err != nil {
 			return errors.New("verify-existing sealed startup changed during inspection")
 		}
 	} else if err := verifyExistingSchemaLoadedCommands(current, runtime.paths.InstalledBinary); err != nil || current["ExecStart"] != loaded["ExecStart"] {

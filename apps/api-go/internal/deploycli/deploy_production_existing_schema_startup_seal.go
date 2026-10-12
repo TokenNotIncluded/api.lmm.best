@@ -221,6 +221,17 @@ func startupContentSHA256(content []byte) string {
 }
 
 func (runtime *productionRuntime) existingSchemaSealedStartup(ctx context.Context, loaded map[string]string) (map[string]string, string, string, error) {
+	if path, digest, err := merchantStoreLoadedCapsuleReference(loaded); err == nil {
+		c, err := runtime.loadMerchantStoreCapsule(path, digest)
+		if err != nil {
+			return nil, "", "", err
+		}
+		values, err := runtime.merchantStoreCapsuleStartup(ctx, c, digest, loaded)
+		if err != nil {
+			return nil, "", "", err
+		}
+		return values, c.Writer.StartupSHA256, c.Writer.SignedUnitSHA256, nil
+	}
 	if loaded["PassEnvironment"] != "" || loaded["UnsetEnvironment"] != "" {
 		return nil, "", "", errors.New("loaded production unit has unchecked environment overrides")
 	}

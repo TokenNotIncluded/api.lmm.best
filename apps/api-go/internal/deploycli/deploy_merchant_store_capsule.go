@@ -68,6 +68,9 @@ func validateMerchantStoreCapsule(c productionMerchantStoreCapsule, paths produc
 		return err
 	}
 	s, w := c.ExistingSchemaContract, c.Writer
+	if w.StartupTargetPath != "" && (c.StartupPolicy != "per-start" || w.StartupTargetPath != filepath.Join(c.Root, "capsule.json")) {
+		return errors.New("ordinary startup transition is not bound to this exact per-start capsule")
+	}
 	if s.SystemIdentifier != w.SystemIdentifier || s.Database != w.Database || s.DatabaseOID != w.DatabaseOID || s.Schema != w.Schema || s.SchemaOID != w.SchemaOID || s.StartupSHA256 != w.StartupSHA256 || s.SignedUnitSHA256 != w.SignedUnitSHA256 {
 		return errors.New("portable capsule schema, ordered startup and writer identities differ")
 	}
@@ -446,6 +449,12 @@ func (runtime *productionRuntime) merchantStoreCapsuleStartup(ctx context.Contex
 	var commands map[string]string
 	var err error
 	if c.StartupPolicy == "per-start" {
+		if c.Writer != nil && c.Writer.StartupPredecessorPath != "" {
+			path, actualSHA, parseErr := merchantStoreLoadedCapsuleReference(loaded)
+			if parseErr == nil && path == c.Writer.StartupPredecessorPath && actualSHA == c.Writer.StartupPredecessorSHA256 {
+				return runtime.merchantStoreTransitionStartup(ctx, c.Writer, c.ExistingSchemaContract, loaded)
+			}
+		}
 		if merchantStoreLoadedOperator(loaded, c.Binary) != deploymentInstalledCommand(c.Binary, c.Candidate) {
 			return nil, errors.New("portable startup hook does not use the capsule-bound deployment tool")
 		}
@@ -685,7 +694,17 @@ func runProductionMerchantStoreCapsule(args []string, stdout, stderr io.Writer) 
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Minute)
 	defer cancel()
 	var err error
-	if args[0] == "startup-seal" {
+	if args[0] == "startup-project" {
+		if *path == "" || *digest == "" || *startupPath == "" || *startupDigest != "" || *planPath != "" || *planSHA != "" || *schemaPath != "" || *schemaSHA != "" || *writerPath != "" || *writerSHA != "" || *host != "" || *output != "" {
+			return ExitUsage
+		}
+		profile, projectErr := runtime.projectMerchantStoreStartup(ctx, *path, *digest, *startupPath)
+		if projectErr != nil {
+			_, _ = fmt.Fprintf(stderr, "%s production writer-capsule startup-project: %v\n", DeployProgramName, projectErr)
+			return ExitError
+		}
+		return writeJSONCommandResult(profile, stdout, stderr, "production writer-capsule startup-project")
+	} else if args[0] == "startup-seal" {
 		if *startupPath == "" || *startupDigest == "" || *path != "" || *digest != "" || *planPath != "" || *schemaPath != "" || *writerPath != "" || *host != "" || *output != "" {
 			return ExitUsage
 		}
@@ -737,6 +756,15 @@ func runProductionMerchantStoreCapsule(args []string, stdout, stderr io.Writer) 
 			if err == nil {
 				_, _ = fmt.Fprintf(stdout, "capsule_sha256=%s\n", startupContentSHA256(body))
 			}
+		}
+	} else if args[0] == "bind-startup" {
+		if *path == "" || *digest == "" || *startupPath != "" || *startupDigest != "" || *planPath != "" || *planSHA != "" || *schemaPath != "" || *schemaSHA != "" || *writerPath != "" || *writerSHA != "" || *host != "" || *output != "" {
+			return ExitUsage
+		}
+		var c productionMerchantStoreCapsule
+		c, err = runtime.loadMerchantStoreCapsule(*path, *digest)
+		if err == nil {
+			err = runtime.bindMerchantStoreOrdinaryStartup(ctx, c, *digest)
 		}
 	} else if args[0] == "check" {
 		if *path == "" || *digest == "" || *planPath != "" || *planSHA != "" || *schemaPath != "" || *schemaSHA != "" || *writerPath != "" || *writerSHA != "" || *host != "" || *output != "" {

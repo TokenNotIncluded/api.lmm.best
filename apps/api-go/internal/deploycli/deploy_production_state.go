@@ -1166,7 +1166,7 @@ func (runtime *productionRuntime) executeTransaction(ctx context.Context, option
 		if err != nil {
 			return productionStatus{}, err
 		}
-		if err := runtime.verifyExistingSchemaLifecycle(ctx, productionManifest{SchemaMode: plan.SchemaMode, ExistingSchemaContract: plan.ExistingSchemaContract, DatabaseSchema: plan.ExistingSchemaContract.Schema}); err != nil {
+		if err := runtime.verifyExistingSchemaLifecycle(ctx, productionManifest{DeploymentID: plan.DeploymentID, SchemaPlanSHA256: options.StagedPlanSHA256, MerchantStoreWriter: plan.MerchantStoreWriter, SchemaMode: plan.SchemaMode, ExistingSchemaContract: plan.ExistingSchemaContract, DatabaseSchema: plan.ExistingSchemaContract.Schema}); err != nil {
 			return productionStatus{}, err
 		}
 		return productionStatus{Format: productionStatusFormat, DeploymentID: workspace.id, PlanSHA256: options.StagedPlanSHA256, Version: plan.ExpectedVersion, Phase: "SCHEMA_VERIFIED"}, nil
