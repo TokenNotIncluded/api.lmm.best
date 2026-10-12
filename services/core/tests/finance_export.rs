@@ -1,22 +1,36 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 use lmm_core::finance_export::{
-    ExportError, UsageExportInput, UsageJsonWriter, MAX_EXPORT_BYTES, MAX_EXPORT_ROWS,
+    ExportError, MAX_EXPORT_BYTES, MAX_EXPORT_ROWS, UsageExportInput, UsageJsonWriter,
 };
 use serde_json::Value;
 use std::io::{self, Write};
 
 fn row(id: i64, other: &str) -> UsageExportInput<'_> {
     UsageExportInput {
-        log_id: id, user_id: 7, created_at: 1700000000, log_type: 2,
-        username: "synthetic-user", token_name: "synthetic-token", model_name: "local-model",
-        quota: Some(500000), prompt_tokens: 5, completion_tokens: 2, use_time: 1,
-        is_stream: false, channel_id: Some(9), group: "default", other,
+        log_id: id,
+        user_id: 7,
+        created_at: 1700000000,
+        log_type: 2,
+        username: "synthetic-user",
+        token_name: "synthetic-token",
+        model_name: "local-model",
+        quota: Some(500000),
+        prompt_tokens: 5,
+        completion_tokens: 2,
+        use_time: 1,
+        is_stream: false,
+        channel_id: Some(9),
+        group: "default",
+        other,
     }
 }
 
 #[test]
 fn export_has_an_explicit_field_allowlist() {
-    let input = row(1, r#"{"pricing_credits_per_usd":500000,"api_key":"SYNTHETIC_SECRET","admin_info":{"user_id":8},"provider_payload":"SYNTHETIC_PROVIDER_DATA"}"#);
+    let input = row(
+        1,
+        r#"{"pricing_credits_per_usd":500000,"api_key":"SYNTHETIC_SECRET","admin_info":{"user_id":8},"provider_payload":"SYNTHETIC_PROVIDER_DATA"}"#,
+    );
     let mut writer = UsageJsonWriter::new(Vec::new(), 10, 10000).unwrap();
     writer.push(&input).unwrap();
     let (bytes, receipt) = writer.finish().unwrap();
@@ -24,9 +38,32 @@ fn export_has_an_explicit_field_allowlist() {
     assert!(!text.contains("SYNTHETIC_SECRET"));
     assert!(!text.contains("SYNTHETIC_PROVIDER_DATA"));
     let decoded: Value = serde_json::from_str(&text).unwrap();
-    let mut fields: Vec<_> = decoded[0].as_object().unwrap().keys().map(String::as_str).collect();
+    let mut fields: Vec<_> = decoded[0]
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
     fields.sort_unstable();
-    let mut expected = vec!["log_id", "user_id", "created_at", "type", "username", "token_name", "model_name", "quota", "prompt_tokens", "completion_tokens", "use_time", "is_stream", "channel_id", "group", "quota_usd", "quota_money_available", "quota_money_basis"];
+    let mut expected = vec![
+        "log_id",
+        "user_id",
+        "created_at",
+        "type",
+        "username",
+        "token_name",
+        "model_name",
+        "quota",
+        "prompt_tokens",
+        "completion_tokens",
+        "use_time",
+        "is_stream",
+        "channel_id",
+        "group",
+        "quota_usd",
+        "quota_money_available",
+        "quota_money_basis",
+    ];
     expected.sort_unstable();
     assert_eq!(fields, expected);
     assert_eq!(decoded[0]["quota"], 500000);
@@ -84,8 +121,16 @@ fn export_enforces_row_order_and_duplicate_rejection() {
 
 #[test]
 fn export_limits_cannot_be_raised_past_the_server_ceiling() {
-    for (rows, bytes) in [(0, 2), (1, 1), (MAX_EXPORT_ROWS + 1, 100), (1, MAX_EXPORT_BYTES + 1)] {
-        assert!(matches!(UsageJsonWriter::new(Vec::new(), rows, bytes), Err(ExportError::InvalidLimits)));
+    for (rows, bytes) in [
+        (0, 2),
+        (1, 1),
+        (MAX_EXPORT_ROWS + 1, 100),
+        (1, MAX_EXPORT_BYTES + 1),
+    ] {
+        assert!(matches!(
+            UsageJsonWriter::new(Vec::new(), rows, bytes),
+            Err(ExportError::InvalidLimits)
+        ));
     }
 }
 
@@ -129,17 +174,24 @@ fn export_empty_result_is_a_real_empty_json_array() {
     assert_eq!(receipt.bytes, 2);
 }
 
-struct BrokenSink { remaining: usize }
+struct BrokenSink {
+    remaining: usize,
+}
 impl Write for BrokenSink {
     fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
         if self.remaining == 0 {
-            return Err(io::Error::new(io::ErrorKind::BrokenPipe, "synthetic disconnect"));
+            return Err(io::Error::new(
+                io::ErrorKind::BrokenPipe,
+                "synthetic disconnect",
+            ));
         }
         let written = self.remaining.min(bytes.len());
         self.remaining -= written;
         Ok(written)
     }
-    fn flush(&mut self) -> io::Result<()> { Ok(()) }
+    fn flush(&mut self) -> io::Result<()> {
+        Ok(())
+    }
 }
 
 #[test]
@@ -148,4 +200,69 @@ fn export_writer_failure_cannot_be_retried_as_success() {
     assert_eq!(writer.push(&row(1, "{}")), Err(ExportError::Io));
     assert_eq!(writer.push(&row(2, "{}")), Err(ExportError::Aborted));
     assert!(matches!(writer.finish(), Err(ExportError::Aborted)));
+}
+
+struct FailingSink {
+    writes: usize,
+    fail_on_write: usize,
+    kind: io::ErrorKind,
+    fail_flush: bool,
+}
+impl Write for FailingSink {
+    fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+        self.writes += 1;
+        if self.writes == self.fail_on_write {
+            return Err(io::Error::from(self.kind));
+        }
+        Ok(bytes.len())
+    }
+    fn flush(&mut self) -> io::Result<()> {
+        if self.fail_flush {
+            Err(io::Error::from(self.kind))
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[test]
+fn export_distinguishes_sink_limits_from_other_io_failures() {
+    for (kind, expected) in [
+        (io::ErrorKind::FileTooLarge, ExportError::ByteLimit),
+        (io::ErrorKind::StorageFull, ExportError::ByteLimit),
+        (io::ErrorKind::QuotaExceeded, ExportError::ByteLimit),
+        (io::ErrorKind::BrokenPipe, ExportError::Io),
+        (io::ErrorKind::PermissionDenied, ExportError::Io),
+    ] {
+        for fail_on_write in 1..=3 {
+            let sink = FailingSink {
+                writes: 0,
+                fail_on_write,
+                kind,
+                fail_flush: false,
+            };
+            let result = UsageJsonWriter::new(sink, 10, 10000);
+            if fail_on_write == 1 {
+                assert!(matches!(result, Err(error) if error == expected));
+                continue;
+            }
+            let mut writer = result.unwrap();
+            let result = writer.push(&row(1, "{}"));
+            if fail_on_write == 2 {
+                assert_eq!(result, Err(expected));
+                assert!(matches!(writer.finish(), Err(ExportError::Aborted)));
+            } else {
+                result.unwrap();
+                assert!(matches!(writer.finish(), Err(error) if error == expected));
+            }
+        }
+        let sink = FailingSink {
+            writes: 0,
+            fail_on_write: usize::MAX,
+            kind,
+            fail_flush: true,
+        };
+        let writer = UsageJsonWriter::new(sink, 10, 10000).unwrap();
+        assert!(matches!(writer.finish(), Err(error) if error == expected));
+    }
 }
