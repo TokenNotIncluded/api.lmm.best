@@ -53,6 +53,12 @@ setup examples. Never register production accounts for tests or rewards.
 
 ## Check and finish
 
+Separate development from independent acceptance: different agents/persons own
+fixes and verification; developers' self-tests are not independent sign-off.
+Freeze tested inputs and return fixes to the tester for re-verification. Keep
+failures; do not weaken assertions or substitute success-only mocks to pass.
+Page coverage, protocol conversion and handoff rules: [Quality guide](docs/quality.md#测试与开发分工).
+
 Run checks for the changed behavior and its risks; see the working guide. Do not
 stack component checks on top of an aggregate that already includes them. Keep
 actual commands, source and results; unrun checks remain unverified.
