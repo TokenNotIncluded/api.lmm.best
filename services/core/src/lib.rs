@@ -13,6 +13,7 @@ pub mod events;
 pub mod financial_profile;
 pub mod funding;
 pub mod http;
+pub mod humangrant;
 pub mod identity;
 pub mod identity_http;
 #[cfg(unix)]

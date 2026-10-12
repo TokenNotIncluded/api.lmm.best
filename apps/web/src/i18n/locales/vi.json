@@ -1,5 +1,11 @@
 {
   "translation": {
+    "Continue with human beings": "Tiếp tục với sự xác nhận của con người",
+    "Unable to load HumanGrant setting": "Không thể tải cài đặt HumanGrant",
+    "HumanGrant setting saved": "Đã lưu cài đặt HumanGrant",
+    "Unable to save HumanGrant setting": "Không thể lưu cài đặt HumanGrant",
+    "HumanGrant remote authorization": "Ủy quyền từ xa HumanGrant",
+    "Allow AI clients to request limited access with explicit human approval. Existing login methods stay available.": "Cho phép ứng dụng AI yêu cầu quyền truy cập giới hạn khi được con người chấp thuận rõ ràng. Các cách đăng nhập hiện tại vẫn hoạt động.",
     "360": "360",
     "1000": "1000",
     "10000": "10000",

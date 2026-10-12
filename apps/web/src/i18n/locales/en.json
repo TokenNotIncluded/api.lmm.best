@@ -1,5 +1,11 @@
 {
   "translation": {
+    "Continue with human beings": "Continue with human beings",
+    "Unable to load HumanGrant setting": "Unable to load HumanGrant setting",
+    "HumanGrant setting saved": "HumanGrant setting saved",
+    "Unable to save HumanGrant setting": "Unable to save HumanGrant setting",
+    "HumanGrant remote authorization": "HumanGrant remote authorization",
+    "Allow AI clients to request limited access with explicit human approval. Existing login methods stay available.": "Allow AI clients to request limited access with explicit human approval. Existing login methods stay available.",
     "360": "360",
     "1000": "1000",
     "10000": "10000",

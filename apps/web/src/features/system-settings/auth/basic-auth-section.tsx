@@ -44,6 +44,7 @@ import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useResetForm } from '../hooks/use-reset-form'
 import { useUpdateOption } from '../hooks/use-update-option'
+import { HumanGrantSetting } from './human-grant-setting'
 
 const basicAuthSchema = z.object({
   PasswordLoginEnabled: z.boolean(),
@@ -129,6 +130,7 @@ export function BasicAuthSection({ defaultValues }: BasicAuthSectionProps) {
 
   return (
     <SettingsSection title={t('Basic Authentication')}>
+      <HumanGrantSetting />
       <Form {...form}>
         <SettingsForm onSubmit={form.handleSubmit(onSubmit)}>
           <SettingsPageFormActions

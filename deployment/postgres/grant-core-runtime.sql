@@ -82,6 +82,21 @@ GRANT USAGE ON SEQUENCE core_identity.accounts_id_seq, core_identity.users_id_se
     core_identity.teams_id_seq, core_identity.credentials_id_seq,
     core_identity.invites_id_seq, core_identity.audit_id_seq TO :"runtime_role";
 
+
+-- HumanGrant may only create scoped grants and revoke them. Human secrets
+-- and authorization evidence are never available to the Go extension role.
+GRANT SELECT ON core_identity.hg_config,core_identity.hg_requests,
+    core_identity.hg_nonces,core_identity.hg_reviews,
+    core_identity.hg_grants,core_identity.hg_sessions TO :"runtime_role";
+GRANT UPDATE(enabled) ON core_identity.hg_config TO :"runtime_role";
+GRANT INSERT, UPDATE(phase,status_updated_at,email_request_status)
+    ON core_identity.hg_requests TO :"runtime_role";
+GRANT INSERT, DELETE ON core_identity.hg_nonces TO :"runtime_role";
+GRANT INSERT, UPDATE(consumed_at) ON core_identity.hg_reviews TO :"runtime_role";
+GRANT INSERT, UPDATE(revoked_at) ON core_identity.hg_grants TO :"runtime_role";
+GRANT INSERT ON core_identity.hg_sessions,core_identity.hg_audit TO :"runtime_role";
+GRANT USAGE ON SEQUENCE core_identity.hg_audit_id_seq TO :"runtime_role";
+
 \if :enable_commerce
 -- Commerce performs charging and publishes events in the same core transaction.
 \set enable_events true

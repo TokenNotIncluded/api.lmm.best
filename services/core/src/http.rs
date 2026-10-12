@@ -155,11 +155,24 @@ async fn public_status_response(
     State(state): State<Readiness>,
 ) -> ([(String, String); 1], Json<Value>) {
     let status = state.public_status;
+    let humangrant_enabled = if status.password_login_enabled {
+        sqlx::query_scalar::<_, bool>(
+            "SELECT enabled FROM core_identity.hg_config WHERE singleton=TRUE",
+        )
+        .fetch_optional(&state.pool)
+        .await
+        .ok()
+        .flatten()
+        .unwrap_or(false)
+    } else {
+        false
+    };
     (
         [("cache-control".into(), "no-store".into())],
         Json(json!({"success":true,"message":"","data":{
             "system_name":"LMM API","version":env!("CARGO_PKG_VERSION"),
             "password_login_enabled":status.password_login_enabled,
+            "humangrant_enabled":humangrant_enabled,
             "register_enabled":status.password_register_enabled,
             "password_register_enabled":status.password_register_enabled,
             "user_agreement_enabled":status.user_agreement_enabled,
