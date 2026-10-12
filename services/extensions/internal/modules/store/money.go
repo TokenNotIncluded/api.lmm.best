@@ -63,6 +63,12 @@ func (s *Service) money(ctx context.Context, token string, c OrderChange) (Order
 			return err
 		}
 		if err := tx.Get("money_operations", key, &op); err == nil {
+			if !op.Done {
+				return validatePendingMoney(c.ShopID, out, op)
+			}
+			if validateOrderCommand(c.ShopID, out, op.Command) != nil || !validMoneyReceipt(op.Command, op.Receipt) {
+				return ErrConflict
+			}
 			return nil
 		} else if !errors.Is(err, ErrNotFound) {
 			return err
@@ -93,8 +99,10 @@ func (s *Service) money(ctx context.Context, token string, c OrderChange) (Order
 		default:
 			return ErrInvalid
 		}
-		op = operation{Command: MoneyCommand{Key: key, Kind: c.Action, ShopID: c.ShopID, OrderID: out.ID, Buyer: out.Buyer, Seller: out.Seller, Total: out.Total, PaymentRef: out.PaymentRef, SettlementRef: out.SettlementRef}, Before: before}
-		op.Command.OrderSnapshot = &MoneyOrderSnapshot{VariantID: out.VariantID, Quantity: out.Quantity, UnitPrice: out.UnitPrice, CreatedBy: out.CreatedBy}
+		op = operation{Command: orderMoneyCommand(c.ShopID, out, c.Action), Before: before}
+		if err := validatePendingMoney(c.ShopID, out, op); err != nil {
+			return err
+		}
 		if err := tx.Put("orders", out.ID, out); err != nil {
 			return err
 		}
@@ -124,9 +132,6 @@ func (s *Service) money(ctx context.Context, token string, c OrderChange) (Order
 			return out, ErrPending
 		}
 	}
-	if receipt.Key != key || receipt.CommandHash != ID(op.Command) || !Text(receipt.Reference, 256) || (receipt.Outcome != "succeeded" && receipt.Outcome != "rejected") {
-		return out, ErrPending
-	}
 	// If the process dies here, the durable operation is retried with the SAME key.
 	return s.finishMoney(ctx, c.ShopID, c.OrderID, op, receipt)
 }
@@ -136,7 +141,7 @@ func (s *Service) money(ctx context.Context, token string, c OrderChange) (Order
 func (s *Service) finishMoney(ctx context.Context, shopID, orderID string, op operation, receipt Receipt) (Order, error) {
 	var out Order
 	key := op.Command.Key
-	if receipt.Key != key || receipt.CommandHash != ID(op.Command) || !Text(receipt.Reference, 256) || (receipt.Outcome != "succeeded" && receipt.Outcome != "rejected") {
+	if !validMoneyReceipt(op.Command, receipt) {
 		return out, ErrPending
 	}
 	err := s.repo.Within(ctx, shopID, func(tx Tx) error {
@@ -147,11 +152,19 @@ func (s *Service) finishMoney(ctx context.Context, shopID, orderID string, op op
 		if err := tx.Get("money_operations", key, &current); err != nil {
 			return err
 		}
+		if ID(current.Command) != receipt.CommandHash || current.Before != op.Before ||
+			current.PaymentCommandHash != op.PaymentCommandHash || current.DeliveryReference != op.DeliveryReference ||
+			validateOrderCommand(shopID, out, current.Command) != nil {
+			return ErrConflict
+		}
 		if current.Done {
+			if current.Receipt != receipt {
+				return ErrConflict
+			}
 			return nil
 		}
-		if ID(current.Command) != receipt.CommandHash {
-			return ErrConflict
+		if err := validatePendingMoney(shopID, out, current); err != nil {
+			return err
 		}
 		if receipt.Outcome == "rejected" {
 			out.State = current.Before
@@ -193,6 +206,9 @@ func (s *Service) finishMoney(ctx context.Context, shopID, orderID string, op op
 		return tx.Put("money_operations", key, current)
 	})
 	if err != nil {
+		if errors.Is(err, ErrConflict) {
+			return out, ErrConflict
+		}
 		return out, ErrPending
 	}
 	if receipt.Outcome == "rejected" {

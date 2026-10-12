@@ -93,7 +93,7 @@ func (s *Service) Purchase(ctx context.Context, token string, p Purchase) (Order
 				return ErrSellerTermsRequired
 			}
 			var err error
-			frozenTerms, termsAcceptedAt, err = freezeLegacyTerms(tx, p.Buyer.ID, p.Key, p.Policy)
+			frozenTerms, termsAcceptedAt, err = freezeLegacyTerms(tx, actor, p.Key, p.Policy)
 			if err != nil {
 				return err
 			}

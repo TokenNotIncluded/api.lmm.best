@@ -33,29 +33,18 @@ func (s *Service) reconcileOrderMoney(ctx context.Context, shopID, orderID strin
 		if err := tx.Get("money_operations", key, &op); err != nil {
 			return err
 		}
-		// Bind recovery to the same persisted order and its frozen economics.
-		// Do not forward a changed payer, recipient, amount or snapshot to Core.
-		expected := MoneyCommand{
-			Key: key, Kind: kind, ShopID: shopID, OrderID: orderID,
-			Buyer: out.Buyer, Seller: out.Seller, Total: out.Total,
-			PaymentRef: out.PaymentRef, SettlementRef: out.SettlementRef,
-			OrderSnapshot: &MoneyOrderSnapshot{
-				VariantID: out.VariantID, Quantity: out.Quantity,
-				UnitPrice: out.UnitPrice, CreatedBy: out.CreatedBy,
-			},
-		}
-		if op.Done || out.ID != orderID || out.Total.Amount <= 0 || ID(op.Command) != ID(expected) {
-			return ErrConflict
-		}
-		if (kind == "pay" && op.Before != AwaitingPayment) ||
-			(kind == "settle" && op.Before != Fulfilled) ||
-			(kind == "refund" && op.Before != Paid && op.Before != Fulfilled && op.Before != Settled) {
-			return ErrConflict
-		}
-		return nil
+		return validatePendingMoney(shopID, out, op)
 	})
 	if err != nil || op.Command.Key == "" {
 		return out, err
+	}
+	if op.Command.Total.Amount == 0 {
+		// A persisted free operation has no external financial effect to query.
+		// Recover the same deterministic local receipt, not a new command.
+		return s.finishMoney(ctx, shopID, orderID, op, Receipt{
+			Key: op.Command.Key, CommandHash: ID(op.Command),
+			Reference: "free:" + op.Command.Key, Outcome: "succeeded",
+		})
 	}
 	funds, ok := s.funds.(recoveryFunds)
 	if !ok || Missing(funds) || !funds.ReconcileAvailable() {

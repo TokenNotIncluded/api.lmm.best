@@ -48,7 +48,9 @@ func (s *Service) FinalizeDelivery(ctx context.Context, shopID, orderID string) 
 		if err := tx.Get("money_operations", ID("store-money-v1", shopID, orderID, "pay"), &pay); err != nil {
 			return err
 		}
-		if !pay.Done || pay.Receipt.Outcome != "succeeded" || pay.Receipt.CommandHash != ID(pay.Command) || pay.Receipt.Reference != out.PaymentRef {
+		if !pay.Done || pay.Command.Kind != "pay" || pay.Before != AwaitingPayment ||
+			validateOrderCommand(shopID, out, pay.Command) != nil || !validMoneyReceipt(pay.Command, pay.Receipt) ||
+			pay.Receipt.Outcome != "succeeded" || pay.Receipt.Reference != out.PaymentRef {
 			return ErrConflict
 		}
 		if out.State == Paid {
@@ -88,7 +90,7 @@ func (s *Service) FinalizeDelivery(ctx context.Context, shopID, orderID string) 
 		} else if !errors.Is(err, ErrNotFound) {
 			return err
 		} else {
-			op = operation{Command: MoneyCommand{Key: key, Kind: "settle", ShopID: shopID, OrderID: out.ID, Buyer: out.Buyer, Seller: out.Seller, Total: out.Total, PaymentRef: out.PaymentRef, OrderSnapshot: &MoneyOrderSnapshot{VariantID: out.VariantID, Quantity: out.Quantity, UnitPrice: out.UnitPrice, CreatedBy: out.CreatedBy}}, Before: Fulfilled, PaymentCommandHash: pay.Receipt.CommandHash, DeliveryReference: reference}
+			op = operation{Command: orderMoneyCommand(shopID, out, "settle"), Before: Fulfilled, PaymentCommandHash: pay.Receipt.CommandHash, DeliveryReference: reference}
 		}
 		if op.Done {
 			if op.Receipt.Outcome == "rejected" {
@@ -97,6 +99,9 @@ func (s *Service) FinalizeDelivery(ctx context.Context, shopID, orderID string) 
 			return nil
 		}
 		out.State = SettlementPending
+		if err := validatePendingMoney(shopID, out, op); err != nil {
+			return err
+		}
 		if err := tx.Put("orders", out.ID, out); err != nil {
 			return err
 		}
@@ -114,45 +119,9 @@ func (s *Service) FinalizeDelivery(ctx context.Context, shopID, orderID string) 
 	if err != nil {
 		return out, ErrPending
 	}
-	if receipt.Key != key || receipt.CommandHash != ID(op.Command) || !Text(receipt.Reference, 256) || (receipt.Outcome != "succeeded" && receipt.Outcome != "rejected") {
-		return out, ErrPending
-	}
-	err = s.repo.Within(ctx, shopID, func(tx Tx) error {
-		var current operation
-		if err := tx.Get("money_operations", key, &current); err != nil {
-			return err
-		}
-		if err := tx.Get("orders", orderID, &out); err != nil {
-			return err
-		}
-		if current.Done {
-			return nil
-		}
-		if ID(current.Command) != receipt.CommandHash || current.DeliveryReference != op.DeliveryReference || current.PaymentCommandHash != op.PaymentCommandHash {
-			return ErrConflict
-		}
-		// A financial capture rejection cannot retract already committed delivery.
-		// Keep the immutable delivery record and require explicit reconciliation.
-		if receipt.Outcome == "rejected" {
-			out.State = Fulfilled
-		} else {
-			out.State = Settled
-			out.SettlementRef = receipt.Reference
-		}
-		current.Done = true
-		current.Receipt = receipt
-		if err := tx.Put("orders", out.ID, out); err != nil {
-			return err
-		}
-		return tx.Put("money_operations", key, current)
-	})
-	if err != nil {
-		return out, ErrPending
-	}
-	if receipt.Outcome == "rejected" {
-		return out, ErrConflict
-	}
-	return out, nil
+	// Delivery was committed before capture. A rejected capture restores
+	// Fulfilled, without retracting delivery or returning consumed inventory.
+	return s.finishMoney(ctx, shopID, orderID, op, receipt)
 }
 
 type deliveryIndex interface {
@@ -162,11 +131,22 @@ type deliveryIndex interface {
 // RecoverDeliveries never retries the original pay operation with a service
 // token. It only finishes previously attested paid fixed-content deliveries.
 func (s *Service) RecoverDeliveries(ctx context.Context) error {
-	s.recoveryMu.Lock()
+	// Callers of this worker also recover lost refund and settlement ACKs.
+	// Legacy test/third-party repositories may provide only the delivery index.
+	var result error
+	if _, ok := s.repo.(moneyRecoveryIndex); ok {
+		result = s.RecoverMoney(ctx)
+	}
+	if err := ctx.Err(); err != nil {
+		return errors.Join(result, err)
+	}
+	if !s.recoveryMu.TryLock() {
+		return result
+	}
 	defer s.recoveryMu.Unlock()
 	funds, ok := s.funds.(deliveryFunds)
 	if !ok || !funds.DeliveryAvailable() {
-		return nil
+		return result
 	}
 	idx, ok := s.repo.(deliveryIndex)
 	if !ok {
@@ -176,36 +156,18 @@ func (s *Service) RecoverDeliveries(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	var result error
 	for _, row := range rows {
-		s.recoveryAfter = row.Order.ID
 		if ctx.Err() != nil {
-			return ctx.Err()
+			return errors.Join(result, ctx.Err())
 		}
+		s.recoveryAfter = row.Order.ID
 		if row.Order.State == PaymentPending {
-			recovery, ok := s.funds.(recoveryFunds)
-			if !ok || !recovery.ReconcileAvailable() {
-				continue
-			}
-			var op operation
-			err := s.repo.Within(ctx, row.ShopID, func(tx Tx) error {
-				return tx.Get("money_operations", ID("store-money-v1", row.ShopID, row.Order.ID, "pay"), &op)
-			})
+			row.Order, err = s.reconcileOrderMoney(ctx, row.ShopID, row.Order.ID)
 			if err != nil {
-				result = errors.Join(result, err)
-				continue
-			}
-			if !op.Done {
-				bounded, cancel := context.WithTimeout(ctx, 2*time.Second)
-				got, err := recovery.Reconcile(bounded, op.Command)
-				cancel()
-				if err != nil {
-					continue
-				} // UNKNOWN is pending, never permission to execute pay.
-				row.Order, err = s.finishMoney(ctx, row.ShopID, row.Order.ID, op, got)
-				if err != nil {
-					continue
+				if !errors.Is(err, ErrPending) && !errors.Is(err, ErrConflict) {
+					result = errors.Join(result, err)
 				}
+				continue
 			}
 		}
 		_, err := s.FinalizeDelivery(ctx, row.ShopID, row.Order.ID)
