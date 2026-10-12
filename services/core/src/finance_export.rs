@@ -3,11 +3,13 @@
 //! a complete finance bundle. The caller must authorize and select rows under
 //! the same read snapshot; no raw storage object implements Serialize here.
 pub mod archive;
+pub mod csv;
 
 use crate::history_read::{LogQuotaInput, QuotaMoneyProjection, project_log};
 use serde::Serialize;
 use std::io::{self, Write};
 
+pub const MAX_EXPORT_METADATA_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_EXPORT_ROWS: usize = 200_000;
 pub const MAX_EXPORT_BYTES: usize = 64 * 1024 * 1024;
 pub const MAX_EXPORT_ROW_BYTES: usize = 32 * 1024;
@@ -121,6 +123,7 @@ pub struct UsageJsonWriter<W: Write> {
     max_bytes: usize,
     rows: usize,
     bytes: usize,
+    metadata_bytes: usize,
     last_order: Option<(i64, i64)>,
     failed: bool,
 }
@@ -140,6 +143,7 @@ impl<W: Write> UsageJsonWriter<W> {
             max_bytes,
             rows: 0,
             bytes: 1,
+            metadata_bytes: 0,
             last_order: None,
             failed: false,
         })
@@ -160,16 +164,12 @@ impl<W: Write> UsageJsonWriter<W> {
         if self.rows == self.max_rows {
             return Err(ExportError::RowLimit);
         }
-        if row.log_id <= 0
-            || row.user_id <= 0
-            || row.created_at < 0
-            || ![1, 2, 3, 4, 6].contains(&row.log_type)
-            || [row.username, row.token_name, row.model_name, row.group]
-                .into_iter()
-                .any(|value| value.len() > MAX_TEXT_BYTES)
-        {
-            return Err(ExportError::InvalidRow);
-        }
+        validate_row(row)?;
+        let metadata_bytes = self
+            .metadata_bytes
+            .checked_add(row.other.len())
+            .filter(|value| *value <= MAX_EXPORT_METADATA_BYTES)
+            .ok_or(ExportError::ByteLimit)?;
         let order = (row.created_at, row.log_id);
         if self.last_order.is_some_and(|last| order <= last) {
             return Err(ExportError::OutOfOrder);
@@ -198,6 +198,7 @@ impl<W: Write> UsageJsonWriter<W> {
             .map_err(ExportError::from)?;
         self.bytes = required - 1;
         self.rows += 1;
+        self.metadata_bytes = metadata_bytes;
         self.last_order = Some(order);
         Ok(())
     }
@@ -218,6 +219,24 @@ impl<W: Write> UsageJsonWriter<W> {
             },
         ))
     }
+}
+
+fn validate_row(row: &UsageExportInput<'_>) -> Result<(), ExportError> {
+    if row.log_id <= 0
+        || row.user_id <= 0
+        || !(0..=253_402_300_799).contains(&row.created_at)
+        || ![1, 2, 3, 4, 6].contains(&row.log_type)
+        || [row.prompt_tokens, row.completion_tokens, row.use_time]
+            .into_iter()
+            .any(|value| value < 0)
+        || row.channel_id.is_some_and(|value| value < 0)
+        || [row.username, row.token_name, row.model_name, row.group]
+            .into_iter()
+            .any(|value| value.len() > MAX_TEXT_BYTES || value.contains('\0'))
+    {
+        return Err(ExportError::InvalidRow);
+    }
+    Ok(())
 }
 
 struct BoundedRow {

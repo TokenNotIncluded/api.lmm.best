@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::collections::BTreeMap;
 
+pub mod native;
 pub mod repository;
 pub mod http;
 pub mod snapshot;
@@ -19,6 +20,8 @@ pub mod usage;
 pub const MAX_RECORDS: usize = 10_000;
 pub const MAX_BASES: usize = 64;
 pub const MAX_METADATA_BYTES: usize = 64 * 1024;
+/// Total inspected metadata per aggregation, independent of the row ceiling.
+pub const MAX_PROJECTION_METADATA_BYTES: usize = 8 * 1024 * 1024;
 pub const MAX_CREDIT_BASIS: i64 = 9_007_199_254_740_991;
 pub const LOG_TYPE_CONSUME: i32 = 2;
 
@@ -147,65 +150,100 @@ pub fn project_log(input: LogQuotaInput<'_>) -> QuotaMoneyProjection {
     )
 }
 
-/// Project a complete, authorized consumption selection. The repository must
-/// use the same filters and snapshot for the raw sum, count, page and this scan.
-/// Do not pass only a page and describe its sum as the all-history statistic.
-/// Non-consumption rows in this input are invalid, not silently excluded.
+/// Incremental, bounded projection. The caller can discard each raw metadata
+/// value after push, instead of retaining all selected provider payloads.
+#[derive(Default)]
+pub struct QuotaStatisticAccumulator {
+    sums: BTreeMap<i64, i128>,
+    count: usize,
+    metadata_bytes: usize,
+    unpriced: usize,
+    truncated: bool,
+}
+
+impl QuotaStatisticAccumulator {
+    /// False means stop the source scan: a resource ceiling was reached. Once
+    /// limited, the accumulator cannot produce a partial known monetary total.
+    pub fn push(&mut self, input: LogQuotaInput<'_>) -> bool {
+        if self.truncated {
+            return false;
+        }
+        if self.count == MAX_RECORDS {
+            self.truncated = true;
+            return false;
+        }
+        self.count += 1;
+        let Some(bytes) = self.metadata_bytes.checked_add(input.other.len())
+            .filter(|bytes| *bytes <= MAX_PROJECTION_METADATA_BYTES)
+        else {
+            self.truncated = true;
+            return false;
+        };
+        self.metadata_bytes = bytes;
+        let quota = input.quota.filter(|value| *value >= 0);
+        let basis = captured_credits_per_usd(input.other);
+        let (Some(quota), Some(basis)) = (quota, basis) else {
+            self.unpriced += 1;
+            return true;
+        };
+        if input.log_type != LOG_TYPE_CONSUME {
+            self.unpriced += 1;
+            return true;
+        }
+        if !self.sums.contains_key(&basis) && self.sums.len() == MAX_BASES {
+            self.truncated = true;
+            return false;
+        }
+        let sum = self.sums.entry(basis).or_default();
+        let Some(next) = sum.checked_add(i128::from(quota)) else {
+            self.truncated = true;
+            return false;
+        };
+        *sum = next;
+        true
+    }
+
+    pub fn finish(self, source_truncated: bool) -> QuotaStatisticProjection {
+        if self.truncated || source_truncated {
+            return QuotaStatisticProjection {
+                money: QuotaMoneyProjection::unknown("projection_limit"),
+                unpriced_quota_records: self.unpriced,
+                quota_projection_truncated: true,
+            };
+        }
+        let money = if self.unpriced > 0 {
+            QuotaMoneyProjection::unknown("aggregate_missing_credit_basis")
+        } else {
+            let total = self.sums.into_iter().fold(
+                BigRational::from_integer(0.into()),
+                |total, (basis, quota)| total + BigRational::new(quota.into(), basis.into()),
+            );
+            QuotaMoneyProjection::known(
+                &total,
+                if self.count == 0 { "empty_result" } else { "captured_credits_per_usd" },
+            )
+        };
+        QuotaStatisticProjection {
+            money,
+            unpriced_quota_records: self.unpriced,
+            quota_projection_truncated: false,
+        }
+    }
+}
+
+/// Project a complete, authorized consumption selection, not only one page.
+/// A repository must use the same filters and snapshot for all of its reads.
 pub fn project_consumption_statistic<'a>(
     rows: impl IntoIterator<Item = LogQuotaInput<'a>>,
     source_truncated: bool,
 ) -> QuotaStatisticProjection {
-    let mut sums = BTreeMap::<i64, i128>::new();
-    let mut count = 0;
-    let mut unpriced = 0;
-    let limited = |unknown| QuotaStatisticProjection {
-        money: QuotaMoneyProjection::unknown("projection_limit"),
-        unpriced_quota_records: unknown,
-        quota_projection_truncated: true,
-    };
-    for input in rows {
-        count += 1;
-        if count > MAX_RECORDS {
-            return limited(unpriced);
+    let mut accumulator = QuotaStatisticAccumulator::default();
+    for row in rows {
+        if !accumulator.push(row) {
+            break;
         }
-        let quota = input.quota.filter(|value| *value >= 0);
-        let basis = captured_credits_per_usd(input.other);
-        let (Some(quota), Some(basis)) = (quota, basis) else {
-            unpriced += 1;
-            continue;
-        };
-        if input.log_type != LOG_TYPE_CONSUME {
-            unpriced += 1;
-            continue;
-        }
-        if !sums.contains_key(&basis) && sums.len() == MAX_BASES {
-            return limited(unpriced);
-        }
-        let sum = sums.entry(basis).or_default();
-        let Some(next) = sum.checked_add(i128::from(quota)) else {
-            return limited(unpriced);
-        };
-        *sum = next;
     }
-    if source_truncated {
-        return limited(unpriced);
-    }
-    let money = if unpriced > 0 {
-        QuotaMoneyProjection::unknown("aggregate_missing_credit_basis")
-    } else {
-        let total = sums.into_iter().fold(BigRational::from_integer(0.into()), |total, (basis, quota)| {
-            total + BigRational::new(quota.into(), basis.into())
-        });
-        QuotaMoneyProjection::known(
-            &total,
-            if count == 0 { "empty_result" } else { "captured_credits_per_usd" },
-        )
-    };
-    QuotaStatisticProjection {
-        money,
-        unpriced_quota_records: unpriced,
-        quota_projection_truncated: false,
-    }
+    accumulator.finish(source_truncated)
 }
 
 pub fn project_bucket_without_components() -> QuotaMoneyProjection {

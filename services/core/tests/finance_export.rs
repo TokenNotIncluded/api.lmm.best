@@ -266,3 +266,6 @@ fn export_distinguishes_sink_limits_from_other_io_failures() {
         assert!(matches!(writer.finish(), Err(error) if error == expected));
     }
 }
+
+#[path = "finance_export/csv.rs"]
+mod csv;
