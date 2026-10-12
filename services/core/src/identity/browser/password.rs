@@ -43,7 +43,14 @@ impl BrowserAuth {
         let verified = self
             .store
             .verified_password(&login, original_password)
-            .await?;
+            .await
+            .map_err(|error| match error {
+                // A valid session with a wrong password is not an expired
+                // session. A 401 would make the Web client refresh and replay
+                // this sensitive request, then discard the valid login.
+                IdentityError::Unauthorized => IdentityError::Forbidden,
+                other => other,
+            })?;
         let hash = self.store.hash_password(password.to_owned()).await?;
         let mut tx = self.store.pool.begin().await?;
         // Refresh locks the family before the user; policy updates lock the
@@ -110,13 +117,9 @@ impl BrowserAuth {
         .await?;
         let refresh = new_secret("lmmr_")?;
         let next = self.derived_secret(b"browser-access-v1", &sid, &refresh, "lmms_")?;
-        let issued = auth::issue_session_with_secret(
-            &mut tx,
-            user,
-            "session.password_change",
-            next.clone(),
-        )
-        .await?;
+        let issued =
+            auth::issue_session_with_secret(&mut tx, user, "session.password_change", next.clone())
+                .await?;
         sqlx::query(
             "UPDATE core_identity.credentials
              SET expires_at=LEAST(expires_at,clock_timestamp()+interval '15 minutes',

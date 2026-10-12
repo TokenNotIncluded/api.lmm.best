@@ -149,27 +149,39 @@ async fn change_rotates_only_current_family_and_invalidates_old_user_generation(
     let team = store.create_team(access).await.unwrap();
     let mut keys = Vec::new();
     for owner in [
-        Account { kind: AccountKind::Personal, id: user },
-        Account { kind: AccountKind::Team, id: team },
+        Account {
+            kind: AccountKind::Personal,
+            id: user,
+        },
+        Account {
+            kind: AccountKind::Team,
+            id: team,
+        },
     ] {
         let policy = FundingPolicy::inherit_account_settings();
         let key = store.issue_key(access, owner, policy, 3600).await.unwrap();
         assert!(store.authorize(&key.secret).await.is_ok());
         keys.push(key);
     }
-    let canonical: String = sqlx::query_scalar(
-        "SELECT login_name FROM core_identity.password_logins WHERE user_id=$1",
-    )
-    .bind(user)
-    .fetch_one(&pool)
-    .await
-    .unwrap();
+    let canonical: String =
+        sqlx::query_scalar("SELECT login_name FROM core_identity.password_logins WHERE user_id=$1")
+            .bind(user)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     let native = store
-        .login(&LoginRequest { login_name: canonical, password: OLD.into() })
+        .login(&LoginRequest {
+            login_name: canonical,
+            password: OLD.into(),
+        })
         .await
         .unwrap();
-    let version: i64 = sqlx::query_scalar("SELECT auth_version FROM core_identity.users WHERE id=$1")
-        .bind(user).fetch_one(&pool).await.unwrap();
+    let version: i64 =
+        sqlx::query_scalar("SELECT auth_version FROM core_identity.users WHERE id=$1")
+            .bind(user)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     let bearer = format!("Bearer {access}");
     let (status, changed_headers, response) = call(
         &app,
@@ -190,27 +202,65 @@ async fn change_rotates_only_current_family_and_invalidates_old_user_generation(
     let next = response["data"]["access_token"].as_str().unwrap();
     assert_ne!(next, access);
     assert!(store.authorize(next).await.is_ok());
-    for old in [access, second["access_token"].as_str().unwrap(), &native.secret] {
+    for old in [
+        access,
+        second["access_token"].as_str().unwrap(),
+        &native.secret,
+    ] {
         assert!(store.authorize(old).await.is_err());
     }
     for key in keys {
         assert!(store.authorize(&key.secret).await.is_err());
     }
-    assert!(store.authorize(other["access_token"].as_str().unwrap()).await.is_ok());
+    assert!(
+        store
+            .authorize(other["access_token"].as_str().unwrap())
+            .await
+            .is_ok()
+    );
     for old_cookie in [cookie(&headers), cookie(&second_headers)] {
         assert_eq!(
-            call(&app, "POST", "/api/user/auth/refresh", Value::Null, &[("cookie", &old_cookie)])
-                .await.0,
+            call(
+                &app,
+                "POST",
+                "/api/user/auth/refresh",
+                Value::Null,
+                &[("cookie", &old_cookie)]
+            )
+            .await
+            .0,
             StatusCode::UNAUTHORIZED
         );
     }
+    // Historical bearers can revoke a family after an ordinary refresh, but
+    // never across a password-generation change.
+    let logout = call(
+        &app,
+        "POST",
+        "/api/user/auth/logout",
+        Value::Null,
+        &[("authorization", &bearer), ("x-auth-session", sid)],
+    )
+    .await;
+    assert_eq!(logout.0, StatusCode::OK);
     assert!(store.authorize(next).await.is_ok());
-    let after_version: i64 = sqlx::query_scalar("SELECT auth_version FROM core_identity.users WHERE id=$1")
-        .bind(user).fetch_one(&pool).await.unwrap();
+    let after_version: i64 =
+        sqlx::query_scalar("SELECT auth_version FROM core_identity.users WHERE id=$1")
+            .bind(user)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     assert_eq!(after_version, version + 1);
     assert_eq!(
-        call(&app, "POST", "/api/user/login", json!({"username":"alice","password":OLD}), &[])
-            .await.0,
+        call(
+            &app,
+            "POST",
+            "/api/user/login",
+            json!({"username":"alice","password":OLD}),
+            &[]
+        )
+        .await
+        .0,
         StatusCode::UNAUTHORIZED
     );
     login(&app, "alice", NEW).await;
@@ -218,11 +268,17 @@ async fn change_rotates_only_current_family_and_invalidates_old_user_generation(
     // database-persistence coverage, not a separate-process restart claim.
     let restarted = BrowserAuth::new(IdentityStore::from_pool(pool.clone()), &[43; 32]).unwrap();
     let current_cookie = cookie(&changed_headers);
-    let refreshed = restarted.refresh(current_cookie.split_once('=').unwrap().1, Some(sid))
-        .await.unwrap();
+    let refreshed = restarted
+        .refresh(current_cookie.split_once('=').unwrap().1, Some(sid))
+        .await
+        .unwrap();
     assert_eq!(refreshed.data["user"]["id"], user);
-    let audits: i64 = sqlx::query_scalar("SELECT count(*) FROM core_identity.audit WHERE action='password.change'")
-        .fetch_one(&pool).await.unwrap();
+    let audits: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core_identity.audit WHERE action='password.change'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     assert_eq!(audits, 1);
 }
 
@@ -243,21 +299,58 @@ async fn malformed_wrong_password_and_wrong_authority_leave_identity_unchanged(p
         json!({"password":NEW,"original_password":OLD,"language":"en"}),
         json!({"password":NEW,"original_password":OLD,"display_name":"bad\nname"}),
     ] {
-        let result = call(&app, "PUT", "/api/user/self", body, &[("authorization", &bearer)]).await;
-        assert!(matches!(result.0, StatusCode::BAD_REQUEST | StatusCode::UNAUTHORIZED));
+        let result = call(
+            &app,
+            "PUT",
+            "/api/user/self",
+            body,
+            &[("authorization", &bearer)],
+        )
+        .await;
+        assert!(matches!(
+            result.0,
+            StatusCode::BAD_REQUEST | StatusCode::FORBIDDEN
+        ));
         assert!(result.1.get("set-cookie").is_none());
         assert_eq!(result.2["success"], false);
     }
-    for extra in [("origin", "https://evil.invalid"), ("x-auth-session", "other-family")] {
-        let result = call(&app, "PUT", "/api/user/self",
+    for extra in [
+        ("origin", "https://evil.invalid"),
+        ("x-auth-session", "other-family"),
+    ] {
+        let result = call(
+            &app,
+            "PUT",
+            "/api/user/self",
             json!({"password":NEW,"original_password":OLD}),
-            &[("authorization", &bearer), extra]).await;
-        assert!(matches!(result.0, StatusCode::FORBIDDEN | StatusCode::CONFLICT));
+            &[("authorization", &bearer), extra],
+        )
+        .await;
+        assert!(matches!(
+            result.0,
+            StatusCode::FORBIDDEN | StatusCode::CONFLICT
+        ));
         assert!(result.1.get("set-cookie").is_none());
     }
+    assert!(store.authorize(access).await.is_ok());
+    let no_bearer = call(
+        &app,
+        "PUT",
+        "/api/user/self",
+        json!({"password":NEW,"original_password":OLD}),
+        &[],
+    )
+    .await;
+    assert_eq!(no_bearer.0, StatusCode::UNAUTHORIZED);
+    assert!(no_bearer.1.get("set-cookie").is_none());
     assert_eq!(state(&pool).await, before);
-    let native = store.register(&LoginRequest { login_name: "native".into(), password: OLD.into() })
-        .await.unwrap();
+    let native = store
+        .register(&LoginRequest {
+            login_name: "native".into(),
+            password: OLD.into(),
+        })
+        .await
+        .unwrap();
     let actor = store.authorize(access).await.unwrap();
     sqlx::query(
         "INSERT INTO core_identity.developer_access(user_id,granted,source_reference)
@@ -295,12 +388,27 @@ async fn audit_failure_rolls_back_password_generation_family_and_display_name(po
          FOR EACH ROW EXECUTE FUNCTION core_identity.reject_password_audit();",
     ).execute(&pool).await.unwrap();
     let before = state(&pool).await;
-    assert!(browser.change_password(access, OLD, NEW, Some("Do not save"), None).await.is_err());
+    assert!(
+        browser
+            .change_password(access, OLD, NEW, Some("Do not save"), None)
+            .await
+            .is_err()
+    );
     assert_eq!(state(&pool).await, before);
     assert!(store.authorize(access).await.is_ok());
     login(&app, "alice", OLD).await;
-    assert_eq!(call(&app, "POST", "/api/user/login", json!({"username":"alice","password":NEW}), &[])
-        .await.0, StatusCode::UNAUTHORIZED);
+    assert_eq!(
+        call(
+            &app,
+            "POST",
+            "/api/user/login",
+            json!({"username":"alice","password":NEW}),
+            &[]
+        )
+        .await
+        .0,
+        StatusCode::UNAUTHORIZED
+    );
 }
 
 #[sqlx::test(migrations = false)]
@@ -314,13 +422,24 @@ async fn parallel_changes_have_one_winner_and_no_revived_credentials(pool: PgPoo
             browser.change_password(access, OLD, NEW, None, None),
             browser.change_password(access, OLD, "second new password", None, None),
         )
-    }).await.expect("password change must not deadlock");
+    })
+    .await
+    .expect("password change must not deadlock");
     assert_eq!(usize::from(one.is_ok()) + usize::from(two.is_ok()), 1);
     let winner = one.or(two).unwrap();
-    assert!(store.authorize(winner.data["access_token"].as_str().unwrap()).await.is_ok());
+    assert!(
+        store
+            .authorize(winner.data["access_token"].as_str().unwrap())
+            .await
+            .is_ok()
+    );
     assert!(store.authorize(access).await.is_err());
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM core_identity.audit WHERE action='password.change'")
-        .fetch_one(&pool).await.unwrap();
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core_identity.audit WHERE action='password.change'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     assert_eq!(count, 1);
 }
 
@@ -337,18 +456,38 @@ async fn conflicting_family_or_policy_locks_reject_without_waiting_or_writes(poo
         "SELECT user_id FROM core_identity.password_logins WHERE user_id=$1 FOR UPDATE",
     ] {
         let mut held = pool.begin().await.unwrap();
-        sqlx::query(lock).bind(user).fetch_all(&mut *held).await.unwrap();
+        sqlx::query(lock)
+            .bind(user)
+            .fetch_all(&mut *held)
+            .await
+            .unwrap();
         let before = state(&pool).await;
-        let result = tokio::time::timeout(Duration::from_secs(5),
-            browser.change_password(access, OLD, NEW, None, None)).await
-            .expect("row-lock conflicts must return without waiting");
-        assert!(matches!(result, Err(BrowserAuthError::Identity(IdentityError::Conflict))));
+        let result = tokio::time::timeout(
+            Duration::from_secs(5),
+            browser.change_password(access, OLD, NEW, None, None),
+        )
+        .await
+        .expect("row-lock conflicts must return without waiting");
+        assert!(matches!(
+            result,
+            Err(BrowserAuthError::Identity(IdentityError::Conflict))
+        ));
         assert_eq!(state(&pool).await, before);
         held.rollback().await.unwrap();
     }
-    sqlx::query("UPDATE core_identity.user_profiles SET second_factor_required=TRUE WHERE user_id=$1")
-        .bind(user).execute(&pool).await.unwrap();
+    sqlx::query(
+        "UPDATE core_identity.user_profiles SET second_factor_required=TRUE WHERE user_id=$1",
+    )
+    .bind(user)
+    .execute(&pool)
+    .await
+    .unwrap();
     let before = state(&pool).await;
-    assert!(browser.change_password(access, OLD, NEW, None, None).await.is_err());
+    assert!(
+        browser
+            .change_password(access, OLD, NEW, None, None)
+            .await
+            .is_err()
+    );
     assert_eq!(state(&pool).await, before);
 }
