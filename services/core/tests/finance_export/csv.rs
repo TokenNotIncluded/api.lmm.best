@@ -116,6 +116,14 @@ fn both_formats_bound_total_metadata_work_and_reject_invalid_scalars() {
         let mut csv = UsageCsvWriter::new(Vec::new(), 10, 10_000, false).unwrap();
         assert_eq!(csv.push(&invalid), Err(ExportError::InvalidRow));
         let mut json = UsageJsonWriter::new(Vec::new(), 10, 10_000).unwrap();
-        assert_eq!(json.push(&invalid), Err(ExportError::InvalidRow));
+        if which == 5 {
+            // NUL is escaped by JSON, but must never reach CSV clients.
+            json.push(&invalid).unwrap();
+            let (bytes, _) = json.finish().unwrap();
+            let decoded: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            assert_eq!(decoded[0]["username"], "nul\0name");
+        } else {
+            assert_eq!(json.push(&invalid), Err(ExportError::InvalidRow));
+        }
     }
 }

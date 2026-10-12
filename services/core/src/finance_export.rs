@@ -232,7 +232,7 @@ fn validate_row(row: &UsageExportInput<'_>) -> Result<(), ExportError> {
         || row.channel_id.is_some_and(|value| value < 0)
         || [row.username, row.token_name, row.model_name, row.group]
             .into_iter()
-            .any(|value| value.len() > MAX_TEXT_BYTES || value.contains('\0'))
+            .any(|value| value.len() > MAX_TEXT_BYTES)
     {
         return Err(ExportError::InvalidRow);
     }

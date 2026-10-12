@@ -62,6 +62,13 @@ impl<W: Write> UsageCsvWriter<W> {
             return Err(ExportError::RowLimit);
         }
         validate_row(row)?;
+        // JSON may safely escape NUL; CSV clients can truncate at it.
+        if [row.username, row.token_name, row.model_name, row.group]
+            .into_iter()
+            .any(|value| value.contains('\0'))
+        {
+            return Err(ExportError::InvalidRow);
+        }
         let order = (row.created_at, row.log_id);
         if self.last_order.is_some_and(|last| order <= last) {
             return Err(ExportError::OutOfOrder);
