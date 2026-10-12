@@ -401,13 +401,12 @@ impl Usage {
             Ok(())
         }
         let mut combined = *self;
-        if let Some(cost) = next.upstream_cost_atto_usd {
-            if combined
+        if let Some(cost) = next.upstream_cost_atto_usd
+            && combined
                 .upstream_cost_atto_usd
                 .is_some_and(|old| cost < old)
-            {
-                return Err(RelayError::Protocol("upstream cost decreased"));
-            }
+        {
+            return Err(RelayError::Protocol("upstream cost decreased"));
         }
         // Cost must belong to the latest provider usage receipt. In particular,
         // an initial zero must not make a later cost-less final usage free.

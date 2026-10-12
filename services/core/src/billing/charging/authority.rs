@@ -98,11 +98,14 @@ pub(super) async fn funding(c: &mut PgConnection, actor: &Actor) -> Result<Vec<P
     if actor.kind != "api_key" {
         return Err(Error::Forbidden);
     }
+    // Append-only runtime evidence cannot be a row-lock target. Privileged
+    // offline amendment must coordinate credential/team authority locks; these
+    // reads remain in the same SERIALIZABLE admission transaction.
     let rows = sqlx::query(
         "SELECT r.position,r.payer_account_id,a.kind,p.preference FROM core_identity.key_funding_rules r \
          JOIN core_identity.accounts a ON a.id=r.payer_account_id \
          JOIN core_billing.account_policies p ON p.account_id=a.id \
-         WHERE r.credential_id=$1 AND a.active ORDER BY r.position FOR SHARE OF r,a,p",
+         WHERE r.credential_id=$1 AND a.active ORDER BY r.position FOR SHARE OF a,p",
     )
     .bind(actor.key)
     .fetch_all(&mut *c)
@@ -135,7 +138,7 @@ pub(super) async fn funding(c: &mut PgConnection, actor: &Actor) -> Result<Vec<P
             let team = sqlx::query(
                 "SELECT t.id,t.version,t.owner_user_id,g.team_version,g.membership_version \
                  FROM core_identity.teams t JOIN core_identity.credential_grants g ON g.team_id=t.id \
-                 WHERE t.account_id=$1 AND g.credential_id=$2 AND t.active FOR SHARE OF t,g",
+                 WHERE t.account_id=$1 AND g.credential_id=$2 AND t.active FOR SHARE OF t",
             )
             .bind(id)
             .bind(actor.key)

@@ -45,6 +45,9 @@ use tokio::{
 use tokio_stream::{StreamExt, wrappers::ReceiverStream};
 use tower::ServiceExt;
 
+#[path = "model_http_runtime/mod.rs"]
+mod runtime_models;
+
 struct Provider {
     endpoint: String,
     hits: Arc<AtomicUsize>,

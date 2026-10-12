@@ -58,16 +58,15 @@ fn usage(protocol: UpstreamProtocol, v: &Value) -> Result<Usage, RelayError> {
     if matches!(
         protocol,
         UpstreamProtocol::Chat | UpstreamProtocol::Responses
-    ) {
-        if let Some(value) = v.get("cost").filter(|v| !v.is_null()) {
-            let number = value
-                .as_number()
-                .ok_or(RelayError::Protocol("invalid upstream cost"))?;
-            u.upstream_cost_atto_usd = Some(
-                crate::upstream_cost::parse_usd(&number.to_string())
-                    .ok_or(RelayError::Protocol("invalid upstream cost"))?,
-            );
-        }
+    ) && let Some(value) = v.get("cost").filter(|v| !v.is_null())
+    {
+        let number = value
+            .as_number()
+            .ok_or(RelayError::Protocol("invalid upstream cost"))?;
+        u.upstream_cost_atto_usd = Some(
+            crate::upstream_cost::parse_usd(&number.to_string())
+                .ok_or(RelayError::Protocol("invalid upstream cost"))?,
+        );
     }
     match protocol {
         UpstreamProtocol::Chat => {

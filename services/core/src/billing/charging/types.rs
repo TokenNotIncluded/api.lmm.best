@@ -90,15 +90,14 @@ impl Price {
         {
             return Err(Error::Invalid);
         }
-        if let Some(ppm) = self.upstream_cost_group_ppm {
-            if !crate::upstream_cost::supported_router(&self.model)
+        if let Some(ppm) = self.upstream_cost_group_ppm
+            && (!crate::upstream_cost::supported_router(&self.model)
                 || !(1..=1_000_000_000).contains(&ppm)
                 || self.input_per_million != 0
                 || self.cached_per_million != 0
-                || self.output_per_million != 0
-            {
-                return Err(Error::Invalid);
-            }
+                || self.output_per_million != 0)
+        {
+            return Err(Error::Invalid);
         }
         Ok(())
     }
