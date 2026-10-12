@@ -30,8 +30,7 @@ add_metadata() {
 add_go_runtime() {
   local bundle=$1 file
   cp "$SHARED/lmm-api.service" "$SHARED/lmm-api-go.env" \
-    "$SHARED/lmm-api-memory.conf" "$SHARED/lmm-api-operator.sysusers" \
-    "$SHARED/lmm-api-operator.tmpfiles" "$SHARED/lmm-api-operator.sudoers" \
+    "$SHARED/lmm-api-memory.conf" \
     "$bundle/"
   mkdir -p "$bundle/edge-policy/nginx"
   for file in http-map.conf lmm-api-locations.conf mime.types new-api.conf lmm-api-region-policy.conf; do
@@ -83,7 +82,6 @@ prepare_go_fixture() {
   mkdir -p "$bundle"
   cp "$HERE/lmm-api-go-bin/PKGBUILD" "$work/"
   cp -L "$HERE/lmm-api-go-bin/lmm-api-go-package.sh" "$work/"
-  cp "$HERE/lmm-api-go-bin/lmm-api-deploy" "$work/"
   sed -i "s/^pkgver=.*/pkgver=${version}/" "$work/PKGBUILD"
   printf '#!/bin/sh\nexit 0\n' >"$bundle/$payload"
   chmod 0755 "$bundle/$payload"
@@ -92,9 +90,6 @@ prepare_go_fixture() {
   fi
   add_go_runtime "$bundle"
   if [[ $version != 0.1.69 ]]; then
-    cp "$SHARED/lmm-api-deploy" "$bundle/lmm-api-deploy"
-    printf '#!/bin/sh\nexit 0\n' >"$bundle/lmm-api-deploy-engine"
-    chmod 0755 "$bundle/lmm-api-deploy-engine"
     printf 'v1\n' >"$bundle/OAUTH_MANAGED_TOKEN_CAPABILITY"
     printf 'v1\n' >"$bundle/MANAGED_BILLING_SETTLEMENT_CAPABILITY"
   fi
@@ -130,12 +125,10 @@ prepare_go_fixture "$next_work" 0.2.0 lmm-api-go
 next_archive=$(build_package go-next "$next_work" \
   usr/bin/lmm-api-go usr/lib/systemd/system/lmm-api.service \
   usr/lib/systemd/system/lmm-api.service.d/20-memory.conf \
-  usr/lib/sysusers.d/lmm-api-operator.conf usr/lib/tmpfiles.d/lmm-api-operator.conf \
-  etc/sudoers.d/lmm-api-operator usr/share/doc/lmm-api-go-bin/API_ROUTE_CONTRACT_REVISION \
+  usr/share/doc/lmm-api-go-bin/API_ROUTE_CONTRACT_REVISION \
   usr/share/doc/lmm-api-go-bin/OAUTH_MANAGED_TOKEN_CAPABILITY \
-  usr/share/doc/lmm-api-go-bin/MANAGED_BILLING_SETTLEMENT_CAPABILITY usr/bin/lmm-api-deploy \
-  usr/lib/lmm-api-deploy/engine)
-if bsdtar -tf "$next_archive" | grep -Eq 'usr/bin/lmm-api$|CLI_TRANSITION_PHASE|frontend-dist'; then
+  usr/share/doc/lmm-api-go-bin/MANAGED_BILLING_SETTLEMENT_CAPABILITY)
+if bsdtar -tf "$next_archive" | grep -Eq 'usr/bin/lmm-api$|CLI_TRANSITION_PHASE|frontend-dist|usr/lib/lmm-api-deploy/|usr/bin/lmm-api-deploy$|etc/sudoers.d/lmm-api-operator$'; then
   die 'new Go provider package contains a generic/reverse/phase/frontend payload'
 fi
 next_pkginfo=$(bsdtar -xOf "$next_archive" .PKGINFO)
@@ -174,7 +167,7 @@ if bsdtar -tf "$web_archive" | grep -Eq 'frontend-release\.sh|lmm-api-web-activa
   die 'Web package still contains a shell publisher'
 fi
 # shellcheck disable=SC2016 # Deliberately inspect the literal package-hook argument.
-grep -Fq '/usr/bin/lmm-api-deploy frontend package-activate --package-version "$1"' \
-  "$web_work/lmm-api-web.install" || die 'Web install hook does not invoke the public backend CLI'
+grep -Fq 'Activate the verified release with the reviewed deployment script.' \
+  "$web_work/lmm-api-web.install" || die 'Web install hook does not require explicit script activation'
 
 printf '%s\n' 'prebuilt provider and Web packages built with makepkg'

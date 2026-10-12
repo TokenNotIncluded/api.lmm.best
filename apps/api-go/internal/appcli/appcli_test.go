@@ -277,7 +277,7 @@ func TestStatusShouldNotAllowRouteOrMethodOverride(t *testing.T) {
 func TestUsageNamesTheCanonicalBackendBinary(t *testing.T) {
 	var output bytes.Buffer
 	WriteUsage(&output)
-	if !strings.Contains(output.String(), "lmm-api request") || !strings.Contains(output.String(), "Deployment is a separate tool") {
+	if !strings.Contains(output.String(), "lmm-api request") || !strings.Contains(output.String(), "Deploy with a reviewed script") {
 		t.Fatalf("usage does not name %s: %q", ProgramName, output.String())
 	}
 	if strings.Contains(output.String(), "lmm-api deploy") || strings.Contains(output.String(), "lmm-api-go request") {

@@ -139,6 +139,6 @@ quiesce all writers and retain the exact live maintenance owner. It applies only
 the PostgreSQL schema in one transaction, without application data migrations.
 The request, status, and doctor commands use the
 binary's native HTTP client and do not initialize the server, database, or cache.
-Deployment is a separate tool. Use scripts/lmm-api-deploy.sh or the installed
-/usr/bin/lmm-api-deploy script; this backend does not implement operator commands.`)
+Deploy with a reviewed script written for the actual host state. This backend
+does not implement deployment or operator commands.`)
 }

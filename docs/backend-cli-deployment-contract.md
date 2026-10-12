@@ -1,5 +1,10 @@
 # Backend CLI deployment contract
 
+> Historical deployment/recovery reference. The repository deployment CLI has
+> been removed. New deployments follow [the current script workflow](deployment-workflow.md).
+> Use exact archived tools only when finishing their existing interrupted state;
+> do not treat commands below as current deployment instructions.
+
 This document is normative for backend packaging and production deployment.
 
 ## Executable layout

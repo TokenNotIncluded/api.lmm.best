@@ -36,7 +36,7 @@ jobs:
         working-directory: apps/api-go
         run: |
           set -o pipefail
-          go test -p 2 -count=1 -json -run 'Test(MerchantStore|StoreClaim|ProductionMerchantStore(WriterStatus|WriterTargets|SignedMarkerInventory|ContractCannot|CapsuleClosed))' ./model ./service ./controller ./router . ./internal/appcli ./internal/deploycli | tee "$RUNNER_TEMP/store-go-tests.jsonl"
+          go test -p 2 -count=1 -json -run 'Test(MerchantStore|StoreClaim|ProductionMerchantStore(WriterStatus|WriterTargets|SignedMarkerInventory|ContractCannot|CapsuleClosed))' ./model ./service ./controller ./router . ./internal/appcli | tee "$RUNNER_TEMP/store-go-tests.jsonl"
       - name: Deployment CLI and documentation contracts
         run: |
           python3 -B scripts/check-docs-brand.py --docs-only

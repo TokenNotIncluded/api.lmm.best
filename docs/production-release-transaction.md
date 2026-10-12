@@ -1,5 +1,10 @@
 # Manual release acceptance and rollback
 
+> Historical deployment/recovery reference. The repository deployment CLI has
+> been removed. New deployments follow [the current script workflow](deployment-workflow.md).
+> Use exact archived tools only when finishing their existing interrupted state;
+> do not treat commands below as current deployment instructions.
+
 Backend deployment is manual. Tests run locally; GitHub Actions builds, signs
 and publishes official artifacts. The frontend-only exception is described
 below. The local `scripts/production-release-transaction.py` wrapper remains available to an

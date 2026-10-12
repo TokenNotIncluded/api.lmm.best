@@ -25,14 +25,20 @@ from unittest.mock import patch
 
 
 def load_module(name, filename):
-    spec = importlib.util.spec_from_file_location(name, Path(__file__).with_name(filename))
+    source = Path(filename)
+    if not source.is_absolute():
+        source = Path(__file__).with_name(filename)
+    spec = importlib.util.spec_from_file_location(name, source)
     module = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(module)
     return module
 
 
 repair = load_module('repair_systemd_ingress', 'repair-systemd-maintenance-ingress.py')
-deploy = load_module('deploy_systemd_ingress_fixture', 'deploy-systemd.py')
+archived_helper = os.environ.get('LMM_RECOVERY_ARCHIVED_SYSTEMD_HELPER')
+if not archived_helper:
+    raise RuntimeError('Historical fixture requires LMM_RECOVERY_ARCHIVED_SYSTEMD_HELPER pointing to its exact archived helper')
+deploy = load_module('deploy_systemd_ingress_fixture', archived_helper)
 ACTUAL_ORIGINAL = b'# Temporary whole-origin TLS hop: API, SPA, scripts, public assets and errors.\n# The unchanged Rust probe snippet owns only three exact loopback-only routes.\naccess_log /var/log/nginx/access.log combined if=$lmm_access_loggable;\n\n# No URI component: preserve the incoming path, query and method byte for byte.\n# Use the Arch origin IP, never the public hostname as a routing destination.\nlocation / {\n    proxy_pass https://45.59.187.63;\n    proxy_ssl_server_name on;\n    proxy_ssl_name api.lmm.best;\n    proxy_ssl_verify on;\n    proxy_ssl_verify_depth 4;\n    proxy_ssl_trusted_certificate /etc/ssl/certs/ca-certificates.crt;\n    proxy_next_upstream off;\n    proxy_connect_timeout 2s;\n    proxy_http_version 1.1;\n    proxy_set_header Host api.lmm.best;\n    proxy_set_header X-Real-IP $remote_addr;\n    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;\n    proxy_set_header X-Forwarded-Proto $scheme;\n    proxy_set_header Upgrade $websocket_upgrade;\n    proxy_set_header Connection $connection_upgrade;\n    proxy_buffering off;\n    proxy_intercept_errors off;\n    proxy_read_timeout 3600s;\n}\n'
 ACTUAL_SHA256 = 'ed052676b8c40f6fdcc1581de63531a3f7fa17a2d1fdbf22a50b4862954468b0'
 

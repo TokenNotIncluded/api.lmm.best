@@ -28,8 +28,6 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends shellcheck
-      - name: Exercise native release confirmation and rollback failures offline
-        run: python3 -B scripts/test-production-release-transaction.py
       - name: Exercise shared PostgreSQL maintenance failures offline
         run: python3 -B scripts/test-deploy-shared-postgres.py
       - name: Verify financial plans and owner handoffs offline
@@ -41,8 +39,6 @@ jobs:
           python3 -B scripts/test-credit-original-fingerprints.py
           python3 -B scripts/test-credit-financial-maintenance.py
           python3 -B scripts/test-build-credit-financial-plan.py
-          python3 -B scripts/test-deploy-systemd.py
-          python3 -B scripts/test-deploy-systemd-archive-staged.py
           python3 -B scripts/test-maintenance-deploy-guardian.py
       - name: Verify the merchant PostgreSQL selection and cap1 source guards offline
         run: |
@@ -143,19 +139,6 @@ jobs:
             fi
             test -x "/usr/bin/$postgres_tool"
           done
-      - name: Verify native PostgreSQL driver and CLI read-only connections
-        working-directory: apps/api-go
-        env:
-          LMM_TEST_POSTGRES: '1'
-        run: |
-          set -euo pipefail
-          evidence="$GITHUB_WORKSPACE/qualification-artifacts/go/native-libpq"
-          mkdir -p "$evidence"
-          GOMAXPROCS=2 go test -race -p 1 -count=1 -v ./internal/appcli ./internal/deploycli \
-            -run '^(TestExistingSchemaPostgresCatalogAndReadOnlyFence|TestProductionMerchantStartupBaselineActualPostgres)$' -timeout 180s \
-            | tee "$evidence/tests.log"
-          test "$(grep -Ec '^--- PASS: TestExistingSchemaPostgresCatalogAndReadOnlyFence \(' "$evidence/tests.log")" -eq 1
-          test "$(grep -Ec '^--- PASS: TestProductionMerchantStartupBaselineActualPostgres \(' "$evidence/tests.log")" -eq 1
       - name: Create the isolated credit preparation database
         env:
           PGPASSWORD: lmm-release-postgres-password
@@ -185,14 +168,6 @@ jobs:
           set -euo pipefail
           docker exec "$VALKEY_CONTAINER_ID" valkey-cli CONFIG SET requirepass "$VALKEY_PASSWORD" >/dev/null
           test "$(docker exec "$VALKEY_CONTAINER_ID" valkey-cli --no-auth-warning -a "$VALKEY_PASSWORD" ping)" = PONG
-      - name: Prove incident recovery against disposable PostgreSQL and native transaction fixtures
-        working-directory: apps/api-go
-        env:
-          LMM_INCIDENT343_TEST_DSN: postgres://lmm_test_release:lmm-release-postgres-password@127.0.0.1:5432/lmm_test_release?sslmode=disable
-        run: |
-          set -euo pipefail
-          mkdir -p ../../qualification-artifacts/go/incident343
-          go test -race -count=1 -v ./internal/appcli ./internal/deploycli ./cmd/incident343-recovery -run TestIncident343 -timeout 180s | tee ../../qualification-artifacts/go/incident343/tests.log
       - name: Protect referral and red-packet accounting under PostgreSQL concurrency
         working-directory: apps/api-go
         env:

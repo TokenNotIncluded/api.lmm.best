@@ -1,5 +1,10 @@
 # Shared PostgreSQL schema maintenance
 
+> Historical deployment/recovery reference. The repository deployment CLI has
+> been removed. New deployments follow [the current script workflow](deployment-workflow.md).
+> Use exact archived tools only when finishing their existing interrupted state;
+> do not treat commands below as current deployment instructions.
+
 Use this only when two or more existing writer nodes share one PostgreSQL
 database and a candidate requires a schema migration. A standalone `--migrate`
 upgrade stops only its own node. It cannot establish a cluster-wide backup

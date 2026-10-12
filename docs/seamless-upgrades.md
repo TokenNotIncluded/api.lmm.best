@@ -1,5 +1,10 @@
 # Frontend and backend upgrades
 
+> Historical deployment/recovery reference. The repository deployment CLI has
+> been removed. New deployments follow [the current script workflow](deployment-workflow.md).
+> Use exact archived tools only when finishing their existing interrupted state;
+> do not treat commands below as current deployment instructions.
+
 ## Choose the installation path
 
 This guide describes the **signed package transaction** path. For an existing

@@ -35,10 +35,6 @@ build() {
     CGO_ENABLED=0 go build -trimpath \
       -ldflags="-s -w -X github.com/LIghtJUNction/api.lmm.best/common.Version=${pkgver}" \
       -o out/lmm-api-go .
-    if [[ -f cmd/lmm-api-deploy/main.go ]]; then
-      CGO_ENABLED=0 go build -trimpath -ldflags="-s -w -X main.version=${pkgver}" \
-        -o out/lmm-api-deploy-engine ./cmd/lmm-api-deploy
-    fi
   )
 }
 
@@ -48,22 +44,9 @@ package() {
   local file
 
   install -Dm0755 "${root}/apps/api-go/out/lmm-api-go" "${pkgdir}/usr/bin/lmm-api-go"
-  install -Dm0755 "${root}/packaging/common/lmm-api/lmm-api-deploy" "${pkgdir}/usr/bin/lmm-api-deploy"
-  if [[ -f ${root}/apps/api-go/cmd/lmm-api-deploy/main.go ]]; then
-    install -Dm0755 "${root}/apps/api-go/out/lmm-api-deploy-engine" "${pkgdir}/usr/lib/lmm-api-deploy/engine"
-  fi
   lmm_go_package_assert_payload "$pkgdir" "$pkgname" "$pkgver"
   install -Dm0644 "${shared}/lmm-api.service" \
     "${pkgdir}/usr/lib/systemd/system/lmm-api.service"
-  if [[ -f ${shared}/lmm-api-operator.sysusers ]]; then
-    [[ -f ${shared}/lmm-api-operator.tmpfiles && -f ${shared}/lmm-api-operator.sudoers ]] || return 1
-    install -Dm0644 "${shared}/lmm-api-operator.sysusers" \
-      "${pkgdir}/usr/lib/sysusers.d/lmm-api-operator.conf"
-    install -Dm0644 "${shared}/lmm-api-operator.tmpfiles" \
-      "${pkgdir}/usr/lib/tmpfiles.d/lmm-api-operator.conf"
-    install -Dm0440 "${shared}/lmm-api-operator.sudoers" \
-      "${pkgdir}/etc/sudoers.d/lmm-api-operator"
-  fi
   install -Dm0600 "${shared}/lmm-api-go.env" \
     "${pkgdir}/etc/lmm-api-go/lmm-api-go.env"
 

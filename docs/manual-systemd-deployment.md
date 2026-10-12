@@ -1,5 +1,10 @@
 # Standalone systemd deployment
 
+> Historical deployment/recovery reference. The repository deployment CLI has
+> been removed. New deployments follow [the current script workflow](deployment-workflow.md).
+> Use exact archived tools only when finishing their existing interrupted state;
+> do not treat commands below as current deployment instructions.
+
 This is the upgrade path for an **existing, standalone Go installation** on
 systemd Linux. It does not provision a new server. Package-owned providers are
 rejected: use the signed package transaction described in

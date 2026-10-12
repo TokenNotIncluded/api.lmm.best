@@ -1,19 +1,11 @@
 post_install() {
-  if [ -x /usr/bin/lmm-api-deploy ]; then
-    /usr/bin/lmm-api-deploy frontend package-activate --package-version "$1" --keep 10
-  else
-    /usr/bin/lmm-api deploy frontend package-activate --package-version "$1" --keep 10
-  fi
+  printf '%s\n' 'Frontend files installed. Activate the verified release with the reviewed deployment script.'
 }
 
 post_upgrade() {
-  if [ -x /usr/bin/lmm-api-deploy ]; then
-    /usr/bin/lmm-api-deploy frontend package-activate --package-version "$1" --keep 10
-  else
-    /usr/bin/lmm-api deploy frontend package-activate --package-version "$1" --keep 10
-  fi
+  post_install "$@"
 }
 
 post_remove() {
-  printf '%s\n' 'The active LMM frontend release was retained for explicit manual rollback.'
+  printf '%s\n' 'The active LMM frontend release was retained for explicit manual recovery.'
 }

@@ -1,4 +1,6 @@
 #!/usr/bin/python3
+# Historical recovery material: use only with its exact existing incident artifacts/state.
+# New deployments use scripts reviewed for the actual host; this is not a general controller.
 """One episode: original Ubuntu release waits for genuine Arch confirmation."""
 import argparse
 import hashlib

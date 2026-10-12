@@ -95,7 +95,7 @@ Keep actual commands/results and reuse valid evidence. Tests run locally; consul
 | `just dev-rust` | Needs that Compose file and its `rust-preview` profile |
 | `just build-all`, `just test-all` | Include Rust preview; not proof of production readiness |
 | `just docker`, `just docker-rust` | Need local Dockerfiles, not included in this branch |
-| `just package` | Needs `LMM_API_BUILD_WORKSPACE`; see [AUR](../packaging/aur/README.md) |
+| Local package | Use `packaging/local/lmm-api-go/build-local-package.sh`; see [AUR](../packaging/aur/README.md) |
 | `just clean-generated` | Deletes generated output; not routine setup or cache maintenance |
 
 Use `just --list` when recipe discovery is needed, not before every known command.

@@ -83,7 +83,7 @@ test('backend and release workflows do not have server access', () => {
     assert.ok(files.includes(name), `missing workflow: ${name}`);
   }
   assert.ok(!files.includes('server-ops.yml'));
-  for (const file of files.filter((name) => name !== 'deploy-web-frontend.yml')) {
+  for (const file of files) {
     const source = read(`.github/workflows/${file}`);
     assert.doesNotMatch(source, /PRODUCTION_SSH|production-auto-deploy|deploy-production|server-ops|inputs\.deploy/);
     assert.doesNotMatch(source, /environment:\s*production/);
@@ -106,38 +106,8 @@ test('OpenCode fixture runs the pinned child and real host without privileged ev
   assert.match(source, /npm run test:host && npm run test:integration/);
 });
 
-test('manual frontend deployment is restricted to a signed web release on both origins', () => {
-  const deploy = workflow('deploy-web-frontend');
-  const triggers = deploy.split('\non:\n')[1]?.split('\npermissions:\n')[0];
-  assert.ok(triggers, 'frontend deploy workflow has an event block');
-  assert.deepEqual([...triggers.matchAll(/^  ([\w-]+):/gm)].map((match) => match[1]), ['workflow_dispatch']);
-  assert.doesNotMatch(deploy, /github\.event\.workflow_run/);
-  assert.match(deploy, /environment: production/);
-  assert.match(deploy, /LMM_WEB_DEPLOY_SSH_KEY/);
-  assert.match(deploy, /LMM_WEB_DEPLOY_KNOWN_HOSTS/);
-  assert.ok(deploy.includes('INPUT_TAG: ${{ inputs.release_tag }}'));
-  assert.ok(deploy.includes('.target_commitish'));
-  assert.ok(!deploy.includes('gh release list --repo'));
-  const release = workflow('release-web');
-  assert.match(release, /Preserve signed web package for recovery/);
-  assert.match(release, /gh release upload/);
-  assert.match(release, /stable_checks == 2/);
-  assert.match(deploy, /curl --fail [^\n]*\\\n\s+--retry 3 /);
-  assert.ok(deploy.includes('/releases/download/${RELEASE_TAG}'));
-  assert.match(deploy, /cosign verify-blob/);
-  assert.match(deploy, /certificate-oidc-issuer/);
-  assert.match(deploy, /revision=\$\(tar -xzOf/);
-  assert.match(deploy, /"\$revision" == "\$target"/);
-  assert.doesNotMatch(deploy, /gh release download/);
-  assert.match(deploy, /cmp --silent <\(sha256sum "\$archive"\) "\$archive\.sha256"/);
-  const signed = deploy.indexOf('      - name: Verify release signature\n');
-  const contract = deploy.indexOf('      - name: Validate verified release contract\n');
-  const key = deploy.indexOf('      - name: Install restricted deploy key\n');
-  assert.ok(signed >= 0 && contract > signed && key > contract,
-    'signature and exact release contract must pass before installing the key');
-  assert.match(deploy, /publish "API origin" "\$API_HOST" "\$API_PORT"\n\s+publish "Public ingress" "\$INGRESS_HOST" "\$INGRESS_PORT"/);
-  assert.match(deploy, /StrictHostKeyChecking=yes/);
-  assert.doesNotMatch(deploy, /release-go\.yml|production-release-transaction\.py|lmm-api-deploy\s|operator\s+plan/);
+test('frontend deployment workflow stays removed', () => {
+  assert.throws(() => workflow('deploy-web-frontend'), /ENOENT/);
 });
 
 test('manual CI keeps every diagnostic quality gate and the translation check name', () => {
@@ -243,14 +213,10 @@ test('release workflows build and sign after local tests without repeating remot
   assert.doesNotMatch(web, /bun run --filter @lmm\/web (?:format:check|copyright:check|lint|typecheck|test)\b/);
 });
 
-test('standalone STAGED archival runs in both offline owner and required release contracts', () => {
-  for (const [name, id] of [
-    ['standalone-deployment-tests', 'standalone-deployment-tests'],
-    ['server-release-qualification', 'harness-contracts'],
-  ]) {
-    const contracts = job(workflow(name), id);
-    assert.match(contracts, /python3 -B scripts\/test-deploy-systemd-archive-staged\.py(?: -v)?\n/);
-    assert.doesNotMatch(contracts, /continue-on-error:/);
+test('generic deployment controllers stay removed', () => {
+  assert.throws(() => workflow('standalone-deployment-tests'), /ENOENT/);
+  for (const path of ['scripts/lmm-api-deploy.sh', 'scripts/deploy-systemd.py', 'scripts/native-shared-pg-deploy.py', 'scripts/production-release-transaction.py', 'scripts/web-ship.py']) {
+    assert.throws(() => read(path), /ENOENT/);
   }
 });
 

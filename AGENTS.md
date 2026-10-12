@@ -50,6 +50,11 @@ attribution and licenses. Never use production databases or account registration
 Follow the [public account policy](apps/web/public/AGENTS.md) when using the site.
 A code edit, merge, signed release and deployment are different outcomes.
 Merge, release, deploy or move funds only when the request authorizes that action;
-do not ask again for unchanged authorization already given. Keep signing, locks,
+do not ask again for unchanged authorization already given.
+Every update and database migration must use a temporary shell script written and
+checked for the actual host state. Do not rebuild a generic Go deployment CLI
+or controller. Deleting source must not stop existing deployments, remove private
+state or roll back interrupted work.
+Keep signing, locks,
 source checks, rollback safeguards and financial confirmation flows intact.
 PR details and contribution policy: [CONTRIBUTING.md](CONTRIBUTING.md).

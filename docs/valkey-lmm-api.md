@@ -1,5 +1,10 @@
 # Dedicated Valkey for lmm-api
 
+> Historical deployment/recovery reference. The repository deployment CLI has
+> been removed. New deployments follow [the current script workflow](deployment-workflow.md).
+> Use exact archived tools only when finishing their existing interrupted state;
+> do not treat commands below as current deployment instructions.
+
 Production uses a dedicated native Valkey instance, separate from any existing
 `valkey.service` on `127.0.0.1:6379`.
 

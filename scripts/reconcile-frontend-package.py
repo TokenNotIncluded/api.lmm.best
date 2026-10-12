@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Historical recovery material: use only with its exact existing incident artifacts/state.
+# New deployments use scripts reviewed for the actual host; this is not a general controller.
 """Recover the recorded ArchDmit frontend/package drift through signed packages.
 
 This does not upgrade or stop the backend. Package hooks use the native frontend

@@ -27,11 +27,11 @@
 | React/TypeScript | 受影响测试、改动文件的格式与 lint、`just typecheck-web` | 导入、构建配置、依赖或加载方式变化时运行 `just build-web` |
 | Go | 受影响包和直接调用方的测试；改动文件的格式检查 | 公共接口、模块依赖或影响范围不明时运行 `just test-go` 及相关静态检查 |
 | Rust | 受影响 crate 的测试及格式检查 | 共享接口变化时运行 `just test-rust` 及相关静态检查；不顺带测试 Web/Go |
-| 部署入口或发布脚本 | `just test-deploy-entrypoint` 及受影响的原生部署测试 | 安装、状态机、恢复或数据库逻辑变化时验证相应故障路径 |
+| 部署入口或发布脚本 | `python3 -B scripts/test-deploy-package-payload.py`、现场 shell 语法及受影响的离线检查 | 安装、状态机、恢复或数据库逻辑变化时验证相应故障路径 |
 | Logo | `python3 -B scripts/check-docs-brand.py` 与实际显示 | 组件实现变化时增加对应前端检查 |
 | 广泛影响 Go/Web 的改动 | `just check` | 需要验证产物时再构建相应组件；Rust 只在受影响时加入 |
 
-`just check` 已包含格式、lint、前端类型检查、Go/Web 测试和部署入口检查。
+`just check` 已包含格式、lint、前端类型检查、Go/Web 测试。
 不要在它前后再次运行相同检查。`just build-web` 已包含构建和 bundle 检查。
 不要用全仓格式化处理局部改动。
 
