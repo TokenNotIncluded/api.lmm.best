@@ -232,8 +232,10 @@ function buildTypeDetailSegments(
         })
       }
     } else {
+      // Parsing failure does not invalidate the tier recorded at settlement.
+      // Preserve its label without inferring unit prices, including task logs.
       segments.push({
-        text: `${t('Tiered pricing')} · ${t('No matching results')}`,
+        text: `${t('Tiered pricing')} · ${other.matched_tier || t('Special billing expression')}`,
         muted: true,
       })
     }
