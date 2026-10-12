@@ -1080,7 +1080,7 @@ class PsqlSafetyTests(unittest.TestCase):
     def test_explicit_login_and_effective_owner_pair_is_validated(self):
         connection = {"role": "synthetic_owner", "login_role": "synthetic_login", "set_role": "synthetic_owner"}
         self.assertEqual(MODULE.connection_roles(connection), ("synthetic_owner", "synthetic_login"))
-        self.assertEqual(MODULE.psql_options(connection, readonly=True), "-c default_transaction_read_only=on -c role=synthetic_owner")
+        self.assertEqual(MODULE.psql_options(connection, readonly=True), "-c default_transaction_read_only=on" + MODULE.READONLY_PSQL_TIMEOUT_OPTIONS + " -c role=synthetic_owner")
         for change in ({"set_role": None}, {"set_role": "other"}, {"login_role": "synthetic_owner"}, {"login_role": "bad; role"}):
             with self.subTest(change=change), self.assertRaises(MODULE.MappingError):
                 MODULE.connection_roles({**connection, **change})
@@ -1122,6 +1122,29 @@ class PsqlSafetyTests(unittest.TestCase):
             self.assertIn("-X", command)
             self.assertIn("ON_ERROR_STOP=1", command)
             self.assertIn("--no-password", command)
+            self.assertEqual(runner.call_args.kwargs["timeout"], MODULE.PSQL_CLIENT_TIMEOUT_SECONDS)
+
+    def test_database_timeout_is_private_bounded_and_never_retried(self):
+        for readonly, suffix in ((True, "_database_command_timed_out"),
+                                 (False, "_database_command_timed_out_result_unconfirmed")):
+            for stdout, stderr in ((b"synthetic-private-output", b"synthetic-private-error"),
+                                   ("synthetic-private-output", "synthetic-private-error"), (None, None)):
+                with self.subTest(readonly=readonly, partial_type=type(stdout).__name__), tempfile.TemporaryDirectory() as temporary:
+                    directory = Path(temporary)
+                    error = subprocess.TimeoutExpired(["psql", "synthetic-private-command"],
+                                                       MODULE.PSQL_CLIENT_TIMEOUT_SECONDS, output=stdout, stderr=stderr)
+                    with patch.object(MODULE, "socket_connection", return_value={}), patch.object(MODULE.subprocess, "run", side_effect=error) as runner:
+                        with self.assertRaises(MODULE.MappingError) as caught:
+                            MODULE.psql({}, "synthetic-private-sql", readonly=readonly, private_dir=directory, label="synthetic")
+                    self.assertEqual(str(caught.exception), "synthetic" + suffix)
+                    self.assertIsNone(caught.exception.__cause__)
+                    runner.assert_called_once()
+                    self.assertEqual(runner.call_args.kwargs["timeout"], MODULE.PSQL_CLIENT_TIMEOUT_SECONDS)
+                    for name, value in (("stdout", stdout), ("stderr", stderr)):
+                        path = directory / ("synthetic." + name + ".private.txt")
+                        expected = value.decode() if isinstance(value, bytes) else value or ""
+                        self.assertEqual(path.read_text(), expected)
+                        self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o600)
 
     def test_source_connection_does_not_inherit_ambient_production_pg_settings(self):
         completed = SimpleNamespace(returncode=0, stderr="", stdout="synthetic-ok")
@@ -1135,7 +1158,7 @@ class PsqlSafetyTests(unittest.TestCase):
             environment = runner.call_args.kwargs["env"]
             self.assertEqual(environment["PGHOST"], str(directory))
             self.assertEqual(environment["PGDATABASE"], "synthetic")
-            self.assertEqual(environment["PGOPTIONS"], "-c default_transaction_read_only=on")
+            self.assertEqual(environment["PGOPTIONS"], "-c default_transaction_read_only=on" + MODULE.READONLY_PSQL_TIMEOUT_OPTIONS)
             self.assertNotIn("PGSERVICE", environment)
             self.assertNotIn("PGPASSWORD", environment)
 

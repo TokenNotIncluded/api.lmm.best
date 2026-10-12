@@ -37,6 +37,13 @@ from typing import Any
 
 
 BACKUP_ROOT = Path.home() / "Backups"
+# Bound the local client as well as connection setup. A write timeout does not
+# establish rollback: retain the run ID/materials and resolve the original session.
+PSQL_CLIENT_TIMEOUT_SECONDS = 600
+READONLY_PSQL_TIMEOUT_OPTIONS = (
+    " -c statement_timeout=300000 -c lock_timeout=5000"
+    " -c idle_in_transaction_session_timeout=60000"
+)
 HEX = re.compile(r"[0-9a-f]{64}\Z")
 IDENTIFIER = re.compile(r"[a-z_][a-z_0-9]*\Z")
 BCRYPT = re.compile(r"\$2[aby]\$(0[4-9]|1[0-6])\$[./A-Za-z0-9]{53}\Z")
@@ -368,6 +375,8 @@ def connection_roles(connection: dict) -> tuple[str, str]:
 
 def psql_options(connection: dict, *, readonly: bool) -> str:
     options = "-c default_transaction_read_only=" + ("on" if readonly else "off")
+    if readonly:
+        options += READONLY_PSQL_TIMEOUT_OPTIONS
     if "login_role" in connection or "set_role" in connection:
         owner, _ = connection_roles(connection)
         options += " -c role=" + owner
@@ -382,8 +391,20 @@ def psql(connection: dict, sql: str, *, readonly: bool, private_dir: Path, label
     environment["PGCONNECT_TIMEOUT"] = "5"
     environment["PGAPPNAME"] = "lmm-offline-identity-import"
     environment["PGOPTIONS"] = psql_options(connection, readonly=readonly)
-    result = subprocess.run(["psql", "-X", "--no-password", "-qAt", "-v", "ON_ERROR_STOP=1"],
-                            input=sql, text=True, capture_output=True, env=environment, check=False)
+    try:
+        result = subprocess.run(["psql", "-X", "--no-password", "-qAt", "-v", "ON_ERROR_STOP=1"],
+                                input=sql, text=True, capture_output=True, env=environment, check=False,
+                                timeout=PSQL_CLIENT_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired as error:
+        # TimeoutExpired may carry bytes even with text=True. Preserve partial
+        # diagnostics only in private files; never echo SQL or source values.
+        def partial_text(value: str | bytes | None) -> str:
+            return value.decode("utf-8", errors="replace") if isinstance(value, bytes) else value or ""
+
+        write_private(private_dir, label + ".stdout.private.txt", partial_text(error.stdout))
+        write_private(private_dir, label + ".stderr.private.txt", partial_text(error.stderr))
+        suffix = "_database_command_timed_out" if readonly else "_database_command_timed_out_result_unconfirmed"
+        raise MappingError(label + suffix) from None
     write_private(private_dir, label + ".stderr.private.txt", result.stderr)
     require(result.returncode == 0, label + "_database_command_failed")
     return result.stdout
