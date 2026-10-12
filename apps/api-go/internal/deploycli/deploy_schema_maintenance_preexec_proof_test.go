@@ -223,7 +223,7 @@ func TestSchemaMaintenancePreExecRejectedRepeatedGuardSeesEveryFootprint(t *test
 		if primary {
 			role = "primary"
 		}
-		for _, name := range []string{"schema-worker-output.log", "schema-outcome.json", "owner-released.json", "recovery-binding.json", "recovery-startup-profile.json", "recovery-hook-intent.json", "recovery-hook-bound.json", "recovery-start-intent.json", "recovery-started.json", "reopen-intent.json", "admission-restored.json", "host-finished.json", "abort-prepared.json", "abort-binding.json", "abort-start-intent.json", "abort-started.json", "abort-finish-intent.json", "abort-host-finished.json", "schema-worker-intent.json", "schema-worker-result.json"} {
+		for _, name := range []string{"schema-worker-output.log", "schema-outcome.json", "owner-released.json", "recovery-binding.json", "recovery-startup-profile.json", "recovery-hook-intent.json", "recovery-hook-bound.json", "recovery-start-intent.json", "recovery-started.json", "host-finished.json", "abort-prepared.json", "abort-binding.json", "abort-start-intent.json", "abort-started.json", "abort-finish-intent.json", "abort-host-finished.json", "schema-worker-intent.json", "schema-worker-result.json"} {
 			if primary && (name == "schema-worker-intent.json" || name == "schema-worker-result.json") {
 				continue
 			}
@@ -247,6 +247,38 @@ func TestSchemaMaintenancePreExecRejectedRepeatedGuardSeesEveryFootprint(t *test
 				}
 				if f.check() == nil {
 					t.Fatal("dangling downstream symlink treated as ENOENT")
+				}
+			})
+		}
+	}
+}
+
+func TestSchemaMaintenancePreExecRejectedAdmissionInitialGateDoesNotRejectOwnLaterProgress(t *testing.T) {
+	for _, primary := range []bool{true, false} {
+		for _, name := range []string{"reopen-intent.json", "admission-restored.json"} {
+			t.Run(name+map[bool]string{true: "/primary", false: "/secondary"}[primary], func(t *testing.T) {
+				f := newSchemaMaintenancePreExecFixture(t, primary)
+				if err := f.runtime.checkSchemaMaintenancePreExecAdmissionUnattempted(f.plan); err != nil {
+					t.Fatal(err)
+				}
+				path := filepath.Join(filepath.Dir(f.evidence.OriginalDaemon.Path), name)
+				for _, symlink := range []bool{false, true} {
+					if symlink {
+						if err := os.Symlink("absent-target", path); err != nil {
+							t.Fatal(err)
+						}
+					} else if err := os.WriteFile(path, nil, 0600); err != nil {
+						t.Fatal(err)
+					}
+					if f.runtime.checkSchemaMaintenancePreExecAdmissionUnattempted(f.plan) == nil {
+						t.Fatal("initial admission gate ignored existing or uncertain progress")
+					}
+					if err := f.check(); err != nil {
+						t.Fatal("historical guard rejected this lane's later admission progress:", err)
+					}
+					if err := os.Remove(path); err != nil {
+						t.Fatal(err)
+					}
 				}
 			})
 		}

@@ -21,6 +21,32 @@ type productionSchemaMaintenancePreExecRejectedEvidence struct {
 	WorkerResult   *productionReleaseFilePlan `json:"worker_result,omitempty"`
 }
 
+// Admission progress is forbidden when accepting this recovery or beginning
+// its one-shot CAS, but its own later reopen writes these receipts. Do not put
+// this initial gate inside the historical-evidence guard used after reopen.
+func (runtime *productionRuntime) checkSchemaMaintenancePreExecAdmissionUnattempted(plan productionSchemaMaintenancePlan) error {
+	if runtime == nil || runtime.effectiveUID == nil || runtime.effectiveUID() != 0 || runtime.hostname == nil {
+		return errors.New("pre-exec initial admission check requires native root scope")
+	}
+	if err := validateProductionSchemaMaintenancePlan(plan, runtime.paths); err != nil {
+		return err
+	}
+	host, err := runtime.hostname()
+	if err != nil || (host != plan.Origins[0].Host && host != plan.Origins[1].Host) {
+		return errors.New("pre-exec initial admission check has no fixed local origin")
+	}
+	state := filepath.Join(schemaMaintenanceHostWorkspace(runtime.paths, plan.TransitionID), "state")
+	if err := runtime.merchantStorePrivateDirectory(state, false); err != nil {
+		return err
+	}
+	for _, name := range []string{"reopen-intent.json", "admission-restored.json"} {
+		if _, err := os.Lstat(filepath.Join(state, name)); !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("pre-exec initial admission recovery already has possible progress at %s", name)
+		}
+	}
+	return nil
+}
+
 // This is the complete immutable official 117 tuple. It intentionally does
 // not follow the current engine's runner: a later engine may permit this path.
 func schemaMaintenancePreExecRejected117Provider() productionReleasePackagePlan {
@@ -186,7 +212,7 @@ func (runtime *productionRuntime) validateSchemaMaintenancePreExecRejected(plan 
 		for _, name := range []string{
 			"schema-worker-intent.json", "schema-worker-result.json", "schema-worker-output.log", "schema-outcome.json", "owner-released.json",
 			"recovery-binding.json", "recovery-startup-profile.json", "recovery-hook-intent.json", "recovery-hook-bound.json", "recovery-start-intent.json", "recovery-started.json",
-			"reopen-intent.json", "admission-restored.json", "host-finished.json", "abort-prepared.json", "abort-binding.json", "abort-start-intent.json", "abort-started.json", "abort-finish-intent.json", "abort-host-finished.json",
+			"host-finished.json", "abort-prepared.json", "abort-binding.json", "abort-start-intent.json", "abort-started.json", "abort-finish-intent.json", "abort-host-finished.json",
 		} {
 			if primary && (name == "schema-worker-intent.json" || name == "schema-worker-result.json") {
 				continue
