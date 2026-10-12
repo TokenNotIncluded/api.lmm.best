@@ -379,6 +379,7 @@ pub trait Billing: Send + Sync + 'static {
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Usage {
     pub input_tokens: Option<u64>,
     pub output_tokens: Option<u64>,
@@ -409,13 +410,37 @@ impl Usage {
             &mut combined.reasoning_output_tokens,
             next.reasoning_output_tokens,
         )?;
-        if let (Some(i), Some(o)) = (combined.input_tokens, combined.output_tokens) {
-            i.checked_add(o)
-                .ok_or(RelayError::Protocol("usage overflow"))?;
-        }
+        combined.validate()?;
         *self = combined;
         Ok(())
     }
+    /// Validate both live observations and receipts restored after a restart.
+    /// Deserialization alone does not establish counter consistency.
+    pub(crate) fn validate(&self) -> Result<(), RelayError> {
+        if let (Some(i), Some(o)) = (self.input_tokens, self.output_tokens) {
+            i.checked_add(o)
+                .ok_or(RelayError::Protocol("usage overflow"))?;
+        }
+        // Input includes both cache categories; output includes reasoning.
+        // Missing totals stay unknown. Present subsets are lower bounds, never
+        // evidence that an absent counter is zero.
+        let cached = self
+            .cached_input_tokens
+            .unwrap_or(0)
+            .checked_add(self.cache_creation_input_tokens.unwrap_or(0))
+            .ok_or(RelayError::Protocol("usage overflow"))?;
+        if self.input_tokens.is_some_and(|total| cached > total) {
+            return Err(RelayError::Protocol("cache usage exceeds input total"));
+        }
+        if let (Some(total), Some(reasoning)) =
+            (self.output_tokens, self.reasoning_output_tokens)
+            && reasoning > total
+        {
+            return Err(RelayError::Protocol("reasoning usage exceeds output total"));
+        }
+        Ok(())
+    }
+
     pub(crate) fn wire(&self, client: ClientProtocol) -> Value {
         if *self == Self::default() {
             return Value::Null;
@@ -545,4 +570,116 @@ pub struct ResponseHead {
 pub struct DrainReport {
     pub cancelled: usize,
     pub remaining: usize,
+}
+
+#[cfg(test)]
+mod a07_usage_tests {
+    use super::*;
+
+    #[test]
+    fn impossible_cache_subsets_are_rejected_without_partial_update() {
+        let initial = Usage { input_tokens: Some(10), output_tokens: Some(3), ..Usage::default() };
+        for next in [
+            Usage { cached_input_tokens: Some(11), ..Usage::default() },
+            Usage { cache_creation_input_tokens: Some(11), ..Usage::default() },
+            Usage { cached_input_tokens: Some(6), cache_creation_input_tokens: Some(5), ..Usage::default() },
+        ] {
+            let mut value = initial;
+            assert!(matches!(value.merge(next), Err(RelayError::Protocol(_))));
+            assert_eq!(value, initial);
+        }
+    }
+
+    #[test]
+    fn reasoning_is_a_subset_of_output_and_failed_merge_is_atomic() {
+        let mut value = Usage { input_tokens: Some(2), output_tokens: Some(3), ..Usage::default() };
+        let before = value;
+        assert!(matches!(value.merge(Usage {
+            input_tokens: Some(4),
+            reasoning_output_tokens: Some(4),
+            ..Usage::default()
+        }), Err(RelayError::Protocol(_))));
+        assert_eq!(value, before);
+    }
+
+    #[test]
+    fn unknown_totals_remain_unknown_until_their_own_evidence_arrives() {
+        let mut value = Usage::default();
+        value.merge(Usage {
+            cached_input_tokens: Some(4),
+            cache_creation_input_tokens: Some(3),
+            reasoning_output_tokens: Some(2),
+            ..Usage::default()
+        }).unwrap();
+        assert_eq!(value.input_tokens, None);
+        assert_eq!(value.output_tokens, None);
+        let before = value;
+        assert!(value.merge(Usage { input_tokens: Some(6), ..Usage::default() }).is_err());
+        assert_eq!(value, before);
+        value.merge(Usage { input_tokens: Some(7), output_tokens: Some(2), ..Usage::default() }).unwrap();
+        assert_eq!(value.cached_input_tokens, Some(4));
+        assert_eq!(value.cache_creation_input_tokens, Some(3));
+        assert_eq!(value.reasoning_output_tokens, Some(2));
+    }
+
+    #[test]
+    fn subsets_from_separate_frames_are_checked_together() {
+        let mut value = Usage { input_tokens: Some(10), cached_input_tokens: Some(6), ..Usage::default() };
+        let before = value;
+        assert!(value.merge(Usage { cache_creation_input_tokens: Some(5), ..Usage::default() }).is_err());
+        assert_eq!(value, before);
+        value.merge(Usage { input_tokens: Some(11), cache_creation_input_tokens: Some(5), ..Usage::default() }).unwrap();
+        assert_eq!(value.input_tokens, Some(11));
+    }
+
+    #[test]
+    fn overflow_is_rejected_even_when_total_is_unknown() {
+        let mut value = Usage { cached_input_tokens: Some(u64::MAX), ..Usage::default() };
+        let before = value;
+        assert!(value.merge(Usage { cache_creation_input_tokens: Some(1), ..Usage::default() }).is_err());
+        assert_eq!(value, before);
+    }
+
+    #[test]
+    fn zero_boundary_repeated_receipt_and_missing_fields_are_valid() {
+        let zero = Usage {
+            input_tokens: Some(0), output_tokens: Some(0),
+            cached_input_tokens: Some(0), cache_creation_input_tokens: Some(0),
+            reasoning_output_tokens: Some(0),
+        };
+        let mut value = Usage::default();
+        value.merge(zero).unwrap();
+        value.merge(zero).unwrap();
+        value.merge(Usage::default()).unwrap();
+        assert_eq!(value, zero);
+    }
+
+    #[test]
+    fn decreasing_receipt_and_total_overflow_still_leave_state_unchanged() {
+        let mut value = Usage { input_tokens: Some(2), ..Usage::default() };
+        let before = value;
+        for next in [
+            Usage { input_tokens: Some(1), ..Usage::default() },
+            Usage { output_tokens: Some(u64::MAX), ..Usage::default() },
+        ] {
+            assert!(value.merge(next).is_err());
+            assert_eq!(value, before);
+        }
+    }
+
+    #[test]
+    fn restored_receipts_need_validation_even_without_a_merge() {
+        let value: Usage = serde_json::from_value(serde_json::json!({
+            "input_tokens": 2,
+            "output_tokens": 3,
+            "reasoning_output_tokens": 4,
+        })).unwrap();
+        assert!(value.validate().is_err());
+        assert!(serde_json::from_value::<Usage>(serde_json::json!({
+            "input_tokens": 2,
+            "output_tokens": 3,
+            "unknown_dimension": 1,
+        })).is_err());
+    }
+
 }
