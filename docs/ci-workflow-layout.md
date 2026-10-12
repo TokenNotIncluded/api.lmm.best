@@ -17,7 +17,6 @@ main 或标签就会自动运行这套测试。其他辅助工作流应逐个检
 | [ci.yml](../.github/workflows/ci.yml) | 手动诊断。检查任务的成功、失败、取消和跳过情况，不只看汇总颜色。 |
 | [release-go.yml](../.github/workflows/release-go.yml) | 在 Go 组件标签上手动构建、签名和发布；要求 `local_test_evidence`。 |
 | [release-web.yml](../.github/workflows/release-web.yml) | 在 Web 组件标签上手动构建、签名和发布；要求 `local_test_evidence`。 |
-| [deploy-web-frontend.yml](../.github/workflows/deploy-web-frontend.yml) | 单独授权、单独触发的前端部署。不是签名发布的自动后续步骤。 |
 
 Go/Web 发布前须有与目标代码匹配的真实本地测试记录。发布工作流读取
 `local_test_evidence`，不是等待 PR 检查全部变绿。记录格式和来源校验以
@@ -58,3 +57,5 @@ bash scripts/test-verify-release-commit-checks.sh
 
 仅修改本文时，运行文档检查即可；这些命令用于工作流或配套脚本改动。隔离
 测试通过不等于生产数据库恢复、服务器部署或全部应用测试已经完成。
+
+Deployment workflows have been removed. Deploy using scripts written for the actual host state; release workflows only build, sign and publish.

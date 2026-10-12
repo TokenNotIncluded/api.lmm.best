@@ -1,5 +1,8 @@
 # Server operations
 
+> Historical operations reference. Deployment controllers and workflows were removed.
+> Follow [the current script workflow](deployment-workflow.md) for new deployments.
+
 ## Backend: manual
 
 GitHub Actions does not perform server diagnosis, repair, or backend

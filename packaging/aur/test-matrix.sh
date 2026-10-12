@@ -153,9 +153,9 @@ fi
 [[ ! -e $HERE/lmm-api-web-bin/lmm-api-web-activate && ! -L $HERE/lmm-api-web-bin/lmm-api-web-activate ]] ||
   die 'repository retains an unsigned local Web activation wrapper'
 # shellcheck disable=SC2016 # Deliberately inspect the future signed package hook.
-grep -Fq '/usr/bin/lmm-api-deploy frontend package-activate --package-version "$1"' \
+grep -Fq 'Activate the verified release with the reviewed deployment script.' \
   "$SHARED/lmm-api-web.install" ||
-  die 'future Web release hook does not use the public backend CLI'
+  die 'future Web release hook does not require explicit script activation'
 go_release_workflow="$ROOT/.github/workflows/release-go.yml"
 [[ -f $go_release_workflow ]] || die 'Go release workflow is missing'
 # shellcheck disable=SC2016 # Deliberately inspect workflow source literals.
@@ -260,26 +260,8 @@ tmp=$(mktemp -d "$TMPDIR/lmm-aur-matrix.XXXXXXXX")
 cleanup() { rm -rf -- "$tmp"; }
 trap cleanup EXIT
 
-sudoers="$SHARED/lmm-api-operator.sudoers"
-visudo -cf "$sudoers" >/dev/null || die 'operator sudoers policy fails visudo validation'
-go_pacman_regex='^--upgrade --noconfirm -- /var/lib/lmm-api-go-deploy/work/[A-Za-z0-9][A-Za-z0-9._-]{0,79}/staging/lmm-api-go-bin-[A-Za-z0-9][A-Za-z0-9._+@~-]*\.pkg\.tar\.(zst|xz|gz|bz2|lz4|lrz|lzo|Z)$'
-web_pacman_regex='^--upgrade --noconfirm -- /var/lib/lmm-api-go-deploy/work/[A-Za-z0-9][A-Za-z0-9._-]{0,79}/staging/lmm-api-web-bin-[A-Za-z0-9][A-Za-z0-9._+@~-]*\.pkg\.tar\.(zst|xz|gz|bz2|lz4|lrz|lzo|Z)$'
-grep -Fqx "lmm-api-deploy ALL=(root) NOPASSWD: /usr/bin/pacman $go_pacman_regex" "$sudoers" ||
-  die 'operator exact Go pacman sudo rule is missing'
-grep -Fqx "lmm-api-deploy ALL=(root) NOPASSWD: /usr/bin/pacman $web_pacman_regex" "$sudoers" ||
-  die 'operator exact Web pacman sudo rule is missing'
-for allowed in \
-  '--upgrade --noconfirm -- /var/lib/lmm-api-go-deploy/work/go-abc_123/staging/lmm-api-go-bin-1.2.3-1-x86_64.pkg.tar.zst' \
-  '--upgrade --noconfirm -- /var/lib/lmm-api-go-deploy/work/web-abc.123/staging/lmm-api-web-bin-1.2.3-1-aarch64.pkg.tar.xz'; do
-  [[ $allowed =~ $go_pacman_regex || $allowed =~ $web_pacman_regex ]] || die "safe pacman argv rejected: $allowed"
-done
-for rejected in \
-  '--upgrade --noconfirm -- /var/lib/lmm-api-go-deploy/work/go-abc/staging/lmm-api-go-bin-1-1-x86_64.pkg.tar.zst /var/lib/lmm-api-go-deploy/work/go-abc/staging/lmm-api-web-bin-1-1-x86_64.pkg.tar.zst' \
-  '--upgrade --noconfirm -- /var/lib/lmm-api-go-deploy/work/go-abc/staging/../lmm-api-go-bin-1-1-x86_64.pkg.tar.zst' \
-  '--upgrade --noconfirm -- /var/lib/lmm-api-go-deploy/work/go abc/staging/lmm-api-go-bin-1-1-x86_64.pkg.tar.zst' \
-  '--upgrade --noconfirm -- /var/lib/lmm-api-go-deploy/work/go-abc/staging/lmm-api-go-bin-*.pkg.tar.zst' \
-  '--upgrade --noconfirm -- /tmp/lmm-api-go-bin-1-1-x86_64.pkg.tar.zst'; do
-  [[ ! $rejected =~ $go_pacman_regex && ! $rejected =~ $web_pacman_regex ]] || die "malicious pacman argv accepted: $rejected"
+for removed in lmm-api-operator.sysusers lmm-api-operator.tmpfiles lmm-api-operator.sudoers lmm-api-deploy; do
+  [[ ! -e $SHARED/$removed ]] || die "removed deployment privilege remains: $removed"
 done
 
 for pkgbuild in "$HERE/lmm-api-go/PKGBUILD" "$HERE/lmm-api-go-git/PKGBUILD" "$HERE/../local/lmm-api-go/PKGBUILD"; do

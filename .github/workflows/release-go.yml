@@ -37,7 +37,7 @@ jobs:
           persist-credentials: false
           ref: ${{ github.sha }}
 
-      - name: Set up Go for the native deployment contract CLI
+      - name: Set up Go for application capability evidence
         uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5 # v6.2.0
         with:
           go-version-file: apps/api-go/go.mod
@@ -79,8 +79,7 @@ jobs:
           [[ $(readlink "$contract_cli_dir/lmm-api") == lmm-api-go ]]
           [[ $(sha256sum "$contract_cli_dir/lmm-api" | cut -d' ' -f1) == \
              $(sha256sum "$contract_cli_dir/lmm-api-go" | cut -d' ' -f1) ]]
-          (cd apps/api-go && go build -p 2 -trimpath -o "$contract_cli_dir/lmm-api-deploy-engine" ./cmd/lmm-api-deploy)
-          contract_revision=$("$contract_cli_dir/lmm-api-deploy-engine" contract route print)
+          contract_revision=$(sha256sum contracts/api-route/VERSION | cut -d' ' -f1)
           merchant_writer_capability=$("$contract_cli_dir/lmm-api" merchant-store-writer-gate capability)
           [[ "$merchant_writer_capability" =~ ^[1-9]$ ]]
           {
@@ -139,23 +138,15 @@ jobs:
             go build -p 2 -trimpath \
               -ldflags="-s -w -X github.com/LIghtJUNction/api.lmm.best/common.Version=${RELEASE_VERSION}" \
               -o "../../${bundle}/lmm-api-go" .
-            go build -p 2 -trimpath -ldflags="-s -w -X main.version=${RELEASE_VERSION}" \
-              -o "../../${bundle}/lmm-api-deploy-engine" ./cmd/lmm-api-deploy
           )
           file "$bundle/lmm-api-go"
           if ldd "$bundle/lmm-api-go" 2>&1 | grep -qvE 'not a dynamic executable|statically linked'; then
             echo 'Go release binary is dynamically linked' >&2
             exit 1
           fi
-          bash scripts/check-static-go-binary.sh "$bundle/lmm-api-deploy-engine"
-          cp packaging/common/lmm-api/lmm-api-deploy "$bundle/"
           cp packaging/common/lmm-api/lmm-api.service "$bundle/"
           cp packaging/common/lmm-api/lmm-api-go.env "$bundle/"
           cp packaging/common/lmm-api/lmm-api-memory.conf "$bundle/"
-          cp packaging/common/lmm-api/lmm-api-operator.sysusers \
-            packaging/common/lmm-api/lmm-api-operator.tmpfiles \
-            packaging/common/lmm-api/lmm-api-operator.sudoers \
-            "$bundle/"
           mkdir -p "$bundle/edge-policy/nginx"
           cp packaging/common/lmm-api/edge-policy/nginx/http-map.conf \
             packaging/common/lmm-api/edge-policy/nginx/lmm-api-locations.conf \

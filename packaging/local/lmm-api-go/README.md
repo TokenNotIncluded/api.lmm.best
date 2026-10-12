@@ -1,14 +1,8 @@
-# Local `lmm-api-go` package
+# Local Go package
 
-The Go backend CLI owns the local build and packaging workflow. It builds the
-frontend, produces the real static `lmm-api-go` provider, validates both
-artifacts, and creates a Go Arch package inside an explicit marker-owned
-workspace. The package installs the provider and current shared service assets,
-but does not own `/usr/bin/lmm-api`; the verified CLI selects providers by
-atomically managing that one-hop symlink. Rust remains independently packaged.
-
-```bash
-scripts/lmm-api-deploy.sh build \
-  --repo /absolute/path/to/api.lmm.best \
-  --workspace /absolute/marker-owned/workspace
-```
+Build the backend and frontend with the root build commands, then call
+`build-local-package.sh --workspace PATH --binary PATH --frontend PATH` with
+absolute reviewed paths and a workspace carrying `.lmm-deploy-workspace`.
+The package contains the application and frontend files, not a deployment tool.
+Installing it does not activate the frontend. Deployment uses scripts written
+for the actual host state; see [the workflow](../../../docs/deployment-workflow.md).

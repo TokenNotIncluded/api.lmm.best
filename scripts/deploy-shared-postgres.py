@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Historical recovery material: use only with its exact existing incident artifacts/state.
+# New deployments use scripts reviewed for the actual host; this is not a general controller.
 """One reviewed shared-PostgreSQL maintenance episode, before normal deployment.
 
 Persistent SSH agents retain existing connection metadata only in memory and hold

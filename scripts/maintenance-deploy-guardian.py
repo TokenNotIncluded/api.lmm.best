@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Historical recovery material: use only with its exact existing incident artifacts/state.
+# New deployments use scripts reviewed for the actual host; this is not a general controller.
 """Hold a deployment flock across an explicit maintenance handoff.
 
 Each lease receives the guardian's same open file description through

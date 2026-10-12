@@ -1,4 +1,6 @@
 #!/usr/bin/python3
+# Historical recovery material: use only with its exact existing incident artifacts/state.
+# New deployments use scripts reviewed for the actual host; this is not a general controller.
 """Keep the three native file locks during an explicit schema maintenance.
 
 This is a file-lock transport, not DDL permission. The signed native controller

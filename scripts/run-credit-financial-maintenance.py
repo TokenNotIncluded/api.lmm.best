@@ -1,4 +1,6 @@
 #!/usr/bin/env python3
+# Historical recovery material: use only with its exact existing incident artifacts/state.
+# New deployments use scripts reviewed for the actual host; this is not a general controller.
 """Durable controller for a sealed financial maintenance episode.
 
 This is separate from schema-only shared-PostgreSQL maintenance. Normal

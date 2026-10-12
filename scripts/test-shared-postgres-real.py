@@ -119,6 +119,7 @@ def main():
     parser.add_argument('--candidate', type=Path)
     parser.add_argument('--rollback', type=Path, action='append')
     parser.add_argument('--work', type=Path)
+    parser.add_argument('--archived-helper', type=Path, help='Exact historical systemd helper for this recovery fixture')
     parser.add_argument('--seed-request', type=Path)
     args = parser.parse_args()
     os.umask(0o077)
@@ -139,7 +140,9 @@ def main():
     clone_root = Path(tempfile.mkdtemp(prefix='lmm-pg-restore-'))
     clone_root.rmdir()  # run_rehearsal requires exclusive creation.
     script = str(Path(__file__).resolve())
-    helper = str(Path(__file__).with_name('deploy-systemd.py').resolve())
+    c.require(args.archived_helper is not None, 'explicit-archived-helper-required')
+    c.regular(args.archived_helper)
+    helper = str(args.archived_helper.resolve())
     nodes = [{'name': 'previous-' + str(i), 'ssh': 'fixture-' + str(i), 'hostname': 'fixture-' + str(i),
               'script': c.__file__, 'helper': helper, 'plan': '/fixture/plan.json',
               'candidate': str(args.candidate), 'provider_sha256': c.sha(p), 'version': '1.0.' + str(i),

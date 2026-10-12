@@ -30,9 +30,7 @@ class DeploymentPayloadTests(unittest.TestCase):
         backend = bundle / ('lmm-api-go' if modern else 'lmm-api')
         backend.write_text('#!/bin/sh\nexit 0\n')
         backend.chmod(0o755)
-        for filename in ('lmm-api.service', 'lmm-api-go.env', 'lmm-api-memory.conf',
-                         'lmm-api-operator.sysusers', 'lmm-api-operator.tmpfiles',
-                         'lmm-api-operator.sudoers'):
+        for filename in ('lmm-api.service', 'lmm-api-go.env', 'lmm-api-memory.conf'):
             shutil.copyfile(SHARED / filename, bundle / filename)
         for filename in ('LICENSE', 'NOTICE', 'THIRD-PARTY-LICENSES.md', 'REVISION'):
             (bundle / filename).write_text('fixture\n')
@@ -41,7 +39,7 @@ class DeploymentPayloadTests(unittest.TestCase):
         (bundle / 'edge-policy/fixture').write_text('fixture\n')
         (src / (name + '.tar.gz')).write_bytes(b'fixture archive identity')
         if modern:
-            shutil.copyfile(SHARED / 'lmm-api-deploy', bundle / 'lmm-api-deploy')
+            (bundle / 'lmm-api-deploy').write_text('#!/bin/sh\nexit 0\n')
             (bundle / 'lmm-api-deploy-engine').write_text('#!/bin/sh\necho separate-tool\n')
         else:
             (bundle / 'CLI_TRANSITION_PHASE').write_text('t0\n')
@@ -55,13 +53,13 @@ class DeploymentPayloadTests(unittest.TestCase):
         self.assertEqual(0, result.returncode, result.stderr)
         return output, bundle
 
-    def test_modern_package_keeps_distinct_server_tool_and_fixed_script(self):
+    def test_modern_package_excludes_deployment_cli_even_from_old_signed_bundle(self):
         output, source = self.package(True)
         self.assertEqual((source / 'lmm-api-go').read_bytes(), (output / 'usr/bin/lmm-api-go').read_bytes())
-        tool = output / 'usr/lib/lmm-api-deploy/engine'
-        self.assertEqual((source / 'lmm-api-deploy-engine').read_bytes(), tool.read_bytes())
-        self.assertEqual(0o755, tool.stat().st_mode & 0o777)
-        self.assertIn('exec /usr/lib/lmm-api-deploy/engine "$@"', (output / 'usr/bin/lmm-api-deploy').read_text())
+        self.assertFalse((output / 'usr/lib/lmm-api-deploy/engine').exists())
+        self.assertFalse((output / 'usr/bin/lmm-api-deploy').exists())
+        self.assertFalse((output / 'etc/sudoers.d/lmm-api-operator').exists())
+        self.assertFalse((output / 'usr/lib/sysusers.d/lmm-api-operator.conf').exists())
         self.assertFalse((output / 'usr/bin/lmm-api').exists())
 
     def test_legacy_rollback_is_not_contaminated_with_current_tool_or_script(self):

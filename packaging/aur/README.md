@@ -1,3 +1,5 @@
+> Deployment now uses scripts written for the actual host state; the deployment CLI is removed. The pinned Web 0.1.68 recipe retains its historical hook bytes because prepare verifies them against the signed archive. New releases use the common hook, which requires explicit script activation. Historical package details below do not authorize replaying deployment commands.
+
 # AUR packages
 
 The backend providers are independently versioned real executables. Production

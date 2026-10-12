@@ -114,9 +114,10 @@ jobs:
           hook=packaging/common/lmm-api/lmm-api-web.install
           [[ -f "$hook" && ! -L "$hook" ]]
           bash -n "$hook"
-          # Inspect the literal signed-package activation command.
+          # Package installation does not invoke a deployment CLI.
           # shellcheck disable=SC2016
-          grep -Fq '/usr/bin/lmm-api-deploy frontend package-activate --package-version "$1"' "$hook"
+          grep -Fq 'Activate the verified release with the reviewed deployment script.' "$hook"
+          ! grep -Eq 'lmm-api-deploy|/usr/bin/lmm-api ' "$hook"
           [[ ! -e deploy ]]
           [[ ! -e packaging/aur/lmm-api-web-bin/lmm-api-web-activate ]]
           for legal_page in terms privacy; do
