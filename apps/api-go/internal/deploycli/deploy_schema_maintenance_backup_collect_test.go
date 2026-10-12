@@ -31,6 +31,13 @@ func TestSchemaMaintenanceBackupCollectSubprocess(t *testing.T) {
 	case "dump-error":
 		_, _ = os.Stderr.WriteString("SECRET_FIXTURE_CONNECTION_PASSWORD")
 		os.Exit(23)
+	case "partial-dump-error":
+		_, _ = os.Stdout.Write(schemaBackupCollectFixturePlain())
+		_, _ = os.Stderr.WriteString("SECRET_FIXTURE_CONNECTION_PASSWORD")
+		os.Exit(23)
+	case "signal":
+		process, _ := os.FindProcess(os.Getpid())
+		_ = process.Kill()
 	case "encrypt-error":
 		_, _ = os.Stderr.WriteString("SECRET_FIXTURE_CONNECTION_PASSWORD")
 		os.Exit(24)
@@ -164,6 +171,7 @@ type schemaBackupCollectImportRunner struct {
 	cipher        []byte
 	commands      []productionCommand
 	failSSH       bool
+	sshErr        error
 	corruptCipher bool
 }
 
@@ -180,6 +188,9 @@ func (r *schemaBackupCollectImportRunner) Run(_ context.Context, cmd productionC
 		}
 		if r.failSSH {
 			return nil, errors.New("unknown accepted export")
+		}
+		if r.sshErr != nil {
+			return nil, r.sshErr
 		}
 		return r.reply, nil
 	case commandSCP:
