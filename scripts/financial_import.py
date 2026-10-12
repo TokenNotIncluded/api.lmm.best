@@ -9,6 +9,7 @@ before deciding whether the same material may be submitted again.
 from __future__ import annotations
 
 import argparse
+from datetime import datetime
 import hashlib
 import importlib.util
 import json
@@ -529,8 +530,9 @@ def verify_source_files(material: dict) -> None:
         require(IDENTITY.sha256_file(IDENTITY.private_backup_path(Path(item["path"]))) == item["sha256"],
                 "source_file_changed")
     load = lambda name: PLANNER.parse_json(read_private(Path(files[name]["path"])))
-    require(load("financial_plan") == material["source_plan"] and load("source_review") == material["source_review"]
-            and load("identity_manifest") == material["identity_import"]["manifest"], "source_file_content_mismatch")
+    require(all(digest(load(name)) == digest(expected) for name, expected in (
+        ("financial_plan", material["source_plan"]), ("source_review", material["source_review"]),
+        ("identity_manifest", material["identity_import"]["manifest"]))), "source_file_content_mismatch")
     identities = PLANNER.identity_index([PLANNER.parse_json(line) for line in
         read_private(Path(files["identity_map"]["path"])).splitlines() if line])
     require(digest(identities) == material["identity_map_sha256"] and files["identity_map"]["sha256"] ==
@@ -594,11 +596,14 @@ def execute(material: dict, *, approval: dict, original_sql: str, connection: di
             if type(result) is dict and set(result) == set(outcome) and result.get("status") in allowed \
                     and all(result.get(key) == outcome[key] for key in ("migration_id", "material_sha256")):
                 outcome = result
-    except (OSError, ValueError, TypeError, Error, subprocess.TimeoutExpired):
-        pass  # No exception text, source rows, DSN or credentials reach the public result.
+    except Exception:
+        # After a server may have received SQL, even an unexpected verifier error
+        # must not escape as REFUSED (which would imply no write was attempted).
+        # The durable original attempt is the only safe recovery reference.
+        pass
     try:
         write_private(output, "result.private.json", canonical(outcome) + "\n")
-    except OSError:
+    except Exception:
         outcome = {**outcome, "status": "UNKNOWN"}
     return outcome
 
@@ -621,7 +626,7 @@ def prepare(args, output: Path) -> dict:
     rebuilt = PLANNER.plan_financial(tables, identities, source_sha256=proof["source_archive_sha256"],
         source_timezone=plan.get("source_timezone"), identity_provenance=provenance,
         primary_keys=proof["source_primary_keys"], column_schema=proof["source_column_schema"])
-    require(rebuilt == plan, "source_plan_rebuild_mismatch")
+    require(digest(rebuilt) == digest(plan), "source_plan_rebuild_mismatch")
     target = load(args.target_receipt)
     require(target.get("status") == "initialized-identity-bound-financial-target"
             and target.get("application_or_worker_started") is False
@@ -639,8 +644,8 @@ def prepare(args, output: Path) -> dict:
     IDENTITY.verify_instance(snapshot["instance"], connection, target["instance_identity"], source=False)
     require(snapshot["instance"]["system_identifier"] == target["instance_identity"]["system_identifier"],
             "target_system_identifier_mismatch")
-    require((str(snapshot["instance"]["database_oid"]), snapshot["instance"]["postmaster_started_at"]) !=
-            (str(proof["source_instance"]["database_oid"]), proof["source_instance"]["postmaster_started_at"]),
+    require((str(snapshot["instance"]["database_oid"]), datetime.fromisoformat(snapshot["instance"]["postmaster_started_at"])) !=
+            (str(proof["source_instance"]["database_oid"]), datetime.fromisoformat(proof["source_instance"]["postmaster_started_at"])),
             "source_target_same_database")
     paths = {"archive": Path(source["archive"]["path"]), "source_receipt": args.source_receipt,
         "financial_plan": args.plan, "source_export": Path(proof["reused_source_export_path"]),
@@ -695,6 +700,9 @@ def main() -> int:
                              connection=target["connection"], output=output, original_attempt=original)
         print(canonical(result))
         return 2 if result["status"] == "UNKNOWN" else 0
+    except BrokenPipeError:
+        # A missing console ACK does not cancel a committed database transaction.
+        return 2
     except (OSError, ValueError, TypeError, KeyError, Error, PREFLIGHT.FinancialPreflightError, subprocess.TimeoutExpired) as error:
         print(canonical({"status": "REFUSED", "error_code": str(error) if isinstance(error, Error)
                          else type(error).__name__}), file=sys.stderr)

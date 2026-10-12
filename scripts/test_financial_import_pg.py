@@ -48,8 +48,12 @@ class PostgreSQLTests(unittest.TestCase):
             "-c", "listen_addresses=", "-c", "autovacuum=off", "-c", "max_connections=20",
             "-c", "shared_buffers=32MB", "-c", "lmm.migration_instance_nonce=" + cls.name)
         cls.addClassCleanup(cls.cleanup)
+        # The image starts a temporary bootstrap server first. Wait until PID 1
+        # has execed the final server, not merely for that temporary socket.
         for _ in range(100):
-            if cls.docker("exec", cls.name, "pg_isready", "-q", "-U", "postgres", check=False).returncode == 0:
+            if cls.docker("exec", cls.name, "sh", "-c",
+                'test "$(cat /proc/1/comm)" = postgres && pg_isready -q -U postgres',
+                check=False).returncode == 0:
                 break
             time.sleep(0.1)
         else:

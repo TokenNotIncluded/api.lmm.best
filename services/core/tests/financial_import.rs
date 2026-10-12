@@ -21,7 +21,10 @@ fn offline_financial_import_contracts_and_postgres() {
         command.env("LMM_FINANCIAL_PG_TEST", "1");
     }
     assert!(
-        command.status().expect("run financial importer tests").success(),
+        command
+            .status()
+            .expect("run financial importer tests")
+            .success(),
         "financial importer contract or PostgreSQL tests failed"
     );
 }
