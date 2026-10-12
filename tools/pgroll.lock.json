@@ -1,0 +1,25 @@
+{
+  "format": 1,
+  "version": "0.16.3",
+  "repository": "https://github.com/xataio/pgroll",
+  "release": "https://github.com/xataio/pgroll/releases/tag/v0.16.3",
+  "checksums_sha256": "1a8feafa7cf44b3bb2b1a804be60bd901e46130b8c712970f9bdf4add7c9ea02",
+  "assets": {
+    "linux-amd64": {
+      "name": "pgroll.linux.amd64",
+      "sha256": "e86ccd704f7d99a0794a75a6c1d1095d30c8bc8c21a22b793914db8340bad182"
+    },
+    "linux-arm64": {
+      "name": "pgroll.linux.arm64",
+      "sha256": "c37f41f29b8e5784a47f91069975bd397448cf1014d47cd426680f18a84804a7"
+    },
+    "darwin-amd64": {
+      "name": "pgroll.macos.amd64",
+      "sha256": "06569f896f9e489968779485dd4000027ecce3dde63f24a0fca2ac3317df29af"
+    },
+    "darwin-arm64": {
+      "name": "pgroll.macos.arm64",
+      "sha256": "43dfe63f05c74b98a83077bea466238371ad0a245e4081d30ed78760227cd8b4"
+    }
+  }
+}

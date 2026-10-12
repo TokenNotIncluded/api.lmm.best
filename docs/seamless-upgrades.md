@@ -146,11 +146,21 @@ backend until the independent differential and deployment gates pass.
 
 ## PostgreSQL production migration and reconciliation prerequisite
 
+New PostgreSQL schema changes use [pgroll migration files and isolated rehearsal
+evidence](pgroll-migrations.md) as the default delivery format. Production
+execution still requires application compatibility with versioned views, one
+shared-PostgreSQL migration owner, catalog contract verification, and compatible
+per-start startup seals. The current pgroll wrapper does not perform that
+production integration. Do not select `migrate --apply` as the default execution
+path for a new pgroll change.
+
 The historical SQLite-to-PostgreSQL shell coordinator is retired. Production
-migration and verification use `/usr/bin/lmm-api migrate --apply|--verify`
-under the [PostgreSQL production boundary](postgresql-cutover.md).
-Use the [offline migration rehearsal](postgresql-migration.md) for fresh,
-isolated schema preparation and verification; it does not authorize traffic.
+bootstrap and the existing reviewed migration contracts retain
+`/usr/bin/lmm-api migrate --apply|--verify` under the
+[PostgreSQL production boundary](postgresql-cutover.md).
+Use the [historical offline migration rehearsal](postgresql-migration.md) for
+that contract's fresh, isolated schema preparation and verification; it does
+not authorize traffic.
 
 Verify the active schema, durable write boundary, signed package identities,
 N/N-1 compatibility, and authenticated canaries before a database-changing

@@ -73,7 +73,7 @@ Go 和 Web 分别以 `go-vX.Y.Z`、`web-vX.Y.Z` 发布。**合并代码或发布
 | 独立 systemd 服务 | [检查、升级、确认与回退](docs/manual-systemd-deployment.md) |
 | 软件包管理的 Go / Web | [签名发布与升级事务](docs/seamless-upgrades.md) |
 | 只更新前端 | [部署流程与安装方式](docs/deployment-workflow.md) · [组件发布边界](docs/release-architecture.md) |
-| 数据库与缓存 | [PostgreSQL 迁移](docs/postgresql-migration.md) · [生产切换](docs/postgresql-cutover.md) · [Valkey 运维](docs/valkey-lmm-api.md) |
+| 数据库与缓存 | [历史 SQLite → PostgreSQL 18 迁移](docs/postgresql-migration.md) · [生产切换](docs/postgresql-cutover.md) · [Valkey 运维](docs/valkey-lmm-api.md) |
 
 ## 文档
 
@@ -81,6 +81,7 @@ Go 和 Web 分别以 `go-vX.Y.Z`、`web-vX.Y.Z` 发布。**合并代码或发布
 
 - **使用与协作：**[工具发布](docs/tool-market-guide.md)、[连接与授权](docs/tool-market-connections.md)、[悬赏与结算](docs/open-source-bounties.md)。
 - **开发与接口：**[本地开发](docs/development.md)、[贡献指南](CONTRIBUTING.md)、[管理 API](docs/openapi/api.json)、[模型转发 API](docs/openapi/relay.json)。
+- **数据库演练：**新增 PostgreSQL schema 变更默认交付 [pgroll](docs/pgroll-migrations.md) 文件与演练证据；当前提供固定版本与哈希的工具及临时 PostgreSQL 17+ 双版本演练，尚未接入应用或生产迁移。
 - **发布与维护：**[发布架构](docs/release-architecture.md)、[认证与会话](docs/authentication.md)、[Rust 预览](docs/rust-blue-green.md)。
 
 ## Agent 工作流程

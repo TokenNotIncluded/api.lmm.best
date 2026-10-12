@@ -29,6 +29,14 @@ Rust remains an explicit preview. Never route package-owned files through the
 standalone path. API binaries do not accept `operator`; use the
 [separate deployment tool](../../../docs/standalone-deployment-tool.md).
 
+For new PostgreSQL schema changes, use pgroll migration files and isolated
+rehearsal evidence as the default delivery format; read the
+[pgroll integration boundary](../../../docs/pgroll-migrations.md). Production
+still requires application view compatibility, one shared-PG migration owner,
+catalog contracts and compatible per-start startup seals. Do not default to
+`migrate --apply` for a new pgroll change. Existing application bootstrap and
+historical recovery contracts keep their documented paths.
+
 ## Avoid repeated work
 
 Freeze one source revision and choose backend-only, frontend-only or combined.

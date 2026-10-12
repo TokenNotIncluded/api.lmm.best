@@ -87,6 +87,27 @@ Do not run whole-tree formatting or production examples for documentation work.
 Keep actual commands/results and reuse valid evidence. Tests run locally; consult
 [Actions](ci-workflow-layout.md) rather than assuming a PR or push starts test CI.
 
+## Optional pgroll rehearsal
+
+The [pgroll guide](pgroll-migrations.md) provides a hash-pinned tool installation
+and an independent schema-version exercise. Use pgroll migration files and
+rehearsal evidence as the default delivery format for new PostgreSQL schema
+changes. Run from the repository root:
+
+```bash
+just pgroll-install
+just pgroll-version
+just test-pgroll
+just pgroll-rehearse
+```
+
+The real rehearsal requires local PostgreSQL server tools version 17 or newer.
+It creates its own temporary cluster, uses a private Unix socket with TCP
+disabled, and runs synthetic JSON fixtures. It accepts no external DSN and does
+not run application migrations. These commands do not enable pgroll in Go or
+Rust, switch `SQL_DSN`, or authorize a production migration. Keep the
+[historical SQLite to PostgreSQL 18 contract](postgresql-migration.md) separate.
+
 ## Optional recipes and limits
 
 | Recipe | Limit |

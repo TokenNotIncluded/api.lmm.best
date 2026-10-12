@@ -20,6 +20,22 @@ test-lmm:
 setup:
     bun install --frozen-lockfile
 
+# Install the checksum-pinned official pgroll tool in the user's cache.
+pgroll-install:
+    python3 -B scripts/pgroll.py install
+
+# Recheck the pinned binary before reporting its version and path.
+pgroll-version:
+    python3 -B scripts/pgroll.py version
+
+# Rehearse pgroll in a new temporary PostgreSQL 17+ cluster; accepts no DSN.
+pgroll-rehearse:
+    python3 -B scripts/pgroll.py rehearse
+
+# Run offline installer and rehearsal isolation checks, without a database.
+test-pgroll:
+    python3 -B -m unittest discover -s scripts -p test_pgroll.py
+
 # Start only the default PostgreSQL and Valkey development infrastructure.
 infra-up:
     @if [[ ! -f docker-compose.dev.yml ]]; then \

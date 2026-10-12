@@ -1,0 +1,13 @@
+{
+  "operations": [
+    {
+      "alter_column": {
+        "table": "pgroll_fixture_items",
+        "column": "amount",
+        "type": "text",
+        "up": "amount::text",
+        "down": "amount::integer"
+      }
+    }
+  ]
+}
