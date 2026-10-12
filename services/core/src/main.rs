@@ -178,6 +178,9 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
         };
         let mut routes = lmm_core::identity_http::router(native_store);
         if console_enabled {
+            routes = routes.merge(lmm_core::history_read::http::router(
+                lmm_core::history_read::http::HistoryApi::new(pool.clone()),
+            ));
             routes = routes.merge(lmm_core::console_compat::router(
                 lmm_core::console_compat::ConsoleCompat::new(pool.clone(), store.clone()),
             ));

@@ -1,0 +1,124 @@
+diff --git a/services/core/Cargo.lock b/services/core/Cargo.lock
+index e571b17..b54ce58 100644
+--- a/services/core/Cargo.lock
++++ b/services/core/Cargo.lock
+@@ -58,6 +58,15 @@ version = "1.0.104"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
+ 
++[[package]]
++name = "arbitrary"
++version = "1.5.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "3bc62ac97cc33321f50863d514c3bc38a453947a8f9e781137e47c7401020aed"
++dependencies = [
++ "derive_arbitrary",
++]
++
+ [[package]]
+ name = "argon2"
+ version = "0.5.3"
+@@ -331,6 +340,15 @@ version = "2.5.0"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "217698eaf96b4a3f0bc4f3662aaa55bdf913cd54d7204591faa790070c6d0853"
+ 
++[[package]]
++name = "crc32fast"
++version = "1.5.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "01a7799fd6b852db0e61728dde9a204c423b44d689dbd432522543614b490e78"
++dependencies = [
++ "cfg-if",
++]
++
+ [[package]]
+ name = "crossbeam-queue"
+ version = "0.3.14"
+@@ -376,6 +394,17 @@ dependencies = [
+  "zeroize",
+ ]
+ 
++[[package]]
++name = "derive_arbitrary"
++version = "1.5.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "1b034bd7d5f032402a2479444dcc6f74e36a03f31854d41680fb240ef682a1ac"
++dependencies = [
++ "proc-macro2",
++ "quote",
++ "syn 3.0.6",
++]
++
+ [[package]]
+ name = "digest"
+ version = "0.10.7"
+@@ -1095,6 +1124,7 @@ dependencies = [
+  "hmac",
+  "http-body",
+  "jsonwebtoken",
++ "num-rational",
+  "prost",
+  "protoc-bin-vendored",
+  "rand 0.8.5",
+@@ -1111,6 +1141,7 @@ dependencies = [
+  "tonic-prost",
+  "tonic-prost-build",
+  "tower",
++ "zip",
+ ]
+ 
+ [[package]]
+@@ -1179,6 +1210,16 @@ version = "0.10.1"
+ source = "registry+https://github.com/rust-lang/crates.io-index"
+ checksum = "1d87ecb2933e8aeadb3e3a02b828fed80a7528047e68b4f424523a0981a3a084"
+ 
++[[package]]
++name = "num-bigint"
++version = "0.4.8"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "c89e69e7e0f03bea5ef08013795c25018e101932225a656383bd384495ecc367"
++dependencies = [
++ "num-integer",
++ "num-traits",
++]
++
+ [[package]]
+ name = "num-bigint-dig"
+ version = "0.8.6"
+@@ -1214,6 +1255,17 @@ dependencies = [
+  "num-traits",
+ ]
+ 
++[[package]]
++name = "num-rational"
++version = "0.4.2"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "f83d14da390562dca69fc84082e73e548e1ad308d24accdedd2720017cb37824"
++dependencies = [
++ "num-bigint",
++ "num-integer",
++ "num-traits",
++]
++
+ [[package]]
+ name = "num-traits"
+ version = "0.2.19"
+@@ -3131,6 +3183,18 @@ dependencies = [
+  "syn 3.0.6",
+ ]
+ 
++[[package]]
++name = "zip"
++version = "6.0.0"
++source = "registry+https://github.com/rust-lang/crates.io-index"
++checksum = "eb2a05c7c36fde6c09b08576c9f7fb4cda705990f73b58fe011abf7dfb24168b"
++dependencies = [
++ "arbitrary",
++ "crc32fast",
++ "indexmap",
++ "memchr",
++]
++
+ [[package]]
+ name = "zmij"
+ version = "1.0.23"

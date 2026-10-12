@@ -1,0 +1,57 @@
+name: A04 history and finance acceptance
+on:
+  pull_request:
+    branches: [wip/rust-core-go-extensions]
+    paths:
+      - .github/workflows/a04-history.yml
+      - services/core/**
+permissions:
+  contents: read
+concurrency:
+  group: a04-history-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  postgres:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    services:
+      postgres:
+        image: postgres:17-alpine
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres" --health-interval 5s
+          --health-timeout 3s --health-retries 10
+    env:
+      DATABASE_URL: postgres://postgres:postgres@127.0.0.1:5432/postgres
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          persist-credentials: false
+      - uses: jdx/mise-action@5228313ee0372e111a38da051671ca30fc5a96db
+        with:
+          version: '2026.10.8'
+          install: false
+          add_shims_to_path: false
+          env: false
+      - name: Isolated Rust and PostgreSQL acceptance
+        run: |
+          mkdir -p "$RUNNER_TEMP/a04-tools"
+          cd "$RUNNER_TEMP/a04-tools"
+          printf '[tools]\nrust = "1.99.0"\n' > mise.toml
+          mise trust mise.toml
+          mise install rust@1.99.0
+          mise exec -- rustup component add --toolchain 1.99.0 rustfmt
+          mise exec -- bash "$GITHUB_WORKSPACE/services/core/tests/history_read/check.sh"
+      - name: Preserve exact input and all test results
+        if: ${{ always() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: a04-acceptance-${{ github.sha }}
+          path: ${{ runner.temp }}/a04-evidence
+          if-no-files-found: warn
+          retention-days: 7
