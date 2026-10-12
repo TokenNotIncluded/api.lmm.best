@@ -36,6 +36,12 @@ type productionSchemaMaintenanceController struct {
 }
 
 func (runtime *productionRuntime) newSchemaMaintenanceController(ctx context.Context, planPath, planSHA, projectionPath, projectionSHA string) (*productionSchemaMaintenanceController, error) {
+	return runtime.newSchemaMaintenanceControllerWithPreExec(ctx, planPath, planSHA, projectionPath, projectionSHA, nil)
+}
+
+// Only the dedicated pre-execution rejection entrypoint supplies this typed ref.
+// The ordinary controller continues to require its original signed engine.
+func (runtime *productionRuntime) newSchemaMaintenanceControllerWithPreExec(ctx context.Context, planPath, planSHA, projectionPath, projectionSHA string, preExec *productionReleaseFilePlan) (*productionSchemaMaintenanceController, error) {
 	plan, err := runtime.loadSchemaMaintenancePlan(planPath, planSHA)
 	if err != nil {
 		return nil, err
@@ -75,11 +81,20 @@ func (runtime *productionRuntime) newSchemaMaintenanceController(ctx context.Con
 	if err != nil {
 		return nil, err
 	}
-	if _, err = runtime.verifyMerchantStoreCapsuleArtifact(ctx, artifacts, false); err != nil {
-		return nil, err
+	engineSHA := plan.Worker.Provider.DeployEngineSHA256
+	if preExec == nil {
+		if _, err = runtime.verifyMerchantStoreCapsuleArtifact(ctx, artifacts, false); err != nil {
+			return nil, err
+		}
+	} else {
+		recoverer, err := runtime.qualifySchemaMaintenancePreExecRecovery(ctx, plan, planSHA, *preExec)
+		if err != nil {
+			return nil, err
+		}
+		engineSHA = recoverer.Candidate.DeployEngineSHA256
 	}
-	if sha256MustEqual("/proc/self/exe", plan.Worker.Provider.DeployEngineSHA256) != nil {
-		return nil, errors.New("schema controller actual signed engine differs from its fixed worker release")
+	if sha256MustEqual("/proc/self/exe", engineSHA) != nil {
+		return nil, errors.New("schema controller actual signed engine differs from its fixed recovery authority")
 	}
 	c.host, err = runtime.newSchemaMaintenanceHost(ctx, binding, c.checkPlan)
 	if err != nil {

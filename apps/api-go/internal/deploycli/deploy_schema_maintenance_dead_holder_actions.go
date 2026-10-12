@@ -12,6 +12,10 @@ import (
 func (d *productionSchemaMaintenanceDeadHolderController) casAuthority(ctx context.Context, persistOriginalOwner bool) (productionSchemaMaintenanceDeadPreWorkerCASAuthority, error) {
 	c := d.base
 	a := productionSchemaMaintenanceDeadPreWorkerCASAuthority{Plan: c.plan, PrePlanSHA256: c.planSHA, OldCapsuleSHA256: c.origin.OldCapsule.SHA256, OriginalDaemon: d.original, OwnerMode: d.ownerMode, CheckLocalDeadAuthority: d.checkLeasedLocal}
+	if d.preExecRecovery != nil {
+		a.PreExecRecovery = d.preExecRecovery
+		a.RecoveryEngineSHA256 = d.engineSHA256()
+	}
 	if c.origin.Host != c.plan.PrimaryHost {
 		return a, errors.New("dead pre-worker owner CAS is fixed-primary only")
 	}
@@ -34,12 +38,16 @@ func (d *productionSchemaMaintenanceDeadHolderController) casAuthority(ctx conte
 	return a, nil
 }
 func (d *productionSchemaMaintenanceDeadHolderController) recoveredResult(ctx context.Context) (productionSchemaMaintenanceDeadPreWorkerCASResult, error) {
-	c := d.base
 	var result productionSchemaMaintenanceDeadPreWorkerCASResult
 	binding, _, err := d.binding(ctx)
 	if err != nil {
 		return result, err
 	}
+	return d.readRecoveredResult(binding)
+}
+func (d *productionSchemaMaintenanceDeadHolderController) readRecoveredResult(binding productionSchemaMaintenanceDeadHolderBinding) (productionSchemaMaintenanceDeadPreWorkerCASResult, error) {
+	c := d.base
+	var result productionSchemaMaintenanceDeadPreWorkerCASResult
 	// An independent native reconciliation can close a lost/partial normal
 	// result without replacing it. Its exact old intent and actual PG proof
 	// are still mandatory; an unreadable reconciliation never falls back.
@@ -56,7 +64,7 @@ func (d *productionSchemaMaintenanceDeadHolderController) recoveredResult(ctx co
 	if d.ownerMode == "ZERO_OWNER" {
 		expectedMode, expectedOutcome = "ZERO_OWNER", "ZERO_OWNER_CONFIRMED"
 	}
-	if !bytes.Equal(raw, append(canonical, '\n')) || result.Format != "lmm-schema-maintenance-dead-preworker-cas-v1" || result.TransitionID != c.plan.TransitionID || result.PrePlanSHA256 != c.planSHA || result.Mode != expectedMode || (result.Outcome != expectedOutcome && result.Outcome != "OWNER_ABSENCE_RECONCILED") || result.OriginalDaemon != primary.OriginalDaemon || result.OriginalOwnerSHA256 != d.ownerSHA || result.OldCapsule != primary.OldCapsule || result.PreSchema != c.plan.PreSchema || result.ProviderSHA256 != c.plan.Worker.Provider.PayloadSHA256 || result.RecovererEXESHA256 != c.plan.Worker.Provider.DeployEngineSHA256 || result.RecovererPID != primary.RecoveryDaemon.DaemonPID || result.RecovererInvocationID != primary.RecoveryDaemon.DaemonInvocationID || !productionSHA256Pattern.MatchString(result.IntentSHA256) || result.StartedUTC.IsZero() || result.FinishedUTC.Before(result.StartedUTC) {
+	if !bytes.Equal(raw, append(canonical, '\n')) || result.Format != "lmm-schema-maintenance-dead-preworker-cas-v1" || result.TransitionID != c.plan.TransitionID || result.PrePlanSHA256 != c.planSHA || result.Mode != expectedMode || (result.Outcome != expectedOutcome && result.Outcome != "OWNER_ABSENCE_RECONCILED") || result.OriginalDaemon != primary.OriginalDaemon || result.OriginalOwnerSHA256 != d.ownerSHA || result.OldCapsule != primary.OldCapsule || result.PreSchema != c.plan.PreSchema || result.ProviderSHA256 != c.plan.Worker.Provider.PayloadSHA256 || result.RecovererEXESHA256 != d.engineSHA256() || result.RecovererPID != primary.RecoveryDaemon.DaemonPID || result.RecovererInvocationID != primary.RecoveryDaemon.DaemonInvocationID || !productionSHA256Pattern.MatchString(result.IntentSHA256) || result.StartedUTC.IsZero() || result.FinishedUTC.Before(result.StartedUTC) {
 		return result, errors.New("dead pre-worker recovery has no exact native CAS outcome")
 	}
 	if c.origin.Host == c.plan.PrimaryHost {
@@ -83,6 +91,11 @@ func (d *productionSchemaMaintenanceDeadHolderController) recoverOwner(ctx conte
 	for _, name := range []string{"dead-preworker-cas-intent.json", "dead-preworker-cas-result.json", "dead-preworker-cas-reconciled.json"} {
 		if _, err := os.Lstat(filepath.Join(d.base.origin.Workspace, "state", name)); !errors.Is(err, os.ErrNotExist) {
 			return result, errors.New("dead holder owner CAS was attempted; only actual read-only diagnosis and reconciliation are allowed")
+		}
+	}
+	if d.preExecRecovery != nil {
+		if err := d.base.runtime.checkSchemaMaintenancePreExecAdmissionUnattempted(d.base.plan); err != nil {
+			return result, err
 		}
 	}
 	if _, _, err := d.binding(ctx); err != nil {
@@ -209,7 +222,7 @@ func (d *productionSchemaMaintenanceDeadHolderController) handle(ctx context.Con
 		} else if !errors.Is(err, os.ErrNotExist) {
 			return schemaMaintenanceRPCReply{}, err
 		}
-		return schemaMaintenanceRPCResult(map[string]string{"phase": phase, "mode": schemaMaintenanceDeadHolderMode, "host": c.origin.Host, "transition_id": c.plan.TransitionID, "pre_plan_sha256": c.planSHA}, nil)
+		return schemaMaintenanceRPCResult(map[string]string{"phase": phase, "mode": d.mode(), "host": c.origin.Host, "transition_id": c.plan.TransitionID, "pre_plan_sha256": c.planSHA}, nil)
 	default:
 		return schemaMaintenanceRPCReply{}, errors.New("dedicated dead holder RPC action is not permitted")
 	}
