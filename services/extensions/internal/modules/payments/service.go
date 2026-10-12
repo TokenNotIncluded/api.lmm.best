@@ -35,6 +35,24 @@ func New(store Store, core Core, adapters ...Adapter) (*Service, error) {
 	return s, nil
 }
 func (s *Service) Name() string { return "payments" }
+
+// orderAdapter binds recovery to the original Core intent. A reused channel ID
+// must never redirect an old checkout, lookup or refund to another merchant.
+// Enabled gates new orders only; disabled channels can still finish old work.
+func (s *Service) orderAdapter(o Order) (Adapter, error) {
+	a := s.adapters[o.ChannelID]
+	if a == nil {
+		return nil, ErrUnavailable
+	}
+	c := a.Channel()
+	if c.ID != o.ChannelID || c.namespace() != o.Namespace ||
+		c.Provider != o.Intent.Provider || c.Merchant != o.Intent.Merchant ||
+		c.Environment != o.Intent.Environment || c.Currency != o.Intent.Currency {
+		return nil, ErrConflict
+	}
+	return a, nil
+}
+
 func (s *Service) Create(ctx context.Context, credential string, req PrepareRequest) (Order, error) {
 	a := s.adapters[req.ChannelID]
 	if a == nil || !a.Channel().Enabled || !validKey(req.Key) || req.AccountID <= 0 || !validAmount(req.AmountMinor) || req.Currency != a.Channel().Currency {
@@ -84,8 +102,11 @@ func (s *Service) RequestRefund(ctx context.Context, credential, id, key string,
 	if err != nil {
 		return Refund{}, err
 	}
-	a := s.adapters[o.ChannelID]
-	if a == nil || !a.RefundEnabled() || amount != o.Intent.AmountMinor && !a.PartialRefunds() {
+	a, err := s.orderAdapter(o)
+	if err != nil {
+		return Refund{}, err
+	}
+	if !a.RefundEnabled() || amount != o.Intent.AmountMinor && !a.PartialRefunds() {
 		return Refund{}, ErrUnsupported
 	}
 	rid := stableKey("refund", id, key)
@@ -251,6 +272,9 @@ func (s *Service) eventOrder(ctx context.Context, a Adapter, e Event) (Order, er
 	if err != nil {
 		return Order{}, err
 	}
+	if _, err := s.orderAdapter(o); err != nil {
+		return Order{}, err
+	}
 	if o.ChannelID != a.Channel().ID || !sameChannel(e.Evidence, a.Channel()) || e.Currency != o.Intent.Currency ||
 		o.PaymentID != "" && o.PaymentID != e.Evidence.Transaction ||
 		(e.Type == Paid || e.Type == PaymentFailed) && e.AmountMinor != o.Intent.AmountMinor ||
@@ -289,11 +313,11 @@ func (s *Service) Drain(ctx context.Context, limit int) error {
 	return nil
 }
 func (s *Service) apply(ctx context.Context, e Event) error {
+	a := s.adapters[e.ChannelID]
+	if a == nil {
+		return ErrUnavailable
+	}
 	if e.Evidence.Source == "webhook" && e.Evidence.AcceptedProofID == "" {
-		a := s.adapters[e.ChannelID]
-		if a == nil {
-			return ErrUnavailable
-		}
 		o, err := s.eventOrder(ctx, a, e)
 		if err != nil {
 			return err
@@ -308,7 +332,7 @@ func (s *Service) apply(ctx context.Context, e Event) error {
 	}
 	id := e.OrderID
 	if id == "" {
-		c := s.adapters[e.ChannelID].Channel()
+		c := a.Channel()
 		o, err := s.store.FindPayment(ctx, c.namespace(), e.Evidence.Transaction)
 		if err != nil {
 			return err
@@ -316,8 +340,11 @@ func (s *Service) apply(ctx context.Context, e Event) error {
 		id = o.ID
 	}
 	return s.store.Mutate(ctx, id, func(o *Order) error {
-		a := s.adapters[o.ChannelID]
-		if a == nil || o.ChannelID != e.ChannelID || !sameChannel(e.Evidence, a.Channel()) || e.Currency != o.Intent.Currency ||
+		a, err := s.orderAdapter(*o)
+		if err != nil {
+			return err
+		}
+		if o.ChannelID != e.ChannelID || !sameChannel(e.Evidence, a.Channel()) || e.Currency != o.Intent.Currency ||
 			o.PaymentID != "" && o.PaymentID != e.Evidence.Transaction {
 			return ErrConflict
 		}
@@ -420,9 +447,9 @@ func (s *Service) Reconcile(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	a := s.adapters[o.ChannelID]
-	if a == nil {
-		return ErrUnavailable
+	a, err := s.orderAdapter(o)
+	if err != nil {
+		return err
 	}
 	events, err := a.Lookup(ctx, o)
 	if err != nil {
