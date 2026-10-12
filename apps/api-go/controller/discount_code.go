@@ -230,9 +230,14 @@ func ValidateDiscountCode(c *gin.Context) {
 			common.ApiErrorMsg(c, err.Error())
 			return
 		}
-		amount = topUpConfigAmountFromLegacy(legacy)
 		if _, canonical := canonicalTopUpCredit(c); canonical {
-			amount = topUpConfigAmountFromResolved(resolved)
+			amount, err = topUpCouponAmountForCredits(resolved.CreditedQuota)
+			if err != nil {
+				common.ApiErrorMsg(c, err.Error())
+				return
+			}
+		} else {
+			amount = topUpConfigAmountFromLegacy(legacy)
 		}
 		if topUpRequestUnit("") == "CREDIT" {
 			amount = amount.Floor()

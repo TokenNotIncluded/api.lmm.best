@@ -2,7 +2,6 @@ package controller
 
 import (
 	"fmt"
-	"math"
 	"strconv"
 	"strings"
 
@@ -34,14 +33,8 @@ func topUpCreditMetadata(payMethods []map[string]string) (gin.H, error) {
 	}
 	quotaPerBatch := decimal.NewFromFloat(common.QuotaPerUnit)
 	tokens := operation_setting.GetQuotaDisplayType() == operation_setting.QuotaDisplayTypeTokens
-	catalogCredit := func(raw string, discount bool) (int64, error) {
-		var value decimal.Decimal
-		var err error
-		if discount {
-			value, err = operation_setting.ParsePaymentDiscountAmount(raw)
-		} else {
-			value, err = operation_setting.ParsePaymentAmount(raw)
-		}
+	catalogCredit := func(raw string) (int64, error) {
+		value, err := operation_setting.ParsePaymentAmount(raw)
 		if err != nil {
 			return 0, err
 		}
@@ -51,26 +44,15 @@ func topUpCreditMetadata(payMethods []map[string]string) (gin.H, error) {
 	paymentSetting := operation_setting.GetPaymentSetting()
 	options := make([]int64, 0, len(paymentSetting.AmountOptions))
 	for _, amount := range paymentSetting.AmountOptions {
-		credits, err := catalogCredit(amount.String(), false)
+		credits, err := catalogCredit(amount.String())
 		if err != nil {
 			return nil, err
 		}
 		options = append(options, credits)
 	}
-	discounts := make(map[string]float64, len(paymentSetting.AmountDiscount))
-	for amount, discount := range paymentSetting.AmountDiscount {
-		credits, err := catalogCredit(amount, true)
-		if err != nil {
-			return nil, err
-		}
-		if math.IsNaN(discount) || math.IsInf(discount, 0) || discount <= 0 {
-			return nil, fmt.Errorf("invalid top-up discount for catalog amount %s", amount)
-		}
-		key := strconv.FormatInt(credits, 10)
-		if previous, exists := discounts[key]; exists && previous != discount {
-			return nil, fmt.Errorf("conflicting top-up discounts for credit amount %s", key)
-		}
-		discounts[key] = discount
+	discounts, err := topUpCreditDiscounts(paymentSetting.AmountDiscount, tokens)
+	if err != nil {
+		return nil, err
 	}
 
 	metadata := gin.H{
