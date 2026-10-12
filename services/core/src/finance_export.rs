@@ -2,6 +2,8 @@
 //! Allowlisted usage JSON for the finance ZIP. This is not an HTTP endpoint or
 //! a complete finance bundle. The caller must authorize and select rows under
 //! the same read snapshot; no raw storage object implements Serialize here.
+pub mod archive;
+
 use crate::history_read::{LogQuotaInput, QuotaMoneyProjection, project_log};
 use serde::Serialize;
 use std::io::{self, Write};
@@ -25,7 +27,7 @@ pub struct UsageExportInput<'a> {
     pub completion_tokens: i64,
     pub use_time: i64,
     pub is_stream: bool,
-    pub channel_id: i64,
+    pub channel_id: Option<i64>,
     pub group: &'a str,
     pub other: &'a str,
 }
@@ -48,7 +50,7 @@ struct UsageExportRow<'a> {
     completion_tokens: i64,
     use_time: i64,
     is_stream: bool,
-    channel_id: i64,
+    channel_id: Option<i64>,
     group: &'a str,
 }
 

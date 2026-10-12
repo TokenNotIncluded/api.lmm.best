@@ -11,6 +11,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::value::RawValue;
 use std::collections::BTreeMap;
 
+pub mod repository;
+pub mod http;
 pub mod snapshot;
 pub mod usage;
 

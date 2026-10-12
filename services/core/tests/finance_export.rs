@@ -10,7 +10,7 @@ fn row(id: i64, other: &str) -> UsageExportInput<'_> {
         log_id: id, user_id: 7, created_at: 1700000000, log_type: 2,
         username: "synthetic-user", token_name: "synthetic-token", model_name: "local-model",
         quota: Some(500000), prompt_tokens: 5, completion_tokens: 2, use_time: 1,
-        is_stream: false, channel_id: 9, group: "default", other,
+        is_stream: false, channel_id: Some(9), group: "default", other,
     }
 }
 

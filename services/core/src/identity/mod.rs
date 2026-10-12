@@ -277,6 +277,14 @@ async fn authenticate(c: &mut PgConnection, secret: &str, write: bool) -> Result
         .ok_or(IdentityError::Unauthorized)?;
     principal(c, row).await
 }
+/// Read authority without row locks in the caller's read-only snapshot.
+/// This does not authorize financial writes or reserve money.
+pub(crate) async fn authorize_read_in_transaction(
+    connection: &mut PgConnection,
+    secret: &str,
+) -> Result<Principal> {
+    authenticate(connection, secret, false).await
+}
 /// Authenticate and hold current credential, user and account authority locks
 /// in the caller's transaction. Financial writes must use this same transaction.
 pub(crate) async fn authorize_in_transaction(
