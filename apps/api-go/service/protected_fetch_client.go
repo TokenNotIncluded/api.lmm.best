@@ -89,7 +89,7 @@ func newProtectedFetchHTTPClientWithProxy(resolver ssrfResolver, dialContext fun
 			proxy:         proxy,
 			transports:    make(map[string]*http.Transport),
 		},
-		CheckRedirect: checkProtectedFetchRedirect,
+		CheckRedirect: checkCredentialSafeFetchRedirect,
 	}
 	if common.RelayTimeout != 0 {
 		client.Timeout = time.Duration(common.RelayTimeout) * time.Second
@@ -142,15 +142,15 @@ func (t *ssrfProtectedRoundTripper) transportFor(proxyURL *url.URL) *http.Transp
 
 func (t *ssrfProtectedRoundTripper) newTransport(proxyURL *url.URL) *http.Transport {
 	dialContext := t.dialContext
-	proxyFunc := http.ProxyURL(proxyURL)
-	if proxyURL == nil {
-		protectedDialer := &protectedFetchDialer{
-			resolver:      t.resolver,
-			dialContext:   t.dialContext,
-			getProtection: t.getProtection,
-		}
-		dialContext = protectedDialer.DialContext
-		proxyFunc = nil
+	if proxyURL != nil {
+		// The proxy must receive a checked literal target, not a hostname that it
+		// can resolve differently. HTTP CONNECT preserves the request Host and TLS SNI.
+		dialContext = protectedFetchProxyDialContext(proxyURL, dialContext)
+	}
+	protectedDialer := &protectedFetchDialer{
+		resolver:      t.resolver,
+		dialContext:   dialContext,
+		getProtection: t.getProtection,
 	}
 
 	transport := &http.Transport{
@@ -158,8 +158,8 @@ func (t *ssrfProtectedRoundTripper) newTransport(proxyURL *url.URL) *http.Transp
 		MaxIdleConnsPerHost: common.RelayMaxIdleConnsPerHost,
 		IdleConnTimeout:     time.Duration(common.RelayIdleConnTimeout) * time.Second,
 		ForceAttemptHTTP2:   true,
-		Proxy:               proxyFunc,
-		DialContext:         dialContext,
+		Proxy:               nil,
+		DialContext:         protectedDialer.DialContext,
 	}
 	if common.TLSInsecureSkipVerify {
 		transport.TLSClientConfig = common.InsecureTLSConfig.Clone()
