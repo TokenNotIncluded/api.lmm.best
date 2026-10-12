@@ -4,7 +4,7 @@ use lmm_core::accounts;
 #[path = "../src/identity/permissions.rs"]
 pub(crate) mod permissions;
 mod identity {
-    pub use lmm_core::identity::CredentialKind;
+    pub use lmm_core::identity::{CredentialKind, IdentityError, Principal, authorize_in_transaction};
     pub(crate) use crate::permissions;
 }
 #[allow(dead_code)]
@@ -193,4 +193,18 @@ fn developer_gate_consumes_persisted_grant_and_does_not_infer_payment() {
         assert_eq!(decide_developer(actor(role), DeveloperFacts { user_id: 42, granted: Some(true) }),
             PermissionDecision::Deny(Denial::WrongSubject));
     }
+}
+
+#[test]
+fn stored_policy_round_trip_binds_every_slot_and_rejects_corruption() {
+    let p = policy(PlatformRole::Admin, &[(Permission::ChannelRead, Effect::Deny)]);
+    let effects = p.stored_effects();
+    let restored = PolicySnapshot::from_storage(41, "admin", 3, CONTRACT_VERSION, &effects, &p.fingerprint()).unwrap();
+    assert_eq!(restored.fingerprint(), p.fingerprint());
+    for changed in [vec![0; 8], vec![0; 10], vec![3; 9], vec![-1; 9]] {
+        assert!(PolicySnapshot::from_storage(41, "admin", 3, CONTRACT_VERSION, &changed, &p.fingerprint()).is_err());
+    }
+    assert!(PolicySnapshot::from_storage(41, "admin", 3, "a01-permissions-v1", &effects, &p.fingerprint()).is_err());
+    assert!(PolicySnapshot::from_storage(42, "admin", 3, CONTRACT_VERSION, &effects, &p.fingerprint()).is_err());
+    assert!(PolicySnapshot::from_storage(41, "admin", 3, CONTRACT_VERSION, &effects, &[0; 32]).is_err());
 }

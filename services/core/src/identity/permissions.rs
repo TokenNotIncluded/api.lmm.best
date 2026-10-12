@@ -1,4 +1,5 @@
-//! Pure A01 decisions. These values are not bearer tokens or database proofs.
+//! A01 pure decisions and the transaction-bound platform permission loader.
+//! Pure values are not bearer tokens or database proofs.
 //!
 //! Baseline: main@53bf14fca577c61e75de2b3e1f1edf93e4e2fd18,
 //! apps/api-go/service/authz/{resources_channel,resources_acquisition,resolver}.go.
@@ -8,7 +9,7 @@ use crate::accounts::TeamRole;
 use crate::identity::CredentialKind;
 use sha2::{Digest, Sha256};
 
-pub(crate) const CONTRACT_VERSION: &str = "a01-permissions-v1";
+pub(crate) const CONTRACT_VERSION: &str = "a01-permissions-v2";
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub(crate) enum PlatformRole {
@@ -27,6 +28,9 @@ impl PlatformRole {
     }
     pub(crate) fn is_admin(self) -> bool {
         matches!(self, Self::Admin | Self::Superadmin)
+    }
+    pub(crate) fn storage_name(self) -> &'static str {
+        match self { Self::User => "user", Self::Admin => "admin", Self::Superadmin => "superadmin" }
     }
     fn hash_tag(self) -> u8 {
         match self {
@@ -224,6 +228,35 @@ impl PolicySnapshot {
     pub(crate) fn role(&self) -> PlatformRole { self.role }
     pub(crate) fn version(&self) -> i64 { self.version }
 
+    /// Fixed slots prevent duplicate/unknown persisted grants and JSON authority injection.
+    pub(crate) fn stored_effects(&self) -> Vec<i16> {
+        self.overrides.iter().map(|effect| match effect {
+            None => 0, Some(Effect::Allow) => 1, Some(Effect::Deny) => 2,
+        }).collect()
+    }
+    pub(crate) fn from_storage(
+        user_id: i64, role: &str, version: i64, contract: &str,
+        effects: &[i16], fingerprint: &[u8],
+    ) -> Result<Self, Denial> {
+        if contract != CONTRACT_VERSION || effects.len() != Permission::ALL.len() {
+            return Err(Denial::InvalidPolicy);
+        }
+        let mut overrides = Vec::new();
+        for (&permission, &effect) in Permission::ALL.iter().zip(effects) {
+            match effect {
+                0 => (),
+                1 => overrides.push((permission, Effect::Allow)),
+                2 => overrides.push((permission, Effect::Deny)),
+                _ => return Err(Denial::InvalidPolicy),
+            }
+        }
+        let policy = Self::new(user_id, PlatformRole::from_storage(role)?, version, &overrides)?;
+        if policy.fingerprint().as_slice() != fingerprint {
+            return Err(Denial::InvalidPolicy);
+        }
+        Ok(policy)
+    }
+
     /// Exact encoding: contract + NUL, i64 BE subject/version, role byte,
     /// then the fixed catalog's UTF-8 key + NUL + {0=inherit,1=allow,2=deny}.
     /// Never hash a caller-supplied JSON map or unordered policy rows.
@@ -388,4 +421,63 @@ pub(crate) fn decide_team(
             }
         }
     })().into()
+}
+
+/// Gate for a *live* operation, not an authorization token that can be cached.
+/// The transaction argument is mandatory. Hold it through the protected write.
+/// `permission` and `scope` come from a literal server operation and a Core-loaded
+/// resource, never a caller-selected action, host credential or model output.
+pub(crate) async fn require_platform_in_transaction(
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    secret: &str,
+    permission: Permission,
+    scope: ResourceScope,
+) -> Result<crate::identity::Principal, crate::identity::IdentityError> {
+    use crate::identity::{IdentityError, authorize_in_transaction};
+    use sqlx::Row;
+
+    // This helper cannot stand in for A02's action-bound secure confirmation.
+    // Keep these sensitive live operations unavailable until that provider is
+    // integrated; a policy grant alone is not a secret-view/write authorization.
+    if matches!(permission, Permission::ChannelSecretView | Permission::ChannelSensitiveWrite) {
+        return Err(IdentityError::Forbidden);
+    }
+    // Native authentication locks credentials/user/account rows and applies
+    // expiry, revocation, current auth_version and browser-family policy.
+    let actor = authorize_in_transaction(&mut **tx, secret).await?;
+    if actor.credential_kind != CredentialKind::Session {
+        return Err(IdentityError::Forbidden);
+    }
+    let row = sqlx::query(
+        "SELECT u.platform_role,u.auth_version,c.user_version \
+         FROM core_identity.users u JOIN core_identity.credentials c ON c.user_id=u.id \
+         WHERE u.id=$1 AND c.id=$2 AND u.active FOR SHARE OF u,c",
+    ).bind(actor.user_id).bind(actor.credential_id).fetch_one(&mut **tx).await?;
+    let current_role = PlatformRole::from_storage(&row.try_get::<String, _>("platform_role")?)
+        .map_err(|_| IdentityError::Storage)?;
+    if !current_role.is_admin() { return Err(IdentityError::Forbidden); }
+    let facts = ActorFacts {
+        user_id: actor.user_id, credential_kind: actor.credential_kind,
+        credential_auth_version: row.try_get("user_version")?,
+        current_auth_version: row.try_get("auth_version")?,
+        current_role, active: true,
+    };
+    // The native user SHARE lock is the authorization fence. Policy mutations
+    // advance/lock that same user via guard_admin_policy before becoming visible.
+    // Do NOT lock this SELECT: FOR SHARE needs UPDATE privilege on policy rows,
+    // while the network role must have SELECT only. No stale in-memory grants.
+    let row = sqlx::query(
+        "SELECT role,version,contract_version,effects,fingerprint \
+         FROM core_identity.admin_policies WHERE user_id=$1",
+    ).bind(actor.user_id).fetch_optional(&mut **tx).await?
+        .ok_or(IdentityError::Forbidden)?;
+    let policy = PolicySnapshot::from_storage(
+        actor.user_id, &row.try_get::<String, _>("role")?, row.try_get("version")?,
+        &row.try_get::<String, _>("contract_version")?,
+        &row.try_get::<Vec<i16>, _>("effects")?, &row.try_get::<Vec<u8>, _>("fingerprint")?,
+    ).map_err(|_| IdentityError::Storage)?;
+    match decide_platform(facts, &policy, policy.version(), permission, scope) {
+        PermissionDecision::Allow => Ok(actor),
+        PermissionDecision::Deny(_) => Err(IdentityError::Forbidden),
+    }
 }
