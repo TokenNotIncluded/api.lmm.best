@@ -55,6 +55,42 @@ test('a mixed cart uses exact variant supply and real purchase limits without ze
   assert.equal(product.variants?.[0].inventory_available, 0)
 })
 
+test('buyer-limited cart capacity fails closed without a valid remaining allowance', () => {
+  const limited = { ...product, max_quantity_per_buyer: 4 }
+  for (const remaining of [undefined, null, -1, 1.5, Number.NaN, Infinity]) {
+    assert.equal(
+      storeCartCapacity(
+        { ...limited, buyer_purchase_remaining: remaining },
+        'fixed'
+      ),
+      0
+    )
+  }
+  assert.equal(
+    storeCartCapacity({ ...limited, buyer_purchase_remaining: 0 }, 'fixed'),
+    0
+  )
+  assert.equal(
+    storeCartCapacity({ ...limited, buyer_purchase_remaining: 2 }, 'fixed'),
+    2
+  )
+  assert.equal(
+    storeCartCapacity({ ...limited, buyer_purchase_remaining: 9 }, 'fixed'),
+    4
+  )
+  assert.equal(
+    storeCartCapacity({ ...limited, buyer_purchase_remaining: 4 }, 'card'),
+    2
+  )
+  assert.equal(
+    storeCartCapacity(
+      { ...limited, max_quantity_per_order: 1, buyer_purchase_remaining: 3 },
+      'fixed'
+    ),
+    1
+  )
+})
+
 test('cart capacity honors shared sales ceilings and paused fixed variants', () => {
   assert.equal(
     storeCartCapacity(

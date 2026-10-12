@@ -40,7 +40,8 @@ export function storeCartCapacity(
   ) {
     if (
       !Number.isSafeInteger(product.max_quantity_per_buyer) ||
-      product.max_quantity_per_buyer < 1
+      product.max_quantity_per_buyer < 1 ||
+      product.buyer_purchase_remaining == null
     ) {
       return 0
     }
