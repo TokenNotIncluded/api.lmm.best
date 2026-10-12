@@ -201,10 +201,16 @@ export function PublicHeader(props: PublicHeaderProps) {
   }, [closeMobileMenu])
 
   useEffect(() => {
-    const previousOverflow = document.body.style.overflow
-    if (mobileOpen) document.body.style.overflow = 'hidden'
+    if (!mobileOpen) return
+
+    // Lock the viewport without making body a scroll ancestor of the sticky
+    // Forge header, which would move its close button offscreen after scrolling.
+    const root = document.documentElement
+    const previousOverflow = root.style.overflow
+    const previousPriority = root.style.getPropertyPriority('overflow')
+    root.style.overflow = 'hidden'
     return () => {
-      document.body.style.overflow = previousOverflow
+      root.style.setProperty('overflow', previousOverflow, previousPriority)
     }
   }, [mobileOpen])
 
@@ -225,7 +231,7 @@ export function PublicHeader(props: PublicHeaderProps) {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         closeMobileMenu()
-        mobileMenuButtonRef.current?.focus()
+        mobileMenuButtonRef.current?.focus({ preventScroll: true })
         return
       }
       if (event.key !== 'Tab' || focusable.length === 0) return
