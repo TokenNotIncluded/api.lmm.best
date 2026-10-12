@@ -30,7 +30,11 @@ impl PlatformRole {
         matches!(self, Self::Admin | Self::Superadmin)
     }
     pub(crate) fn storage_name(self) -> &'static str {
-        match self { Self::User => "user", Self::Admin => "admin", Self::Superadmin => "superadmin" }
+        match self {
+            Self::User => "user",
+            Self::Admin => "admin",
+            Self::Superadmin => "superadmin",
+        }
     }
     fn hash_tag(self) -> u8 {
         match self {
@@ -162,13 +166,22 @@ impl Permission {
     pub(crate) fn admin_default(self) -> bool {
         matches!(
             self,
-            Self::ChannelRead | Self::ChannelOperate | Self::ChannelWrite
-                | Self::AcquisitionRead | Self::AcquisitionWrite
+            Self::ChannelRead
+                | Self::ChannelOperate
+                | Self::ChannelWrite
+                | Self::AcquisitionRead
+                | Self::AcquisitionWrite
         )
     }
     fn accepts(self, scope: ResourceScope) -> bool {
-        let channel = matches!(self, Self::ChannelRead | Self::ChannelOperate
-            | Self::ChannelWrite | Self::ChannelSensitiveWrite | Self::ChannelSecretView);
+        let channel = matches!(
+            self,
+            Self::ChannelRead
+                | Self::ChannelOperate
+                | Self::ChannelWrite
+                | Self::ChannelSensitiveWrite
+                | Self::ChannelSecretView
+        );
         match scope {
             ResourceScope::ChannelCollection => channel,
             ResourceScope::Channel(id) => channel && id > 0,
@@ -214,7 +227,12 @@ impl PolicySnapshot {
         if subject_user_id <= 0 || version <= 0 || overrides.len() > Permission::ALL.len() {
             return Err(Denial::InvalidPolicy);
         }
-        let mut result = Self { subject_user_id, role, version, overrides: [None; 9] };
+        let mut result = Self {
+            subject_user_id,
+            role,
+            version,
+            overrides: [None; 9],
+        };
         for &(permission, effect) in overrides {
             let slot = &mut result.overrides[permission as usize];
             // Duplicate and contradictory source rows need review, not last-write-wins.
@@ -224,19 +242,34 @@ impl PolicySnapshot {
         }
         Ok(result)
     }
-    pub(crate) fn subject_user_id(&self) -> i64 { self.subject_user_id }
-    pub(crate) fn role(&self) -> PlatformRole { self.role }
-    pub(crate) fn version(&self) -> i64 { self.version }
+    pub(crate) fn subject_user_id(&self) -> i64 {
+        self.subject_user_id
+    }
+    pub(crate) fn role(&self) -> PlatformRole {
+        self.role
+    }
+    pub(crate) fn version(&self) -> i64 {
+        self.version
+    }
 
     /// Fixed slots prevent duplicate/unknown persisted grants and JSON authority injection.
     pub(crate) fn stored_effects(&self) -> Vec<i16> {
-        self.overrides.iter().map(|effect| match effect {
-            None => 0, Some(Effect::Allow) => 1, Some(Effect::Deny) => 2,
-        }).collect()
+        self.overrides
+            .iter()
+            .map(|effect| match effect {
+                None => 0,
+                Some(Effect::Allow) => 1,
+                Some(Effect::Deny) => 2,
+            })
+            .collect()
     }
     pub(crate) fn from_storage(
-        user_id: i64, role: &str, version: i64, contract: &str,
-        effects: &[i16], fingerprint: &[u8],
+        user_id: i64,
+        role: &str,
+        version: i64,
+        contract: &str,
+        effects: &[i16],
+        fingerprint: &[u8],
     ) -> Result<Self, Denial> {
         if contract != CONTRACT_VERSION || effects.len() != Permission::ALL.len() {
             return Err(Denial::InvalidPolicy);
@@ -250,7 +283,12 @@ impl PolicySnapshot {
                 _ => return Err(Denial::InvalidPolicy),
             }
         }
-        let policy = Self::new(user_id, PlatformRole::from_storage(role)?, version, &overrides)?;
+        let policy = Self::new(
+            user_id,
+            PlatformRole::from_storage(role)?,
+            version,
+            &overrides,
+        )?;
         if policy.fingerprint().as_slice() != fingerprint {
             return Err(Denial::InvalidPolicy);
         }
@@ -271,7 +309,9 @@ impl PolicySnapshot {
             hash.update(permission.key().as_bytes());
             hash.update([0]);
             hash.update([match self.overrides[permission as usize] {
-                None => 0, Some(Effect::Allow) => 1, Some(Effect::Deny) => 2,
+                None => 0,
+                Some(Effect::Allow) => 1,
+                Some(Effect::Deny) => 2,
             }]);
         }
         hash.finalize().into()
@@ -289,20 +329,31 @@ pub(crate) fn decide_platform(
 ) -> PermissionDecision {
     (|| {
         actor.check_session()?;
-        if !permission.accepts(scope) { return Err(Denial::WrongResource); }
-        if policy.subject_user_id != actor.user_id { return Err(Denial::WrongSubject); }
+        if !permission.accepts(scope) {
+            return Err(Denial::WrongResource);
+        }
+        if policy.subject_user_id != actor.user_id {
+            return Err(Denial::WrongSubject);
+        }
         if policy.role != actor.current_role || policy.version != expected_policy_version {
             return Err(Denial::StalePolicy);
         }
         // An override cannot cross the route's minimum platform-role boundary.
-        if !actor.current_role.is_admin() { return Err(Denial::AdminRequired); }
+        if !actor.current_role.is_admin() {
+            return Err(Denial::AdminRequired);
+        }
         match policy.overrides[permission as usize] {
             Some(Effect::Deny) => Err(Denial::ExplicitDeny),
             Some(Effect::Allow) => Ok(()),
-            None if actor.current_role == PlatformRole::Superadmin || permission.admin_default() => Ok(()),
+            None if actor.current_role == PlatformRole::Superadmin
+                || permission.admin_default() =>
+            {
+                Ok(())
+            }
             None => Err(Denial::MissingGrant),
         }
-    })().into()
+    })()
+    .into()
 }
 
 pub(crate) fn decide_company(actor: ActorFacts, scope: ResourceScope) -> PermissionDecision {
@@ -312,7 +363,8 @@ pub(crate) fn decide_company(actor: ActorFacts, scope: ResourceScope) -> Permiss
             ResourceScope::CompanyProfile(id) if id > 0 && id == actor.user_id => Ok(()),
             _ => Err(Denial::WrongResource),
         }
-    })().into()
+    })()
+    .into()
 }
 
 /// Reuse core_identity.developer_access.granted. No balance, discount, paid flag,
@@ -325,14 +377,19 @@ pub(crate) struct DeveloperFacts {
 pub(crate) fn decide_developer(actor: ActorFacts, facts: DeveloperFacts) -> PermissionDecision {
     (|| {
         actor.check_session()?;
-        if facts.user_id != actor.user_id { return Err(Denial::WrongSubject); }
-        if actor.current_role.is_admin() { return Ok(()); }
+        if facts.user_id != actor.user_id {
+            return Err(Denial::WrongSubject);
+        }
+        if actor.current_role.is_admin() {
+            return Ok(());
+        }
         match facts.granted {
             Some(true) => Ok(()),
             Some(false) => Err(Denial::MissingGrant),
             None => Err(Denial::DeveloperUnmapped),
         }
-    })().into()
+    })()
+    .into()
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -352,20 +409,33 @@ pub(crate) struct MemberFacts {
 }
 impl MemberFacts {
     fn check(self, team: TeamFacts) -> Result<(), Denial> {
-        if self.team_id != team.id { return Err(Denial::WrongTeam); }
-        if self.user_id <= 0 || self.version <= 0 || self.role == TeamRole::Owner
-            || self.user_id == team.owner_user_id {
+        if self.team_id != team.id {
+            return Err(Denial::WrongTeam);
+        }
+        if self.user_id <= 0
+            || self.version <= 0
+            || self.role == TeamRole::Owner
+            || self.user_id == team.owner_user_id
+        {
             return Err(Denial::InvalidFacts);
         }
-        if !self.active { return Err(Denial::Inactive); }
+        if !self.active {
+            return Err(Denial::Inactive);
+        }
         Ok(())
     }
 }
 #[derive(Clone, Copy, Debug)]
 pub(crate) enum TeamAction {
     Read,
-    Invite { recipient_user_id: i64, role: TeamRole },
-    Remove { target: MemberFacts, expected_version: i64 },
+    Invite {
+        recipient_user_id: i64,
+        role: TeamRole,
+    },
+    Remove {
+        target: MemberFacts,
+        expected_version: i64,
+    },
 }
 pub(crate) fn decide_team(
     actor: ActorFacts,
@@ -381,34 +451,60 @@ pub(crate) fn decide_team(
         if team.id <= 0 || team.owner_user_id <= 0 || team.version <= 0 {
             return Err(Denial::InvalidFacts);
         }
-        if scope != ResourceScope::Team(team.id) { return Err(Denial::WrongTeam); }
-        if !team.active { return Err(Denial::Inactive); }
-        if team.version != expected_team_version { return Err(Denial::StaleTeam); }
+        if scope != ResourceScope::Team(team.id) {
+            return Err(Denial::WrongTeam);
+        }
+        if !team.active {
+            return Err(Denial::Inactive);
+        }
+        if team.version != expected_team_version {
+            return Err(Denial::StaleTeam);
+        }
         let role = if actor.user_id == team.owner_user_id {
-            if expected_membership_version != 0 { return Err(Denial::StaleMember); }
-            if membership.is_some() { return Err(Denial::InvalidFacts); }
+            if expected_membership_version != 0 {
+                return Err(Denial::StaleMember);
+            }
+            if membership.is_some() {
+                return Err(Denial::InvalidFacts);
+            }
             TeamRole::Owner
         } else {
             let member = membership.ok_or(Denial::TeamRoleRequired)?;
             member.check(team)?;
-            if member.user_id != actor.user_id { return Err(Denial::WrongSubject); }
-            if member.version != expected_membership_version { return Err(Denial::StaleMember); }
+            if member.user_id != actor.user_id {
+                return Err(Denial::WrongSubject);
+            }
+            if member.version != expected_membership_version {
+                return Err(Denial::StaleMember);
+            }
             member.role
         };
         match action {
             TeamAction::Read => Ok(()),
-            TeamAction::Invite { recipient_user_id, role: target_role } => {
-                if recipient_user_id <= 0 { return Err(Denial::InvalidFacts); }
-                if recipient_user_id == actor.user_id || recipient_user_id == team.owner_user_id
-                    || !role.can_manage_member(target_role) {
+            TeamAction::Invite {
+                recipient_user_id,
+                role: target_role,
+            } => {
+                if recipient_user_id <= 0 {
+                    return Err(Denial::InvalidFacts);
+                }
+                if recipient_user_id == actor.user_id
+                    || recipient_user_id == team.owner_user_id
+                    || !role.can_manage_member(target_role)
+                {
                     return Err(Denial::TeamRoleRequired);
                 }
                 // Recipient enabled status and current membership are still checked by invite().
                 Ok(())
             }
-            TeamAction::Remove { target, expected_version } => {
+            TeamAction::Remove {
+                target,
+                expected_version,
+            } => {
                 target.check(team)?;
-                if target.version != expected_version { return Err(Denial::StaleMember); }
+                if target.version != expected_version {
+                    return Err(Denial::StaleMember);
+                }
                 if target.user_id == actor.user_id {
                     // Both snapshots must describe the same row, not two conflicting roles.
                     if target.role != role || target.version != expected_membership_version {
@@ -416,11 +512,14 @@ pub(crate) fn decide_team(
                     }
                     return Ok(());
                 }
-                if !role.can_manage_member(target.role) { return Err(Denial::TeamRoleRequired); }
+                if !role.can_manage_member(target.role) {
+                    return Err(Denial::TeamRoleRequired);
+                }
                 Ok(())
             }
         }
-    })().into()
+    })()
+    .into()
 }
 
 /// Gate for a *live* operation, not an authorization token that can be cached.
@@ -439,7 +538,10 @@ pub(crate) async fn require_platform_in_transaction(
     // This helper cannot stand in for A02's action-bound secure confirmation.
     // Keep these sensitive live operations unavailable until that provider is
     // integrated; a policy grant alone is not a secret-view/write authorization.
-    if matches!(permission, Permission::ChannelSecretView | Permission::ChannelSensitiveWrite) {
+    if matches!(
+        permission,
+        Permission::ChannelSecretView | Permission::ChannelSensitiveWrite
+    ) {
         return Err(IdentityError::Forbidden);
     }
     // A02 supplies a Core-authenticated Principal. It is not Deserialize and
@@ -466,16 +568,24 @@ pub(crate) async fn require_platform_in_transaction(
              OR ws.expires_at<=clock_timestamp() OR ws.user_version<>u.auth_version \
              OR (ws.weekly_logout AND ws.created_at<=clock_timestamp()-interval '7 days'))) \
          FOR SHARE OF u,c,pa,own",
-    ).bind(actor.user_id).bind(actor.credential_id).fetch_optional(&mut **tx).await?
-        .ok_or(IdentityError::Unauthorized)?;
+    )
+    .bind(actor.user_id)
+    .bind(actor.credential_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or(IdentityError::Unauthorized)?;
     let current_role = PlatformRole::from_storage(&row.try_get::<String, _>("platform_role")?)
         .map_err(|_| IdentityError::Storage)?;
-    if !current_role.is_admin() { return Err(IdentityError::Forbidden); }
+    if !current_role.is_admin() {
+        return Err(IdentityError::Forbidden);
+    }
     let facts = ActorFacts {
-        user_id: actor.user_id, credential_kind: actor.credential_kind,
+        user_id: actor.user_id,
+        credential_kind: actor.credential_kind,
         credential_auth_version: row.try_get("user_version")?,
         current_auth_version: row.try_get("auth_version")?,
-        current_role, active: true,
+        current_role,
+        active: true,
     };
     // The native user SHARE lock is the authorization fence. Policy mutations
     // advance/lock that same user via guard_admin_policy before becoming visible.
@@ -484,13 +594,20 @@ pub(crate) async fn require_platform_in_transaction(
     let row = sqlx::query(
         "SELECT role,version,contract_version,effects,fingerprint \
          FROM core_identity.admin_policies WHERE user_id=$1",
-    ).bind(actor.user_id).fetch_optional(&mut **tx).await?
-        .ok_or(IdentityError::Forbidden)?;
+    )
+    .bind(actor.user_id)
+    .fetch_optional(&mut **tx)
+    .await?
+    .ok_or(IdentityError::Forbidden)?;
     let policy = PolicySnapshot::from_storage(
-        actor.user_id, &row.try_get::<String, _>("role")?, row.try_get("version")?,
+        actor.user_id,
+        &row.try_get::<String, _>("role")?,
+        row.try_get("version")?,
         &row.try_get::<String, _>("contract_version")?,
-        &row.try_get::<Vec<i16>, _>("effects")?, &row.try_get::<Vec<u8>, _>("fingerprint")?,
-    ).map_err(|_| IdentityError::Storage)?;
+        &row.try_get::<Vec<i16>, _>("effects")?,
+        &row.try_get::<Vec<u8>, _>("fingerprint")?,
+    )
+    .map_err(|_| IdentityError::Storage)?;
     match decide_platform(facts, &policy, policy.version(), permission, scope) {
         PermissionDecision::Allow => Ok(()),
         PermissionDecision::Deny(_) => Err(IdentityError::Forbidden),

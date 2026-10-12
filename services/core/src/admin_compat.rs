@@ -16,7 +16,9 @@ pub(crate) fn legacy_overrides(
     policy_version: i64,
     rows: &[LegacyOverride<'_>],
 ) -> Result<PolicySnapshot, Denial> {
-    if rows.len() > Permission::ALL.len() { return Err(Denial::InvalidPolicy); }
+    if rows.len() > Permission::ALL.len() {
+        return Err(Denial::InvalidPolicy);
+    }
     let role = PlatformRole::from_storage(stored_role)?;
     let mut overrides = Vec::with_capacity(rows.len());
     for row in rows {

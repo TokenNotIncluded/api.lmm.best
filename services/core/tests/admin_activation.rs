@@ -2,11 +2,11 @@
 //! Wire-level COMMIT-ACK loss and final S11 HTTP/browser integration are separate.
 use lmm_core::{accounts, identity};
 #[allow(dead_code)]
-#[path = "../src/identity/permissions.rs"]
-mod permissions;
-#[allow(dead_code)]
 #[path = "../src/identity/admin_approval.rs"]
 mod admin_approval;
+#[allow(dead_code)]
+#[path = "../src/identity/permissions.rs"]
+mod permissions;
 use admin_approval::*;
 use permissions::{CONTRACT_VERSION, PlatformRole, PolicySnapshot};
 use serde_json::{Value, json};
@@ -39,15 +39,30 @@ fn parsed(v: &Value) -> ParsedApproval {
     parse_approval(&serde_json::to_vec(v).unwrap()).unwrap()
 }
 fn source() -> SourceFacts<'static> {
-    SourceFacts { archive_hash: [1; 32], a2_fact_hash: [2; 32], source_user_id: 41,
-        target_user_id: 41, imported_auth_version: 7, role: PlatformRole::Admin,
+    SourceFacts {
+        archive_hash: [1; 32],
+        a2_fact_hash: [2; 32],
+        source_user_id: 41,
+        target_user_id: 41,
+        imported_auth_version: 7,
+        role: PlatformRole::Admin,
         blocked_reasons: &["privileged_permissions_unmapped"],
-        verifier_available: true, second_factor_required: false }
+        verifier_available: true,
+        second_factor_required: false,
+    }
 }
 fn target() -> TargetFacts<'static> {
-    TargetFacts { instance: "synthetic-target-a01", user_id: 41, role: PlatformRole::Admin,
-        active: false, account_active: true, password_login_allowed: false,
-        second_factor_required: false, auth_version: 7, policy: None }
+    TargetFacts {
+        instance: "synthetic-target-a01",
+        user_id: 41,
+        role: PlatformRole::Admin,
+        active: false,
+        account_active: true,
+        password_login_allowed: false,
+        second_factor_required: false,
+        auth_version: 7,
+        policy: None,
+    }
 }
 
 #[test]
@@ -66,14 +81,17 @@ fn batch_unknown_and_duplicate_fields_are_rejected() {
     let p = policy(1);
     let base = draft(&p);
     assert!(parse_approval(&serde_json::to_vec(&json!([base.clone()])).unwrap()).is_err());
-    for (key, value) in [("users", json!([41, 42])), ("allow_all_admins", json!(true)),
-        ("host_token", json!("synthetic-not-a-user"))] {
+    for (key, value) in [
+        ("users", json!([41, 42])),
+        ("allow_all_admins", json!(true)),
+        ("host_token", json!("synthetic-not-a-user")),
+    ] {
         let mut v = base.clone();
         v[key] = value;
         assert!(parse_approval(&serde_json::to_vec(&v).unwrap()).is_err());
     }
     let text = serde_json::to_string(&base).unwrap();
-    let duplicate = format!("{},\"target_user_id\":42}}", &text[..text.len()-1]);
+    let duplicate = format!("{},\"target_user_id\":42}}", &text[..text.len() - 1]);
     assert!(parse_approval(duplicate.as_bytes()).is_err());
 }
 
@@ -87,19 +105,27 @@ fn explicit_absent_policy_field_is_required() {
 #[test]
 fn malformed_hashes_versions_identifiers_and_roles_reject() {
     for (key, value) in [
-        ("approval_id", json!("*")), ("target_instance", json!("")),
+        ("approval_id", json!("*")),
+        ("target_instance", json!("")),
         ("source_archive_sha256", json!("A".repeat(64))),
         ("source_a2_fact_sha256", json!("a".repeat(63))),
-        ("source_user_id", json!(0)), ("target_user_id", json!(-1)),
-        ("expected_auth_version", json!(0)), ("expected_auth_version", json!(i64::MAX)),
+        ("source_user_id", json!(0)),
+        ("target_user_id", json!(-1)),
+        ("expected_auth_version", json!(0)),
+        ("expected_auth_version", json!(i64::MAX)),
         ("expected_auth_version", json!(i64::MAX - 1)),
-        ("expected_auth_version", json!("7")), ("platform_role", json!("user")),
-        ("platform_role", json!("root")), ("format_version", json!(1)),
+        ("expected_auth_version", json!("7")),
+        ("platform_role", json!("user")),
+        ("platform_role", json!("root")),
+        ("format_version", json!(1)),
         ("contract_version", json!("a01-permissions-v0")),
     ] {
         let mut v = draft(&policy(1));
         v[key] = value;
-        assert!(parse_approval(&serde_json::to_vec(&v).unwrap()).is_err(), "{key}");
+        assert!(
+            parse_approval(&serde_json::to_vec(&v).unwrap()).is_err(),
+            "{key}"
+        );
     }
     assert!(parse_approval(&vec![b' '; 16 * 1024 + 1]).is_err());
 }
@@ -110,13 +136,22 @@ fn original_archive_and_original_a2_fact_must_both_match() {
     let approval = parsed(&draft(&p));
     let mut s = source();
     s.archive_hash[0] ^= 1;
-    assert_eq!(check_bindings(&approval, &s, &target(), &p, 100), Err(ApprovalError::WrongSource));
+    assert_eq!(
+        check_bindings(&approval, &s, &target(), &p, 100),
+        Err(ApprovalError::WrongSource)
+    );
     let mut s = source();
     s.a2_fact_hash[0] ^= 1;
-    assert_eq!(check_bindings(&approval, &s, &target(), &p, 100), Err(ApprovalError::WrongSource));
+    assert_eq!(
+        check_bindings(&approval, &s, &target(), &p, 100),
+        Err(ApprovalError::WrongSource)
+    );
     let mut s = source();
     s.source_user_id = 42;
-    assert_eq!(check_bindings(&approval, &s, &target(), &p, 100), Err(ApprovalError::WrongSource));
+    assert_eq!(
+        check_bindings(&approval, &s, &target(), &p, 100),
+        Err(ApprovalError::WrongSource)
+    );
 }
 
 #[test]
@@ -125,10 +160,16 @@ fn approval_cannot_move_to_another_user_or_instance() {
     let approval = parsed(&draft(&p));
     let mut t = target();
     t.instance = "another-synthetic-target";
-    assert_eq!(check_bindings(&approval, &source(), &t, &p, 100), Err(ApprovalError::WrongTarget));
+    assert_eq!(
+        check_bindings(&approval, &source(), &t, &p, 100),
+        Err(ApprovalError::WrongTarget)
+    );
     let mut t = target();
     t.user_id = 42;
-    assert_eq!(check_bindings(&approval, &source(), &t, &p, 100), Err(ApprovalError::WrongTarget));
+    assert_eq!(
+        check_bindings(&approval, &source(), &t, &p, 100),
+        Err(ApprovalError::WrongTarget)
+    );
 }
 
 #[test]
@@ -138,7 +179,10 @@ fn ordinary_users_and_role_promotions_do_not_pass_activation_bindings() {
     for role in [PlatformRole::User, PlatformRole::Superadmin] {
         let mut s = source();
         s.role = role;
-        assert_eq!(check_bindings(&approval, &s, &target(), &p, 100), Err(ApprovalError::RoleChange));
+        assert_eq!(
+            check_bindings(&approval, &s, &target(), &p, 100),
+            Err(ApprovalError::RoleChange)
+        );
     }
 }
 
@@ -148,26 +192,44 @@ fn other_blockers_and_missing_authentication_prerequisites_remain_blocked() {
     let approval = parsed(&draft(&p));
     let mut s = source();
     s.blocked_reasons = &["privileged_permissions_unmapped", "source_disabled"];
-    assert_eq!(check_bindings(&approval, &s, &target(), &p, 100), Err(ApprovalError::OtherBlocker));
+    assert_eq!(
+        check_bindings(&approval, &s, &target(), &p, 100),
+        Err(ApprovalError::OtherBlocker)
+    );
     let mut s = source();
     s.verifier_available = false;
-    assert_eq!(check_bindings(&approval, &s, &target(), &p, 100), Err(ApprovalError::AuthenticationUnproven));
+    assert_eq!(
+        check_bindings(&approval, &s, &target(), &p, 100),
+        Err(ApprovalError::AuthenticationUnproven)
+    );
     let mut s = source();
     s.second_factor_required = true;
-    assert_eq!(check_bindings(&approval, &s, &target(), &p, 100), Err(ApprovalError::AuthenticationUnproven));
+    assert_eq!(
+        check_bindings(&approval, &s, &target(), &p, 100),
+        Err(ApprovalError::AuthenticationUnproven)
+    );
 }
 
 #[test]
 fn expired_approval_or_changed_auth_version_conflicts() {
     let p = policy(1);
     let approval = parsed(&draft(&p));
-    assert_eq!(check_bindings(&approval, &source(), &target(), &p, 200), Err(ApprovalError::Expired));
+    assert_eq!(
+        check_bindings(&approval, &source(), &target(), &p, 200),
+        Err(ApprovalError::Expired)
+    );
     let mut t = target();
     t.auth_version = 8;
-    assert_eq!(check_bindings(&approval, &source(), &t, &p, 100), Err(ApprovalError::Conflict));
+    assert_eq!(
+        check_bindings(&approval, &source(), &t, &p, 100),
+        Err(ApprovalError::Conflict)
+    );
     let mut t = target();
     t.active = true;
-    assert_eq!(check_bindings(&approval, &source(), &t, &p, 100), Err(ApprovalError::Conflict));
+    assert_eq!(
+        check_bindings(&approval, &source(), &t, &p, 100),
+        Err(ApprovalError::Conflict)
+    );
 }
 
 #[test]
@@ -177,15 +239,36 @@ fn policy_version_and_hash_cas_are_both_bound() {
     v["expected_policy"] = json!({"state": "present", "version": 2, "sha256": hex([3; 32])});
     let approval = parsed(&v);
     let mut t = target();
-    t.policy = Some(PolicyBinding { version: 2, sha256: [3; 32] });
+    t.policy = Some(PolicyBinding {
+        version: 2,
+        sha256: [3; 32],
+    });
     assert!(check_bindings(&approval, &source(), &t, &p, 100).is_ok());
-    t.policy = Some(PolicyBinding { version: 3, sha256: [3; 32] });
-    assert_eq!(check_bindings(&approval, &source(), &t, &p, 100), Err(ApprovalError::Conflict));
-    t.policy = Some(PolicyBinding { version: 2, sha256: [4; 32] });
-    assert_eq!(check_bindings(&approval, &source(), &t, &p, 100), Err(ApprovalError::Conflict));
+    t.policy = Some(PolicyBinding {
+        version: 3,
+        sha256: [3; 32],
+    });
+    assert_eq!(
+        check_bindings(&approval, &source(), &t, &p, 100),
+        Err(ApprovalError::Conflict)
+    );
+    t.policy = Some(PolicyBinding {
+        version: 2,
+        sha256: [4; 32],
+    });
+    assert_eq!(
+        check_bindings(&approval, &source(), &t, &p, 100),
+        Err(ApprovalError::Conflict)
+    );
     let wrong_policy = PolicySnapshot::new(42, PlatformRole::Admin, 3, &[]).unwrap();
-    t.policy = Some(PolicyBinding { version: 2, sha256: [3; 32] });
-    assert_eq!(check_bindings(&approval, &source(), &t, &wrong_policy, 100), Err(ApprovalError::PolicyMismatch));
+    t.policy = Some(PolicyBinding {
+        version: 2,
+        sha256: [3; 32],
+    });
+    assert_eq!(
+        check_bindings(&approval, &source(), &t, &wrong_policy, 100),
+        Err(ApprovalError::PolicyMismatch)
+    );
 }
 
 #[test]
@@ -202,8 +285,14 @@ fn input_whitespace_is_not_a_new_approval() {
 #[test]
 fn missing_commit_receipt_stays_unknown_until_the_original_writer_is_fenced() {
     let approval = parsed(&draft(&policy(1)));
-    assert_eq!(resolve_outcome(&approval, None, WriterObservation::Unknown), CommitResolution::Unknown);
-    assert_eq!(resolve_outcome(&approval, None, WriterObservation::FencedAfterWriterEnded), CommitResolution::NotApplied);
+    assert_eq!(
+        resolve_outcome(&approval, None, WriterObservation::Unknown),
+        CommitResolution::Unknown
+    );
+    assert_eq!(
+        resolve_outcome(&approval, None, WriterObservation::FencedAfterWriterEnded),
+        CommitResolution::NotApplied
+    );
     // This test does not create a real database fence or kill a writer process.
 }
 
@@ -212,15 +301,29 @@ fn only_an_exact_durable_receipt_resolves_a_lost_acknowledgement() {
     let p = policy(1);
     let approval = parsed(&draft(&p));
     let checked = check_bindings(&approval, &source(), &target(), &p, 100).unwrap();
-    let mut receipt = DurableReceipt { approval_id: "synthetic-approval-01", request_hash: checked.request_hash,
-        target_user_id: 41, new_auth_version: 9 };
-    assert_eq!(resolve_outcome(&approval, Some(&receipt), WriterObservation::Unknown),
-        CommitResolution::Committed { new_auth_version: 9 });
+    let mut receipt = DurableReceipt {
+        approval_id: "synthetic-approval-01",
+        request_hash: checked.request_hash,
+        target_user_id: 41,
+        new_auth_version: 9,
+    };
+    assert_eq!(
+        resolve_outcome(&approval, Some(&receipt), WriterObservation::Unknown),
+        CommitResolution::Committed {
+            new_auth_version: 9
+        }
+    );
     receipt.target_user_id = 42;
-    assert_eq!(resolve_outcome(&approval, Some(&receipt), WriterObservation::Unknown), CommitResolution::Conflict);
+    assert_eq!(
+        resolve_outcome(&approval, Some(&receipt), WriterObservation::Unknown),
+        CommitResolution::Conflict
+    );
     receipt.target_user_id = 41;
     receipt.request_hash[0] ^= 1;
-    assert_eq!(resolve_outcome(&approval, Some(&receipt), WriterObservation::Unknown), CommitResolution::Conflict);
+    assert_eq!(
+        resolve_outcome(&approval, Some(&receipt), WriterObservation::Unknown),
+        CommitResolution::Conflict
+    );
 }
 
 fn signed_bytes(value: &Value, key: &[u8; 32], operator: &str) -> Vec<u8> {
@@ -233,7 +336,10 @@ fn signed_bytes(value: &Value, key: &[u8; 32], operator: &str) -> Vec<u8> {
     mac.update(operator.as_bytes());
     mac.update(&digest);
     let signature: [u8; 32] = mac.finalize().into_bytes().into();
-    serde_json::to_vec(&json!({"operator_key_id":operator,"approval":value,"signature_sha256":hex(signature)})).unwrap()
+    serde_json::to_vec(
+        &json!({"operator_key_id":operator,"approval":value,"signature_sha256":hex(signature)}),
+    )
+    .unwrap()
 }
 
 #[test]
@@ -241,12 +347,21 @@ fn signature_binds_operator_request_and_key() {
     let original = draft(&policy(1));
     let bytes = signed_bytes(&original, &[7; 32], "synthetic-operator");
     assert!(verify_signed_approval(&bytes, &[7; 32]).is_ok());
-    assert!(matches!(verify_signed_approval(&bytes, &[8; 32]), Err(ApprovalError::SignatureInvalid)));
+    assert!(matches!(
+        verify_signed_approval(&bytes, &[8; 32]),
+        Err(ApprovalError::SignatureInvalid)
+    ));
     for mutate_operator in [true, false] {
         let mut value: Value = serde_json::from_slice(&bytes).unwrap();
-        if mutate_operator { value["operator_key_id"] = json!("different-operator"); }
-        else { value["approval"]["target_user_id"] = json!(42); }
-        assert!(matches!(verify_signed_approval(&serde_json::to_vec(&value).unwrap(), &[7; 32]), Err(ApprovalError::SignatureInvalid)));
+        if mutate_operator {
+            value["operator_key_id"] = json!("different-operator");
+        } else {
+            value["approval"]["target_user_id"] = json!(42);
+        }
+        assert!(matches!(
+            verify_signed_approval(&serde_json::to_vec(&value).unwrap(), &[7; 32]),
+            Err(ApprovalError::SignatureInvalid)
+        ));
     }
     assert!(verify_signed_approval(&bytes, &[7; 31]).is_err());
 }
@@ -259,9 +374,12 @@ fn signature_envelope_rejects_batch_unknown_duplicate_and_large_input() {
     value["host_token"] = json!("not-a-user");
     assert!(verify_signed_approval(&serde_json::to_vec(&value).unwrap(), &[7; 32]).is_err());
     let text = String::from_utf8(bytes).unwrap();
-    let duplicate = format!("{},\"operator_key_id\":\"other\"}}", &text[..text.len()-1]);
+    let duplicate = format!(
+        "{},\"operator_key_id\":\"other\"}}",
+        &text[..text.len() - 1]
+    );
     assert!(verify_signed_approval(duplicate.as_bytes(), &[7; 32]).is_err());
-    assert!(verify_signed_approval(&vec![b' '; 20*1024+1], &[7; 32]).is_err());
+    assert!(verify_signed_approval(&vec![b' '; 20 * 1024 + 1], &[7; 32]).is_err());
 }
 
 #[test]
@@ -272,8 +390,15 @@ fn native_profile_and_activation_generations_are_both_reserved() {
     assert_eq!(binding.next_auth_version - binding.expected_auth_version, 2);
     for kind in 0..3 {
         let mut t = target();
-        match kind { 0 => t.account_active=false, 1 => t.password_login_allowed=true, _ => t.second_factor_required=true }
-        assert_eq!(check_bindings(&a, &source(), &t, &p, 100), Err(ApprovalError::AuthenticationUnproven));
+        match kind {
+            0 => t.account_active = false,
+            1 => t.password_login_allowed = true,
+            _ => t.second_factor_required = true,
+        }
+        assert_eq!(
+            check_bindings(&a, &source(), &t, &p, 100),
+            Err(ApprovalError::AuthenticationUnproven)
+        );
     }
 }
 
@@ -284,13 +409,28 @@ fn native_profile_and_activation_generations_are_both_reserved() {
 async fn pg_fixture(pool: &sqlx::PgPool) -> (Value, String) {
     use sha2::{Digest, Sha256};
     lmm_core::core_schema::init(pool).await.unwrap();
-    let missing: bool = sqlx::query_scalar("SELECT to_regclass('core_identity.admin_policies') IS NULL")
-        .fetch_one(pool).await.unwrap();
-    if missing { sqlx::raw_sql(ISOLATED_A01_SCHEMA).execute(pool).await.unwrap(); }
-    let account: i64 = sqlx::query_scalar("INSERT INTO core_identity.accounts(kind) VALUES ('personal') RETURNING id")
-        .fetch_one(pool).await.unwrap();
+    let missing: bool =
+        sqlx::query_scalar("SELECT to_regclass('core_identity.admin_policies') IS NULL")
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    if missing {
+        sqlx::raw_sql(ISOLATED_A01_SCHEMA)
+            .execute(pool)
+            .await
+            .unwrap();
+    }
+    let account: i64 = sqlx::query_scalar(
+        "INSERT INTO core_identity.accounts(kind) VALUES ('personal') RETURNING id",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap();
     sqlx::query("INSERT INTO core_billing.account_policies(account_id) VALUES ($1)")
-        .bind(account).execute(pool).await.unwrap();
+        .bind(account)
+        .execute(pool)
+        .await
+        .unwrap();
     sqlx::query("INSERT INTO core_identity.users(id,personal_account_id,platform_role,active,auth_version) VALUES (41,$1,'admin',FALSE,7)")
         .bind(account).execute(pool).await.unwrap();
     sqlx::query("INSERT INTO core_identity.user_profiles(user_id,username,password_login_allowed,legacy_bcrypt_allowed) VALUES (41,'a01-fixture',FALSE,TRUE)")
@@ -322,8 +462,11 @@ async fn pg_fixture(pool: &sqlx::PgPool) -> (Value, String) {
         .bind(hex([1;32])).bind(hex([4;32])).bind(vec![2_u8;32])
         .bind(Sha256::digest(verifier.as_bytes()).to_vec()).execute(pool).await.unwrap();
     let mut value = draft(&policy(1));
-    let now: i64 = sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
-        .fetch_one(pool).await.unwrap();
+    let now: i64 =
+        sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
+            .fetch_one(pool)
+            .await
+            .unwrap();
     value["expires_at_unix_seconds"] = json!(now + 600);
     (value, secret)
 }
@@ -338,9 +481,16 @@ async fn pg_snapshot(pool: &sqlx::PgPool) -> std::collections::BTreeMap<String, 
     for table in tables {
         let schema: String = table.try_get("schemaname").unwrap();
         let name: String = table.try_get("tablename").unwrap();
-        let quoted = format!("\"{}\".\"{}\"", schema.replace('"', "\"\""), name.replace('"', "\"\""));
-        let mut rows: Vec<String> = sqlx::query_scalar(&format!("SELECT to_jsonb(t)::text FROM {quoted} t"))
-            .fetch_all(pool).await.unwrap();
+        let quoted = format!(
+            "\"{}\".\"{}\"",
+            schema.replace('"', "\"\""),
+            name.replace('"', "\"\"")
+        );
+        let mut rows: Vec<String> =
+            sqlx::query_scalar(&format!("SELECT to_jsonb(t)::text FROM {quoted} t"))
+                .fetch_all(pool)
+                .await
+                .unwrap();
         rows.sort();
         snapshot.insert(format!("{schema}.{name}"), rows);
     }
@@ -353,44 +503,125 @@ async fn pg_snapshot(pool: &sqlx::PgPool) -> std::collections::BTreeMap<String, 
 #[sqlx::test]
 async fn pg_activation_is_single_scoped_durable_and_uses_native_login(pool: sqlx::PgPool) {
     let (value, old_session) = pg_fixture(&pool).await;
-    let signed = verify_signed_approval(&signed_bytes(&value, &[7;32], "synthetic-operator"), &[7;32]).unwrap();
+    let signed = verify_signed_approval(
+        &signed_bytes(&value, &[7; 32], "synthetic-operator"),
+        &[7; 32],
+    )
+    .unwrap();
     let before = pg_snapshot(&pool).await;
-    assert_eq!(apply_approved_activation(&pool, &signed, &policy(1)).await.unwrap(), CommitResolution::Committed { new_auth_version:9 });
+    assert_eq!(
+        apply_approved_activation(&pool, &signed, &policy(1))
+            .await
+            .unwrap(),
+        CommitResolution::Committed {
+            new_auth_version: 9
+        }
+    );
     let after = pg_snapshot(&pool).await;
-    let changed: Vec<&str> = before.iter().filter_map(|(name, rows)| (after.get(name)!=Some(rows)).then_some(name.as_str())).collect();
-    assert_eq!(changed, vec!["core_identity.admin_policies", "core_identity.credentials", "core_identity.user_profiles", "core_identity.users", "core_identity.web_sessions", "core_migration.admin_activation_receipts"]);
+    let changed: Vec<&str> = before
+        .iter()
+        .filter_map(|(name, rows)| (after.get(name) != Some(rows)).then_some(name.as_str()))
+        .collect();
+    assert_eq!(
+        changed,
+        vec![
+            "core_identity.admin_policies",
+            "core_identity.credentials",
+            "core_identity.user_profiles",
+            "core_identity.users",
+            "core_identity.web_sessions",
+            "core_migration.admin_activation_receipts"
+        ]
+    );
     assert_eq!(before["ALL_SEQUENCES"], after["ALL_SEQUENCES"]);
     // Idempotent retry changes nothing, including the immutable audit timestamp.
-    assert_eq!(apply_approved_activation(&pool, &signed, &policy(1)).await.unwrap(), CommitResolution::Committed { new_auth_version:9 });
+    assert_eq!(
+        apply_approved_activation(&pool, &signed, &policy(1))
+            .await
+            .unwrap(),
+        CommitResolution::Committed {
+            new_auth_version: 9
+        }
+    );
     assert_eq!(after, pg_snapshot(&pool).await);
     let store = identity::IdentityStore::from_pool(pool.clone());
     assert!(store.authorize(&old_session).await.is_err());
-    assert!(store.authorize(&format!("lmmk_{}", "c".repeat(64))).await.is_err());
-    let issued = store.login(&identity::LoginRequest { login_name:"a01-fixture".into(), password:"synthetic-a01-test-password-only".into() }).await.unwrap();
+    assert!(
+        store
+            .authorize(&format!("lmmk_{}", "c".repeat(64)))
+            .await
+            .is_err()
+    );
+    let issued = store
+        .login(&identity::LoginRequest {
+            login_name: "a01-fixture".into(),
+            password: "synthetic-a01-test-password-only".into(),
+        })
+        .await
+        .unwrap();
     let actor = store.authorize(&issued.secret).await.unwrap();
     let mut tx = pool.begin().await.unwrap();
-    assert!(permissions::require_platform_in_transaction(&mut tx, &actor,
-        permissions::Permission::ChannelRead, permissions::ResourceScope::ChannelCollection).await.is_ok());
-    assert!(permissions::require_platform_in_transaction(&mut tx, &actor,
-        permissions::Permission::ChannelRead, permissions::ResourceScope::CompanyProfile(41)).await.is_err());
+    assert!(
+        permissions::require_platform_in_transaction(
+            &mut tx,
+            &actor,
+            permissions::Permission::ChannelRead,
+            permissions::ResourceScope::ChannelCollection
+        )
+        .await
+        .is_ok()
+    );
+    assert!(
+        permissions::require_platform_in_transaction(
+            &mut tx,
+            &actor,
+            permissions::Permission::ChannelRead,
+            permissions::ResourceScope::CompanyProfile(41)
+        )
+        .await
+        .is_err()
+    );
     tx.rollback().await.unwrap();
     // An active policy change invalidates the previously issued native session.
-    let denied = PolicySnapshot::new(41, PlatformRole::Admin, 2,
-        &[(permissions::Permission::ChannelRead, permissions::Effect::Deny)]).unwrap();
+    let denied = PolicySnapshot::new(
+        41,
+        PlatformRole::Admin,
+        2,
+        &[(
+            permissions::Permission::ChannelRead,
+            permissions::Effect::Deny,
+        )],
+    )
+    .unwrap();
     let mut tx = pool.begin().await.unwrap();
     sqlx::query("SELECT id FROM core_identity.users WHERE id=41 FOR UPDATE")
-        .execute(&mut *tx).await.unwrap();
+        .execute(&mut *tx)
+        .await
+        .unwrap();
     sqlx::query("UPDATE core_identity.admin_policies SET version=2,effects=$1,fingerprint=$2 WHERE user_id=41 AND version=1")
         .bind(denied.stored_effects()).bind(denied.fingerprint().to_vec())
         .execute(&mut *tx).await.unwrap();
     tx.commit().await.unwrap();
     assert!(store.authorize(&issued.secret).await.is_err());
-    let fresh = store.login(&identity::LoginRequest { login_name:"a01-fixture".into(), password:"synthetic-a01-test-password-only".into() }).await.unwrap();
+    let fresh = store
+        .login(&identity::LoginRequest {
+            login_name: "a01-fixture".into(),
+            password: "synthetic-a01-test-password-only".into(),
+        })
+        .await
+        .unwrap();
     let actor = store.authorize(&fresh.secret).await.unwrap();
     let mut tx = pool.begin().await.unwrap();
-    assert!(matches!(permissions::require_platform_in_transaction(&mut tx, &actor,
-        permissions::Permission::ChannelRead, permissions::ResourceScope::ChannelCollection).await,
-        Err(identity::IdentityError::Forbidden)));
+    assert!(matches!(
+        permissions::require_platform_in_transaction(
+            &mut tx,
+            &actor,
+            permissions::Permission::ChannelRead,
+            permissions::ResourceScope::ChannelCollection
+        )
+        .await,
+        Err(identity::IdentityError::Forbidden)
+    ));
     tx.rollback().await.unwrap();
 }
 
@@ -399,14 +630,47 @@ async fn pg_competing_approval_ids_cannot_activate_twice(pool: sqlx::PgPool) {
     let (first, _) = pg_fixture(&pool).await;
     let mut second = first.clone();
     second["approval_id"] = json!("synthetic-competing-id");
-    let a = verify_signed_approval(&signed_bytes(&first,&[7;32],"synthetic-operator"),&[7;32]).unwrap();
-    let b = verify_signed_approval(&signed_bytes(&second,&[7;32],"synthetic-operator"),&[7;32]).unwrap();
+    let a = verify_signed_approval(
+        &signed_bytes(&first, &[7; 32], "synthetic-operator"),
+        &[7; 32],
+    )
+    .unwrap();
+    let b = verify_signed_approval(
+        &signed_bytes(&second, &[7; 32], "synthetic-operator"),
+        &[7; 32],
+    )
+    .unwrap();
     let policy = policy(1);
-    let (a,b) = tokio::join!(apply_approved_activation(&pool,&a,&policy),apply_approved_activation(&pool,&b,&policy));
-    assert_eq!([&a,&b].iter().filter(|r| matches!(r,Ok(CommitResolution::Committed { new_auth_version:9 }))).count(),1);
-    assert_eq!([&a,&b].iter().filter(|r| matches!(r,Err(ApprovalError::Conflict))).count(),1);
-    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM core_migration.admin_activation_receipts").fetch_one(&pool).await.unwrap();
-    assert_eq!(count,1);
+    let (a, b) = tokio::join!(
+        apply_approved_activation(&pool, &a, &policy),
+        apply_approved_activation(&pool, &b, &policy)
+    );
+    assert_eq!(
+        [&a, &b]
+            .iter()
+            .filter(|r| matches!(
+                r,
+                Ok(CommitResolution::Committed {
+                    new_auth_version: 9
+                })
+            ))
+            .count(),
+        1,
+        "first={a:?}, second={b:?}"
+    );
+    assert_eq!(
+        [&a, &b]
+            .iter()
+            .filter(|r| matches!(r, Err(ApprovalError::Conflict)))
+            .count(),
+        1
+    );
+    let count: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM core_migration.admin_activation_receipts")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(count, 1);
 }
 
 #[sqlx::test]
@@ -414,11 +678,24 @@ async fn pg_final_write_failure_rolls_back_every_table_and_sequence(pool: sqlx::
     let (value, _) = pg_fixture(&pool).await;
     sqlx::raw_sql("CREATE FUNCTION public.reject_a01_activation() RETURNS TRIGGER LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'synthetic late failure'; END $$; CREATE TRIGGER reject_a01 BEFORE UPDATE ON core_identity.users FOR EACH ROW WHEN (NEW.active AND NOT OLD.active) EXECUTE FUNCTION public.reject_a01_activation();")
         .execute(&pool).await.unwrap();
-    let signed = verify_signed_approval(&signed_bytes(&value,&[7;32],"synthetic-operator"),&[7;32]).unwrap();
+    let signed = verify_signed_approval(
+        &signed_bytes(&value, &[7; 32], "synthetic-operator"),
+        &[7; 32],
+    )
+    .unwrap();
     let before = pg_snapshot(&pool).await;
-    assert!(apply_approved_activation(&pool,&signed,&policy(1)).await.is_err());
-    assert_eq!(before,pg_snapshot(&pool).await);
-    assert_eq!(query_activation_outcome(&pool,&parsed(&value)).await.unwrap(),CommitResolution::Unknown);
+    assert!(
+        apply_approved_activation(&pool, &signed, &policy(1))
+            .await
+            .is_err()
+    );
+    assert_eq!(before, pg_snapshot(&pool).await);
+    assert_eq!(
+        query_activation_outcome(&pool, &parsed(&value))
+            .await
+            .unwrap(),
+        CommitResolution::Unknown
+    );
 }
 
 #[sqlx::test]
@@ -426,64 +703,133 @@ async fn pg_bad_gate_operator_and_policy_cas_do_not_write(pool: sqlx::PgPool) {
     let (value, _) = pg_fixture(&pool).await;
     let before = pg_snapshot(&pool).await;
     let mut bad = value.clone();
-    bad["gate_manifest_sha256"] = json!(hex([9;32]));
-    let signed = verify_signed_approval(&signed_bytes(&bad,&[7;32],"synthetic-operator"),&[7;32]).unwrap();
-    assert_eq!(apply_approved_activation(&pool,&signed,&policy(1)).await,Err(ApprovalError::GateProofMismatch));
-    let signed = verify_signed_approval(&signed_bytes(&value,&[8;32],"synthetic-operator"),&[8;32]).unwrap();
-    assert_eq!(apply_approved_activation(&pool,&signed,&policy(1)).await,Err(ApprovalError::OperatorDenied));
+    bad["gate_manifest_sha256"] = json!(hex([9; 32]));
+    let signed = verify_signed_approval(
+        &signed_bytes(&bad, &[7; 32], "synthetic-operator"),
+        &[7; 32],
+    )
+    .unwrap();
+    assert_eq!(
+        apply_approved_activation(&pool, &signed, &policy(1)).await,
+        Err(ApprovalError::GateProofMismatch)
+    );
+    let signed = verify_signed_approval(
+        &signed_bytes(&value, &[8; 32], "synthetic-operator"),
+        &[8; 32],
+    )
+    .unwrap();
+    assert_eq!(
+        apply_approved_activation(&pool, &signed, &policy(1)).await,
+        Err(ApprovalError::OperatorDenied)
+    );
     bad = value.clone();
     bad["expected_policy"] = json!({"state":"present","version":1,"sha256":hex([6;32])});
-    let signed = verify_signed_approval(&signed_bytes(&bad,&[7;32],"synthetic-operator"),&[7;32]).unwrap();
-    assert_eq!(apply_approved_activation(&pool,&signed,&policy(1)).await,Err(ApprovalError::Conflict));
-    assert_eq!(before,pg_snapshot(&pool).await);
+    let signed = verify_signed_approval(
+        &signed_bytes(&bad, &[7; 32], "synthetic-operator"),
+        &[7; 32],
+    )
+    .unwrap();
+    assert_eq!(
+        apply_approved_activation(&pool, &signed, &policy(1)).await,
+        Err(ApprovalError::Conflict)
+    );
+    assert_eq!(before, pg_snapshot(&pool).await);
 }
 
 #[sqlx::test]
 async fn pg_receipt_lookup_binds_the_original_request_after_lost_caller_result(pool: sqlx::PgPool) {
     let (value, _) = pg_fixture(&pool).await;
-    let signed = verify_signed_approval(&signed_bytes(&value,&[7;32],"synthetic-operator"),&[7;32]).unwrap();
+    let signed = verify_signed_approval(
+        &signed_bytes(&value, &[7; 32], "synthetic-operator"),
+        &[7; 32],
+    )
+    .unwrap();
     // Discard the result, then resolve from durable storage. This exercises a
     // caller losing the result, NOT a wire-level lost COMMIT ACK or process kill.
-    let _lost_result = apply_approved_activation(&pool,&signed,&policy(1)).await.unwrap();
-    assert_eq!(query_activation_outcome(&pool,&parsed(&value)).await.unwrap(),CommitResolution::Committed { new_auth_version:9 });
+    let _lost_result = apply_approved_activation(&pool, &signed, &policy(1))
+        .await
+        .unwrap();
+    assert_eq!(
+        query_activation_outcome(&pool, &parsed(&value))
+            .await
+            .unwrap(),
+        CommitResolution::Committed {
+            new_auth_version: 9
+        }
+    );
     let mut changed = value.clone();
     changed["expires_at_unix_seconds"] = json!(100);
-    assert_eq!(query_activation_outcome(&pool,&parsed(&changed)).await.unwrap(),CommitResolution::Conflict);
+    assert_eq!(
+        query_activation_outcome(&pool, &parsed(&changed))
+            .await
+            .unwrap(),
+        CommitResolution::Conflict
+    );
     changed["approval_id"] = json!("unknown-original-id");
-    assert_eq!(query_activation_outcome(&pool,&parsed(&changed)).await.unwrap(),CommitResolution::Unknown);
+    assert_eq!(
+        query_activation_outcome(&pool, &parsed(&changed))
+            .await
+            .unwrap(),
+        CommitResolution::Unknown
+    );
 }
 
 #[sqlx::test]
 async fn pg_non_owner_database_role_cannot_enter_activation(pool: sqlx::PgPool) {
     let _ = pg_fixture(&pool).await;
-    let role = format!("a01_synthetic_runtime_{}",rand::random::<u64>());
+    let role = format!("a01_synthetic_runtime_{}", rand::random::<u64>());
     let mut tx = pool.begin().await.unwrap();
     // Role/USAGE grants are transaction-local and rolled back with this test.
     sqlx::raw_sql(&format!("CREATE ROLE {role} NOLOGIN; GRANT USAGE ON SCHEMA core_identity,core_migration TO {role}; SET LOCAL ROLE {role};"))
         .execute(&mut *tx).await.unwrap();
-    assert_eq!(admin_approval::require_owner(&mut tx).await,Err(ApprovalError::OperatorDenied));
+    assert_eq!(
+        admin_approval::require_owner(&mut tx).await,
+        Err(ApprovalError::OperatorDenied)
+    );
     tx.rollback().await.unwrap();
 }
 
 #[sqlx::test]
 async fn pg_live_gate_needs_no_write_privilege_on_policy(pool: sqlx::PgPool) {
     let (value, _) = pg_fixture(&pool).await;
-    let signed = verify_signed_approval(&signed_bytes(&value,&[7;32],"synthetic-operator"),&[7;32]).unwrap();
-    apply_approved_activation(&pool,&signed,&policy(1)).await.unwrap();
+    let signed = verify_signed_approval(
+        &signed_bytes(&value, &[7; 32], "synthetic-operator"),
+        &[7; 32],
+    )
+    .unwrap();
+    apply_approved_activation(&pool, &signed, &policy(1))
+        .await
+        .unwrap();
     let store = identity::IdentityStore::from_pool(pool.clone());
-    let issued = store.login(&identity::LoginRequest {
-        login_name:"a01-fixture".into(), password:"synthetic-a01-test-password-only".into(),
-    }).await.unwrap();
+    let issued = store
+        .login(&identity::LoginRequest {
+            login_name: "a01-fixture".into(),
+            password: "synthetic-a01-test-password-only".into(),
+        })
+        .await
+        .unwrap();
     let actor = store.authorize(&issued.secret).await.unwrap();
-    let role = format!("a01_policy_reader_{}",rand::random::<u64>());
+    let role = format!("a01_policy_reader_{}", rand::random::<u64>());
     let mut tx = pool.begin().await.unwrap();
     sqlx::raw_sql(&format!("CREATE ROLE {role} NOLOGIN; GRANT USAGE ON SCHEMA core_identity TO {role}; GRANT SELECT ON ALL TABLES IN SCHEMA core_identity TO {role}; GRANT UPDATE ON core_identity.users,core_identity.accounts,core_identity.credentials TO {role}; SET LOCAL ROLE {role};"))
         .execute(&mut *tx).await.unwrap();
-    let can_write: bool = sqlx::query_scalar("SELECT has_table_privilege('core_identity.admin_policies','INSERT,UPDATE,DELETE')")
-        .fetch_one(&mut *tx).await.unwrap();
+    let can_write: bool = sqlx::query_scalar(
+        "SELECT has_table_privilege('core_identity.admin_policies','INSERT,UPDATE,DELETE')",
+    )
+    .fetch_one(&mut *tx)
+    .await
+    .unwrap();
     assert!(!can_write);
-    assert!(permissions::require_platform_in_transaction(&mut tx,&actor,
-        permissions::Permission::ChannelRead,permissions::ResourceScope::ChannelCollection).await.is_ok());
+    assert!(
+        permissions::require_platform_in_transaction(
+            &mut tx,
+            &actor,
+            permissions::Permission::ChannelRead,
+            permissions::ResourceScope::ChannelCollection
+        )
+        .await
+        .is_ok()
+    );
     tx.rollback().await.unwrap();
 }
 
@@ -494,13 +840,19 @@ async fn pg_active_principal(pool: &sqlx::PgPool) -> identity::Principal {
     let signed = verify_signed_approval(
         &signed_bytes(&value, &[7; 32], "synthetic-operator"),
         &[7; 32],
-    ).unwrap();
-    apply_approved_activation(pool, &signed, &policy(1)).await.unwrap();
+    )
+    .unwrap();
+    apply_approved_activation(pool, &signed, &policy(1))
+        .await
+        .unwrap();
     let store = identity::IdentityStore::from_pool(pool.clone());
-    let issued = store.login(&identity::LoginRequest {
-        login_name: "a01-fixture".into(),
-        password: "synthetic-a01-test-password-only".into(),
-    }).await.unwrap();
+    let issued = store
+        .login(&identity::LoginRequest {
+            login_name: "a01-fixture".into(),
+            password: "synthetic-a01-test-password-only".into(),
+        })
+        .await
+        .unwrap();
     store.authorize(&issued.secret).await.unwrap()
 }
 
@@ -508,13 +860,22 @@ async fn pg_active_principal(pool: &sqlx::PgPool) -> identity::Principal {
 async fn pg_live_gate_rechecks_revoked_principal(pool: sqlx::PgPool) {
     let actor = pg_active_principal(&pool).await;
     sqlx::query("UPDATE core_identity.credentials SET revoked_at=clock_timestamp() WHERE id=$1")
-        .bind(actor.credential_id).execute(&pool).await.unwrap();
+        .bind(actor.credential_id)
+        .execute(&pool)
+        .await
+        .unwrap();
     let before = pg_snapshot(&pool).await;
     let mut tx = pool.begin().await.unwrap();
-    assert_eq!(permissions::require_platform_in_transaction(
-        &mut tx, &actor, permissions::Permission::ChannelRead,
-        permissions::ResourceScope::ChannelCollection,
-    ).await, Err(identity::IdentityError::Unauthorized));
+    assert_eq!(
+        permissions::require_platform_in_transaction(
+            &mut tx,
+            &actor,
+            permissions::Permission::ChannelRead,
+            permissions::ResourceScope::ChannelCollection,
+        )
+        .await,
+        Err(identity::IdentityError::Unauthorized)
+    );
     tx.rollback().await.unwrap();
     assert_eq!(before, pg_snapshot(&pool).await);
 }
@@ -524,20 +885,35 @@ async fn pg_live_gate_rechecks_disabled_account_and_expiry(pool: sqlx::PgPool) {
     let actor = pg_active_principal(&pool).await;
     let mut tx = pool.begin().await.unwrap();
     sqlx::query("UPDATE core_identity.accounts SET active=FALSE WHERE id=$1")
-        .bind(actor.owner_account_id).execute(&mut *tx).await.unwrap();
-    assert_eq!(permissions::require_platform_in_transaction(
-        &mut tx, &actor, permissions::Permission::ChannelRead,
-        permissions::ResourceScope::ChannelCollection,
-    ).await, Err(identity::IdentityError::Unauthorized));
+        .bind(actor.owner_account_id)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    assert_eq!(
+        permissions::require_platform_in_transaction(
+            &mut tx,
+            &actor,
+            permissions::Permission::ChannelRead,
+            permissions::ResourceScope::ChannelCollection,
+        )
+        .await,
+        Err(identity::IdentityError::Unauthorized)
+    );
     tx.rollback().await.unwrap();
     sqlx::query("UPDATE core_identity.credentials SET expires_at=clock_timestamp()-interval '1 second' WHERE id=$1")
         .bind(actor.credential_id).execute(&pool).await.unwrap();
     let before = pg_snapshot(&pool).await;
     let mut tx = pool.begin().await.unwrap();
-    assert_eq!(permissions::require_platform_in_transaction(
-        &mut tx, &actor, permissions::Permission::ChannelRead,
-        permissions::ResourceScope::ChannelCollection,
-    ).await, Err(identity::IdentityError::Unauthorized));
+    assert_eq!(
+        permissions::require_platform_in_transaction(
+            &mut tx,
+            &actor,
+            permissions::Permission::ChannelRead,
+            permissions::ResourceScope::ChannelCollection,
+        )
+        .await,
+        Err(identity::IdentityError::Unauthorized)
+    );
     tx.rollback().await.unwrap();
     assert_eq!(before, pg_snapshot(&pool).await);
 }
@@ -545,17 +921,27 @@ async fn pg_live_gate_rechecks_disabled_account_and_expiry(pool: sqlx::PgPool) {
 #[sqlx::test]
 async fn pg_live_gate_rechecks_browser_revocation(pool: sqlx::PgPool) {
     let actor = pg_active_principal(&pool).await;
-    let version: i64 = sqlx::query_scalar("SELECT auth_version FROM core_identity.users WHERE id=$1")
-        .bind(actor.user_id).fetch_one(&pool).await.unwrap();
+    let version: i64 =
+        sqlx::query_scalar("SELECT auth_version FROM core_identity.users WHERE id=$1")
+            .bind(actor.user_id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
     sqlx::query("INSERT INTO core_identity.web_sessions(sid,user_id,user_version,current_credential_id,refresh_digest,ip,user_agent,revoked_at) VALUES ($1,$2,$3,$4,$5,'127.0.0.1','synthetic-a01-revoked',clock_timestamp())")
         .bind("d".repeat(64)).bind(actor.user_id).bind(version)
         .bind(actor.credential_id).bind(vec![5_u8; 32]).execute(&pool).await.unwrap();
     let before = pg_snapshot(&pool).await;
     let mut tx = pool.begin().await.unwrap();
-    assert_eq!(permissions::require_platform_in_transaction(
-        &mut tx, &actor, permissions::Permission::ChannelRead,
-        permissions::ResourceScope::ChannelCollection,
-    ).await, Err(identity::IdentityError::Unauthorized));
+    assert_eq!(
+        permissions::require_platform_in_transaction(
+            &mut tx,
+            &actor,
+            permissions::Permission::ChannelRead,
+            permissions::ResourceScope::ChannelCollection,
+        )
+        .await,
+        Err(identity::IdentityError::Unauthorized)
+    );
     tx.rollback().await.unwrap();
     assert_eq!(before, pg_snapshot(&pool).await);
 }

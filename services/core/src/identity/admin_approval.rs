@@ -75,7 +75,9 @@ pub(crate) enum ApprovalError {
     Storage,
 }
 fn hash_from_hex(value: &str) -> Result<[u8; 32], ApprovalError> {
-    if value.len() != 64 { return Err(ApprovalError::Invalid); }
+    if value.len() != 64 {
+        return Err(ApprovalError::Invalid);
+    }
     fn nibble(byte: u8) -> Result<u8, ApprovalError> {
         match byte {
             b'0'..=b'9' => Ok(byte - b'0'),
@@ -84,31 +86,46 @@ fn hash_from_hex(value: &str) -> Result<[u8; 32], ApprovalError> {
         }
     }
     let mut result = [0; 32];
-    for (index, pair) in value.as_bytes().chunks_exact(2).enumerate() {
+    for (index, pair) in value.as_bytes().as_chunks::<2>().0.iter().enumerate() {
         result[index] = nibble(pair[0])? * 16 + nibble(pair[1])?;
     }
     Ok(result)
 }
 fn valid_identifier(value: &str) -> bool {
-    !value.is_empty() && value.len() <= 128
+    !value.is_empty()
+        && value.len() <= 128
         && value.as_bytes()[0].is_ascii_alphanumeric()
-        && value.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'-' | b'.'))
 }
 
 pub(crate) fn parse_approval(bytes: &[u8]) -> Result<ParsedApproval, ApprovalError> {
-    if bytes.len() > MAX_APPROVAL_BYTES { return Err(ApprovalError::Invalid); }
+    if bytes.len() > MAX_APPROVAL_BYTES {
+        return Err(ApprovalError::Invalid);
+    }
     let draft: ApprovalDraft = serde_json::from_slice(bytes).map_err(|_| ApprovalError::Invalid)?;
     if draft.format_version != 2 || draft.contract_version != CONTRACT_VERSION {
         return Err(ApprovalError::WrongContract);
     }
-    if !valid_identifier(&draft.approval_id) || !valid_identifier(&draft.target_instance)
-        || draft.source_user_id <= 0 || draft.target_user_id <= 0
-        || draft.expected_auth_version <= 0 || draft.expires_at_unix_seconds <= 0 {
+    if !valid_identifier(&draft.approval_id)
+        || !valid_identifier(&draft.target_instance)
+        || draft.source_user_id <= 0
+        || draft.target_user_id <= 0
+        || draft.expected_auth_version <= 0
+        || draft.expires_at_unix_seconds <= 0
+    {
         return Err(ApprovalError::Invalid);
     }
-    draft.expected_auth_version.checked_add(2).ok_or(ApprovalError::VersionExhausted)?;
-    let role = PlatformRole::from_storage(&draft.platform_role).map_err(|_| ApprovalError::Invalid)?;
-    if !role.is_admin() { return Err(ApprovalError::RoleChange); }
+    draft
+        .expected_auth_version
+        .checked_add(2)
+        .ok_or(ApprovalError::VersionExhausted)?;
+    let role =
+        PlatformRole::from_storage(&draft.platform_role).map_err(|_| ApprovalError::Invalid)?;
+    if !role.is_admin() {
+        return Err(ApprovalError::RoleChange);
+    }
     let archive_hash = hash_from_hex(&draft.source_archive_sha256)?;
     let a2_fact_hash = hash_from_hex(&draft.source_a2_fact_sha256)?;
     let gate_manifest_hash = hash_from_hex(&draft.gate_manifest_sha256)?;
@@ -116,9 +133,16 @@ pub(crate) fn parse_approval(bytes: &[u8]) -> Result<ParsedApproval, ApprovalErr
     let expected_policy = match &draft.expected_policy {
         ExpectedPolicy::Absent => None,
         ExpectedPolicy::Present { version, sha256 } => {
-            if *version <= 0 { return Err(ApprovalError::Invalid); }
-            version.checked_add(1).ok_or(ApprovalError::VersionExhausted)?;
-            Some(PolicyBinding { version: *version, sha256: hash_from_hex(sha256)? })
+            if *version <= 0 {
+                return Err(ApprovalError::Invalid);
+            }
+            version
+                .checked_add(1)
+                .ok_or(ApprovalError::VersionExhausted)?;
+            Some(PolicyBinding {
+                version: *version,
+                sha256: hash_from_hex(sha256)?,
+            })
         }
     };
     // Declared struct/variant field order is part of approval format version 2.
@@ -128,8 +152,16 @@ pub(crate) fn parse_approval(bytes: &[u8]) -> Result<ParsedApproval, ApprovalErr
     hash.update(b"lmm-a01-approval-draft-v2\0");
     hash.update(canonical);
     let request_hash = hash.finalize().into();
-    Ok(ParsedApproval { draft, archive_hash, a2_fact_hash, gate_manifest_hash, proposed_policy_hash,
-        expected_policy, role, request_hash })
+    Ok(ParsedApproval {
+        draft,
+        archive_hash,
+        a2_fact_hash,
+        gate_manifest_hash,
+        proposed_policy_hash,
+        expected_policy,
+        role,
+        request_hash,
+    })
 }
 
 /// Construct only from the verified original archive/A2 material, not a request.
@@ -175,18 +207,28 @@ pub(crate) fn check_bindings(
     now_unix_seconds: i64,
 ) -> Result<CheckedBindings, ApprovalError> {
     let draft = &approval.draft;
-    if now_unix_seconds < 0 { return Err(ApprovalError::Invalid); }
-    if now_unix_seconds >= draft.expires_at_unix_seconds { return Err(ApprovalError::Expired); }
-    if source.archive_hash != approval.archive_hash || source.a2_fact_hash != approval.a2_fact_hash
-        || source.source_user_id != draft.source_user_id {
+    if now_unix_seconds < 0 {
+        return Err(ApprovalError::Invalid);
+    }
+    if now_unix_seconds >= draft.expires_at_unix_seconds {
+        return Err(ApprovalError::Expired);
+    }
+    if source.archive_hash != approval.archive_hash
+        || source.a2_fact_hash != approval.a2_fact_hash
+        || source.source_user_id != draft.source_user_id
+    {
         return Err(ApprovalError::WrongSource);
     }
-    if source.target_user_id != draft.target_user_id || target.user_id != draft.target_user_id
-        || target.instance != draft.target_instance {
+    if source.target_user_id != draft.target_user_id
+        || target.user_id != draft.target_user_id
+        || target.instance != draft.target_instance
+    {
         return Err(ApprovalError::WrongTarget);
     }
-    if source.role != approval.role || target.role != approval.role
-        || proposed_policy.role() != approval.role {
+    if source.role != approval.role
+        || target.role != approval.role
+        || proposed_policy.role() != approval.role
+    {
         return Err(ApprovalError::RoleChange);
     }
     if source.blocked_reasons.len() != 1
@@ -194,30 +236,46 @@ pub(crate) fn check_bindings(
     {
         return Err(ApprovalError::OtherBlocker);
     }
-    if !source.verifier_available || source.second_factor_required
-        || !target.account_active || target.password_login_allowed || target.second_factor_required {
+    if !source.verifier_available
+        || source.second_factor_required
+        || !target.account_active
+        || target.password_login_allowed
+        || target.second_factor_required
+    {
         return Err(ApprovalError::AuthenticationUnproven);
     }
-    if target.active || target.auth_version != draft.expected_auth_version
+    if target.active
+        || target.auth_version != draft.expected_auth_version
         || source.imported_auth_version != draft.expected_auth_version
-        || target.policy != approval.expected_policy {
+        || target.policy != approval.expected_policy
+    {
         return Err(ApprovalError::Conflict);
     }
     let next_policy_version = match target.policy {
         None => 1,
-        Some(binding) => binding.version.checked_add(1).ok_or(ApprovalError::VersionExhausted)?,
+        Some(binding) => binding
+            .version
+            .checked_add(1)
+            .ok_or(ApprovalError::VersionExhausted)?,
     };
     if proposed_policy.subject_user_id() != draft.target_user_id
         || proposed_policy.version() != next_policy_version
-        || proposed_policy.fingerprint() != approval.proposed_policy_hash {
+        || proposed_policy.fingerprint() != approval.proposed_policy_hash
+    {
         return Err(ApprovalError::PolicyMismatch);
     }
     Ok(CheckedBindings {
         target_user_id: target.user_id,
         expected_auth_version: target.auth_version,
-        next_auth_version: target.auth_version.checked_add(2).ok_or(ApprovalError::VersionExhausted)?,
+        next_auth_version: target
+            .auth_version
+            .checked_add(2)
+            .ok_or(ApprovalError::VersionExhausted)?,
         expected_policy: target.policy,
-        next_policy: PolicyBinding { version: next_policy_version, sha256: approval.proposed_policy_hash },
+        next_policy: PolicyBinding {
+            version: next_policy_version,
+            sha256: approval.proposed_policy_hash,
+        },
         request_hash: approval.request_hash,
     })
 }
@@ -251,12 +309,17 @@ pub(crate) fn resolve_outcome(
     writer: WriterObservation,
 ) -> CommitResolution {
     match receipt {
-        Some(receipt) if receipt.approval_id == approval.draft.approval_id
-            && receipt.request_hash == approval.request_hash
-            && receipt.target_user_id == approval.draft.target_user_id
-            && Some(receipt.new_auth_version) == approval.draft.expected_auth_version.checked_add(2) => {
-                CommitResolution::Committed { new_auth_version: receipt.new_auth_version }
+        Some(receipt)
+            if receipt.approval_id == approval.draft.approval_id
+                && receipt.request_hash == approval.request_hash
+                && receipt.target_user_id == approval.draft.target_user_id
+                && Some(receipt.new_auth_version)
+                    == approval.draft.expected_auth_version.checked_add(2) =>
+        {
+            CommitResolution::Committed {
+                new_auth_version: receipt.new_auth_version,
             }
+        }
         Some(_) => CommitResolution::Conflict,
         None if writer == WriterObservation::FencedAfterWriterEnded => CommitResolution::NotApplied,
         None => CommitResolution::Unknown,
@@ -266,7 +329,8 @@ pub(crate) fn resolve_outcome(
 impl From<sqlx::Error> for ApprovalError {
     fn from(error: sqlx::Error) -> Self {
         if let Some(db) = error.as_database_error()
-            && matches!(db.code().as_deref(), Some("23505" | "40001" | "40P01")) {
+            && matches!(db.code().as_deref(), Some("23505" | "40001" | "40P01"))
+        {
             return Self::Conflict;
         }
         Self::Storage
@@ -301,23 +365,26 @@ pub(crate) fn verify_signed_approval(
     if bytes.len() > 20 * 1024 || owner_key.len() != 32 {
         return Err(ApprovalError::Invalid);
     }
-    let envelope: SignedEnvelope = serde_json::from_slice(bytes)
-        .map_err(|_| ApprovalError::Invalid)?;
+    let envelope: SignedEnvelope =
+        serde_json::from_slice(bytes).map_err(|_| ApprovalError::Invalid)?;
     if !valid_identifier(&envelope.operator_key_id) {
         return Err(ApprovalError::Invalid);
     }
-    let approval = parse_approval(&serde_json::to_vec(&envelope.approval)
-        .map_err(|_| ApprovalError::Invalid)?)?;
+    let approval = parse_approval(
+        &serde_json::to_vec(&envelope.approval).map_err(|_| ApprovalError::Invalid)?,
+    )?;
     let signature = hash_from_hex(&envelope.signature_sha256)?;
-    let mut mac = <Hmac<Sha256> as Mac>::new_from_slice(owner_key)
-        .map_err(|_| ApprovalError::Invalid)?;
+    let mut mac =
+        <Hmac<Sha256> as Mac>::new_from_slice(owner_key).map_err(|_| ApprovalError::Invalid)?;
     mac.update(b"lmm-a01-signed-approval-v2\0");
     mac.update(&(envelope.operator_key_id.len() as u64).to_be_bytes());
     mac.update(envelope.operator_key_id.as_bytes());
     mac.update(&approval.request_hash);
-    mac.verify_slice(&signature).map_err(|_| ApprovalError::SignatureInvalid)?;
+    mac.verify_slice(&signature)
+        .map_err(|_| ApprovalError::SignatureInvalid)?;
     Ok(VerifiedApproval {
-        approval, operator_key_id: envelope.operator_key_id,
+        approval,
+        operator_key_id: envelope.operator_key_id,
         key_hash: Sha256::digest(owner_key).into(),
     })
 }
@@ -335,8 +402,12 @@ pub(crate) async fn require_owner(c: &mut sqlx::PgConnection) -> Result<(), Appr
          'core_migration.admin_activation_sources'::regclass, \
          'core_migration.admin_approval_keys'::regclass, \
          'core_migration.admin_activation_receipts'::regclass]::oid[])",
-    ).fetch_one(c).await?;
-    if !owns { return Err(ApprovalError::OperatorDenied); }
+    )
+    .fetch_one(c)
+    .await?;
+    if !owns {
+        return Err(ApprovalError::OperatorDenied);
+    }
     Ok(())
 }
 
@@ -348,15 +419,25 @@ async fn receipt(
     let row = sqlx::query(
         "SELECT request_hash,target_user_id,new_auth_version \
          FROM core_migration.admin_activation_receipts WHERE approval_id=$1",
-    ).bind(&approval.draft.approval_id).fetch_optional(c).await?;
-    let Some(row) = row else { return Ok(CommitResolution::Unknown); };
+    )
+    .bind(&approval.draft.approval_id)
+    .fetch_optional(c)
+    .await?;
+    let Some(row) = row else {
+        return Ok(CommitResolution::Unknown);
+    };
     let hash: Vec<u8> = row.try_get("request_hash")?;
     let request_hash: [u8; 32] = hash.try_into().map_err(|_| ApprovalError::Storage)?;
-    Ok(resolve_outcome(approval, Some(&DurableReceipt {
-        approval_id: &approval.draft.approval_id,
-        request_hash, target_user_id: row.try_get("target_user_id")?,
-        new_auth_version: row.try_get("new_auth_version")?,
-    }), WriterObservation::Unknown))
+    Ok(resolve_outcome(
+        approval,
+        Some(&DurableReceipt {
+            approval_id: &approval.draft.approval_id,
+            request_hash,
+            target_user_id: row.try_get("target_user_id")?,
+            new_auth_version: row.try_get("new_auth_version")?,
+        }),
+        WriterObservation::Unknown,
+    ))
 }
 
 /// Resolve the original ID even after expiry or operator-key rotation.
@@ -388,14 +469,19 @@ pub(crate) async fn apply_approved_activation(
     let approval = &signed.approval;
     let draft = &approval.draft;
     let mut tx = pool.begin().await?;
-    sqlx::query("SET LOCAL synchronous_commit=on").execute(&mut *tx).await?;
-    sqlx::query("SET LOCAL lock_timeout='3s'").execute(&mut *tx).await?;
+    sqlx::query("SET LOCAL synchronous_commit=on")
+        .execute(&mut *tx)
+        .await?;
+    sqlx::query("SET LOCAL lock_timeout='3s'")
+        .execute(&mut *tx)
+        .await?;
     require_owner(&mut tx).await?;
     // A stable, transaction-owned fence for this approval ID. No global lock,
     // no lock based on a password or bearer, no changing IDs on retry.
-    sqlx::query(
-        "SELECT pg_advisory_xact_lock(hashtextextended('a01-approval:'||$1,0))",
-    ).bind(&draft.approval_id).execute(&mut *tx).await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(hashtextextended('a01-approval:'||$1,0))")
+        .bind(&draft.approval_id)
+        .execute(&mut *tx)
+        .await?;
     match receipt(&mut tx, approval).await? {
         outcome @ CommitResolution::Committed { .. } => {
             tx.rollback().await?;
@@ -407,17 +493,28 @@ pub(crate) async fn apply_approved_activation(
     let authority: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM core_migration.admin_approval_keys \
          WHERE key_id=$1 AND key_hash=$2 AND enabled FOR SHARE)",
-    ).bind(&signed.operator_key_id).bind(signed.key_hash.as_slice())
-        .fetch_one(&mut *tx).await?;
-    if !authority { return Err(ApprovalError::OperatorDenied); }
+    )
+    .bind(&signed.operator_key_id)
+    .bind(signed.key_hash.as_slice())
+    .fetch_one(&mut *tx)
+    .await?;
+    if !authority {
+        return Err(ApprovalError::OperatorDenied);
+    }
     let context = sqlx::query(
         "SELECT target_instance,contract_version,gate_manifest_sha256 \
          FROM core_migration.admin_activation_context WHERE singleton FOR SHARE",
-    ).fetch_optional(&mut *tx).await?.ok_or(ApprovalError::GateProofMismatch)?;
+    )
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(ApprovalError::GateProofMismatch)?;
     let instance: String = context.try_get("target_instance")?;
     if context.try_get::<String, _>("contract_version")? != CONTRACT_VERSION
-        || context.try_get::<Vec<u8>, _>("gate_manifest_sha256")?.as_slice()
-            != approval.gate_manifest_hash.as_slice() {
+        || context
+            .try_get::<Vec<u8>, _>("gate_manifest_sha256")?
+            .as_slice()
+            != approval.gate_manifest_hash.as_slice()
+    {
         return Err(ApprovalError::GateProofMismatch);
     }
     // User first, then policy/profile/verifier: consistent with live authority
@@ -426,8 +523,11 @@ pub(crate) async fn apply_approved_activation(
         "SELECT u.platform_role,u.active,u.auth_version,a.active AS account_active \
          FROM core_identity.users u JOIN core_identity.accounts a ON a.id=u.personal_account_id \
          WHERE u.id=$1 FOR UPDATE OF u FOR SHARE OF a",
-    ).bind(draft.target_user_id).fetch_optional(&mut *tx).await?
-        .ok_or(ApprovalError::WrongTarget)?;
+    )
+    .bind(draft.target_user_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(ApprovalError::WrongTarget)?;
     let role = PlatformRole::from_storage(&user.try_get::<String, _>("platform_role")?)
         .map_err(|_| ApprovalError::RoleChange)?;
     let source = sqlx::query(
@@ -439,22 +539,30 @@ pub(crate) async fn apply_approved_activation(
          AND r.source_archive_sha256=s.source_archive_sha256 \
          AND r.mapping_sha256=s.mapping_sha256 \
          WHERE s.target_user_id=$1 FOR SHARE OF s,r",
-    ).bind(draft.target_user_id).fetch_optional(&mut *tx).await?
-        .ok_or(ApprovalError::WrongSource)?;
+    )
+    .bind(draft.target_user_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(ApprovalError::WrongSource)?;
     let profile = sqlx::query(
         "SELECT p.password_login_allowed,p.second_factor_required,p.legacy_bcrypt_allowed, \
          sha256(convert_to(l.password_hash,'UTF8')) AS verifier_sha256 \
          FROM core_identity.user_profiles p \
          JOIN core_identity.password_logins l ON l.user_id=p.user_id \
          WHERE p.user_id=$1 FOR UPDATE OF p FOR SHARE OF l",
-    ).bind(draft.target_user_id).fetch_optional(&mut *tx).await?
-        .ok_or(ApprovalError::AuthenticationUnproven)?;
+    )
+    .bind(draft.target_user_id)
+    .fetch_optional(&mut *tx)
+    .await?
+    .ok_or(ApprovalError::AuthenticationUnproven)?;
     let blockers: Vec<String> = source.try_get("blocked_reasons")?;
     let blocker_refs: Vec<&str> = blockers.iter().map(String::as_str).collect();
     let source_facts = SourceFacts {
         archive_hash: hash_from_hex(&source.try_get::<String, _>("source_archive_sha256")?)?,
-        a2_fact_hash: source.try_get::<Vec<u8>, _>("source_a2_fact_sha256")?
-            .try_into().map_err(|_| ApprovalError::Storage)?,
+        a2_fact_hash: source
+            .try_get::<Vec<u8>, _>("source_a2_fact_sha256")?
+            .try_into()
+            .map_err(|_| ApprovalError::Storage)?,
         source_user_id: source.try_get("source_user_id")?,
         target_user_id: draft.target_user_id,
         imported_auth_version: source.try_get("imported_auth_version")?,
@@ -470,32 +578,56 @@ pub(crate) async fn apply_approved_activation(
     let policy_row = sqlx::query(
         "SELECT role,version,contract_version,effects,fingerprint \
          FROM core_identity.admin_policies WHERE user_id=$1 FOR UPDATE",
-    ).bind(draft.target_user_id).fetch_optional(&mut *tx).await?;
-    let old_policy = policy_row.map(|r| -> Result<PolicyBinding, ApprovalError> {
-        let policy = PolicySnapshot::from_storage(
-            draft.target_user_id, &r.try_get::<String, _>("role")?, r.try_get("version")?,
-            &r.try_get::<String, _>("contract_version")?,
-            &r.try_get::<Vec<i16>, _>("effects")?, &r.try_get::<Vec<u8>, _>("fingerprint")?,
-        ).map_err(|_| ApprovalError::PolicyMismatch)?;
-        Ok(PolicyBinding { version: policy.version(), sha256: policy.fingerprint() })
-    }).transpose()?;
+    )
+    .bind(draft.target_user_id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    let old_policy = policy_row
+        .map(|r| -> Result<PolicyBinding, ApprovalError> {
+            let policy = PolicySnapshot::from_storage(
+                draft.target_user_id,
+                &r.try_get::<String, _>("role")?,
+                r.try_get("version")?,
+                &r.try_get::<String, _>("contract_version")?,
+                &r.try_get::<Vec<i16>, _>("effects")?,
+                &r.try_get::<Vec<u8>, _>("fingerprint")?,
+            )
+            .map_err(|_| ApprovalError::PolicyMismatch)?;
+            Ok(PolicyBinding {
+                version: policy.version(),
+                sha256: policy.fingerprint(),
+            })
+        })
+        .transpose()?;
     let target = TargetFacts {
-        instance: &instance, user_id: draft.target_user_id, role,
-        active: user.try_get("active")?, account_active: user.try_get("account_active")?,
+        instance: &instance,
+        user_id: draft.target_user_id,
+        role,
+        active: user.try_get("active")?,
+        account_active: user.try_get("account_active")?,
         password_login_allowed: profile.try_get("password_login_allowed")?,
         second_factor_required: profile.try_get("second_factor_required")?,
-        auth_version: user.try_get("auth_version")?, policy: old_policy,
+        auth_version: user.try_get("auth_version")?,
+        policy: old_policy,
     };
-    let now: i64 = sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
-        .fetch_one(&mut *tx).await?;
+    let now: i64 =
+        sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
+            .fetch_one(&mut *tx)
+            .await?;
     let checked = check_bindings(approval, &source_facts, &target, proposed, now)?;
     let query = if let Some(old) = old_policy {
         sqlx::query(
             "UPDATE core_identity.admin_policies SET role=$2,version=$3,contract_version=$4, \
              effects=$5,fingerprint=$6 WHERE user_id=$1 AND version=$7 AND fingerprint=$8",
-        ).bind(draft.target_user_id).bind(proposed.role().storage_name())
-            .bind(proposed.version()).bind(CONTRACT_VERSION).bind(proposed.stored_effects())
-            .bind(proposed.fingerprint().to_vec()).bind(old.version).bind(old.sha256.to_vec())
+        )
+        .bind(draft.target_user_id)
+        .bind(proposed.role().storage_name())
+        .bind(proposed.version())
+        .bind(CONTRACT_VERSION)
+        .bind(proposed.stored_effects())
+        .bind(proposed.fingerprint().to_vec())
+        .bind(old.version)
+        .bind(old.sha256.to_vec())
     } else {
         sqlx::query(
             "INSERT INTO core_identity.admin_policies(user_id,role,version,contract_version,effects,fingerprint) \
@@ -516,7 +648,13 @@ pub(crate) async fn apply_approved_activation(
     if sqlx::query(
         "UPDATE core_identity.user_profiles SET password_login_allowed=TRUE \
          WHERE user_id=$1 AND NOT password_login_allowed AND NOT second_factor_required",
-    ).bind(draft.target_user_id).execute(&mut *tx).await?.rows_affected() != 1 {
+    )
+    .bind(draft.target_user_id)
+    .execute(&mut *tx)
+    .await?
+    .rows_affected()
+        != 1
+    {
         return Err(ApprovalError::Conflict);
     }
     // This append-only receipt is the offline audit. It identifies the real
@@ -537,12 +675,21 @@ pub(crate) async fn apply_approved_activation(
         "UPDATE core_identity.users SET active=TRUE,auth_version=$3 \
          WHERE id=$1 AND NOT active AND auth_version=$2 AND platform_role=$4 \
          AND clock_timestamp()<to_timestamp($5::double precision) RETURNING auth_version",
-    ).bind(draft.target_user_id).bind(checked.expected_auth_version + 1)
-        .bind(checked.next_auth_version).bind(role.storage_name())
-        .bind(draft.expires_at_unix_seconds).fetch_optional(&mut *tx).await?;
-    if updated != Some(checked.next_auth_version) { return Err(ApprovalError::Conflict); }
+    )
+    .bind(draft.target_user_id)
+    .bind(checked.expected_auth_version + 1)
+    .bind(checked.next_auth_version)
+    .bind(role.storage_name())
+    .bind(draft.expires_at_unix_seconds)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if updated != Some(checked.next_auth_version) {
+        return Err(ApprovalError::Conflict);
+    }
     match tx.commit().await {
-        Ok(()) => Ok(CommitResolution::Committed { new_auth_version: checked.next_auth_version }),
+        Ok(()) => Ok(CommitResolution::Committed {
+            new_auth_version: checked.next_auth_version,
+        }),
         // Could be committed. Do not convert a missing ACK into failure/rollback.
         Err(_) => Ok(CommitResolution::Unknown),
     }
@@ -550,5 +697,7 @@ pub(crate) async fn apply_approved_activation(
 
 impl ParsedApproval {
     /// Public digest of the canonical request; not an authorization credential.
-    pub(crate) fn request_hash(&self) -> [u8; 32] { self.request_hash }
+    pub(crate) fn request_hash(&self) -> [u8; 32] {
+        self.request_hash
+    }
 }
