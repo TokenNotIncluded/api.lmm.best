@@ -394,7 +394,7 @@ def build_apply_sql(material: dict) -> str:
     sql = _start(material, readonly=False) + f"""
 DO $lmm_financial$
 DECLARE m jsonb := {literal(material)}::jsonb; previous core_migration.import_runs%ROWTYPE;
- before_state jsonb; after_state jsonb; p jsonb;
+ before_state jsonb; after_state jsonb; v_payload jsonb;
 BEGIN
  {guard}
  LOCK TABLE {locks} IN ACCESS EXCLUSIVE MODE;
@@ -425,11 +425,11 @@ BEGIN
    OR NOT EXISTS(SELECT 1 FROM core_migration.import_runs r WHERE to_jsonb(r)=m->'identity_import')
   THEN RAISE EXCEPTION 'financial_identity_binding_mismatch'; END IF;
   {' '.join(restarts)}
-  FOR p IN SELECT value FROM jsonb_array_elements(m->'opening') ORDER BY (value->>'account_id')::bigint LOOP
-   PERFORM core_billing.import_opening_balance(p);
+  FOR v_payload IN SELECT value FROM jsonb_array_elements(m->'opening') ORDER BY (value->>'account_id')::bigint LOOP
+   PERFORM core_billing.import_opening_balance(v_payload);
   END LOOP;
-  FOR p IN SELECT value FROM jsonb_array_elements(m->'counters') ORDER BY (value->>'account_id')::bigint LOOP
-   PERFORM core_billing.import_account_opening_counters(p);
+  FOR v_payload IN SELECT value FROM jsonb_array_elements(m->'counters') ORDER BY (value->>'account_id')::bigint LOOP
+   PERFORM core_billing.import_account_opening_counters(v_payload);
   END LOOP;
   SET CONSTRAINTS ALL IMMEDIATE;
   IF (SELECT count(*) FROM core_billing.opening_imports)<>jsonb_array_length(m->'opening')
@@ -540,10 +540,18 @@ def verify_source_files(material: dict) -> None:
     proof = load("source_export_proof")
     require(proof["source_archive_sha256"] == material["source_archive_sha256"] and
             proof["source_export_sha256"] == files["source_export"]["sha256"], "source_export_file_mismatch")
+    source = load("source_receipt")
     opening = PLANNER.build_opening_payloads(material["source_plan"], migration_id=material["migration_id"],
         observation=material["observation"], reservation_reconciliation=load("reservations"))
     require(opening["payloads"] == material["opening"] and
-            PLANNER.source_observation(load("source_receipt")) == material["observation"], "source_observation_or_reservation_mismatch")
+            PLANNER.source_observation(source) == material["observation"], "source_observation_or_reservation_mismatch")
+    # These files are bound transitively by the receipt's private paths and the
+    # approved export proof's hashes. Recheck them before submission and after
+    # a successful transport return, just like the directly listed source files.
+    # This reads local files only; it cannot reconnect to the source database.
+    _, _, metadata_hashes, _, _ = PLANNER.metadata(source)
+    require(digest(metadata_hashes) == digest(proof.get("metadata_hashes")),
+            "source_export_metadata_hash_mismatch")
 
 
 def run_sql(connection: dict, sql: str, output: Path, application_name: str, *, readonly=False,

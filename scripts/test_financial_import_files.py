@@ -23,7 +23,15 @@ class PrivateFileFixture:
         self.material = material_fixture(self.source)
         self.files = self.material["source_files"]
         self.write("archive", "synthetic-frozen-archive")
-        self.write("source_receipt", {"started_utc": "20261001T000000Z"})
+        # This file-verifier fixture has an empty synthetic catalog. The prepare
+        # fixture below provides the complete catalog and real export framing.
+        metadata = self.input / "metadata"
+        metadata.mkdir(mode=0o700)
+        catalog = F.write_private(metadata, "native-catalog-metadata.jsonl", "[]\n" * 7)
+        baseline = F.write_private(metadata, "native-table-row-count-baseline.jsonl", "")
+        self.metadata_hashes = {path.name: F.IDENTITY.sha256_file(path) for path in (catalog, baseline)}
+        self.write("source_receipt", {"started_utc": "20261001T000000Z", "source": {"schema": "public"},
+            "private_metadata_files": [str(catalog), str(baseline)]})
         self.write("financial_plan", self.material["source_plan"])
         self.write("source_review", self.material["source_review"])
         self.write("identity_manifest", self.material["identity_import"]["manifest"])
@@ -32,7 +40,7 @@ class PrivateFileFixture:
         self.write("identity_map", id_map)
         self.write("source_export", "synthetic-export-not-connected\n")
         self.write("source_export_proof", {"source_archive_sha256": self.material["source_archive_sha256"],
-            "source_export_sha256": self.files["source_export"]["sha256"]})
+            "source_export_sha256": self.files["source_export"]["sha256"], "metadata_hashes": self.metadata_hashes})
         self.write("reservations", self.source["reservations"])
 
     def write(self, name, value):
@@ -230,6 +238,100 @@ class PrepareFilesTests(PrivateFileFixture, unittest.TestCase):
         self.args.target_receipt.write_text(F.canonical(target))
         with self.assertRaisesRegex(F.Error, "source_target_same_database"):
             self.prepare(self.output())
+
+    def prepared_attempt(self, name):
+        output = self.output(name + "-prepared")
+        self.prepare(output)
+        material = F.PLANNER.parse_json(F.read_private(output / "material.private.json"))
+        sql = F.read_private(output / "opening.private.sql")
+        connection = F.PLANNER.parse_json(F.read_private(self.args.target_receipt))["connection"]
+        return material, sql, connection
+
+    def test_source_metadata_changed_after_prepare_never_reaches_apply(self):
+        for index, name in enumerate(("native-catalog-metadata.jsonl", "native-table-row-count-baseline.jsonl")):
+            with self.subTest(name=name):
+                material, sql, connection = self.prepared_attempt("metadata-drift-" + str(index))
+                path = self.input / name
+                original = path.read_bytes()
+                try:
+                    # A byte-only change is enough: approval binds original bytes,
+                    # not merely equivalent parsed columns or counts.
+                    path.write_bytes(original + b"\n")
+                    with patch.object(F.IDENTITY, "socket_connection", return_value={}), \
+                         patch.object(F, "run_sql") as run:
+                        with self.assertRaisesRegex(F.Error, "source_export_metadata_hash_mismatch"):
+                            F.execute(material, approval=approval_fixture(material, sql), original_sql=sql,
+                                connection=connection, output=self.output("metadata-drift-" + str(index) + "-apply"))
+                        run.assert_not_called()
+                finally:
+                    path.write_bytes(original)
+
+    def test_source_metadata_missing_after_prepare_never_reaches_apply(self):
+        material, sql, connection = self.prepared_attempt("metadata-missing")
+        path = self.input / "native-table-row-count-baseline.jsonl"
+        path.unlink()
+        with patch.object(F.IDENTITY, "socket_connection", return_value={}), \
+             patch.object(F, "run_sql") as run:
+            with self.assertRaises(FileNotFoundError):
+                F.execute(material, approval=approval_fixture(material, sql), original_sql=sql,
+                    connection=connection, output=self.output("metadata-missing-apply"))
+            run.assert_not_called()
+
+    def test_source_metadata_mode_or_symlink_changed_after_prepare_is_rejected(self):
+        material, sql, connection = self.prepared_attempt("metadata-path")
+        path = self.input / "native-catalog-metadata.jsonl"
+        original = path.read_bytes()
+        replacement = self.input / "catalog-copy.private"
+        F.write_private(self.input, replacement.name, original.decode())
+        for index, mode in enumerate(("public", "symlink")):
+            with self.subTest(mode=mode):
+                if mode == "public":
+                    path.chmod(0o644)
+                else:
+                    path.unlink()
+                    path.symlink_to(replacement)
+                try:
+                    with patch.object(F.IDENTITY, "socket_connection", return_value={}), \
+                         patch.object(F, "run_sql") as run:
+                        with self.assertRaisesRegex(F.Error, "permissions_unsafe|symlink_rejected"):
+                            F.execute(material, approval=approval_fixture(material, sql), original_sql=sql,
+                                connection=connection, output=self.output("metadata-path-apply-" + str(index)))
+                        run.assert_not_called()
+                finally:
+                    path.unlink()
+                    F.write_private(self.input, path.name, original.decode())
+
+    def test_source_metadata_changed_after_submission_keeps_original_attempt_unknown(self):
+        material, sql, connection = self.prepared_attempt("metadata-after-submit")
+        expected = {"status": "COMMITTED", "migration_id": material["migration_id"],
+                    "material_sha256": F.digest(material)}
+        path = self.input / "native-table-row-count-baseline.jsonl"
+        original = path.read_bytes()
+        output = self.output("metadata-after-submit-apply")
+        def transport(*args, **kwargs):
+            path.write_bytes(original + b"\n")
+            return 0, F.canonical(expected)
+        with patch.object(F.IDENTITY, "socket_connection", return_value={}), \
+             patch.object(F, "run_sql", side_effect=transport) as run:
+            result = F.execute(material, approval=approval_fixture(material, sql), original_sql=sql,
+                connection=connection, output=output)
+            self.assertEqual(result, {**expected, "status": "UNKNOWN"})
+            run.assert_called_once()
+        attempt = F.PLANNER.parse_json(F.read_private(output / "attempt.private.json"))
+        self.assertEqual(attempt["operation"], "apply")
+        self.assertEqual(attempt["material_sha256"], F.digest(material))
+        self.assertEqual(F.PLANNER.parse_json(F.read_private(output / "result.private.json")), result)
+        # Restore the approved bytes, then resolve that same attempt. This is a
+        # transport fake: it proves the driver selects read-only recovery SQL,
+        # not that a PostgreSQL commit occurred.
+        path.write_bytes(original)
+        with patch.object(F.IDENTITY, "socket_connection", return_value={}), \
+             patch.object(F, "run_sql", return_value=(0, F.canonical(expected))) as run:
+            resolved = F.execute(material, approval=approval_fixture(material, sql), original_sql=sql,
+                connection=connection, output=self.output("metadata-after-submit-resolve"), original_attempt=attempt)
+            self.assertEqual(resolved, expected)
+            self.assertEqual(run.call_args.args[1], F.build_resolve_sql(material, attempt["application_name"]))
+            run.assert_called_once()
 
     def test_changed_catalog_metadata_is_rejected_before_target_query(self):
         path = self.input / "native-catalog-metadata.jsonl"

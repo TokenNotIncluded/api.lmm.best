@@ -198,9 +198,47 @@ class PostgreSQLTests(unittest.TestCase):
     def test_partial_sql_failure_rolls_back_every_table_and_sequence(self):
         # Inject a failure AFTER a completed opening. Test-only altered SQL is
         # sent directly; the normal CLI rejects it because its hash differs.
-        broken = self.apply_sql.replace("PERFORM core_billing.import_opening_balance(p);",
-            "PERFORM core_billing.import_opening_balance(p); RAISE EXCEPTION 'synthetic-mid-import';", 1)
+        broken = self.apply_sql.replace("PERFORM core_billing.import_opening_balance(v_payload);",
+            "PERFORM core_billing.import_opening_balance(v_payload); RAISE EXCEPTION 'synthetic-mid-import';", 1)
         self.rejected_unchanged(broken, "synthetic-mid-import")
+        self.assertEqual(self.full_state(), self.before)
+        self.assertEqual(json.loads(self.sql(self.apply_sql).stdout)["status"], "COMMITTED")
+
+    def test_terminated_backend_mid_opening_rolls_back_then_resolves(self):
+        app = "lmm-financial-" + uuid.uuid4().hex
+        call = "PERFORM core_billing.import_opening_balance(v_payload);"
+        self.assertIn(call, self.apply_sql)
+        # A NOTICE is delivered before COMMIT, unlike NOTIFY. Wait until the
+        # first opening has changed rows and sequences, then end only that
+        # uniquely named test backend. The normal CLI rejects this altered SQL.
+        interrupted = self.apply_sql.replace(call, call +
+            " RAISE NOTICE 'A03_OPENING_PAUSED'; PERFORM pg_sleep(30);", 1)
+        with subprocess.Popen(self.command(application_name=app), stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True) as process:
+            self.addCleanup(lambda: process.kill() if process.poll() is None else None)
+            process.stdin.write(interrupted)
+            process.stdin.close()
+            process.stdin = None
+            notice = b""
+            deadline = time.monotonic() + 10
+            with selectors.DefaultSelector() as selector:
+                selector.register(process.stderr, selectors.EVENT_READ)
+                while b"A03_OPENING_PAUSED" not in notice and time.monotonic() < deadline:
+                    if selector.select(timeout=0.2):
+                        chunk = os.read(process.stderr.fileno(), 4096)
+                        if not chunk:
+                            break
+                        notice += chunk
+            self.assertIn(b"A03_OPENING_PAUSED", notice)
+            stopped = self.sql("SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                "WHERE datname=" + F.literal(self.db) + " AND application_name=" + F.literal(app) +
+                " AND pid<>pg_backend_pid();", admin=True)
+            self.assertEqual(stopped.stdout.strip(), "t")
+            process.communicate(timeout=10)
+            self.assertNotEqual(process.returncode, 0)
+        self.assertEqual(self.full_state(), self.before)
+        resolved = json.loads(self.sql(F.build_resolve_sql(self.material, app)).stdout)
+        self.assertEqual(resolved["status"], "NOT_APPLIED")
         self.assertEqual(self.full_state(), self.before)
         self.assertEqual(json.loads(self.sql(self.apply_sql).stdout)["status"], "COMMITTED")
 
