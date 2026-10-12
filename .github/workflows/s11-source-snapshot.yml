@@ -1,9 +1,7 @@
 name: S11 source snapshot
 
 on:
-  push:
-    branches: [wip/rust-core-go-extensions]
-    paths: [.github/workflows/s11-source-snapshot.yml]
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -13,50 +11,30 @@ jobs:
     if: github.repository == 'TokenNotIncluded/api.lmm.best'
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    permissions:
-      contents: write
-    env:
-      S11_OUTPUT: ${{ github.workspace }}/../s11-rebase-evidence
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Freeze prerequisite candidates for source review
+      - name: Freeze prerequisite sources without changing remote refs
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$S11_OUTPUT" "$RUNNER_TEMP/s11-prerequisites"
-          cp .github/s11-rebase.py "$RUNNER_TEMP/s11-rebase.py"
-          cp .github/s11-rebase-plan.json "$RUNNER_TEMP/s11-rebase-plan.json"
+          mkdir -p "$RUNNER_TEMP/s11-prerequisites"
           git fetch --no-tags origin \
+            refs/heads/wip/rust-core-go-extensions:refs/s11/development \
             refs/pull/878/head:refs/s11/a09 \
             refs/pull/875/head:refs/s11/a04 \
             refs/pull/880/head:refs/s11/a10
           git bundle create "$RUNNER_TEMP/s11-prerequisites/prerequisites.bundle" \
-            refs/s11/a09 refs/s11/a04 refs/s11/a10 \
-            ^a28f06e88b7adf3701937f2a4018689bdc96ad85 \
-            ^3948a0a1ee1cefdd016a7aa45a11851545bb4b85
+            refs/s11/development refs/s11/a09 refs/s11/a04 refs/s11/a10
           git for-each-ref --format='%(refname) %(objectname)' refs/s11 \
             > "$RUNNER_TEMP/s11-prerequisites/refs.txt"
           cd "$RUNNER_TEMP/s11-prerequisites"
           sha256sum prerequisites.bundle > SHA256SUMS
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         with:
           name: s11-prerequisite-sources
           path: ${{ runner.temp }}/s11-prerequisites/
-          retention-days: 2
-          if-no-files-found: error
-      - name: Reproduce only reviewed conflict resolutions
-        run: python3 "$RUNNER_TEMP/s11-rebase.py" replay "$RUNNER_TEMP/s11-rebase-plan.json"
-      - name: Store immutable Git objects without moving any remote ref
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: python3 "$RUNNER_TEMP/s11-rebase.py" publish
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: s11-rebase-evidence
-          path: ${{ env.S11_OUTPUT }}/
           retention-days: 2
           if-no-files-found: error

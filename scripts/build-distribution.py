@@ -21,6 +21,9 @@ VERSION = re.compile(r"[0-9]+\.[0-9]+\.[0-9]+(?:-[a-zA-Z0-9][a-zA-Z0-9.-]*)?")
 MAX_FILE = 512 * 1024 * 1024
 MAX_TOTAL = 2 * 1024 * 1024 * 1024
 MAX_FILES = 20000
+MAX_MANIFEST = 8 * 1024 * 1024
+MAX_METADATA = 1024 * 1024
+READ_CHUNK = 1024 * 1024
 
 
 def safe_path(name: str) -> str:
@@ -57,24 +60,28 @@ def read_regular(root: Path, name: str) -> bytes:
     return data
 
 
-def check_binary(data: bytes, platform: str) -> None:
+def _check_binary_headers(header: bytes, pe_header: bytes, size: int, platform: str) -> None:
     system, arch = platform.split("-")
-    machine = {"amd64": 62, "arm64": 183}[arch]
     if system == "linux":
-        valid = (len(data) >= 64 and data[:6] == b"\x7fELF\x02\x01"
-                 and struct.unpack_from("<H", data, 18)[0] == machine)
+        valid = (len(header) >= 64 and header[:6] == b"\x7fELF\x02\x01"
+                 and struct.unpack_from("<H", header, 18)[0] == {"amd64": 62, "arm64": 183}[arch])
     elif system == "macos":
-        cpu = {"amd64": 0x01000007, "arm64": 0x0100000C}[arch]
-        valid = (len(data) >= 32 and data[:4] == b"\xcf\xfa\xed\xfe"
-                 and struct.unpack_from("<I", data, 4)[0] == cpu)
+        valid = (len(header) >= 32 and header[:4] == b"\xcf\xfa\xed\xfe"
+                 and struct.unpack_from("<I", header, 4)[0]
+                 == {"amd64": 0x01000007, "arm64": 0x0100000C}[arch])
     else:
-        offset = struct.unpack_from("<I", data, 60)[0] if len(data) >= 64 else 0
-        cpu = {"amd64": 0x8664, "arm64": 0xAA64}[arch]
-        valid = (data[:2] == b"MZ" and offset >= 64 and offset + 6 <= len(data)
-                 and data[offset:offset + 4] == b"PE\0\0"
-                 and struct.unpack_from("<H", data, offset + 4)[0] == cpu)
+        offset = struct.unpack_from("<I", header, 60)[0] if len(header) >= 64 else 0
+        valid = (header[:2] == b"MZ" and offset >= 64 and offset + 6 <= size
+                 and len(pe_header) == 6 and pe_header[:4] == b"PE\0\0"
+                 and struct.unpack_from("<H", pe_header, 4)[0]
+                 == {"amd64": 0x8664, "arm64": 0xAA64}[arch])
     if not valid:
         raise ValueError("binary format or architecture does not match the package")
+
+
+def check_binary(data: bytes, platform: str) -> None:
+    offset = struct.unpack_from("<I", data, 60)[0] if len(data) >= 64 else 0
+    _check_binary_headers(data[:64], data[offset:offset + 6], len(data), platform)
 
 
 def build(root: Path, component: str, version: str, revision: str,
@@ -166,7 +173,8 @@ def build(root: Path, component: str, version: str, revision: str,
                         info.uname = info.gname = ""
                         tar.addfile(info, io.BytesIO(data))
         verify(staged, revision)
-        digest = hashlib.sha256(staged.read_bytes()).hexdigest()
+        with staged.open("rb") as raw:
+            digest = hashlib.file_digest(raw, "sha256").hexdigest()
         # Hard links are atomic, fail when the destination exists and never
         # expose a partially written archive. The staging directory is local.
         os.link(staged, archive)
@@ -179,47 +187,148 @@ def build(root: Path, component: str, version: str, revision: str,
     return archive
 
 
+def _unique_object(pairs: list[tuple]) -> dict:
+    result = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("duplicate manifest key")
+        result[key] = value
+    return result
+
+
+def _inspect_member(source, size: int, binary: bool) -> tuple[str, bytes, bytes]:
+    digest, position = hashlib.sha256(), 0
+    header, pe_header = b"", b""
+    while chunk := source.read(READ_CHUNK):
+        digest.update(chunk)
+        if binary:
+            if len(header) < 64:
+                header += chunk[:64 - len(header)]
+            if len(header) == 64 and header[:2] == b"MZ":
+                offset = struct.unpack_from("<I", header, 60)[0]
+                # Collect only the six PE bytes, even at a large offset or
+                # across a chunk boundary. Never retain the intervening data.
+                left, right = max(offset - position, 0), min(offset + 6 - position, len(chunk))
+                if left < right:
+                    pe_header += chunk[left:right]
+        position += len(chunk)
+        if position > size:
+            raise ValueError("archive member exceeds its declared size")
+    if position != size:
+        raise ValueError("truncated archive member")
+    return digest.hexdigest(), header, pe_header
+
+
+class _BoundedTarInfo(tarfile.TarInfo):
+    def _proc_member(self, archive):
+        # This documented tarfile extension point runs before PAX/GNU payload
+        # allocation on both older Python and Python 3.14 (_frombuf changed).
+        metadata = {tarfile.XHDTYPE, tarfile.XGLTYPE, tarfile.SOLARIS_XHDTYPE,
+                    tarfile.GNUTYPE_LONGNAME, tarfile.GNUTYPE_LONGLINK}
+        depth = getattr(archive, "_distribution_metadata_depth", 0)
+        if self.type in metadata:
+            total = getattr(archive, "_distribution_metadata_bytes", 0) + self.size
+            if not 0 <= self.size <= MAX_METADATA or total > MAX_MANIFEST or depth >= 16:
+                raise ValueError("archive metadata exceeds inspection limits")
+            archive._distribution_metadata_bytes = total
+        elif self.type not in {tarfile.REGTYPE, tarfile.AREGTYPE}:
+            raise ValueError("unsafe archive member type")
+        archive._distribution_metadata_depth = depth + 1
+        try:
+            return super()._proc_member(archive)
+        finally:
+            archive._distribution_metadata_depth = depth
+
+    def _reject_sparse(self, *args):
+        # Sparse PAX extensions can allocate/read before verify sees a member.
+        # Component archives contain ordinary files, never sparse maps.
+        raise ValueError("sparse archive members are not distribution inputs")
+
+    _proc_gnusparse_00 = _reject_sparse
+    _proc_gnusparse_01 = _reject_sparse
+    _proc_gnusparse_10 = _reject_sparse
+
+
 def verify(archive: Path, revision: str | None = None) -> dict:
-    files: dict[str, tuple[bytes, int]] = {}
-    total = 0
-    with tarfile.open(archive, "r:gz") as tar:
+    # Keep hashes and small binary headers, not the complete decompressed package.
+    files: dict[str, dict] = {}
+    headers: dict[str, tuple[bytes, bytes]] = {}
+    seen: set[str] = set()
+    total, raw_manifest = 0, None
+    # GzipFile bounds decompression reads; tarfile r|gz can inflate an entire
+    # compressed chunk into a much larger buffer before our payload limit.
+    with gzip.open(archive, "rb") as decoded, tarfile.open(
+            fileobj=decoded, mode="r|", tarinfo=_BoundedTarInfo) as tar:
         for entry in tar:
             safe_path(entry.name)
-            if (not entry.isfile() or entry.name in files or entry.mode not in {0o644, 0o755}
+            if (not entry.isfile() or entry.name in seen or entry.mode not in {0o644, 0o755}
                     or entry.uid != 0 or entry.gid != 0 or not 0 <= entry.size <= MAX_FILE):
                 raise ValueError("unsafe or duplicate archive member")
             total += entry.size
-            if total > MAX_TOTAL or len(files) >= MAX_FILES:
+            if total > MAX_TOTAL or len(seen) >= MAX_FILES:
                 raise ValueError("archive exceeds inspection limits")
+            seen.add(entry.name)
             source = tar.extractfile(entry)
             if source is None:
                 raise ValueError("unreadable archive member")
-            files[entry.name] = (source.read(), entry.mode)
-    if "MANIFEST.json" not in files:
+            with source:
+                if entry.name == "MANIFEST.json":
+                    if entry.mode != 0o644 or entry.size > MAX_MANIFEST:
+                        raise ValueError("unsafe or oversized manifest")
+                    raw_manifest = source.read(entry.size + 1)
+                    if len(raw_manifest) != entry.size:
+                        raise ValueError("truncated manifest")
+                    continue
+                is_binary = entry.name.startswith("bin/")
+                digest, header, pe_header = _inspect_member(source, entry.size, is_binary)
+            files[entry.name] = {"sha256": digest, "size": entry.size, "mode": entry.mode}
+            if is_binary:
+                headers[entry.name] = (header, pe_header)
+    if raw_manifest is None:
         raise ValueError("archive has no manifest")
-    manifest = json.loads(files.pop("MANIFEST.json")[0])
-    if (manifest["schema_version"] != 1 or manifest["preview"] is not True
+    try:
+        manifest = json.loads(raw_manifest, object_pairs_hook=_unique_object)
+    except RecursionError:
+        raise ValueError("manifest nesting exceeds inspection limits") from None
+    if (not isinstance(manifest, dict) or type(manifest.get("schema_version")) is not int
+            or manifest["schema_version"] != 1 or manifest.get("preview") is not True
+            or not isinstance(manifest.get("revision"), str)
             or not REVISION.fullmatch(manifest["revision"])
+            or not isinstance(manifest.get("version"), str)
             or not VERSION.fullmatch(manifest["version"])
-            or (revision is not None and manifest["revision"] != revision)):
+            or (revision is not None and manifest["revision"] != revision)
+            or type(manifest.get("source_date_epoch")) is not int
+            or not 0 <= manifest["source_date_epoch"] <= 0xFFFFFFFF):
         raise ValueError("manifest identity does not match")
-    if set(manifest["files"]) != set(files):
+    if not isinstance(manifest.get("files"), dict) or set(manifest["files"]) != set(files):
         raise ValueError("manifest inventory does not match")
     spec = json.loads((ROOT / "packaging/distribution.json").read_text())
+    if spec["schema_version"] != 1 or not isinstance(manifest.get("component"), str):
+        raise ValueError("unknown distribution schema or component")
     component = spec["components"].get(manifest["component"])
-    if (component is None or manifest["package"] != component["package"]
-            or manifest["platform"] not in component["platforms"]):
+    if (component is None or manifest.get("package") != component["package"]
+            or manifest.get("platform") not in component["platforms"]):
         raise ValueError("manifest component or platform does not match")
     suffix = ".exe" if manifest["platform"].startswith("windows-") else ""
     binaries = {"bin/" + name + suffix for name in component["binaries"]}
-    if {name for name in files if name.startswith("bin/")} != binaries:
+    if set(headers) != binaries:
         raise ValueError("archive executable inventory does not match the component")
-    if {name for name, (_, mode) in files.items() if mode == 0o755} != binaries:
+    if {name for name, info in files.items() if info["mode"] == 0o755} != binaries:
         raise ValueError("only component binaries may be executable")
-    for name, (data, mode) in files.items():
+    required = set(spec["common"] + component["resources"] + ["README.md"]) | binaries
+    allowed = set(required)
+    if manifest["component"] == "web":
+        required.add("dist/index.html")
+        allowed.update(name for name in files if name.startswith("dist/"))
+    if not required <= files.keys() or files.keys() - allowed:
+        raise ValueError("unexpected or missing archive resources")
+    for name, actual in files.items():
         expected = manifest["files"][name]
-        if expected != {"sha256": hashlib.sha256(data).hexdigest(), "size": len(data), "mode": mode}:
+        if (not isinstance(expected, dict) or type(expected.get("size")) is not int
+                or type(expected.get("mode")) is not int or expected != actual):
             raise ValueError("manifest content does not match")
+    for name, (header, pe_header) in headers.items():
+        _check_binary_headers(header, pe_header, files[name]["size"], manifest["platform"])
     return manifest
 
 
