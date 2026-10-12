@@ -26,7 +26,7 @@ import { formatQuota } from '@/lib/format'
 import { cn } from '@/lib/utils'
 
 import { bountyAvailableSlots } from './timeline'
-import type { BountyProject } from './types'
+import { getBountyKind, type BountyProject } from './types'
 
 function Fact({
   label,
@@ -97,7 +97,7 @@ export function BountyDecision({
           </p>
         )}
       <div className='border-border/60 bg-muted/20 space-y-1.5 rounded-lg border px-3 py-2'>
-        <p>{t('Evidence: Issue or PR; follow the acceptance rules.')}</p>
+        <p>{t(getBountyKind(project) === 'general' ? 'A delivery trail people can actually review.' : 'Evidence: Issue or PR; follow the acceptance rules.')}</p>
         <p className='font-medium'>
           {t('Rewards are credited to your API account balance.')}
         </p>

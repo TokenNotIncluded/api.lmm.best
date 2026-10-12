@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next'
 import { Button } from '@/components/ui/button'
 
 type BountyPageHeaderProps = {
+  createDisabled?: boolean
   onCreate: () => void
   /** The server supplies basis points. Missing data must not imply a zero fee. */
   feeRate?: number
@@ -14,6 +15,7 @@ type BountyPageHeaderProps = {
 
 export function BountyPageHeader({
   onCreate,
+  createDisabled,
   feeRate,
   feeError,
   isSuperAdmin,
@@ -25,9 +27,9 @@ export function BountyPageHeader({
     <header className='space-y-4 sm:space-y-5'>
       <div className='flex flex-wrap items-center justify-between gap-3'>
         <h1 className='text-xl font-bold tracking-tight sm:text-2xl'>
-          {t('Open-source bounties')}
+          {t('Bounties')}
         </h1>
-        <Button onClick={onCreate} className='min-h-11'>
+        <Button disabled={createDisabled} onClick={onCreate} className='min-h-11'>
           <Plus aria-hidden='true' data-icon='inline-start' />
           {t('Create bounty')}
         </Button>
@@ -35,7 +37,7 @@ export function BountyPageHeader({
       <div className='flex flex-wrap items-start justify-between gap-x-6 gap-y-2'>
         <p className='text-muted-foreground max-w-2xl text-sm leading-relaxed'>
           {t(
-            'Publish real bug-fix challenges, accept work, verify the fix, and transfer rewards from escrow.'
+            'Find focused work with funded reward slots.'
           )}
         </p>
         <Button
@@ -68,7 +70,7 @@ export function BountyPageHeader({
           </p>
           <p className='text-muted-foreground'>
             {t(
-              'Publishing deducts the gross total from your balance. After the platform fee, the rest is held in escrow for the contributor who fixes it.'
+              'Approved submissions transfer the locked reward directly to the contributor balance for use with supported models.'
             )}
           </p>
           <p className='text-muted-foreground'>

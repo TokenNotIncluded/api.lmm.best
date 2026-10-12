@@ -16,6 +16,14 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+export type BountyKind = 'general' | 'open_source'
+export type BountyPublisherType = 'individual' | 'company'
+
+// Missing metadata denotes a record from the original open-source-only API.
+export function getBountyKind(value: { kind?: BountyKind } | null | undefined): BountyKind {
+  return value?.kind === 'general' ? 'general' : 'open_source'
+}
+
 export type BountyProjectStatus =
   | 'draft'
   | 'published'
@@ -41,6 +49,8 @@ export type BountyDisputeReason =
 export type BountyDisputeStatus = 'open' | 'resolved_paid' | 'resolved_denied'
 
 export interface BountyDispute {
+  delivery_url?: string
+  delivery_url_snapshot?: string
   id: number
   challenge_id: number
   project_id: number
@@ -99,6 +109,7 @@ export type BountyDisputeEvidenceField =
   | 'challengeStatus'
   | 'issueUrl'
   | 'pullRequestUrl'
+  | 'deliveryUrl'
   | 'submissionNote'
   | 'reviewNote'
   | 'rewardQuota'
@@ -127,6 +138,7 @@ export function getBountyDisputeEvidenceComparison(dispute: BountyDispute): {
       dispute.challenge_status_snapshot !== dispute.challenge_status,
     ],
     ['issueUrl', dispute.issue_url_snapshot !== dispute.issue_url],
+    ['deliveryUrl', (dispute.delivery_url_snapshot ?? '') !== (dispute.delivery_url ?? '')],
     [
       'pullRequestUrl',
       dispute.pull_request_url_snapshot !== dispute.pull_request_url,
@@ -164,6 +176,9 @@ export function getBountyDisputeEvidenceComparison(dispute: BountyDispute): {
 }
 
 export interface BountyChallenge {
+  kind?: BountyKind
+  deadline_at?: number
+  delivery_url?: string
   id: number
   project_id: number
   participant_user_id: number
@@ -198,6 +213,9 @@ export interface BountyChallenge {
 }
 
 export interface BountyProject {
+  kind?: BountyKind
+  publisher_type?: BountyPublisherType
+  deadline_at?: number
   id: number
   owner_user_id: number
   owner_username: string
@@ -258,6 +276,9 @@ export interface BountyNotification extends BountyTipNotification {
 }
 
 export interface BountyDraftInput {
+  kind?: BountyKind
+  publisher_type?: BountyPublisherType
+  deadline_at?: number
   repository_url: string
   title: string
   description: string
@@ -283,6 +304,7 @@ export interface BountyProjectDetail {
 }
 
 export interface BountyFeeConfig {
+  general_bounties?: boolean
   rate_percent: number
   rate_basis_points: number
 }

@@ -34,7 +34,7 @@ import { toIntlLocale } from '@/i18n/languages'
 import { cn } from '@/lib/utils'
 
 import { bountyTimeline } from './timeline'
-import type { BountyChallenge } from './types'
+import { getBountyKind, type BountyChallenge } from './types'
 
 type IconType = ComponentProps<typeof HugeiconsIcon>['icon']
 
@@ -184,7 +184,7 @@ export function BountyProgress({ challenge }: { challenge: BountyChallenge }) {
       </ol>
       {challenge.status === 'accepted' && (
         <p className='text-muted-foreground mt-3'>
-          {t('Next: complete the work and submit GitHub evidence.')}
+          {t(getBountyKind(challenge) === 'general' ? 'Keep your delivery trail current.' : 'Next: complete the work and submit GitHub evidence.')}
         </p>
       )}
       {challenge.status === 'submitted' && !challenge.dispute && (

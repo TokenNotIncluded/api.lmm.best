@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
+	"github.com/LIghtJUNction/api.lmm.best/pkg/bountycontract"
 	"gorm.io/gorm"
 )
 
@@ -25,6 +26,7 @@ var openSourceBountyDisputeReasons = map[string]struct{}{
 }
 
 type OpenSourceBountyDispute struct {
+	DeliveryUrlSnapshot              string  `json:"delivery_url_snapshot" gorm:"type:varchar(2048);not null;default:''"`
 	Id                               int     `json:"id"`
 	ChallengeId                      int     `json:"challenge_id" gorm:"not null;index"`
 	ProjectId                        int     `json:"project_id" gorm:"not null;index"`
@@ -60,6 +62,7 @@ type OpenSourceBountyDispute struct {
 func (OpenSourceBountyDispute) TableName() string { return "open_source_bounty_disputes" }
 
 type OpenSourceBountyDisputeView struct {
+	DeliveryUrl string `json:"delivery_url"`
 	OpenSourceBountyDispute
 	ProjectTitle              string `json:"project_title"`
 	RepositoryUrl             string `json:"repository_url"`
@@ -88,7 +91,7 @@ func openSourceBountyDisputeViewQuery() *gorm.DB {
 		Select(`d.*, p.title AS project_title, p.repository_url AS repository_url, p.rules AS project_rules, c.status AS challenge_status,
 			p.escrow_quota AS current_project_escrow_quota,
 			c.issue_url AS issue_url, c.pull_request_url AS pull_request_url,
-			c.submission_note AS submission_note, c.review_note AS review_note,
+			c.delivery_url AS delivery_url, c.submission_note AS submission_note, c.review_note AS review_note,
 			c.reward_quota AS reward_quota, c.tip_quota AS tip_quota,
 			c.owner_rating_score AS owner_rating_score, c.owner_rating_comment AS owner_rating_comment,
 			c.contributor_rating_score AS contributor_rating_score, c.contributor_rating_comment AS contributor_rating_comment,
@@ -100,6 +103,7 @@ func openSourceBountyDisputeViewQuery() *gorm.DB {
 				OR c.status <> d.challenge_status_snapshot
 				OR c.issue_url <> d.issue_url_snapshot
 				OR c.pull_request_url <> d.pull_request_url_snapshot
+				OR c.delivery_url <> d.delivery_url_snapshot
 				OR c.submission_note <> d.submission_note_snapshot
 				OR c.review_note <> d.review_note_snapshot
 				OR c.reward_quota <> d.reward_quota_snapshot
@@ -195,7 +199,7 @@ func openOpenSourceBountyDispute(userId int, challengeId int, reason string, sta
 			ProjectTitleSnapshot: project.Title, RepositoryUrlSnapshot: project.RepositoryUrl,
 			ProjectRulesSnapshot: project.Rules, ProjectEscrowQuotaSnapshot: project.EscrowQuota,
 			ChallengeStatusSnapshot: challenge.Status, IssueUrlSnapshot: challenge.IssueUrl,
-			PullRequestUrlSnapshot: challenge.PullRequestUrl,
+			PullRequestUrlSnapshot: challenge.PullRequestUrl, DeliveryUrlSnapshot: challenge.DeliveryUrl,
 			SubmissionNoteSnapshot: challenge.SubmissionNote, ReviewNoteSnapshot: challenge.ReviewNote,
 			RewardQuotaSnapshot: challenge.RewardQuota, TipQuotaSnapshot: challenge.TipQuota,
 			OwnerRatingScoreSnapshot: challenge.OwnerRatingScore, OwnerRatingCommentSnapshot: challenge.OwnerRatingComment,
@@ -338,7 +342,11 @@ func resolveOpenSourceBountyDispute(adminUserId int, disputeId int, action strin
 			if challenge.Status != OpenSourceBountyChallengeSubmitted && challenge.Status != OpenSourceBountyChallengeRejected {
 				return bountyError("OPEN_SOURCE_BOUNTY_INVALID_CHALLENGE_STATE", "an enforced payout requires a submitted or rejected challenge")
 			}
-			if challenge.IssueUrl == "" || challenge.PullRequestUrl == "" {
+			if project.Kind == bountycontract.General {
+				if _, _, err := bountycontract.ValidateDelivery(challenge.DeliveryUrl, challenge.SubmissionNote); err != nil {
+					return bountyError("BOUNTY_INVALID_DELIVERY", "a dispute payout requires valid submitted delivery evidence")
+				}
+			} else if challenge.IssueUrl == "" || challenge.PullRequestUrl == "" {
 				return bountyError("OPEN_SOURCE_BOUNTY_INVALID_CHALLENGE_STATE", "a dispute payout requires submitted Issue and pull request evidence")
 			}
 			rewardCredit, err := bountyDisputeRewardCreditTx(tx, challenge.ParticipantUserId, &dispute)
