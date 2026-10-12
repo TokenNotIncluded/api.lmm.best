@@ -42,10 +42,13 @@ async fn unsupported_registration_email_is_rejected_before_identity_writes(pool:
     }
     let browser = BrowserAuth::new(store, &[43; 32]).unwrap();
     assert!(matches!(
-        browser.register(&BrowserRegistration {
-            username: "direct-email", password: "abc12345",
-            email: "person@example.invalid",
-        }).await,
+        browser
+            .register(&BrowserRegistration {
+                username: "direct-email",
+                password: "abc12345",
+                email: "person@example.invalid",
+            })
+            .await,
         Err(BrowserAuthError::Identity(IdentityError::Forbidden))
     ));
     // HTTP rate-limit observations may change. Identity data must not.
@@ -662,7 +665,10 @@ async fn consent_email_alias_and_policy_changes_are_enforced(pool: PgPool) {
     }
     let registered=call(&app,"POST","/api/user/register",Some(json!({"username":"owner","password":"abc12345","accepted_legal":true,"email":"unverified@test.tld"})),&[]).await;
     assert_eq!(registered.0, StatusCode::SERVICE_UNAVAILABLE);
-    assert_eq!(registered.2["code"], "AUTH_REGISTRATION_FEATURE_UNAVAILABLE");
+    assert_eq!(
+        registered.2["code"],
+        "AUTH_REGISTRATION_FEATURE_UNAVAILABLE"
+    );
     assert!(registered.1.get("set-cookie").is_none());
     register(&app, "owner").await;
     let (_, bundle) = login(&app, "owner").await;

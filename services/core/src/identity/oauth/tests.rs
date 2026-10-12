@@ -76,7 +76,9 @@ async fn google_login_cannot_issue_sessions_while_local_second_factor_is_require
     // A rejected callback still consumes its state. Replaying it does not
     // make another provider exchange or recover an issued credential.
     assert!(matches!(
-        store.finish_google_login(&state_a, &binding_a, &code_a).await,
+        store
+            .finish_google_login(&state_a, &binding_a, &code_a)
+            .await,
         Err(IdentityError::Unauthorized)
     ));
     assert_eq!(mock.exchanges.load(Ordering::SeqCst), 2);
@@ -91,8 +93,14 @@ async fn google_login_cannot_issue_sessions_while_local_second_factor_is_require
     let binding = new_secret("").unwrap();
     let url = store.begin_google_login(&binding).await.unwrap();
     let (state, code) = prepare_code(&store, &mock, &url, "mfa-subject").await;
-    let issued = store.finish_google_login(&state, &binding, &code).await.unwrap();
-    assert_eq!(store.authorize(&issued.secret).await.unwrap().user_id, user_id);
+    let issued = store
+        .finish_google_login(&state, &binding, &code)
+        .await
+        .unwrap();
+    assert_eq!(
+        store.authorize(&issued.secret).await.unwrap().user_id,
+        user_id
+    );
     server.abort();
 }
 
