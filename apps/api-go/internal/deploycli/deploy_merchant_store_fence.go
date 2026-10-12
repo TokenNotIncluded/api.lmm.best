@@ -139,6 +139,16 @@ func acquireMerchantStartupBaselineFence(ctx context.Context, sealedValues map[s
 // Both authorities use this one physical-session implementation. The ordinary
 // entry above still requires its complete, distinct two-provider contract.
 func openMerchantStoreDeploymentFence(ctx context.Context, sealedValues map[string]string, expected *productionMerchantStoreWriterContract, startupOnly bool) (*productionMerchantStoreFence, error) {
+	return openMerchantStoreDeploymentFenceForOwner(ctx, ctx, sealedValues, expected, startupOnly)
+}
+
+// Acquisition still uses the individual operation's budget. Only the owning
+// controller's lifetime determines whether a retained session remains valid
+// after that operation returns; cancelling an RPC must not cancel its owner.
+func openMerchantStoreDeploymentFenceForOwner(ctx, ownerContext context.Context, sealedValues map[string]string, expected *productionMerchantStoreWriterContract, startupOnly bool) (*productionMerchantStoreFence, error) {
+	if ownerContext == nil || ownerContext.Err() != nil {
+		return nil, errors.New("merchant deployment fence owner lifetime is unavailable")
+	}
 	dsn, err := productionDatabaseURL(sealedValues)
 	if err != nil {
 		return nil, err
@@ -162,7 +172,7 @@ func openMerchantStoreDeploymentFence(ctx context.Context, sealedValues map[stri
 	if err != nil {
 		return nil, errors.New("merchant deployment fence dedicated connection is unavailable")
 	}
-	lease := &productionMerchantStoreFence{connection: connection, ownerContext: ctx, identity: *expected, backendPID: int32(connection.PgConn().PID()), startupOnly: startupOnly}
+	lease := &productionMerchantStoreFence{connection: connection, ownerContext: ownerContext, identity: *expected, backendPID: int32(connection.PgConn().PID()), startupOnly: startupOnly}
 	var locked bool
 	if err := connection.QueryRow(ctx, "SELECT pg_catalog.pg_try_advisory_lock_shared($1)", merchantStoreDeploymentFenceKey).Scan(&locked); err != nil || !locked {
 		_ = lease.Close()

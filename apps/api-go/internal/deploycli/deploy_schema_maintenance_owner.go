@@ -25,6 +25,7 @@ func schemaMaintenanceHolderUnit(id string) string {
 // this authority after validating its immutable maintenance plan and observing
 // the fixed two origins. A caller boolean is not a closure or recovery proof.
 type productionSchemaMaintenanceAuthority struct {
+	OwnerContext         context.Context
 	TransitionID         string
 	PlanSHA256           string
 	Workspace            string
@@ -52,6 +53,7 @@ func (runtime *productionRuntime) claimSchemaMaintenanceFence(ctx context.Contex
 		return nil, err
 	}
 	if !productionIDPattern.MatchString(a.TransitionID) || !productionSHA256Pattern.MatchString(a.PlanSHA256) ||
+		a.OwnerContext == nil || a.OwnerContext.Err() != nil ||
 		a.Workspace != schemaMaintenanceHostWorkspace(runtime.paths, a.TransitionID) || localLease == nil ||
 		a.CheckPlan == nil || a.CheckBackup == nil || a.CheckStoppedOrigins == nil || a.CheckRecoveryOrigins == nil ||
 		a.Artifacts.Format != 1 || a.Artifacts.StartupPolicy != "held" || a.OldCapsule.Format != 1 || a.OldCapsule.StartupPolicy != "per-start" {
@@ -112,7 +114,7 @@ func (runtime *productionRuntime) claimSchemaMaintenanceFence(ctx context.Contex
 	// The shared physical fence prevents activation. The sole durable typed
 	// owner blocks ordinary/start claims, while the worker serializes owner
 	// changes with ...0003 before taking ...0001 in its own DDL transaction.
-	lease, err := openMerchantStoreDeploymentFence(ctx, values, a.Artifacts.Writer, false)
+	lease, err := openMerchantStoreDeploymentFenceForOwner(ctx, a.OwnerContext, values, a.Artifacts.Writer, false)
 	if err != nil {
 		return nil, err
 	}

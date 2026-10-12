@@ -21,6 +21,7 @@ import (
 type productionSchemaMaintenanceController struct {
 	actionMu          sync.Mutex
 	runtime           *productionRuntime
+	ownerContext      context.Context
 	plan              productionSchemaMaintenancePlan
 	planPath, planSHA string
 	origin            productionSchemaMaintenanceOriginPlan
@@ -66,7 +67,7 @@ func (runtime *productionRuntime) newSchemaMaintenanceController(ctx context.Con
 	if !bytes.Equal(append(canonical, '\n'), raw) || binding.TransitionID != plan.TransitionID || binding.PlanPath != planPath || binding.PlanSHA256 != planSHA || binding.Host != origin.Host || binding.CapsulePath != origin.OldCapsule.Path || binding.CapsuleSHA256 != origin.OldCapsule.SHA256 || binding.Workspace != origin.Workspace || binding.GuardianSocket != origin.Guardian.Socket || binding.GuardianBindingPath != origin.Guardian.BindingPath || binding.GuardianProtocol != origin.Guardian.Protocol {
 		return nil, errors.New("schema controller host projection differs from the canonical pre-change plan")
 	}
-	c := &productionSchemaMaintenanceController{runtime: runtime, plan: plan, planPath: planPath, planSHA: planSHA, origin: origin}
+	c := &productionSchemaMaintenanceController{runtime: runtime, ownerContext: ctx, plan: plan, planPath: planPath, planSHA: planSHA, origin: origin}
 	if err := c.checkPlan(ctx); err != nil {
 		return nil, err
 	}
@@ -527,7 +528,7 @@ func (c *productionSchemaMaintenanceController) handle(ctx context.Context, requ
 		if err != nil {
 			return schemaMaintenanceRPCReply{}, err
 		}
-		authority := productionSchemaMaintenanceAuthority{TransitionID: c.plan.TransitionID, PlanSHA256: c.planSHA, Workspace: c.origin.Workspace, Artifacts: artifacts, OldCapsule: old, OldCapsuleSHA256: c.origin.OldCapsule.SHA256, CheckPlan: c.checkNormalPlan, CheckStoppedOrigins: c.checkStoppedOrigins, CheckRecoveryOrigins: c.checkRecoveryOrigins, CheckBackup: c.checkBackup}
+		authority := productionSchemaMaintenanceAuthority{OwnerContext: c.ownerContext, TransitionID: c.plan.TransitionID, PlanSHA256: c.planSHA, Workspace: c.origin.Workspace, Artifacts: artifacts, OldCapsule: old, OldCapsuleSHA256: c.origin.OldCapsule.SHA256, CheckPlan: c.checkNormalPlan, CheckStoppedOrigins: c.checkStoppedOrigins, CheckRecoveryOrigins: c.checkRecoveryOrigins, CheckBackup: c.checkBackup}
 		intent := map[string]string{"format": "lmm-schema-maintenance-claim-intent-v1", "transition_id": c.plan.TransitionID, "plan_sha256": c.planSHA}
 		if err := c.runtime.startupBaselineNewFile(filepath.Join(c.origin.Workspace, "state", "schema-claim-intent.json"), intent); err != nil {
 			return schemaMaintenanceRPCReply{}, errors.New("schema claim was already attempted; reconcile the exact original owner without repeating claim")
