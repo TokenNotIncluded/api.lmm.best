@@ -56,6 +56,92 @@ fn exact_number(value: &str) -> Result<i64, ProfileError> {
     i64::try_from(integer).map_err(|_| ProfileError::Storage)
 }
 
+/// Wallet facts do not depend on imported historical usage counters or FX.
+/// `quota` excludes reservations and includes signed debt, exactly as the native
+/// ledger's available_units. No total balance is substituted for spendable funds.
+#[derive(Clone, Debug, Eq, PartialEq, Serialize)]
+pub struct WalletProfile {
+    pub financial_projection_available: bool,
+    pub quota: i64,
+    pub wallet_spendable_quota: i64,
+    pub wallet_reserved_quota: i64,
+    pub wallet_debt: i64,
+    pub wallet_unit: &'static str,
+    pub wallet_money_basis: &'static str,
+    pub wallet_money_available: bool,
+}
+
+/// Caller must first authenticate a native personal Web session. Reads only
+/// committed balance_state, never opening counters, receipts or request counts.
+/// An absent wallet is zero only for an audited native registration/bootstrap.
+pub async fn read_wallet(
+    connection: &mut PgConnection,
+    user_id: i64,
+) -> Result<WalletProfile, ProfileError> {
+    if user_id <= 0 {
+        return Err(ProfileError::Invalid);
+    }
+    let row = sqlx::query(
+        r#"
+WITH person AS (
+ SELECT u.id,u.personal_account_id,
+   EXISTS(SELECT 1 FROM core_identity.audit a
+     WHERE a.actor_user_id=u.id AND a.action IN ('user.register','user.bootstrap')
+       AND a.target->>'user_id'=u.id::text) AS native_zero_basis
+ FROM core_identity.users u JOIN core_identity.accounts a ON a.id=u.personal_account_id
+ WHERE u.id=$1 AND u.active AND a.active AND a.kind='personal'
+), balances AS (
+ SELECT count(l.id)::bigint AS buckets,count(b.ledger_account_id)::bigint AS balances,
+   count(DISTINCT l.bucket)::bigint AS distinct_buckets,
+   count(*) FILTER(WHERE l.bucket IN ('wallet','reserved','debt','affiliate'))::bigint AS known_buckets,
+   COALESCE(sum(b.balance_units::numeric) FILTER(WHERE l.bucket='wallet'),0) AS wallet,
+   COALESCE(sum(b.balance_units::numeric) FILTER(WHERE l.bucket='reserved'),0) AS reserved,
+   COALESCE(sum(b.balance_units::numeric) FILTER(WHERE l.bucket='debt'),0) AS debt
+ FROM person p JOIN core_billing.ledger_accounts l ON l.owner_account_id=p.personal_account_id
+ LEFT JOIN core_billing.balance_state b ON b.ledger_account_id=l.id
+)
+SELECT p.native_zero_basis,b.buckets,b.balances,b.distinct_buckets,b.known_buckets,
+ b.wallet::text AS wallet,b.reserved::text AS reserved,(-b.debt)::text AS debt,
+ (b.wallet+b.debt)::text AS quota
+FROM person p CROSS JOIN balances b
+"#,
+    )
+    .bind(user_id)
+    .fetch_optional(connection)
+    .await?
+    .ok_or(ProfileError::Unavailable)?;
+    let buckets: i64 = row.try_get("buckets")?;
+    if buckets == 0 {
+        if !row.try_get::<bool, _>("native_zero_basis")? {
+            return Err(ProfileError::Unavailable);
+        }
+    } else if buckets != 4
+        || ["balances", "distinct_buckets", "known_buckets"]
+            .into_iter()
+            .any(|name| row.try_get::<i64, _>(name).ok() != Some(4))
+    {
+        return Err(ProfileError::Storage);
+    }
+    let amount =
+        |name| -> Result<i64, ProfileError> { exact_number(&row.try_get::<String, _>(name)?) };
+    let wallet = amount("wallet")?;
+    let reserved = amount("reserved")?;
+    let debt = amount("debt")?;
+    if wallet < 0 || reserved < 0 || debt < 0 {
+        return Err(ProfileError::Storage);
+    }
+    Ok(WalletProfile {
+        financial_projection_available: true,
+        quota: amount("quota")?,
+        wallet_spendable_quota: wallet,
+        wallet_reserved_quota: reserved,
+        wallet_debt: debt,
+        wallet_unit: "core_credit",
+        wallet_money_basis: "unknown",
+        wallet_money_available: false,
+    })
+}
+
 /// Read one MVCC snapshot with no ledger creation, mutation or inferred grant.
 pub async fn read(
     connection: &mut PgConnection,

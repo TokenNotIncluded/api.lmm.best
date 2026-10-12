@@ -132,6 +132,18 @@ async fn imported_identity_requires_both_economic_opening_and_historical_counter
     assert_eq!(profile(&pool, 7).await, Err(ProfileError::Unavailable));
     import(&pool, 7, account, 120, 0, None).await;
     assert_eq!(profile(&pool, 7).await, Err(ProfileError::Unavailable));
+    // A proven current ledger wallet is usable even when history is unknown.
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    let wallet = financial_profile::read_wallet(&mut tx, 7).await.unwrap();
+    assert!(wallet.financial_projection_available);
+    assert_eq!((wallet.quota, wallet.wallet_reserved_quota), (120, 0));
+    assert_eq!(wallet.wallet_unit, "core_credit");
+    assert!(!wallet.wallet_money_available);
+    tx.commit().await.unwrap();
 }
 
 #[sqlx::test(migrations = false)]
@@ -156,6 +168,20 @@ async fn imported_signed_wallet_affiliate_and_raw_counters_preserve_their_basis(
     assert!(result.financial_projection_available);
     assert!(!result.usage_projection_available);
     assert_eq!(result.normalized_used_quota, None);
+    let mut connection = pool.acquire().await.unwrap();
+    let wallet = financial_profile::read_wallet(&mut connection, 7)
+        .await
+        .unwrap();
+    assert_eq!(
+        (
+            wallet.quota,
+            wallet.wallet_spendable_quota,
+            wallet.wallet_debt
+        ),
+        (-70, 0, 70)
+    );
+    assert_eq!(wallet.wallet_reserved_quota, 0);
+    drop(connection);
     assert_eq!(profile(&pool, 7).await.unwrap(), result);
     let row: (i64,i64) = sqlx::query_as("SELECT (SELECT count(*) FROM core_billing.ledger_journals),(SELECT count(*) FROM core_billing.account_opening_counters)")
         .fetch_one(&pool).await.unwrap();

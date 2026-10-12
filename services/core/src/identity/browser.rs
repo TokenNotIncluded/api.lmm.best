@@ -392,11 +392,31 @@ async fn user_projection(c: &mut PgConnection, user: i64, financial: bool) -> Br
         }
     }
     if financial {
+        match crate::financial_profile::read_wallet(c, user).await {
+            Ok(wallet) => {
+                let value = serde_json::to_value(wallet).map_err(|_| IdentityError::Storage)?;
+                for (name, value) in value.as_object().ok_or(IdentityError::Storage)? {
+                    result[name] = value.clone();
+                }
+            }
+            Err(crate::financial_profile::ProfileError::Unavailable) => {}
+            Err(_) => return Err(IdentityError::Storage.into()),
+        }
+        // Historical opening/counter completeness is independent from a real
+        // current wallet. Missing history must neither hide funds nor invent 0.
         match crate::financial_profile::read(c, user).await {
             Ok(profile) => {
                 let value = serde_json::to_value(profile).map_err(|_| IdentityError::Storage)?;
-                for (name, value) in value.as_object().ok_or(IdentityError::Storage)? {
-                    result[name] = value.clone();
+                for name in [
+                    "used_quota",
+                    "normalized_used_quota",
+                    "usage_projection_available",
+                    "request_count",
+                    "aff_quota",
+                    "aff_debt",
+                    "aff_history_quota",
+                ] {
+                    result[name] = value[name].clone();
                 }
             }
             Err(crate::financial_profile::ProfileError::Unavailable) => {}
