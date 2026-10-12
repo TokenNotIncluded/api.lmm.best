@@ -6,7 +6,8 @@ use crate::{
         UpstreamProtocol,
     },
     routing::{
-        Attempt, CredentialRef, PayloadPolicy, PriceQuote, Protocol, ReplayPermission, RouteRequest,
+        Attempt, CreditQuote, CreditRate, CredentialRef, PayloadPolicy, PriceQuote, Protocol,
+        ReplayPermission, RouteRequest,
     },
 };
 use std::{collections::BTreeMap, sync::Arc};
@@ -21,6 +22,7 @@ pub struct UpstreamCredential {
 pub(super) struct Selected {
     pub attempt: Arc<Attempt>,
     pub price: Price,
+    pub quote: CreditQuote,
     pub route_id: String,
 }
 
@@ -113,7 +115,13 @@ impl RouteProvider for Bridge {
                     replay: ReplayPermission::Denied,
                 })
                 .map_err(|_| RelayError::RouteUnavailable)?;
-            let price = credit_price(plan.quote(), plan.canonical_model(), &group)?;
+            // Capture the server's current, fixed ledger conversion once. The
+            // persisted legacy Price is still required until A03 accepts the
+            // complete quote; unsupported dimensions must keep failing closed.
+            let quote = plan.quote().with_credit_rate(
+                CreditRate::new(1, 500_000).map_err(|_| RelayError::BillingUnavailable)?,
+            );
+            let price = credit_price(quote.price(), plan.canonical_model(), &group)?;
             let attempt = plan.start().map_err(|_| RelayError::RouteUnavailable)?;
             if !attempt.is_available()
                 || attempt.payload_policy() != PayloadPolicy::Adapt
@@ -197,6 +205,7 @@ impl RouteProvider for Bridge {
             operation.selected = Some(Selected {
                 attempt,
                 price,
+                quote,
                 route_id,
             });
             Ok(route)
@@ -262,4 +271,30 @@ mod tests {
             2_000_000
         );
     }
+
+    #[test]
+    fn a07_exact_quote_matches_the_current_ledger_for_supported_prices() {
+        for multiplier in [MULTIPLIER_ONE, MULTIPLIER_ONE * 2, MULTIPLIER_ONE * 3] {
+            let price = quote(2_000_000, 0, 0, multiplier);
+            let legacy = credit_price(price, "test", "default").unwrap();
+            let frozen = price.with_credit_rate(CreditRate::new(1, 500_000).unwrap());
+            for input in 0..=12_u64 {
+                for cached in 0..=input {
+                    for output in 0..=5_u64 {
+                        let exact = frozen.charge(
+                            crate::routing::Usage::from_totals(input, output, cached, 0).unwrap(),
+                        ).unwrap();
+                        let amount = legacy.cost(crate::billing::charging::Usage {
+                            input: input as i64,
+                            cached: cached as i64,
+                            output: output as i64,
+                        }).unwrap();
+                        assert_eq!(exact.0, amount as u64);
+                        assert!(exact.0 <= frozen.reservation_ceiling(12, 5).unwrap().0);
+                    }
+                }
+            }
+        }
+    }
+
 }

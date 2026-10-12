@@ -379,6 +379,7 @@ pub trait Billing: Send + Sync + 'static {
 }
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
 pub struct Usage {
     pub input_tokens: Option<u64>,
     pub output_tokens: Option<u64>,
@@ -409,30 +410,37 @@ impl Usage {
             &mut combined.reasoning_output_tokens,
             next.reasoning_output_tokens,
         )?;
-        if let (Some(i), Some(o)) = (combined.input_tokens, combined.output_tokens) {
+        combined.validate()?;
+        *self = combined;
+        Ok(())
+    }
+    /// Validate both live observations and receipts restored after a restart.
+    /// Deserialization alone does not establish counter consistency.
+    pub(crate) fn validate(&self) -> Result<(), RelayError> {
+        if let (Some(i), Some(o)) = (self.input_tokens, self.output_tokens) {
             i.checked_add(o)
                 .ok_or(RelayError::Protocol("usage overflow"))?;
         }
         // Input includes both cache categories; output includes reasoning.
         // Missing totals stay unknown. Present subsets are lower bounds, never
-        // evidence that an absent counter is zero. Reject before changing self.
-        let cached = combined
+        // evidence that an absent counter is zero.
+        let cached = self
             .cached_input_tokens
             .unwrap_or(0)
-            .checked_add(combined.cache_creation_input_tokens.unwrap_or(0))
+            .checked_add(self.cache_creation_input_tokens.unwrap_or(0))
             .ok_or(RelayError::Protocol("usage overflow"))?;
-        if combined.input_tokens.is_some_and(|total| cached > total) {
+        if self.input_tokens.is_some_and(|total| cached > total) {
             return Err(RelayError::Protocol("cache usage exceeds input total"));
         }
         if let (Some(total), Some(reasoning)) =
-            (combined.output_tokens, combined.reasoning_output_tokens)
+            (self.output_tokens, self.reasoning_output_tokens)
             && reasoning > total
         {
             return Err(RelayError::Protocol("reasoning usage exceeds output total"));
         }
-        *self = combined;
         Ok(())
     }
+
     pub(crate) fn wire(&self, client: ClientProtocol) -> Value {
         if *self == Self::default() {
             return Value::Null;
@@ -658,4 +666,20 @@ mod a07_usage_tests {
             assert_eq!(value, before);
         }
     }
+
+    #[test]
+    fn restored_receipts_need_validation_even_without_a_merge() {
+        let value: Usage = serde_json::from_value(serde_json::json!({
+            "input_tokens": 2,
+            "output_tokens": 3,
+            "reasoning_output_tokens": 4,
+        })).unwrap();
+        assert!(value.validate().is_err());
+        assert!(serde_json::from_value::<Usage>(serde_json::json!({
+            "input_tokens": 2,
+            "output_tokens": 3,
+            "unknown_dimension": 1,
+        })).is_err());
+    }
+
 }

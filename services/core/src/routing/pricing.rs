@@ -126,6 +126,28 @@ impl CreditQuote {
         self.conversion
     }
 
+    /// Upper bound for every disjoint input/cache split within these ceilings.
+    /// Uses this captured quote, including its request fee and conversion. This
+    /// calculates an amount only; the charging transaction owns the actual hold.
+    pub fn reservation_ceiling(
+        &self,
+        input_tokens: u64,
+        output_tokens: u64,
+    ) -> Result<Credits, RoutingError> {
+        let mut ceiling = *self;
+        ceiling.price.rates.input = self
+            .price
+            .rates
+            .input
+            .max(self.price.rates.cache_read)
+            .max(self.price.rates.cache_write);
+        ceiling.charge(Usage {
+            input: input_tokens,
+            output: output_tokens,
+            ..Usage::default()
+        })
+    }
+
     /// Sum all dimensions and multipliers, then round up once in ledger units.
     /// Do not round the token rates or the intermediate micro-USD amount.
     pub fn charge(&self, usage: Usage) -> Result<Credits, RoutingError> {
@@ -436,4 +458,44 @@ mod a07_tests {
             Err(RoutingError::PriceOverflow)
         );
     }
+
+    #[test]
+    fn reservation_ceiling_covers_all_cache_splits_without_mutating_quote() {
+        let frozen = credits(quote(TokenRates {
+            input: 1_000_000,
+            output: 3_000_000,
+            cache_read: 4_000_000,
+            cache_write: 7_000_000,
+            request: 3,
+        }));
+        let before = frozen;
+        let ceiling = frozen.reservation_ceiling(8, 4).unwrap();
+        assert_eq!(ceiling, Credits(36));
+        for input in 0..=8 {
+            for read in 0..=input {
+                for write in 0..=(input - read) {
+                    for output in 0..=4 {
+                        let usage = Usage::from_totals(input, output, read, write).unwrap();
+                        assert!(frozen.charge(usage).unwrap().0 <= ceiling.0);
+                    }
+                }
+            }
+        }
+        assert_eq!(frozen, before);
+    }
+
+    #[test]
+    fn reservation_rounds_once_and_preserves_request_fee_for_zero_tokens() {
+        let frozen = credits(quote(TokenRates {
+            input: 1,
+            output: 1,
+            cache_read: 1,
+            cache_write: 1,
+            request: 1,
+        }));
+        assert_eq!(frozen.reservation_ceiling(0, 0), Ok(Credits(1)));
+        assert_eq!(frozen.reservation_ceiling(1_000_000, 1_000_000), Ok(Credits(2)));
+        assert_eq!(credits(quote(rates(0))).reservation_ceiling(0, 0), Ok(Credits(0)));
+    }
+
 }
