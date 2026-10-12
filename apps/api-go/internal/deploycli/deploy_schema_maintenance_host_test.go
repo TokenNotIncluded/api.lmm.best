@@ -7,10 +7,83 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
 )
+
+func TestSchemaMaintenanceRestoredAdmissionRequiresLocalVersionAndPublicTLS(t *testing.T) {
+	response := func(status, body string) []byte {
+		return []byte("HTTP/1.1 " + status + "\r\nContent-Type: application/json\r\n\r\n" + body)
+	}
+	own := response("200 OK", `{"success":true,"data":{"version":"0.2.111"}}`)
+	public := response("200 OK", `{"success":true,"data":[]}`)
+	for _, tc := range []struct {
+		name       string
+		own, edge  []byte
+		failedCall int
+		wantCalls  int
+		wantError  bool
+	}{
+		{name: "empty public catalog", own: own, edge: public, wantCalls: 2},
+		{name: "populated public catalog", own: own, edge: response("200 OK", `{"success":true,"data":[{"name":"install.sh"}]}`), wantCalls: 2},
+		{name: "wrong local version", own: response("200 OK", `{"success":true,"data":{"version":"0.2.110"}}`), wantCalls: 1, wantError: true},
+		{name: "local unsuccessful", own: response("200 OK", `{"success":false,"data":{"version":"0.2.111"}}`), wantCalls: 1, wantError: true},
+		{name: "local malformed", own: response("200 OK", `{`), wantCalls: 1, wantError: true},
+		{name: "local non-200", own: response("503 Service Unavailable", `{"success":true,"data":{"version":"0.2.111"}}`), wantCalls: 1, wantError: true},
+		{name: "local missing HTTP header", own: []byte(`{"success":true,"data":{"version":"0.2.111"}}`), wantCalls: 1, wantError: true},
+		{name: "local transport failed despite body", own: own, failedCall: 1, wantCalls: 1, wantError: true},
+		{name: "concealed policy rejection", own: own, edge: response("404 Not Found", `{"message":"Not Found"}`), wantCalls: 2, wantError: true},
+		{name: "maintenance barrier", own: own, edge: response("503 Service Unavailable", "lmm-schema-maintenance:schema-test"), wantCalls: 2, wantError: true},
+		{name: "edge unsuccessful", own: own, edge: response("200 OK", `{"success":false,"data":[]}`), wantCalls: 2, wantError: true},
+		{name: "edge missing data", own: own, edge: response("200 OK", `{"success":true}`), wantCalls: 2, wantError: true},
+		{name: "edge null data", own: own, edge: response("200 OK", `{"success":true,"data":null}`), wantCalls: 2, wantError: true},
+		{name: "edge object data", own: own, edge: response("200 OK", `{"success":true,"data":{}}`), wantCalls: 2, wantError: true},
+		{name: "edge string data", own: own, edge: response("200 OK", `{"success":true,"data":"[]"}`), wantCalls: 2, wantError: true},
+		{name: "edge non-JSON", own: own, edge: response("200 OK", "public script fixture"), wantCalls: 2, wantError: true},
+		{name: "edge trailing JSON", own: own, edge: response("200 OK", `{"success":true,"data":[]} {}`), wantCalls: 2, wantError: true},
+		{name: "edge missing HTTP header", own: own, edge: []byte(`{"success":true,"data":[]}`), wantCalls: 2, wantError: true},
+		{name: "edge transport failed despite body", own: own, edge: public, failedCall: 2, wantCalls: 2, wantError: true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			calls := 0
+			h := &productionSchemaMaintenanceHost{runtime: &productionRuntime{runner: existingSchemaTestRunner{run: func(command productionCommand) ([]byte, error) {
+				calls++
+				args := []string{"--disable", "--silent", "--show-error", "--include", "--max-time", "5", "--noproxy", "*"}
+				body := tc.own
+				if calls == 1 {
+					args = append(args, "http://127.0.0.1:3000/api/status")
+				} else if calls == 2 {
+					args = append(args, "--connect-to", "api.lmm.best:443:127.0.0.1:443", "https://api.lmm.best/api/scripts")
+					body = tc.edge
+				} else {
+					t.Fatal("unexpected extra readiness command")
+				}
+				if command.Name != "/usr/bin/curl" || !slices.Equal(command.Args, args) || !slices.Equal(command.Env, []string{"PATH=/usr/bin:/bin", "LANG=C", "LC_ALL=C"}) || command.Timeout != 7*time.Second || command.OutputLimit != 32768 {
+					t.Fatalf("probe changed endpoint, TLS, proxy, header or resource bounds: %+v", command)
+				}
+				if calls == tc.failedCall {
+					return body, errors.New("transport failed")
+				}
+				return body, nil
+			}}}}
+			capsule := productionMerchantStoreCapsule{Candidate: productionReleasePackagePlan{Version: "0.2.111-1"}}
+			if err := h.probeRestoredAdmission(context.Background(), capsule); (err != nil) != tc.wantError || calls != tc.wantCalls {
+				t.Fatalf("error=%v calls=%d, want rejected=%v calls=%d", err, calls, tc.wantError, tc.wantCalls)
+			}
+		})
+	}
+	t.Run("invalid sealed version", func(t *testing.T) {
+		h := &productionSchemaMaintenanceHost{runtime: &productionRuntime{runner: existingSchemaTestRunner{run: func(productionCommand) ([]byte, error) {
+			t.Fatal("invalid sealed version reached a readiness probe")
+			return nil, nil
+		}}}}
+		if err := h.probeRestoredAdmission(context.Background(), productionMerchantStoreCapsule{Candidate: productionReleasePackagePlan{Version: "invalid"}}); err == nil {
+			t.Fatal("accepted invalid sealed provider version")
+		}
+	})
+}
 
 func TestSchemaMaintenanceAdmissionCannotAdoptOtherOwner(t *testing.T) {
 	original := []byte("location @lmm_api_backend {\n proxy_pass http://127.0.0.1:3000;\n}\n")

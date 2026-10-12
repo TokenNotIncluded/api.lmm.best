@@ -94,3 +94,126 @@ http {
   await new Promise(resolve=>backend.close(resolve));fs.rmSync(dir,{recursive:true,force:true})
  }
 })
+
+test('TLS public script admission survives denied status policy and remains behind the maintenance barrier', async () => {
+ const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'lmm-nginx-restored-tls-'))
+ const templates = path.join(root, 'packaging/common/lmm-api/edge-policy/nginx')
+ const requests = []
+ let scripts = []
+ const backend = http.createServer((req, res) => {
+  requests.push({ url: req.url, headers: req.headers })
+  if (req.url === '/internal/access-ip-policy') {
+   res.writeHead(403, { 'X-LMM-Access-Policy': 'denied' }).end()
+  } else if (req.url === '/internal/errors/access-policy') {
+   assert.equal(req.headers['x-lmm-internal-error'], 'access-policy')
+   assert.equal(req.headers['x-lmm-access-policy'], 'denied')
+   res.writeHead(404, { 'Content-Type': 'application/json' }).end('{"message":"Not Found"}')
+  } else if (req.url === '/api/scripts') {
+   res.writeHead(200, { 'Content-Type': 'application/json' }).end(JSON.stringify({ success: true, data: scripts }))
+  } else if (req.url === '/api/status') {
+   res.writeHead(200, { 'Content-Type': 'application/json' }).end('{"success":true,"data":{"version":"0.2.111"}}')
+  } else {
+   res.writeHead(404).end()
+  }
+ })
+ let nginx
+ try {
+  execFileSync('openssl', ['req', '-x509', '-newkey', 'rsa:2048', '-nodes', '-days', '1', '-subj', '/CN=LMM fixture CA', '-addext', 'basicConstraints=critical,CA:TRUE', '-keyout', `${dir}/ca.key`, '-out', `${dir}/ca.crt`], { stdio: 'pipe' })
+  execFileSync('openssl', ['req', '-new', '-newkey', 'rsa:2048', '-nodes', '-subj', '/CN=api.lmm.best', '-keyout', `${dir}/tls.key`, '-out', `${dir}/tls.csr`], { stdio: 'pipe' })
+  fs.writeFileSync(`${dir}/tls.ext`, 'subjectAltName=DNS:api.lmm.best\nextendedKeyUsage=serverAuth\nkeyUsage=digitalSignature,keyEncipherment\n')
+  execFileSync('openssl', ['x509', '-req', '-in', `${dir}/tls.csr`, '-CA', `${dir}/ca.crt`, '-CAkey', `${dir}/ca.key`, '-CAcreateserial', '-days', '1', '-extfile', `${dir}/tls.ext`, '-out', `${dir}/tls.crt`], { stdio: 'pipe' })
+  backend.listen(0, '127.0.0.1');await once(backend, 'listening')
+  const reservation = net.createServer();reservation.listen(0, '127.0.0.1');await once(reservation, 'listening')
+  const port = reservation.address().port;await new Promise(resolve => reservation.close(resolve))
+  const source = fs.readFileSync(`${templates}/lmm-api-locations.conf`, 'utf8')
+  fs.writeFileSync(`${dir}/locations.conf`, source.replaceAll('/var/log/nginx/access.log', `${dir}/access.log`).replaceAll('/etc/nginx/lmm-api-mime.types', `${templates}/mime.types`).replaceAll('/srv/lmm-api-frontend', `${dir}/frontend`))
+  const maps = fs.readFileSync(`${templates}/http-map.conf`, 'utf8')
+   .replace(/geoip2[^]*?\n\}/, '')
+   .replaceAll('127.0.0.1:3000', `127.0.0.1:${backend.address().port}`)
+   .replace('include /etc/lmm-api/nginx/peers/*.conf;', '')
+  const tlsRequest = route => new Promise((resolve, reject) => {
+   const child = spawn('curl', ['--disable', '--silent', '--show-error', '--noproxy', '*', '--max-time', '2', '--cacert', `${dir}/ca.crt`, '--resolve', `api.lmm.best:${port}:127.0.0.1`, '--write-out', '\n%{http_code}', `https://api.lmm.best:${port}${route}`])
+   let stdout = '', stderr = ''
+   child.stdout.on('data', chunk => { stdout += chunk })
+   child.stderr.on('data', chunk => { stderr += chunk })
+   child.on('error', reject)
+   child.on('close', code => {
+    if (code !== 0) { reject(new Error(`TLS curl failed (${code}): ${stderr}`));return }
+    const boundary = stdout.lastIndexOf('\n')
+    resolve({ status: Number(stdout.slice(boundary + 1)), body: stdout.slice(0, boundary) })
+   })
+  })
+  const stop = async () => {
+   if (nginx && nginx.exitCode === null) { nginx.kill('SIGTERM');await once(nginx, 'exit') }
+  }
+  const start = async barrier => {
+   await stop()
+   fs.writeFileSync(`${dir}/nginx.conf`, `worker_processes 1;
+pid ${dir}/nginx.pid;
+error_log ${dir}/error.log;
+events {worker_connections 64;}
+http {
+ access_log off;
+ client_body_temp_path ${dir}/body;
+ proxy_temp_path ${dir}/proxy;
+ fastcgi_temp_path ${dir}/fastcgi;
+ uwsgi_temp_path ${dir}/uwsgi;
+ scgi_temp_path ${dir}/scgi;
+ map $host $lmm_geoip_country_code {default "";}
+ ${maps}
+ server {
+  listen 127.0.0.1:${port} ssl;
+  server_name api.lmm.best;
+  ssl_certificate ${dir}/tls.crt;
+  ssl_certificate_key ${dir}/tls.key;
+  ${barrier ? "return 503 'lmm-schema-maintenance:fixture';" : ''}
+  include ${templates}/lmm-api-region-policy.conf;
+  include ${dir}/locations.conf;
+ }
+}`)
+   execFileSync('nginx', ['-t', '-p', dir, '-c', `${dir}/nginx.conf`], { stdio: 'pipe' })
+   nginx = spawn('nginx', ['-p', dir, '-c', `${dir}/nginx.conf`, '-g', 'daemon off; master_process off;'], { stdio: 'ignore' })
+   for (let attempt = 0; attempt < 50; attempt++) {
+    try { return await tlsRequest('/api/scripts') } catch (error) {
+     if (attempt === 49) throw error
+     await new Promise(resolve => setTimeout(resolve, 30))
+    }
+   }
+  }
+  // Local process version and TLS admission are independent observations.
+  const localStatus = await fetch(`http://127.0.0.1:${backend.address().port}/api/status`)
+  assert.equal(localStatus.status, 200)
+  assert.deepEqual(await localStatus.json(), { success: true, data: { version: '0.2.111' } })
+  let response = await start(false)
+  assert.equal(response.status, 200)
+  assert.deepEqual(JSON.parse(response.body), { success: true, data: [] })
+  response = await tlsRequest('/api/status')
+  assert.equal(response.status, 404)
+  assert.deepEqual(JSON.parse(response.body), { message: 'Not Found' })
+  assert.equal(requests.filter(request => request.url === '/api/status').length, 1, 'denied TLS status never reaches the status handler')
+  const policyRequest = requests.find(request => request.url === '/internal/access-ip-policy')
+  assert.equal(policyRequest.headers['x-original-client-ip'], '127.0.0.1')
+  assert.equal(policyRequest.headers['x-lmm-edge-country'], undefined)
+  scripts = [{ name: 'install.sh', size: 17, updated: '2026-10-12T00:00:00Z', fetches: 0 }]
+  const policyAttempts = requests.filter(request => request.url === '/internal/access-ip-policy').length
+  response = await tlsRequest('/api/scripts')
+  assert.equal(response.status, 200)
+  assert.deepEqual(JSON.parse(response.body), { success: true, data: scripts })
+  assert.equal(requests.filter(request => request.url === '/internal/access-ip-policy').length, policyAttempts, 'script named redirect retains its existing auth exemption')
+  const beforeBarrier = requests.length
+  response = await start(true)
+  assert.equal(response.status, 503)
+  assert.equal(response.body, 'lmm-schema-maintenance:fixture')
+  assert.equal((await tlsRequest('/api/status')).status, 503)
+  assert.equal(requests.length, beforeBarrier, 'server barrier executes before public routing and auth_request')
+  response = await start(false)
+  assert.equal(response.status, 200)
+  assert.deepEqual(JSON.parse(response.body), { success: true, data: scripts })
+  assert.equal((await tlsRequest('/api/status')).status, 404, 'restoration retains the original access policy')
+ } finally {
+  if (nginx && nginx.exitCode === null) { nginx.kill('SIGTERM');await once(nginx, 'exit') }
+  backend.closeAllConnections()
+  if (backend.listening) await new Promise(resolve => backend.close(resolve))
+  fs.rmSync(dir, { recursive: true, force: true })
+ }
+})
