@@ -1,84 +1,42 @@
 ---
 name: i18n-translate
-description: >-
-  Add or correct frontend UI text and translations in apps/web. Use for any
-  t() key, locale JSON, label, button, dialog, toast, placeholder, validation
-  message, missing translation, or even a one-key fix. Requires complete locale
-  patches, preserved interpolation variables, and a reviewed sync result.
+description: "Add or correct UI copy and locale keys in apps/web, including one-key fixes. Preserve all locales and interpolation. Not for README or other non-UI prose."
 ---
 
 # Frontend translations
 
-Read this skill before changing UI text or locale files. Use the call site and
-existing English copy to establish meaning. Do not copy conversation text, review
-comments, or task instructions into locale values.
+Read the changed call site and existing English copy. Locale files are
+`apps/web/src/i18n/locales/*.json`, under `translation`; the helper discovers the
+actual languages. Keep brand names, identifiers and `{{variables}}` intact.
+Use [the glossary](../../../docs/translation-glossary.md) when terminology needs
+clarification. Never copy task instructions into translation values.
 
-## Current source and scope
-
-- Locale files: `apps/web/src/i18n/locales/*.json`, under `translation`.
-- Current languages: `en`, `zh`, `zh-TW`, `fr`, `ja`, `ru`, and `vi`.
-- [Sync implementation](../../../apps/web/scripts/sync-i18n.mjs) and
-  [package commands](../../../apps/web/package.json) are the source of truth.
-- Use the committed [write helper](scripts/apply-translations.mjs), not manual
-  JSON edits or a newly copied temporary writer. It discovers the actual locale
-  files and rejects incomplete locale/key sets before writing.
-
-## Apply a focused change
-
-1. Read the component and existing keys. Establish the action, available space,
-   variables, and intended English text. Preserve product names, identifiers,
-   URLs, and variable expressions. Do not rename keys without updating callers.
-2. Prepare a temporary JSON patch outside the repository. It must contain one
-   object per supported locale, with the same changed keys in every object.
-   Each value must be a non-empty translation, not an instruction to translate.
-   Do not place the patch inside the locale directory.
-3. Validate without writing, then apply from the repository root:
+Create a temporary JSON patch outside the repository, with every supported
+locale and the same changed keys in each. Values must be real, non-empty
+translations. Use [the existing helper](scripts/apply-translations.mjs):
 
 ```bash
-node .agents/skills/i18n-translate/scripts/apply-translations.mjs /tmp/lmm-translations.json --check
-node .agents/skills/i18n-translate/scripts/apply-translations.mjs /tmp/lmm-translations.json
-bun run --filter @lmm/web i18n:sync
+mise exec -- node .agents/skills/i18n-translate/scripts/apply-translations.mjs /tmp/lmm-translations.json
+mise exec -- bun run --filter @lmm/web i18n:sync
 ```
 
-Use the temporary file you actually created; the path above is an example.
-`--check` reports how many files would change and does not write. The helper
-validates all locales and interpolation variables first, preserves unrelated
-keys, and leaves unchanged files alone. Disk writes are sequential, **not an
-all-or-nothing transaction**. After a write failure, inspect the working tree
-before retrying. Do not discard another contributor's locale changes.
+Use the actual patch path. Apply validates locales and placeholders before
+writing; a separate `--check` is for a requested preview, not required before
+applying the same patch. Do not copy a writer or manually edit locale JSON.
+Writes are sequential, not atomic across files; inspect a partial failure first.
 
-4. Inspect the diff for every locale. Read
-   `apps/web/src/i18n/locales/_reports/_sync-report.json` and any `_extras` output.
-   Check the final key sets and values, not only the report counts.
-5. Run affected UI tests and `bun run typecheck` from `apps/web`. Check the affected
-   layout in long-text languages and on mobile when a browser is available.
-   Report a missing browser check rather than claiming visual acceptance.
+Review every changed locale and generated `_reports/_sync-report.json` and
+`_extras` output. Preserve unrelated changes. Sync is a write operation, not a
+translation service: it chooses the locale with the most leaf keys as its base,
+fills missing values and moves extras. Zero missing keys does not prove correct
+translation. Read [the implementation](../../../apps/web/scripts/sync-i18n.mjs)
+only when needed; do not hand-edit reports to conceal errors.
 
-## What sync does, and does not do
+For value-only changes, validate the patch and final locale diff. Call-site or
+type changes also need affected tests and `mise exec -- bun run typecheck:web`.
+Check affected long-text/mobile layouts when text changes layout. No full Web
+build is needed solely for JSON text. Report missing language/browser checks.
+Only helper-code changes require its `node --test` self-test suite.
 
-`i18n:sync` is a write operation, not a read-only audit or a translation service.
-It selects the locale with the most leaf keys as its base; English is not fixed
-as the base. It follows that base's order, fills missing values using comparison
-content, and moves extra keys into `_extras`. A successful exit or zero missing
-keys does not prove that every language is correctly translated.
-
-Add the same keys to every locale before sync. Inspect unexpected removals or
-large formatting changes. Keep the sync script's existing serialization and
-attribution rules; do not replace it or hand-edit generated results to hide errors.
-Its untranslated detection is a heuristic and can miss untranslated text.
-
-## Copy and verification
-
-Preserve `{{variables}}`, including format expressions. Use compact, natural text
-for controls without removing meaning. English-looking brand names can be valid;
-ordinary labels, actions, errors, and units still need translation. Check existing
-[translation terminology](../../../docs/translation-glossary.md) where relevant.
-
-For helper changes, run from the repository root:
-
-```bash
-node --test .agents/skills/i18n-translate/scripts/apply-translations.test.mjs
-```
-
-Delete only temporary files created for the task. Do not delete reports or other
-changes blindly. Record tested commands and unverified language/layout checks.
+Done means complete changed keys across actual locales, preserved variables,
+reviewed sync output and reported checks. Delete only your own temporary patch.

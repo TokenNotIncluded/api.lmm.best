@@ -1,54 +1,31 @@
 ---
 name: docs-maintenance
-description: >-
-  Inspect and update this repository's README, contributor guides, documentation,
-  and project skills. Use for stale commands, broken local links, missing indexes,
-  mismatched language versions, or claims that differ from current code.
+description: "Update repository docs, AGENTS.md, skills, links and command examples. Use for documentation work, not as a prerequisite for every code edit."
 ---
 
 # Maintain documentation and skills
 
-Read [AGENTS.md](../../../AGENTS.md), the
-[contribution guide](../../../docs/contributing.md) and the
-[working guide](../../../docs/agent-workflows.md). Work from a known branch and
-commit; do not treat a pending refactor or an earlier conversation as current code.
+Use [the working guide](../../../docs/agent-workflows.md) for shared check policy.
+Work from the selected WIP revision, not a default-branch command copied from history.
 
-## Inspect before editing
+1. Read the affected guide and the implementation behind its claims. Follow
+   only links needed for this change. A typo does not require both READMEs,
+   every skill, all PRs or deployment history.
+2. Edit the canonical guidance. Update indexes and translations only when their
+   content is affected. Remove duplicate instructions; preserve current branch
+   constraints, historical recovery links, licenses and attribution.
+3. Run `python3 -B scripts/check-docs-brand.py --docs-only` and review the diff.
+   Check changed documents outside its maintained set separately. It does not
+   validate remote URLs, anchors, full YAML syntax or command behavior.
+4. Compare changed examples with their scripts and callers. Use syntax checks
+   or isolated fixtures where useful. Never execute production, initialization,
+   migration, registration or payment examples just to check prose.
 
-1. Find the affected entry points and their readers. Follow links from both
-   READMEs, the documentation index, and the skill index.
-2. Compare commands with `justfile`, the root/app `package.json`, scripts, and
-   workflow definitions. Check working directory, prerequisites, output, and
-   side effects. A command name or old comment is not proof of behavior.
-3. Separate current behavior, design proposals, historical recovery procedures,
-   and release/production state. Preserve old recovery guidance when an installed
-   version still needs it; label its scope instead of deleting it blindly.
-4. Change the canonical guide first, then update both README languages and indexes.
-   Keep upstream references and license notices. Avoid copying long procedures
-   into multiple skills.
+Run checker self-tests only when its code changes; helper self-tests only when
+that helper changes. Logo changes need the full asset check. Markdown-only work
+needs no application dependencies, CLI submodule, database, app build or full
+quality run unless that broader acceptance is explicitly part of the task.
 
-## Verify
-
-Run from the repository root:
-
-```bash
-python3 -B scripts/check-docs-brand.py --docs-only
-python3 -B -m unittest discover -s scripts -p test_check_docs_brand.py
-```
-
-Use the full check without `--docs-only` when assets change. For translation
-helper changes, also run:
-
-```bash
-node --test .agents/skills/i18n-translate/scripts/apply-translations.test.mjs
-```
-
-The checker covers selected entry documents and project-owned skill entry points,
-not all Markdown semantics or remote links. Inspect changed command examples
-separately. Run safe examples in an isolated environment when possible. Do not
-execute a deployment, migration, registration, payment, or settlement example
-merely to validate documentation.
-
-Report scope, changed files, actual checks, commit/PR, and any unverified step.
-Never claim a full repository or production check from local fixtures. Do not
-change workflow triggers or production state as a side effect of this task.
+Done means accurate guidance, checked entry links, actual checks and stated
+limits, plus the requested commit/PR. No extra plan document, workflow trigger
+change, release or production operation is needed.

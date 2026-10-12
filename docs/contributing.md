@@ -1,23 +1,51 @@
 # Contributing
 
-This branch is a fresh-install microservice WIP. Read [the architecture](core-migration.md) and [development guide](development.md) before changing ownership or startup behavior.
+Start with [AGENTS.md](../AGENTS.md). This is the long-lived microservice WIP,
+not the old site's upgrade branch. Read [architecture](core-migration.md) when
+changing ownership or interfaces, and [development](development.md) for setup.
 
 ## Scope
 
-Keep Rust responsible for identity, permissions, funds and model traffic. Go modules own only their own business records and receive narrow interfaces. Do not restore removed monolith files to make a build pass. Keep core and extension updates separate.
+Rust owns identity, permissions, funds and model traffic. Go modules own their
+business records and receive narrow interfaces. Keep the core independently
+usable; do not restore removed monolith code to make a build pass.
 
-Use isolated databases and synthetic credentials. Never register production accounts for tests. Preserve public contracts unless the change explicitly replaces them; remove a file only after checking its consumers. Keep LICENSE, NOTICE and third-party attribution.
+Preserve public contracts unless the task replaces them. Check consumers before
+removing a file, including dynamic entry points. Keep LICENSE, NOTICE and other
+attribution. Use isolated databases and synthetic credentials, never production
+accounts or database contents for ordinary tests.
 
-## Verify the changed behavior
+## Verification
 
-Use the [local quality gate](quality.md) for layered checks, dated debt records and independent acceptance. Run `just quality-self-tests` when changing the gate. These local commands do not enable CI or authorize a release.
+Use [the working guide](agent-workflows.md) to select checks. Start with affected
+behavior and callers; expand for shared contracts, security, billing and data
+integrity. Documentation text normally needs:
 
-Run the relevant unit and integration tests, then report the exact tested commit and results. [The development guide](development.md) lists commands; [the distribution guide](release-architecture.md) explains preview artifacts. Real database tests and simulated funds adapters are different evidence.
+```sh
+python3 -B scripts/check-docs-brand.py --docs-only
+```
 
-For documentation changes, run `python3 scripts/check-docs-brand.py`. For policy or packaging changes, also run `python3 scripts/test-distribution.py` and the Go legal-package tests. Inspect user-visible changes in a real browser when applicable.
+Review changed examples and links outside the checker's maintained set. Do not
+execute installation, initialization or payment examples to validate prose.
+Checker changes need its tests; logo changes need the full asset check. Legal
+implementation/resource or packaging changes need the relevant legal/distribution
+tests, not every document that mentions a policy or package.
 
-## Submit
+Use [the quality tool](quality.md) when layered evidence or independent acceptance
+is required. Choose the required layer once; do not stack its prerequisites or
+pretend a smaller check meets full acceptance. Preserve the existing failure,
+debt and review rules. Record actual commands, tested input and unverified items.
 
-Describe the problem, bounded change, compatibility impact and executed checks. State failed or unrun checks plainly. A passing build is not a production-readiness claim. Opening a PR, merging, publishing and deploying are separate actions; do not automatically promote this WIP branch.
+## Delivery
 
-Use [SECURITY.md](../.github/SECURITY.md) for vulnerability reports. Do not put tokens, private configuration or user records in commits, logs or screenshots. Community rules remain in [CODE_OF_CONDUCT.md](../.github/CODE_OF_CONDUCT.md).
+Reuse the WIP workspace and branch for ongoing work. Preserve concurrent changes;
+never force-push. CLI changes go to its own repository first, then update the
+submodule to the verified, pushed commit.
+
+Describe the outcome, scope, compatibility impact and checks. Review the diff
+and confirm the remote result. A build is not a deployment or proof of complete
+business behavior. Merge, publication, fund movement and production changes need
+authorization for that action; do not request it again when unchanged and already given.
+
+Report vulnerabilities through [SECURITY.md](../.github/SECURITY.md), without
+secrets in public reports. Community rules: [CODE_OF_CONDUCT.md](../.github/CODE_OF_CONDUCT.md).

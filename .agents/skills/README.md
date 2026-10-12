@@ -1,39 +1,30 @@
 # Project skills
 
-[Agent guide](../../AGENTS.md) · [Contribution guide](../../docs/contributing.md) · [Working guide](../../docs/agent-workflows.md) · [Documentation](../../docs/README.md)
+[Agent guide](../../AGENTS.md) · [Working guide](../../docs/agent-workflows.md)
 
-Load the matching `SKILL.md` before the task. Combine skills when necessary: a UI
-change with new text needs both the UI and translation skills. Do not load every
-reference document into each task.
+Read only the matching skill. Add another when work crosses its scope, such as
+UI code with new translations. References are not startup reading.
 
-| Skill | Use it for |
-| --- | --- |
-| [docs-maintenance](docs-maintenance/SKILL.md) | Check README, docs, skills, source paths, and command examples. |
-| [deployment](deployment/SKILL.md) | Build and verify packages for the three programs, review isolated installation and recovery. Production authorization is separate. |
-| [i18n-translate](i18n-translate/SKILL.md) | Add or change UI text and translations, including a single key. |
-| [shadcn-ui](shadcn-ui/SKILL.md) | Work on components, forms, themes, and responsive layouts. |
-| [vercel-react-best-practices](vercel-react-best-practices/SKILL.md) | Investigate React performance in this Rsbuild application. |
-| [publish-open-source-bounty](publish-open-source-bounty/SKILL.md) | Draft and publish a bounty with a verified financial preview and confirmation. |
-| [review-open-source-bounty](review-open-source-bounty/SKILL.md) | Review delivery evidence and handle confirmed settlement actions. |
+| Skill | Trigger | Not for |
+| --- | --- | --- |
+| [docs-maintenance](docs-maintenance/SKILL.md) | Docs, AGENTS.md, skill text, links or examples | Every code edit |
+| [deployment](deployment/SKILL.md) | WIP packages, isolated installation or recovery planning | Ordinary source edits without packaging |
+| [home-sculpture](home-sculpture/SKILL.md) | Homepage particle scenes, geometry or motion | General UI or static artwork |
+| [i18n-translate](i18n-translate/SKILL.md) | UI copy or locale keys, including one-key fixes | Non-UI prose |
+| [shadcn-ui](shadcn-ui/SKILL.md) | Components, forms, themes or layout | Backend-only work |
+| [vercel-react-best-practices](vercel-react-best-practices/SKILL.md) | React request, render or bundle performance | Every React edit |
+| [publish-open-source-bounty](publish-open-source-bounty/SKILL.md) | Bounty drafts, prices or publication | Ordinary GitHub issues |
+| [review-open-source-bounty](review-open-source-bounty/SKILL.md) | Bounty delivery review or settlement | Ordinary PR review or merge |
 
-The folder name and frontmatter `name` must match. Each skill needs a clear,
-non-empty `description`. Keep the entry point short; link to scripts or references
-for detail. A skill describes a workflow. It does not grant account permissions,
-provide a credential, connect an unavailable tool, or authorize a paid operation.
+Keep the directory and frontmatter `name` identical. Use a short `description`
+with clear triggers and exclusions. Keep one task per skill, share check policy
+through the working guide, and load large references only when needed. Preserve
+upstream attribution; do not create duplicate discoverable `SKILL.md` files.
 
-Project paths and commands belong in the local entry point. Keep upstream material
-under `vendor/` or `references/`, with its attribution intact. Do not create a
-second discoverable entry point for the same upstream skill.
+A skill does not connect tools, provide credentials or authorize an operation.
+The bounty skills describe the connected service, not proof that this WIP has
+implemented or deployed every corresponding server module.
 
-From the repository root:
-
-```bash
-python3 -B scripts/check-docs-brand.py --docs-only
-python3 -B -m unittest discover -s scripts -p test_check_docs_brand.py
-node --test .agents/skills/i18n-translate/scripts/apply-translations.test.mjs
-```
-
-The first check covers maintained entry documents, skill links and required
-metadata, stale frontend paths in local skills, and README badges. It does not
-validate every Markdown file, all YAML syntax, remote URLs, heading anchors, or
-application behavior. Run the full check without `--docs-only` for logo changes.
+For skill text, run `python3 -B scripts/check-docs-brand.py --docs-only` once.
+Only changes to a helper need that helper's self-tests. The checker does not
+verify remote URLs, anchors, actual skill selection or command behavior.

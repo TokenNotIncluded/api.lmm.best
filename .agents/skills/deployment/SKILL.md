@@ -1,86 +1,68 @@
 ---
 name: deployment
-description: "Use for current lmm, lmm-core and lmm-extensions packaging, isolated installation, release review or recovery boundaries. Build and verify preview artifacts; production changes require separate authorization."
+description: "Build or verify WIP component packages, prepare isolated installation, or review recovery. Select the component and artifact first. Not a gate for ordinary source edits or the old site's deployment flow."
 ---
 
-# Packages and installation boundaries
+# WIP packages and installation
 
-Read the current [architecture and status](../../../docs/core-migration.md),
-[preview distributions](../../../docs/release-architecture.md),
-[Linux packages](../../../packaging/linux/README.md) and
-[Docker development stack](../../../deployment/docker/README.md).
-Check the selected component's source, manifest and build command at the actual
-revision before acting. Historical operation guides are references, not current
-installation or recovery commands.
+Select the requested outcome before reading procedures. Commands and artifact
+rules live in [distributions](../../../docs/release-architecture.md).
 
-## Three programs
+| Outcome | Read and do |
+| --- | --- |
+| Docs/tooling edit | Relevant local checks only; no host, database or release preflight |
+| Verify an existing archive | Use `build-distribution.py verify` and its trusted source record; no rebuild |
+| Build a component archive | Build only that component, then package its actual output |
+| Convert to DEB/RPM/APK/Arch | Use a verified archive and [native packaging](../../../packaging/linux/README.md); do not recompile per format |
+| Isolated core or extension installation | Select only the matching [Docker](../../../deployment/docker/README.md) or native path |
+| Existing-site change or recovery | Establish that installation's reviewed procedure and authorization; do not use WIP fresh-install examples |
 
-- `lmm` is the Rust client in `apps/cli`.
-- `lmm-core` is the Rust authority for identity, permissions, funds, billing and
-  model routing in `services/core`. Explicit database initialization and initial
-  user creation are subcommands of this same program.
-- `lmm-extensions` is the Go module host in `services/extensions`. It does not
-  own core balances, model traffic or the core database.
+## Component and input rules
 
-The Web build is static content, not another executable or server process.
-Preview archive definitions live in `packaging/distribution.json`; current
-native package definitions live in `packaging/linux`. Do not add a deployment
-executable, backend wrapper or extra service to replace a removed operator tool.
+There are three programs: `lmm-core` in `services/core`, `lmm-extensions` in
+`services/extensions`, and client `lmm` in the `apps/cli` submodule. Web is static
+content. Core must run without Go. Do not add a deployment daemon or restore
+retired operator, Web release or single-server scripts from main/history.
 
-## Establish scope
+Freeze the source, component, platform and format once. Reuse matching test
+results, binaries and trusted archives. Preserve their original source identity;
+do not stamp old binaries with a new HEAD. Hashes alone do not prove who built
+an artifact. Relevant source, toolchain, packaging or configuration changes may
+invalidate reuse. Build core alone for core work, not core plus Go plus Web.
 
-Inspect the branch, base commit, worktree changes, related PR and exact requested
-component. Preserve unrelated work and other active worktrees. An implementation,
-a tested commit, an archive, an installed package, a published release and an
-active production deployment are different states.
+`--target binaries` exports programs, not runtime images. APK needs a verified
+static ELF; a glibc archive cannot be reused there by renaming it. Service nodes,
+especially 1C1G nodes, receive qualified artifacts rather than compiling them.
+A packaging-only format conversion needs packaging checks, not every app build.
 
-Use a fresh isolated database and credentials for this WIP. Do not import,
-upgrade or clear an existing site database. Core and extensions build and update
-independently; extensions cannot receive the core database connection or use a
-host credential as the user's identity or a spending grant.
+## Installation and verification
 
-Code or documentation changes authorize local work and checks. They do not
-authorize publication, service restarts, production configuration, database
-mutation, funds or deployment. Do not execute an example merely to validate its
-syntax. Production work requires an explicit target, authorization, reviewed
-artifacts and a recovery procedure for that installation.
+Use the selected path's current TOML, private credential files, service ownership
+and readiness checks. Keep owner and restricted runtime credentials separate.
+`init-db` is explicit, once on a verified empty isolated database; ordinary
+startup checks schema and permissions. Never rerun initialization, clear a volume
+or restore old environment-variable configuration as an update shortcut.
 
-## Build and verify locally
+Core and Go update independently. Keep all required Compose overrides and RPC
+bindings when updating an extension; do not restart core or the database for it.
+Native package installation does not activate services. Check the running process
+after an authorized restart; package contents alone do not show which code is active.
+No current preview workflow proves a production rollout or uninterrupted streams.
 
-Use `just --list`, `package.json` and the component manifests as the command
-source. Run relevant tests locally and record the source revision, working-tree
-state, exact commands, exit codes and skipped checks. Never replace a failed
-assertion, real database check or permission boundary with a successful fixture.
+## Stop at the requested result
 
-Build each component once with its pinned toolchain, then use the existing
-`build` and `verify` commands in `scripts/build-distribution.py`. Check archive
-revision, component, executable inventory, legal resources and checksums.
-Native formats use `packaging/linux/build.py` and its existing isolated tests.
-Package construction does not initialize databases, start services or prove a
-working installation. Do not add install hooks that do those operations.
+Tests run locally unless the task specifically requests another environment.
+Preview workflows retain artifacts, not a production Release. Do not dispatch
+one as a side effect of editing this skill. Select checks with the
+[working guide](../../../docs/agent-workflows.md), without repeating aggregates.
 
-`microservice-distribution.yml`, `linux-packages.yml` and `lmm.yml` preserve
-preview artifacts; they do not publish a release or deploy. Do not dispatch CI
-as a substitute for the requested local checks. The retired single-server Web
-release/deployment workflows, package recipes and operator commands are not
-alternate entry points on this branch.
+Read immutable facts once and mutable state at action boundaries. After an
+uncertain write, inspect its exact ID/state before retrying. Preserve signatures,
+source checks, host identity, locks, backups and required confirmations. Reuse
+existing authorization for an unchanged action; changing target or scope needs
+its own authorization.
 
-`scripts/local-release-tests.py` and `scripts/verify-release-commit-checks.sh`
-can bind local command results to immutable component source. Importing a prior
-log records that prior command; it does not rerun it or prove complete acceptance.
-Independent signature and read-only public verification tools retain their
-limited purpose. Neither a signature, a successful request nor HTTP 200 proves
-that the intended application behavior is active.
-
-## Recovery and delivery
-
-Never disable signatures, source binding, host identity checks, transaction
-ownership or explicit confirmation to make a rollout pass. After an ambiguous
-mutation, inspect durable state before retrying. Preserve existing installed
-versions, backup material, locks and recovery evidence; deleting old source
-resources from this WIP does not authorize deleting them from an active host.
-
-Report changed paths, actual tests, commit/PR and unverified work. State whether
-anything was published, installed or deployed. This branch currently supplies
-isolated preview packages and implementation checks; full permission, payment,
-refund, model traffic and recovery acceptance remains separate evidence.
+Report separately: edited, built, verified, installed, published or deployed.
+Record actual commands, source/artifact identity and missing checks. Readiness
+or HTTP 200 is not proof of model traffic, billing, payment or full recovery.
+Do not claim deployment speed or memory savings without comparable measurements.

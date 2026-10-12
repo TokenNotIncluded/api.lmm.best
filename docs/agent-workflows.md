@@ -1,61 +1,79 @@
 # Agent 工作指南
 
-[文档目录](README.md) · [仓库规则](../AGENTS.md) · [技能目录](../.agents/skills/README.md)
+[文档目录](README.md) · [仓库入口](../AGENTS.md) · [技能目录](../.agents/skills/README.md)
 
-本文用于修改仓库，不是客户端登录指南，也不是生产部署授权。
+先确定交付目标，再选择读取和检查范围。目标是减少重复工作，不是隐藏失败。
 
-## 先确认分支，再读技能
+## 读取与实施
 
-先检查当前分支、基准提交、未提交修改和相关 PR。以该提交中的代码为准。
-重构方案、开发分支、已合并代码、已签名版本和线上部署，必须分别确认。
-不能因为某个 PR 使用新架构，就修改默认分支的说明，宣称切换已经完成。
+记录当前分支、基准提交和工作区修改。微服务迭代继续使用现有 WIP 分支；不在每轮
+创建分支、清理全仓分支、扫描所有 PR 或重读全部文档。需要同步时先保护本地修改，
+写入共享分支前检查远端是否前进；不强推，也不覆盖并行工作。
 
-从技能目录选择当前任务需要的技能。界面新增文案，同时读取界面和翻译技能。
-发布、部署或恢复服务，单独读取部署技能。技能不提供额外权限，也不保证当前
-会话已连接其中提到的工具。仓库内的本文件和 `AGENTS.md` 不会自动变成网站路由。
+只读受影响代码、调用方和匹配技能。小任务直接修改；复杂任务保留短计划。没有
+变化的背景、授权和文件不重复索取或读取。只有并行能减少实际等待时才拆分任务；
+分工须包含背景、分支/PR、目标、现状和文件所有权，协议字段指定一个修改方。
 
-## 命令与路径的依据
+## 按范围选择检查
 
-| 内容 | 核对来源 |
-| --- | --- |
-| 根目录命令 | [justfile](../justfile)、[package.json](../package.json) |
-| 前端命令与依赖 | [apps/web/package.json](../apps/web/package.json) |
-| 本地环境与端口 | [开发指南](development.md) |
-| 检查、预览构建与安装边界 | [Actions 说明](ci-workflow-layout.md)、[Docker 开发栈](../deployment/docker/README.md)、[独立分发](release-architecture.md) |
-| 翻译同步的实际行为 | [sync-i18n.mjs](../apps/web/scripts/sync-i18n.mjs) |
+命令来自本分支的 [justfile](../justfile)、[根脚本](../package.json) 和
+[前端脚本](../apps/web/package.json)。工具准备见[开发指南](development.md)。
 
-除命令明确切换目录外，均从仓库根目录执行，使用开发指南中的 mise 工具链。应用前端位于 `apps/web`。
-本分支只有 `lmm`、`lmm-core` 和 `lmm-extensions` 三个可执行程序；前端输出静态 Web 包。核心初始化使用 `lmm-core init-db`，客户端不承载旧单体部署引擎。当前分发工作流只生成预览产物，旧站点的发布与部署流程已从本分支退役。
-不要把组件包内命令直接当成根目录命令，也不要通过更新依赖来修复文档路径。
+| 改动 | 首选检查 | 扩大范围的条件 |
+| --- | --- | --- |
+| 文档、AGENTS.md、技能正文 | `python3 -B scripts/check-docs-brand.py --docs-only`，差异和改动示例 | 改检查器才单独运行其自测；其他文档的链接需另查 |
+| 翻译值 | 写入工具校验、各语言差异和同步结果 | 改调用方或类型时增加 Web 类型检查；影响布局时看实际页面 |
+| Web TypeScript | 受影响测试、改动文件格式/lint、`mise exec -- bun run typecheck:web` | 导入、依赖、构建配置、资源或加载变化时运行 `mise exec -- just build-web` |
+| Rust 核心 | 受影响测试和格式检查，直接使用 `services/core/Cargo.toml` | 公共接口或影响不明时运行 `mise exec -- just test-core`；持久化需真实隔离库 |
+| Go 扩展 | 受影响包及调用方的测试、格式检查和相关静态检查 | 共享宿主或接口变化时运行 `mise exec -- just test-go`；数据库模块单独执行 |
+| CLI | 初始化 `apps/cli` 后，在子仓库执行相关检查 | CLI 集成验收使用 `mise exec -- just test-lmm`；不要顺带检查核心/Web |
+| 组件归档构建器 | `python3 -B scripts/test-distribution.py` | 实际打包逻辑变化时构建并校验受影响组件 |
+| 原生 Linux 打包 | `python3 -B packaging/linux/test_build.py -v` | 格式或安装行为变化时增加 `test_native.py` 和对应隔离安装 |
+| Docker 配置/通信 | 相关静态检查和 fixture | 挂载、进程、网络、恢复变化时运行真实 Docker 检查 |
+| 跨组件完整验收 | [质量工具](quality.md)中所需的一层 | 按验收目标执行，不把低层通过当完整通过 |
 
-## 按改动选择检查
+鉴权、余额、计费、资金权限、持久化和 schema 改动，必须验证相关拒绝、重复请求、
+并发、失败及最终数据一致性。不能用固定成功的内部替身代替真实业务链路。
 
-文档和技能：
+`just check` 包含格式、lint、类型、核心/Go/Web 测试及源码边界检查，不包含 CLI
+和全部独立数据库模块。`just build-web` 已包含 bundle 检查；不要重复运行。
+不为局部修改执行全仓格式化，不为 Markdown 安装应用依赖或启动数据库。
 
-```bash
-python3 -B scripts/check-docs-brand.py --docs-only
-python3 -B -m unittest discover -s scripts -p test_check_docs_brand.py
-```
+质量工具的 `quick`、`related`、`full` 有重叠，按目标直接选择一层。`related` 即使
+用于文档也会执行固定核心/Go 回归，不是轻量文档检查；`full` 仍有独立业务和资源
+验收项。现有检查集合、失败状态、债务规则和独立验收要求不因本指南而改变。
 
-修改翻译写入工具后：
+文档检查器覆盖维护入口、技能本地路径/元数据和 README 徽章，不覆盖所有 Markdown、
+远程链接、标题锚点或命令行为。修改 Logo 才运行不带 `--docs-only` 的资产检查。
+修改翻译工具才单独运行它的自测；技能文字修改不触发该工具的全部测试。
 
-```bash
-node --test .agents/skills/i18n-translate/scripts/apply-translations.test.mjs
-```
+## 复用而不是重做
 
-修改 Logo 后，使用不带 `--docs-only` 的完整检查。修改应用代码，则按照开发指南
-运行对应组件的测试。不要为纯文档修改执行全仓格式化，也不要执行生产示例来
-“检查命令是否正确”。
+保留测试源码、命令、退出码、日志及影响结果的配置和依赖。相关输入不变时复用；
+输入变了，只重跑受影响检查。记录来自哪个版本，不能把旧结果说成在新提交上运行。
+既有聚合工具会按自身计划重跑，当前没有自动缓存所有验证结果的能力。
 
-文档检查范围是维护入口和项目技能：本地链接、技能名称与描述、技能内的旧前端
-路径、中英文 README 徽章。它不覆盖全部 Markdown 文件、完整 YAML 语法、标题
-锚点、远程链接或命令执行结果。自动检查通过后，仍需人工核对文档与代码。
+打包先选组件、CPU 架构、格式和实际输入来源。已有可信、匹配的程序或归档就复用；
+不因下载/状态读取失败重编译，不给旧二进制换上新源码 SHA。细节见
+[打包与分发](release-architecture.md)。测试机/服务机不承担无关组件的冷构建。
 
-## 交付记录
+独立读取可以并行；同一工作树、输出目录、schema、生产切换和共享写入不能盲目并行。
+1C1G 节点不同时运行重型构建。pgroll 和 Docker 仅为相关任务准备，不是所有工作的前置条件。
 
-记录修改范围、基准提交、实际测试命令、结果和未验证项。环境缺少依赖时说明
-具体限制，不把阅读代码写成执行测试，不把测试样例通过写成真实数据库或线上
-验收通过。提交后报告分支和 PR；只有获得授权后才合并、发版或部署。
+## 失败与交付
 
-不得将密钥、Cookie、密码、数据库连接串或未脱敏日志写入文档和测试证据。
-使用本站时遵守一人一个账号，不批量注册，也不通过额外账号领取奖励。
+区分源码、依赖、网络和权限问题。只对适合重试的读取做有限重试；相同原因重复失败，
+改用已有可行路径或报告具体缺项。写入结果不确定，先查准确 ID，不能重复付款、发版或初始化。
+
+最后审查差异，报告修改、实际检查、未验证项和提交/PR。远端前进时保留他人修改，
+重新检查受影响差异，不自动把整条 WIP 合入 main。完成所需交付后停止；发布和部署单独说明。
+
+## 指导来源
+
+OpenAI 建议将入口写成导航、按需读取详细知识，并给技能清晰的用途。这些原则应用于
+本仓库的组件、命令和检查选择，不表示 OpenAI 规定了本仓库的具体门槛。
+
+[AGENTS.md](https://developers.openai.com/codex/guides/agents-md) ·
+[Skills](https://developers.openai.com/codex/skills) ·
+[Best practices](https://developers.openai.com/codex/learn/best-practices) ·
+[Harness engineering](https://openai.com/index/harness-engineering/)
