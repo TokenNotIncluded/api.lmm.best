@@ -174,7 +174,7 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 				priceData.AddOtherRatio(name, ratio)
 			}
 			quotaToPreConsume := priceData.ApplyOtherRatiosToFloat(modelPrice * common.QuotaPerUnit * groupRatioInfo.GroupRatio)
-			quota, err := common.QuotaFromFloatStrict(quotaToPreConsume)
+			quota, err := common.ChargeQuotaFromFloatStrict(quotaToPreConsume)
 			if err != nil {
 				return hosttypes.PriceData{}, err
 			}
@@ -188,7 +188,7 @@ func ModelPriceHelper(c *gin.Context, info *relaycommon.RelayInfo, promptTokens 
 				preConsumedTokens += meta.MaxTokens
 			}
 			ratio := modelRatio * groupRatioInfo.GroupRatio
-			quota, err := common.QuotaFromFloatStrict(priceData.ApplyOtherRatiosToFloat(float64(preConsumedTokens) * ratio))
+			quota, err := common.ChargeQuotaFromFloatStrict(priceData.ApplyOtherRatiosToFloat(float64(preConsumedTokens) * ratio))
 			if err != nil {
 				return hosttypes.PriceData{}, err
 			}
@@ -265,7 +265,7 @@ func ModelPriceHelperPerCall(c *gin.Context, info *relaycommon.RelayInfo) (hostt
 			// 按量计费：以模型倍率的一半作为预扣额度
 			quotaBase = modelRatio / 2 * common.QuotaPerUnit * groupRatioInfo.GroupRatio
 		}
-		quota, err := common.QuotaFromFloatStrict(quotaBase)
+		quota, err := common.ChargeQuotaFromFloatStrict(quotaBase)
 		if err != nil {
 			return hosttypes.PriceData{}, err
 		}
@@ -336,7 +336,7 @@ func modelPriceHelperTieredForKey(c *gin.Context, info *relaycommon.RelayInfo, p
 
 	// Expression coefficients are $/1M tokens prices; convert to quota the same way per-call billing does.
 	quotaBeforeGroup := rawCost / 1_000_000 * common.QuotaPerUnit
-	preConsumedQuota, err := billingexpr.QuotaRoundStrict(quotaBeforeGroup * groupRatioInfo.GroupRatio)
+	preConsumedQuota, err := common.ChargeQuotaFromFloatStrict(quotaBeforeGroup * groupRatioInfo.GroupRatio)
 	if err != nil {
 		return hosttypes.PriceData{}, err
 	}

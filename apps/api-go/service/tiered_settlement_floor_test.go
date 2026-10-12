@@ -41,12 +41,12 @@ func tieredMinimumSettlementFixture(t *testing.T) (*gorm.DB, *relaycommon.RelayI
 	require.Zero(t, info.PriceData.ModelRatio, "tiered expressions do not set a model ratio")
 	require.Equal(t, 50, info.TieredBillingSnapshot.EstimatedQuotaAfterGroup)
 
-	// The expression's actual cost is positive but rounds down before the
-	// service-level minimum is applied.
+	// The expression's positive cost is rounded by the shared consumption
+	// policy; the service no longer needs a separate minimum-charge patch.
 	raw, err := billingexpr.ComputeTieredQuota(info.TieredBillingSnapshot, billingexpr.TokenParams{P: 1})
 	require.NoError(t, err)
 	require.Positive(t, raw.ActualQuotaBeforeGroup)
-	require.Zero(t, raw.ActualQuotaAfterGroup)
+	require.Equal(t, 1, raw.ActualQuotaAfterGroup)
 
 	session, apiErr := NewBillingSession(ctx, info, info.TieredBillingSnapshot.EstimatedQuotaAfterGroup)
 	require.Nil(t, apiErr)
@@ -81,7 +81,7 @@ func TestPostTextConsumeQuotaTieredMinimum(t *testing.T) {
 			db, info, ctx, channel := tieredMinimumSettlementFixture(t)
 			if withToolSurcharge {
 				// A separately priced tool call enters composeTieredTextQuota.
-				// Its 0.05-quota charge still rounds to zero with the 0.05 base.
+				// The 0.05 surcharge and 0.05 base must be rounded together.
 				operation_setting.SetToolPriceForTest(dto.BuildInToolWebSearch, 0.0001)
 				t.Cleanup(func() { operation_setting.DeleteToolPriceForTest(dto.BuildInToolWebSearch) })
 				ctx.Set("claude_web_search_requests", 1)

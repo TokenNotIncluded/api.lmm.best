@@ -1,6 +1,7 @@
 package service
 
 import (
+	"math"
 	"strings"
 
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
@@ -237,4 +238,35 @@ func addGeminiInputTokenDetail(details *dto.InputTokenDetails, detail dto.Gemini
 	case "TEXT":
 		details.TextTokens += detail.TokenCount
 	}
+}
+
+func nonNegativeTokenCount(value int) int {
+	if value < 0 {
+		return 0
+	}
+	return value
+}
+
+func saturatingTokenCountAdd(left, right int) int {
+	left = nonNegativeTokenCount(left)
+	right = nonNegativeTokenCount(right)
+	if right > math.MaxInt-left {
+		return math.MaxInt
+	}
+	return left + right
+}
+
+func subtractTokenCountFloorZero(total, part int) int {
+	total = nonNegativeTokenCount(total)
+	part = nonNegativeTokenCount(part)
+	if part >= total {
+		return 0
+	}
+	return total - part
+}
+
+// cacheWriteTokensTotal reconciles optional duration counters with the aggregate.
+// A missing or partial split must never erase reported cache writes.
+func cacheWriteTokensTotal(total, fiveMinute, oneHour int) int {
+	return max(nonNegativeTokenCount(total), saturatingTokenCountAdd(fiveMinute, oneHour))
 }

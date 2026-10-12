@@ -5,6 +5,7 @@ import (
 	"math"
 	"net/http"
 
+	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/pkg/billingexpr"
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
 	"github.com/LIghtJUNction/api.lmm.best/relaykit/dto"
@@ -34,9 +35,12 @@ func BuildTieredTokenParams(usage *dto.Usage, isClaudeUsageSemantic bool, usedVa
 	cacheCreation5m := usage.PromptTokensDetails.CacheCreationTokensTotal()
 	cacheCreation1h := 0
 
-	if usage.UsageSemantic == "anthropic" {
-		cacheCreation1h = usage.ClaudeCacheCreation1hTokens
-		cacheCreation5m = usage.ClaudeCacheCreation5mTokens
+	if isClaudeUsageSemantic {
+		cacheCreation1h = nonNegativeTokenCount(usage.ClaudeCacheCreation1hTokens)
+		total := cacheWriteTokensTotal(cacheCreation5m, usage.ClaudeCacheCreation5mTokens, cacheCreation1h)
+		// Unclassified writes use the default five-minute duration. This
+		// includes an aggregate-only report and the remainder of a partial split.
+		cacheCreation5m = subtractTokenCountFloorZero(total, cacheCreation1h)
 	}
 	cc5m, cc1h := float64(cacheCreation5m), float64(cacheCreation1h)
 
@@ -188,7 +192,7 @@ func refreshTieredBillingGroup(relayInfo *relaycommon.RelayInfo) (*billingexpr.B
 	groupRatio := relayInfo.PriceData.GroupRatioInfo.GroupRatio
 	// A retry may select a different fixed group; retain the frozen expression base.
 	estimatedQuotaAfterGroup := snap.EstimatedQuotaBeforeGroup * groupRatio
-	estimatedQuota, err := billingexpr.QuotaRoundStrict(estimatedQuotaAfterGroup)
+	estimatedQuota, err := common.ChargeQuotaFromFloatStrict(estimatedQuotaAfterGroup)
 	if err != nil {
 		return nil, err
 	}
@@ -297,17 +301,6 @@ func TryTieredSettleWithError(relayInfo *relaycommon.RelayInfo, params billingex
 	noteQuotaClamp(relayInfo, tr.Clamp)
 
 	quota = tr.ActualQuotaAfterGroup
-	quota = enforceTieredMinimumQuota(quota, &tr, snap.GroupRatio)
 
 	return true, quota, &tr, nil
-}
-
-// enforceTieredMinimumQuota keeps a successful, positive-price tiered request
-// from becoming free solely because quota rounding discarded a sub-quota unit.
-// Free groups and zero/failed settlements intentionally retain their zero value.
-func enforceTieredMinimumQuota(quota int, result *billingexpr.TieredResult, groupRatio float64) int {
-	if quota == 0 && result != nil && result.ActualQuotaBeforeGroup > 0 && groupRatio > 0 {
-		return 1
-	}
-	return quota
 }

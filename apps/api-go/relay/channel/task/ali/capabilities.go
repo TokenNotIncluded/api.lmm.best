@@ -3,7 +3,6 @@ package ali
 import (
 	"fmt"
 	"math"
-	"sort"
 	"strconv"
 	"strings"
 
@@ -11,6 +10,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	relaycommon "github.com/LIghtJUNction/api.lmm.best/relay/common"
 	"github.com/LIghtJUNction/api.lmm.best/types"
+	"github.com/shopspring/decimal"
 )
 
 type videoCapability struct {
@@ -220,25 +220,17 @@ func (a *TaskAdaptor) AdjustBillingOnComplete(task *model.Task, result *relaycom
 	if adjustment == 1 || adjustment <= 0 || math.IsNaN(adjustment) || math.IsInf(adjustment, 0) {
 		return 0
 	}
-	// Follow ModelPriceHelperPerCall's ratio-price base and rounding. task.Quota
-	// may already contain a previous completion settlement, so it cannot be the
-	// basis for another correction after a polling retry.
-	baseQuota, err := common.QuotaFromFloatStrict(context.ModelRatio / 2 * common.QuotaPerUnit * context.GroupRatio)
-	if err != nil {
+	// Reconstruct the unrounded base from the submission snapshot. Neither a
+	// previous settlement nor an integer reservation is a new price input.
+	if math.IsInf(context.ModelRatio, 0) || math.IsNaN(context.ModelRatio) ||
+		math.IsInf(context.GroupRatio, 0) || math.IsNaN(context.GroupRatio) {
 		return 0
 	}
+	base := decimal.NewFromFloat(context.ModelRatio).Div(decimal.NewFromInt(2)).
+		Mul(decimal.NewFromFloat(common.QuotaPerUnit)).Mul(decimal.NewFromFloat(context.GroupRatio))
 	price := &types.PriceData{}
 	price.ReplaceOtherRatios(context.OtherRatios)
-	ratios := price.OtherRatios()
-	keys := make([]string, 0, len(ratios))
-	for key := range ratios {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	estimatedQuota := float64(baseQuota)
-	for _, key := range keys {
-		estimatedQuota *= ratios[key]
-	}
-	quota, _ := common.QuotaFromFloatChecked(estimatedQuota * adjustment)
+	amount := price.ApplyOtherRatiosToDecimal(base).Mul(decimal.NewFromFloat(adjustment))
+	quota, _ := common.ChargeQuotaFromDecimalChecked(amount)
 	return quota
 }

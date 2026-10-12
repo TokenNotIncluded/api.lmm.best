@@ -2,6 +2,18 @@ name: Billing safety regressions
 
 on:
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'apps/api-go/common/**'
+      - 'apps/api-go/controller/**'
+      - 'apps/api-go/model/**'
+      - 'apps/api-go/service/**'
+      - 'apps/api-go/relay/**'
+      - 'apps/api-go/relaykit/**'
+      - 'apps/api-go/pkg/**'
+      - 'apps/api-go/setting/**'
+      - 'apps/api-go/go.*'
+      - '.github/workflows/billing-safety.yml'
 
 permissions:
   contents: read
@@ -24,6 +36,19 @@ jobs:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
         with:
           persist-credentials: false
+      - name: Capture the exact tested source
+        working-directory: .
+        run: |
+          mkdir -p "$RUNNER_TEMP/billing-source"
+          git rev-parse HEAD > "$RUNNER_TEMP/billing-source/revision.txt"
+          git archive --format=tar.gz -o "$RUNNER_TEMP/billing-source/source.tar.gz" HEAD
+      - name: Upload reproducible source
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: billing-safety-source
+          path: ${{ runner.temp }}/billing-source
+          retention-days: 3
+          if-no-files-found: error
       - uses: actions/setup-go@7a3fe6cf4cb3a834922a1244abfce67bcef6a0c5
         with:
           go-version-file: apps/api-go/go.mod

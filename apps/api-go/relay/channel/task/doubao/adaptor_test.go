@@ -386,12 +386,16 @@ func TestSeedanceCompletionQuotaPreservesConfiguredPricesAndLocks(t *testing.T) 
 	require.NoError(t, ratio_setting.UpdateGroupRatioByJSONString(`{"default":1.7}`))
 	require.NoError(t, ratio_setting.UpdateGroupGroupRatioByJSONString(`{"default":{"default":1.2}}`))
 	task := completionTestTask(seedance20, map[string]float64{"resolution": 51.0 / 46, "video_input": 31.0 / 51, "seconds": 2})
+	task.PrivateData.BillingContext.ModelRatio = 2.3
+	task.PrivateData.BillingContext.GroupRatio = 1.2
+	// Synchronizing lower live prices must not reprice an accepted task.
+	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"doubao-seedance-2-0-260128":0.1}`))
 	task.Data = json.RawMessage(`{"status":"succeeded","duration":"5","resolution":"4k","usage":{"completion_tokens":10000}}`)
 	adaptor := &TaskAdaptor{}
 	result, err := adaptor.ParseTaskResult(task.Data)
 	require.NoError(t, err)
 	require.Equal(t, 10000, result.TotalTokens, "completion-only Ark usage remains billable")
-	want, _ := common.QuotaFromFloatChecked(10000 * 2.3 * 1.2 * (16.0 / 46) * 2)
+	want := 19200 // 10000 * 2.3 * 1.2 * (16/46) * 2, rounded only once.
 	require.Equal(t, want, adaptor.AdjustBillingOnComplete(task, result))
 	task.Quota = want // polling has written the first settled quota
 	for range 100 {
@@ -399,7 +403,7 @@ func TestSeedanceCompletionQuotaPreservesConfiguredPricesAndLocks(t *testing.T) 
 	}
 	require.Equal(t, map[string]float64{"resolution": 51.0 / 46, "video_input": 31.0 / 51, "seconds": 2}, task.PrivateData.BillingContext.OtherRatios)
 	require.Equal(t, modelPrices, ratio_setting.ModelPrice2JSONString())
-	require.Equal(t, `{"doubao-seedance-2-0-260128":2.3}`, ratio_setting.ModelRatio2JSONString())
+	require.Equal(t, `{"doubao-seedance-2-0-260128":0.1}`, ratio_setting.ModelRatio2JSONString())
 	task.PrivateData.BillingContext.PerCallBilling = true
 	require.Zero(t, adaptor.AdjustBillingOnComplete(task, result), "fixed prices and task price locks skip settlement")
 }
