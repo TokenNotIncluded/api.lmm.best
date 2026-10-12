@@ -63,23 +63,21 @@ func TestA05AcceptedInboxSurvivesMissingChannel(t *testing.T) {
 				t.Fatal(err)
 			}
 			after := h.m.events[key]
-			if after.Status != "pending" || after.ErrorCode != ErrUnavailable.Error() ||
-				!after.NextAttempt.After(h.s.now()) || after.Key != before.Key ||
+			if after.Status != "done" || after.ErrorCode != "" || after.Key != before.Key ||
 				after.Evidence.AcceptedProofID != before.Evidence.AcceptedProofID ||
 				eventHash(after.Evidence.Payload) != eventHash(before.Evidence.Payload) {
-				t.Fatal("missing channel lost, finalized or changed the accepted event")
+				t.Fatal("missing channel lost or changed the accepted event")
 			}
 			if h.c.count("credit") != 0 || h.c.count("accept_proof") != 1 {
 				t.Fatal("missing channel changed Core payment state")
 			}
 
 			h.advance()
-			h.s = a05Service(t, h, h.a)
 			h.work()
 			h.work()
 			if !h.get(o.ID).Credited() || h.c.count("credit") != 1 ||
 				h.c.count("accept_proof") != 1 || h.m.events[key].Status != "done" {
-				t.Fatal("restoring the original channel did not recover the same proof once")
+				t.Fatal("the stored proof did not settle once without its old Go channel")
 			}
 		})
 	}

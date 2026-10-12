@@ -262,24 +262,13 @@ func (s *Service) receiveEvent(ctx context.Context, a Adapter, e Event) error {
 }
 
 func (s *Service) eventOrder(ctx context.Context, a Adapter, e Event) (Order, error) {
-	var o Order
-	var err error
-	if e.OrderID != "" {
-		o, err = s.store.Get(ctx, e.OrderID)
-	} else {
-		o, err = s.store.FindPayment(ctx, a.Channel().namespace(), e.Evidence.Transaction)
-	}
+	e.ChannelID = a.Channel().ID
+	o, err := s.storedEventOrder(ctx, e)
 	if err != nil {
 		return Order{}, err
 	}
 	if _, err := s.orderAdapter(o); err != nil {
 		return Order{}, err
-	}
-	if o.ChannelID != a.Channel().ID || !sameChannel(e.Evidence, a.Channel()) || e.Currency != o.Intent.Currency ||
-		o.PaymentID != "" && o.PaymentID != e.Evidence.Transaction ||
-		(e.Type == Paid || e.Type == PaymentFailed) && e.AmountMinor != o.Intent.AmountMinor ||
-		e.AmountMinor > o.Intent.AmountMinor {
-		return Order{}, ErrConflict
 	}
 	return o, nil
 }
@@ -312,46 +301,81 @@ func (s *Service) Drain(ctx context.Context, limit int) error {
 	}
 	return nil
 }
-func (s *Service) apply(ctx context.Context, e Event) error {
-	a := s.adapters[e.ChannelID]
-	if a == nil {
-		return ErrUnavailable
+
+// storedEventOrder uses the immutable order binding, not today's provider
+// adapter. Accepted inbox work must survive a crash before the job is created,
+// even if the old channel is no longer configured on this Go host.
+func (s *Service) storedEventOrder(ctx context.Context, e Event) (Order, error) {
+	if !validID(e.Evidence.EventID) || !validID(e.Evidence.Transaction) ||
+		!validAmount(e.AmountMinor) || len(e.Evidence.Payload) > MaxEvidence ||
+		e.OrderID != "" && !validID(e.OrderID) {
+		return Order{}, ErrInvalid
 	}
-	if e.Evidence.Source == "webhook" && e.Evidence.AcceptedProofID == "" {
-		o, err := s.eventOrder(ctx, a, e)
-		if err != nil {
-			return err
+	switch e.Type {
+	case Paid, PaymentFailed:
+	case RefundSucceeded, RefundFailed, RefundPending:
+		if !validID(e.RefundID) {
+			return Order{}, ErrInvalid
 		}
+	default:
+		return Order{}, ErrInvalid
+	}
+	var o Order
+	var err error
+	if e.OrderID != "" {
+		o, err = s.store.Get(ctx, e.OrderID)
+	} else {
+		namespace := e.Evidence.Provider + "/" + e.Evidence.Merchant + "/" + e.Evidence.Environment
+		o, err = s.store.FindPayment(ctx, namespace, e.Evidence.Transaction)
+	}
+	if err != nil {
+		return Order{}, err
+	}
+	if !storedEventMatches(o, e) {
+		return Order{}, ErrConflict
+	}
+	return o, nil
+}
+
+func storedEventMatches(o Order, e Event) bool {
+	c := Channel{ID: o.ChannelID, Provider: o.Intent.Provider, Merchant: o.Intent.Merchant, Environment: o.Intent.Environment, Currency: o.Intent.Currency}
+	return c.valid() && o.Namespace == c.namespace() && o.ChannelID == e.ChannelID &&
+		(e.OrderID == "" || e.OrderID == o.ID) && sameChannel(e.Evidence, c) && e.Currency == c.Currency &&
+		(o.PaymentID == "" || o.PaymentID == e.Evidence.Transaction) && e.AmountMinor <= o.Intent.AmountMinor &&
+		((e.Type != Paid && e.Type != PaymentFailed) || e.AmountMinor == o.Intent.AmountMinor)
+}
+
+func (s *Service) apply(ctx context.Context, e Event) error {
+	o, err := s.storedEventOrder(ctx, e)
+	if err != nil {
+		return err
+	}
+	if e.Evidence.Source == "webhook" {
+		previous := e.Evidence.AcceptedProofID
 		e.Evidence, err = s.acceptedEvidence(ctx, o.Intent.ID, e.Evidence)
 		if err != nil {
-			return err
+			return err // Look up old acceptance only; never accept a stale new proof.
 		}
-		if err = s.store.PutEvent(ctx, e); err != nil {
+		if previous != e.Evidence.AcceptedProofID {
+			if err = s.store.PutEvent(ctx, e); err != nil {
+				return err
+			}
+		}
+	} else {
+		if e.Evidence.Source != "api" || e.Evidence.AcceptedProofID != "" {
+			return ErrEvidence
+		}
+		// Unsigned observations still require the configured original channel;
+		// they do not gain settlement authority from this recovery path.
+		if _, err = s.orderAdapter(o); err != nil {
 			return err
 		}
 	}
-	id := e.OrderID
-	if id == "" {
-		c := a.Channel()
-		o, err := s.store.FindPayment(ctx, c.namespace(), e.Evidence.Transaction)
-		if err != nil {
-			return err
-		}
-		id = o.ID
-	}
-	return s.store.Mutate(ctx, id, func(o *Order) error {
-		a, err := s.orderAdapter(*o)
-		if err != nil {
-			return err
-		}
-		if o.ChannelID != e.ChannelID || !sameChannel(e.Evidence, a.Channel()) || e.Currency != o.Intent.Currency ||
-			o.PaymentID != "" && o.PaymentID != e.Evidence.Transaction {
+	return s.store.Mutate(ctx, o.ID, func(o *Order) error {
+		if !storedEventMatches(*o, e) {
 			return ErrConflict
 		}
 		if e.Type == Paid || e.Type == PaymentFailed {
-			if e.AmountMinor != o.Intent.AmountMinor {
-				return ErrConflict
-			}
 			if e.Type == PaymentFailed {
 				return nil
 			} // Failure cannot erase later payment.
@@ -364,9 +388,6 @@ func (s *Service) apply(ctx context.Context, e Event) error {
 				enqueue(o, Job{Key: stableKey("credit", o.ID), Kind: "credit", Evidence: e.Evidence}, s.now())
 			}
 			return nil
-		}
-		if e.AmountMinor > o.Intent.AmountMinor {
-			return ErrConflict
 		}
 		// An external refund without an order ID stays in the inbox until its
 		// payment reference is bound; it is never attributed by an account header.
