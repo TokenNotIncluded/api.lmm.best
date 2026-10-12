@@ -12,28 +12,51 @@ jobs:
   snapshot:
     if: github.repository == 'TokenNotIncluded/api.lmm.best'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      S11_OUTPUT: ${{ github.workspace }}/../s11-rebase-evidence
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
           persist-credentials: false
-      - name: Export committed source and history only
+      - name: Freeze prerequisite candidates for source review
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/s11-source"
-          git cat-file -e a28f06e88b7adf3701937f2a4018689bdc96ad85^{commit}
-          git cat-file -e 3948a0a1ee1cefdd016a7aa45a11851545bb4b85^{commit}
-          git update-ref refs/s11/wip a28f06e88b7adf3701937f2a4018689bdc96ad85
-          git update-ref refs/s11/main 3948a0a1ee1cefdd016a7aa45a11851545bb4b85
-          git bundle create "$RUNNER_TEMP/s11-source/repository.bundle" refs/s11/wip refs/s11/main
-          git bundle verify "$RUNNER_TEMP/s11-source/repository.bundle"
-          cd "$RUNNER_TEMP/s11-source"
-          sha256sum repository.bundle | tee SHA256SUMS
+          mkdir -p "$S11_OUTPUT" "$RUNNER_TEMP/s11-prerequisites"
+          cp .github/s11-rebase.py "$RUNNER_TEMP/s11-rebase.py"
+          cp .github/s11-rebase-plan.json "$RUNNER_TEMP/s11-rebase-plan.json"
+          git fetch --no-tags origin \
+            refs/pull/878/head:refs/s11/a09 \
+            refs/pull/875/head:refs/s11/a04 \
+            refs/pull/880/head:refs/s11/a10
+          git bundle create "$RUNNER_TEMP/s11-prerequisites/prerequisites.bundle" \
+            refs/s11/a09 refs/s11/a04 refs/s11/a10 \
+            ^a28f06e88b7adf3701937f2a4018689bdc96ad85 \
+            ^3948a0a1ee1cefdd016a7aa45a11851545bb4b85
+          git for-each-ref --format='%(refname) %(objectname)' refs/s11 \
+            > "$RUNNER_TEMP/s11-prerequisites/refs.txt"
+          cd "$RUNNER_TEMP/s11-prerequisites"
+          sha256sum prerequisites.bundle > SHA256SUMS
       - uses: actions/upload-artifact@v4
         with:
-          name: s11-source-snapshot
-          path: ${{ runner.temp }}/s11-source/
+          name: s11-prerequisite-sources
+          path: ${{ runner.temp }}/s11-prerequisites/
+          retention-days: 2
+          if-no-files-found: error
+      - name: Reproduce only reviewed conflict resolutions
+        run: python3 "$RUNNER_TEMP/s11-rebase.py" replay "$RUNNER_TEMP/s11-rebase-plan.json"
+      - name: Store immutable Git objects without moving any remote ref
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 "$RUNNER_TEMP/s11-rebase.py" publish
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: s11-rebase-evidence
+          path: ${{ env.S11_OUTPUT }}/
           retention-days: 2
           if-no-files-found: error
