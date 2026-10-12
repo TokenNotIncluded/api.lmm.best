@@ -40,6 +40,8 @@ pub type Result<T> = std::result::Result<T, Error>;
 #[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Usage {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upstream_cost_atto_usd: Option<u128>,
     /// Includes cached input. Cached input is priced separately, not twice.
     pub input: i64,
     pub cached: i64,
@@ -54,6 +56,11 @@ impl Usage {
             && self.input >= previous.input
             && self.cached >= previous.cached
             && self.output >= previous.output
+            && match (previous.upstream_cost_atto_usd, self.upstream_cost_atto_usd) {
+                (Some(old), Some(new)) => new >= old,
+                (Some(_), None) => false,
+                _ => true,
+            }
     }
 }
 
@@ -62,6 +69,9 @@ impl Usage {
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Price {
+    /// Set only by the trusted Rust router; no client or Go price authority.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upstream_cost_group_ppm: Option<u32>,
     pub version: String,
     pub model: String,
     pub group: String,
@@ -80,12 +90,29 @@ impl Price {
         {
             return Err(Error::Invalid);
         }
+        if let Some(ppm) = self.upstream_cost_group_ppm {
+            if !crate::upstream_cost::supported_router(&self.model)
+                || !(1..=1_000_000_000).contains(&ppm)
+                || self.input_per_million != 0
+                || self.cached_per_million != 0
+                || self.output_per_million != 0
+            {
+                return Err(Error::Invalid);
+            }
+        }
         Ok(())
     }
     pub fn cost(&self, usage: Usage) -> Result<i64> {
         self.validate()?;
         if !usage.valid() {
             return Err(Error::Invalid);
+        }
+        if let Some(ppm) = self.upstream_cost_group_ppm {
+            return crate::upstream_cost::credits(
+                usage.upstream_cost_atto_usd.ok_or(Error::Invalid)?,
+                ppm,
+            )
+            .ok_or(Error::Invalid);
         }
         let sum = [
             (usage.input - usage.cached, self.input_per_million),

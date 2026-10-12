@@ -111,6 +111,7 @@ fn request(id: &str, reserve: i64) -> Request {
         lease_seconds: 300,
         maximum_seconds: 3600,
         price: Price {
+            upstream_cost_group_ppm: None,
             version: "v1".into(),
             model: "test-model".into(),
             group: "default".into(),
@@ -169,6 +170,7 @@ fn exact_cumulative_prices_cache_and_overflow() {
     let mut price = request("math", 0).price;
     assert_eq!(
         price.cost(Usage {
+            upstream_cost_atto_usd: None,
             input: 10,
             cached: 4,
             output: 3
@@ -177,6 +179,7 @@ fn exact_cumulative_prices_cache_and_overflow() {
     );
     assert_eq!(
         price.cost(Usage {
+            upstream_cost_atto_usd: None,
             input: 1,
             cached: 2,
             output: 0
@@ -1749,4 +1752,40 @@ async fn signed_key_display_underflow_fails_closed_without_panicking(pool: PgPoo
             .unwrap_err(),
         Error::Invalid
     );
+}
+
+#[test]
+fn upstream_cost_price_requires_receipt_and_preserves_exact_group_quote() {
+    let mut price = request("upstream-cost-math", 0).price;
+    price.model = "openrouter/fusion".into();
+    price.input_per_million = 0;
+    price.cached_per_million = 0;
+    price.output_per_million = 0;
+    price.upstream_cost_group_ppm = Some(1_250_000);
+    assert_eq!(price.cost(Usage::default()), Err(Error::Invalid));
+    let receipt = Usage {
+        upstream_cost_atto_usd: crate::upstream_cost::parse_usd("0.123456789"),
+        ..Usage::default()
+    };
+    assert_eq!(price.cost(receipt), Ok(77_161));
+    assert_eq!(
+        price.cost(Usage {
+            upstream_cost_atto_usd: Some(0),
+            ..Usage::default()
+        }),
+        Ok(0)
+    );
+    assert!(!Usage::default().follows(receipt));
+    assert!(
+        !Usage {
+            upstream_cost_atto_usd: Some(1),
+            ..Usage::default()
+        }
+        .follows(receipt)
+    );
+    price.input_per_million = 1;
+    assert_eq!(price.validate(), Err(Error::Invalid));
+    price.input_per_million = 0;
+    price.model = "arbitrary-model".into();
+    assert_eq!(price.validate(), Err(Error::Invalid));
 }

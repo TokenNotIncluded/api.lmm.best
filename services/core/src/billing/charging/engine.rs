@@ -48,6 +48,10 @@ fn decode(row: PgRow) -> Result<Stored> {
             state: row.try_get("state")?,
             reserved: row.try_get("reserved")?,
             usage: Usage {
+                upstream_cost_atto_usd: row
+                    .try_get::<Option<String>, _>("upstream_cost_atto_usd")?
+                    .map(|v| v.parse::<u128>().map_err(|_| Error::Storage))
+                    .transpose()?,
                 input: row.try_get("input_tokens")?,
                 cached: row.try_get("cached_tokens")?,
                 output: row.try_get("output_tokens")?,
@@ -77,7 +81,7 @@ async fn lock(c: &mut PgConnection, id: &str) -> Result<()> {
     Ok(())
 }
 async fn load(c: &mut PgConnection, id: &str) -> Result<Stored> {
-    sqlx::query("SELECT * FROM core_charging.requests WHERE id=$1 FOR UPDATE")
+    sqlx::query("SELECT r.*, (SELECT max((e.detail #>> '{usage,upstream_cost_atto_usd}')::numeric)::text FROM core_charging.usage_events e WHERE e.request_id=r.id) AS upstream_cost_atto_usd FROM core_charging.requests r WHERE r.id=$1 FOR UPDATE")
         .bind(id)
         .fetch_optional(c)
         .await?
@@ -191,7 +195,7 @@ impl Charging {
         }
         authority::model_policy(&mut tx, secret, &request.price, peer).await?;
         if let Some(row) =
-            sqlx::query("SELECT * FROM core_charging.requests WHERE id=$1 FOR UPDATE")
+            sqlx::query("SELECT r.*, (SELECT max((e.detail #>> '{usage,upstream_cost_atto_usd}')::numeric)::text FROM core_charging.usage_events e WHERE e.request_id=r.id) AS upstream_cost_atto_usd FROM core_charging.requests r WHERE r.id=$1 FOR UPDATE")
                 .bind(&request.id)
                 .fetch_optional(&mut *tx)
                 .await?
@@ -644,7 +648,7 @@ impl Charging {
             sqlx::query(statement).execute(&mut *tx).await?;
         }
         lock(&mut tx, id).await?;
-        let result = sqlx::query("SELECT * FROM core_charging.requests WHERE id=$1")
+        let result = sqlx::query("SELECT r.*, (SELECT max((e.detail #>> '{usage,upstream_cost_atto_usd}')::numeric)::text FROM core_charging.usage_events e WHERE e.request_id=r.id) AS upstream_cost_atto_usd FROM core_charging.requests r WHERE r.id=$1")
             .bind(id)
             .fetch_optional(&mut *tx)
             .await?

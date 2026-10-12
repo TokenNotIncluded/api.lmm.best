@@ -180,6 +180,7 @@ fn routes(
     let prices = PriceSnapshot::compile(PriceConfig {
         version: 1,
         rules: vec![PriceRule {
+            billing_mode: lmm_core::routing::BillingMode::Tokens,
             id: 1,
             model: "local-model".into(),
             group: "allowed".into(),
@@ -779,6 +780,7 @@ async fn output_checkpoint_exact_replay_conflict_worker_binding_and_immutability
         id: request_id.into(),
         fingerprint: [17; 32],
         price: ChargingPrice {
+            upstream_cost_group_ppm: None,
             version: "synthetic-checkpoint-v1".into(),
             model: "local-model".into(),
             group: "allowed".into(),
@@ -813,6 +815,7 @@ async fn output_checkpoint_exact_replay_conflict_worker_binding_and_immutability
             request_id,
             &worker,
             ChargingUsage {
+                upstream_cost_atto_usd: None,
                 input: 10,
                 cached: 2,
                 output: 20,
@@ -1513,3 +1516,6 @@ async fn failed_final_transaction_never_exposes_success_or_releases_hold(pool: P
     assert_eq!(provider.hits.load(Ordering::SeqCst), 1);
     balanced(&pool).await;
 }
+
+#[path = "model_http_upstream_cost/mod.rs"]
+mod upstream_cost_models;

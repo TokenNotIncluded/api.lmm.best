@@ -36,6 +36,7 @@ fn request(id: &str, reserve: i64) -> ChargeRequest {
         lease_seconds: 300,
         maximum_seconds: 600,
         price: Price {
+            upstream_cost_group_ppm: None,
             version: "price-1".into(),
             model: "local-model".into(),
             group: "default".into(),
@@ -47,6 +48,7 @@ fn request(id: &str, reserve: i64) -> ChargeRequest {
 }
 fn usage() -> Usage {
     Usage {
+        upstream_cost_atto_usd: None,
         input: 10,
         cached: 2,
         output: 20,
@@ -1121,5 +1123,126 @@ async fn lost_commit_acknowledgements_resolve_without_double_money_or_dispatch(p
     let counts: (i64, i64) = sqlx::query_as("SELECT (SELECT count(*) FROM core_billing.ledger_journals),(SELECT count(*) FROM core_charging.ledger_commands)")
         .fetch_one(&pool).await.unwrap();
     assert_eq!(counts, (4, 3)); // One credit, reserve, capture and refund.
+    assert_balanced(&pool).await;
+}
+
+#[sqlx::test(migrations = false)]
+async fn upstream_cost_receipts_wallet_replays_zero_and_over_reservation(pool: PgPool) {
+    let (_, ledger, charging, _, key, account) = fixture(&pool, 1_000_000).await;
+    let mut spec = request("router-account-cost", 500_000);
+    spec.price.model = "openrouter/fusion".into();
+    spec.price.upstream_cost_group_ppm = Some(1_250_000);
+    spec.price.input_per_million = 0;
+    spec.price.cached_per_million = 0;
+    spec.price.output_per_million = 0;
+    charging.reserve(&key, &spec, &WORKER).await.unwrap();
+    charging.start(&spec.id, &WORKER).await.unwrap();
+    assert!(matches!(
+        charging
+            .settle(
+                &spec.id,
+                &WORKER,
+                Usage::default(),
+                ChargeOutcome::Completed
+            )
+            .await,
+        Err(Error::Invalid)
+    ));
+    assert_eq!(
+        ledger.balance(account).await.unwrap().reserved_units,
+        500_000
+    );
+    let receipt = Usage {
+        upstream_cost_atto_usd: lmm_core::upstream_cost::parse_usd("0.123456789"),
+        ..Usage::default()
+    };
+    charging
+        .checkpoint(&spec.id, &WORKER, "provider-final", receipt)
+        .await
+        .unwrap();
+    charging
+        .checkpoint(&spec.id, &WORKER, "provider-final", receipt)
+        .await
+        .unwrap();
+    let settle = || async {
+        for _ in 0..3 {
+            let result = charging
+                .settle(&spec.id, &WORKER, receipt, ChargeOutcome::Completed)
+                .await;
+            if !matches!(result, Err(Error::Retry)) {
+                return result;
+            }
+            tokio::task::yield_now().await;
+        }
+        Err(Error::Retry)
+    };
+    let (first, second) = tokio::join!(settle(), settle());
+    assert_eq!(first.unwrap().settled, 77_161);
+    assert_eq!(second.unwrap().settled, 77_161);
+    let resolved = charging.resolve(&spec.id).await.unwrap().unwrap();
+    assert_eq!(resolved.usage, receipt);
+    assert_eq!(resolved.price.upstream_cost_group_ppm, Some(1_250_000));
+    assert_eq!(
+        ledger.balance(account).await.unwrap().available_units,
+        922_839
+    );
+    assert_eq!(ledger.balance(account).await.unwrap().reserved_units, 0);
+    assert!(matches!(
+        charging
+            .settle(
+                &spec.id,
+                &WORKER,
+                Usage {
+                    upstream_cost_atto_usd: Some(1),
+                    ..receipt
+                },
+                ChargeOutcome::Completed
+            )
+            .await,
+        Err(Error::Conflict)
+    ));
+
+    spec.id = "router-zero-cost".into();
+    charging.reserve(&key, &spec, &WORKER).await.unwrap();
+    charging.start(&spec.id, &WORKER).await.unwrap();
+    let zero = Usage {
+        upstream_cost_atto_usd: Some(0),
+        ..Usage::default()
+    };
+    assert_eq!(
+        charging
+            .settle(&spec.id, &WORKER, zero, ChargeOutcome::Completed)
+            .await
+            .unwrap()
+            .settled,
+        0
+    );
+    assert_eq!(
+        ledger.balance(account).await.unwrap().available_units,
+        922_839
+    );
+
+    spec.id = "router-cost-topup".into();
+    spec.reserve = 1;
+    charging.reserve(&key, &spec, &WORKER).await.unwrap();
+    charging.start(&spec.id, &WORKER).await.unwrap();
+    assert!(matches!(
+        charging
+            .settle(&spec.id, &WORKER, receipt, ChargeOutcome::Completed)
+            .await,
+        Err(Error::NeedReservation)
+    ));
+    charging
+        .increase(&key, &spec.id, &WORKER, 77_161)
+        .await
+        .unwrap();
+    charging
+        .settle(&spec.id, &WORKER, receipt, ChargeOutcome::Completed)
+        .await
+        .unwrap();
+    assert_eq!(
+        ledger.balance(account).await.unwrap().available_units,
+        845_678
+    );
     assert_balanced(&pool).await;
 }

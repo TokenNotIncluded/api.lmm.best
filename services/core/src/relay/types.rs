@@ -380,6 +380,9 @@ pub trait Billing: Send + Sync + 'static {
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq, serde::Deserialize, Serialize)]
 pub struct Usage {
+    /// Provider account charge, parsed exactly; absent is never a free receipt.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub upstream_cost_atto_usd: Option<u128>,
     pub input_tokens: Option<u64>,
     pub output_tokens: Option<u64>,
     pub cached_input_tokens: Option<u64>,
@@ -398,6 +401,17 @@ impl Usage {
             Ok(())
         }
         let mut combined = *self;
+        if let Some(cost) = next.upstream_cost_atto_usd {
+            if combined
+                .upstream_cost_atto_usd
+                .is_some_and(|old| cost < old)
+            {
+                return Err(RelayError::Protocol("upstream cost decreased"));
+            }
+        }
+        // Cost must belong to the latest provider usage receipt. In particular,
+        // an initial zero must not make a later cost-less final usage free.
+        combined.upstream_cost_atto_usd = next.upstream_cost_atto_usd;
         field(&mut combined.input_tokens, next.input_tokens)?;
         field(&mut combined.output_tokens, next.output_tokens)?;
         field(&mut combined.cached_input_tokens, next.cached_input_tokens)?;

@@ -232,3 +232,49 @@ HTTP, database calls, tokenization, or settlement. Sampling/timing overhead is
 included, and the fixed every-100 sampling pattern is not a full latency census.
 Compare like-for-like runs; do not present these numbers as end-to-end API capacity.
 No benchmark result is claimed until an actual run has completed.
+
+## OpenRouter account-cost routers
+
+The Rust price configuration accepts `billing_mode: "upstream_cost"` for
+`nvidia/switchyard`, `openrouter/auto-beta`, `openrouter/fusion` and
+`typesafe/jev-router`. Omitted mode remains `tokens`. This is a core-owned price
+contract; it cannot be selected by client JSON or an extension RPC. For example,
+the price rule for an already authorized route/group can be:
+
+```json
+{
+  "id": 1,
+  "model": "openrouter/fusion",
+  "group": "default",
+  "speed": "standard",
+  "billing_mode": "upstream_cost",
+  "rates": {"input": 0, "output": 0, "cache_read": 0, "cache_write": 0, "request": 0},
+  "group_multiplier_ppm": 1000000,
+  "speed_multiplier_ppm": 1000000
+}
+```
+
+All fixed rates must be zero in this mode, the speed must be standard, and the
+upstream model must be the same router. A token-only caller of `PriceQuote::charge`
+gets an error, rather than treating these zero rates as a free model.
+
+The gateway freezes the rule version and group multiplier, reserves USD 1 times
+that multiplier, then settles the provider's `usage.cost` times the multiplier at
+500,000 credits/USD. `cost_details.upstream_inference_cost`, final selected-model
+rates and local tool surcharges are not added. Decimal JSON numbers are parsed
+exactly to 10^-18 USD and rounded up once at the final credit amount; invalid,
+negative, excessive or inexact values are rejected. Repeated cumulative SSE
+reports replace the prior observation, rather than being summed.
+
+Missing cost after dispatch leaves the reservation pending for reconciliation;
+explicit zero refunds the unused hold. A larger measured cost first attempts an
+authorized reservation increase against the original payer and budget. Failure
+to authorize that increase leaves settlement pending. Receipts persist in the
+existing append-only charging events and model output checkpoints, including
+replay and completed-stream recovery; no schema migration is required.
+
+These changes retain the gateway's existing loopback-only provider restriction.
+Local protocol/ledger tests do not certify live OpenRouter compatibility, enable
+external forwarding, update the old monolith settings page, or deploy anything.
+Provider receipts follow OpenRouter's
+[usage accounting contract](https://openrouter.ai/docs/cookbook/administration/usage-accounting).

@@ -25,3 +25,4 @@ pub mod payments;
 pub mod relay;
 pub mod routing;
 pub mod runtime_database;
+pub mod upstream_cost;

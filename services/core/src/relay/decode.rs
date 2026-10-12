@@ -55,6 +55,20 @@ fn usage(protocol: UpstreamProtocol, v: &Value) -> Result<Usage, RelayError> {
         return Err(RelayError::Protocol("invalid usage object"));
     }
     let mut u = Usage::default();
+    if matches!(
+        protocol,
+        UpstreamProtocol::Chat | UpstreamProtocol::Responses
+    ) {
+        if let Some(value) = v.get("cost").filter(|v| !v.is_null()) {
+            let number = value
+                .as_number()
+                .ok_or(RelayError::Protocol("invalid upstream cost"))?;
+            u.upstream_cost_atto_usd = Some(
+                crate::upstream_cost::parse_usd(&number.to_string())
+                    .ok_or(RelayError::Protocol("invalid upstream cost"))?,
+            );
+        }
+    }
     match protocol {
         UpstreamProtocol::Chat => {
             u.input_tokens = counter(v, "prompt_tokens")?;
@@ -902,5 +916,53 @@ mod tests {
             )
             .is_err()
         );
+    }
+}
+
+#[cfg(test)]
+mod upstream_cost_tests {
+    use super::*;
+    #[test]
+    fn upstream_cost_is_exact_and_distinguishes_zero_missing_and_invalid() {
+        for protocol in [UpstreamProtocol::Chat, UpstreamProtocol::Responses] {
+            let value: Value = serde_json::from_str(
+                r#"{"cost":0.000002000000000001,"cost_details":{"upstream_inference_cost":99}}"#,
+            )
+            .unwrap();
+            let actual = usage(protocol, &value).unwrap();
+            assert_eq!(actual.upstream_cost_atto_usd, Some(2_000_000_000_001));
+            assert_eq!(
+                usage(protocol, &serde_json::json!({"cost":0}))
+                    .unwrap()
+                    .upstream_cost_atto_usd,
+                Some(0)
+            );
+            assert_eq!(
+                usage(protocol, &serde_json::json!({}))
+                    .unwrap()
+                    .upstream_cost_atto_usd,
+                None
+            );
+            let mut initial = usage(protocol, &serde_json::json!({"cost":0})).unwrap();
+            initial
+                .merge(
+                    usage(
+                        protocol,
+                        &serde_json::json!({"prompt_tokens":0,"completion_tokens":0}),
+                    )
+                    .unwrap(),
+                )
+                .unwrap();
+            assert_eq!(initial.upstream_cost_atto_usd, None);
+            for invalid in [
+                r#"{"cost":-1}"#,
+                r#"{"cost":"0.1"}"#,
+                r#"{"cost":{}}"#,
+                r#"{"cost":1e-19}"#,
+            ] {
+                let value: Value = serde_json::from_str(invalid).unwrap();
+                assert!(usage(protocol, &value).is_err());
+            }
+        }
     }
 }

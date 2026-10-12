@@ -2,3 +2,6 @@
 // Keeping the bridge here avoids changing shared entry points in task 04.
 #[path = "../src/routing/mod.rs"]
 pub mod routing;
+
+#[path = "../src/upstream_cost.rs"]
+pub mod upstream_cost;

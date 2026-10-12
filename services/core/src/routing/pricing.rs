@@ -10,6 +10,19 @@ pub const MAX_MULTIPLIER: u32 = 1_000_000_000;
 const PER_MILLION: u128 = 1_000_000;
 const DENOMINATOR: u128 = PER_MILLION * MULTIPLIER_ONE as u128 * MULTIPLIER_ONE as u128;
 
+#[derive(Clone, Copy, Debug, Default, Deserialize, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum BillingMode {
+    #[default]
+    Tokens,
+    UpstreamCost,
+}
+impl BillingMode {
+    fn is_tokens(&self) -> bool {
+        *self == Self::Tokens
+    }
+}
+
 /// All token rates are integer micro-USD per 1,000,000 tokens.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -25,6 +38,8 @@ pub struct TokenRates {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct PriceRule {
+    #[serde(default, skip_serializing_if = "BillingMode::is_tokens")]
+    pub billing_mode: BillingMode,
     pub id: u64,
     pub model: String,
     pub group: String,
@@ -57,6 +72,7 @@ pub struct MicroUsd(pub u64);
 /// Immutable request-local price evidence. No floating point or database lookup.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PriceQuote {
+    billing_mode: BillingMode,
     version: u64,
     rule_id: u64,
     rates: TokenRates,
@@ -65,6 +81,9 @@ pub struct PriceQuote {
 }
 
 impl PriceQuote {
+    pub fn billing_mode(&self) -> BillingMode {
+        self.billing_mode
+    }
     pub fn version(&self) -> u64 {
         self.version
     }
@@ -84,6 +103,11 @@ impl PriceQuote {
     /// Round UP once, after summing all dimensions and both multipliers.
     /// Task 03 must apply this once to a logical request; retries are not new fees.
     pub fn charge(&self, usage: Usage) -> Result<MicroUsd, RoutingError> {
+        if self.billing_mode == BillingMode::UpstreamCost {
+            return Err(RoutingError::InvalidConfig(
+                "upstream cost cannot be inferred from token counts",
+            ));
+        }
         let mut numerator = u128::from(self.rates.request) * PER_MILLION;
         for (count, rate) in [
             (usage.input, self.rates.input),
@@ -141,7 +165,24 @@ impl PriceSnapshot {
             {
                 return Err(RoutingError::InvalidConfig("price rule"));
             }
+            if rule.billing_mode == BillingMode::UpstreamCost
+                && (!crate::upstream_cost::supported_router(&rule.model)
+                    || rule.speed != Speed::Standard
+                    || rule.speed_multiplier_ppm != MULTIPLIER_ONE
+                    || [
+                        rule.rates.input,
+                        rule.rates.output,
+                        rule.rates.cache_read,
+                        rule.rates.cache_write,
+                        rule.rates.request,
+                    ]
+                    .iter()
+                    .any(|v| *v != 0))
+            {
+                return Err(RoutingError::InvalidConfig("upstream-cost router price"));
+            }
             let quote = PriceQuote {
+                billing_mode: rule.billing_mode,
                 version: config.version,
                 rule_id: rule.id,
                 rates: rule.rates,
@@ -176,5 +217,47 @@ impl PriceSnapshot {
 
     pub(super) fn same_content(&self, other: &Self) -> bool {
         self.groups == other.groups
+    }
+}
+
+#[cfg(test)]
+mod upstream_cost_tests {
+    use super::*;
+    #[test]
+    fn upstream_cost_rules_reject_fixed_rates_unknown_models_and_speed_fees() {
+        let mut rule = PriceRule {
+            billing_mode: BillingMode::UpstreamCost,
+            id: 1,
+            model: "openrouter/fusion".into(),
+            group: "default".into(),
+            speed: Speed::Standard,
+            rates: TokenRates {
+                input: 0,
+                output: 0,
+                cache_read: 0,
+                cache_write: 0,
+                request: 0,
+            },
+            group_multiplier_ppm: 1_250_000,
+            speed_multiplier_ppm: MULTIPLIER_ONE,
+        };
+        let compile = |rule: &PriceRule| {
+            PriceSnapshot::compile(PriceConfig {
+                version: 1,
+                rules: vec![rule.clone()],
+            })
+        };
+        let prices = compile(&rule).unwrap();
+        let quote = prices.quote(&rule.model, &rule.group, rule.speed).unwrap();
+        assert_eq!(quote.billing_mode(), BillingMode::UpstreamCost);
+        assert!(quote.charge(Usage::default()).is_err());
+        rule.rates.request = 1;
+        assert!(compile(&rule).is_err());
+        rule.rates.request = 0;
+        rule.speed = Speed::Fast;
+        assert!(compile(&rule).is_err());
+        rule.speed = Speed::Standard;
+        rule.model = "arbitrary-model".into();
+        assert!(compile(&rule).is_err());
     }
 }

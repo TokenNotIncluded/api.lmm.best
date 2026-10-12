@@ -81,6 +81,10 @@ impl Billing for Bridge {
                 .max(conservative.cached_per_million);
             let reserve = conservative
                 .cost(Usage {
+                    upstream_cost_atto_usd: selected
+                        .price
+                        .upstream_cost_group_ppm
+                        .map(|_| crate::upstream_cost::ATTO_USD),
                     input: self.policy.input_token_ceiling,
                     cached: 0,
                     output: i64::from(request.max_output_tokens),
@@ -133,7 +137,7 @@ impl Billing for Bridge {
         report: &'a Report,
     ) -> RelayFuture<'a, ()> {
         Box::pin(async move {
-            let (worker, output_ceiling) = {
+            let (worker, output_ceiling, price, secret, peer) = {
                 let active = self
                     .active
                     .lock()
@@ -141,13 +145,30 @@ impl Billing for Bridge {
                 let op = active
                     .get(&reservation.id)
                     .ok_or(RelayError::BillingUnavailable)?;
-                (op.worker, op.output_token_ceiling)
+                (
+                    op.worker,
+                    op.output_token_ceiling,
+                    op.selected
+                        .as_ref()
+                        .ok_or(RelayError::RouteUnavailable)?
+                        .price
+                        .clone(),
+                    op.secret.clone(),
+                    op.peer,
+                )
             };
+            let upstream_cost = price.upstream_cost_group_ppm.is_some();
             if reservation.id != report.request_id {
                 return Err(RelayError::Conflict);
             }
             let (usage, outcome) = if !report.upstream_attempted {
-                (Usage::default(), Outcome::Cancelled)
+                (
+                    Usage {
+                        upstream_cost_atto_usd: upstream_cost.then_some(0),
+                        ..Usage::default()
+                    },
+                    Outcome::Cancelled,
+                )
             } else {
                 // Partial/local output is not an authoritative final provider
                 // usage receipt. Never substitute missing usage with zero.
@@ -155,7 +176,10 @@ impl Billing for Bridge {
                     return Err(RelayError::SettlementPending);
                 }
                 let observed = report.usage;
-                if observed.cache_creation_input_tokens.is_some_and(|v| v != 0) {
+                if !upstream_cost && observed.cache_creation_input_tokens.is_some_and(|v| v != 0) {
+                    return Err(RelayError::SettlementPending);
+                }
+                if upstream_cost && observed.upstream_cost_atto_usd.is_none() {
                     return Err(RelayError::SettlementPending);
                 }
                 let input = observed
@@ -173,6 +197,11 @@ impl Billing for Bridge {
                 }
                 (
                     Usage {
+                        upstream_cost_atto_usd: if upstream_cost {
+                            observed.upstream_cost_atto_usd
+                        } else {
+                            None
+                        },
                         input,
                         cached,
                         output,
@@ -180,6 +209,28 @@ impl Billing for Bridge {
                     Outcome::Completed,
                 )
             };
+            if upstream_cost {
+                let amount = price.cost(usage).map_err(error)?;
+                let charge = self
+                    .charging
+                    .resolve(&reservation.id)
+                    .await
+                    .map_err(error)?
+                    .ok_or(RelayError::SettlementPending)?;
+                if amount > charge.reserved {
+                    retry(|| {
+                        self.charging.increase_with_context(
+                            &secret,
+                            &reservation.id,
+                            &worker,
+                            amount,
+                            peer,
+                        )
+                    })
+                    .await
+                    .map_err(error)?;
+                }
+            }
             // Non-streaming relay exposes the body only after this durable final
             // transaction. The checkpoint records the provider observation.
             retry(|| {

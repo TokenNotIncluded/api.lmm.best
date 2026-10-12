@@ -18,7 +18,17 @@ impl Bridge {
         for (id, revision, value, sequence) in rows {
             let observed: crate::relay::Usage =
                 serde_json::from_value(value).map_err(|_| RelayError::SettlementPending)?;
-            if observed.cache_creation_input_tokens.is_some_and(|v| v != 0) {
+            let charge = self
+                .charging
+                .resolve(&id)
+                .await
+                .map_err(super::billing::error)?
+                .ok_or(RelayError::SettlementPending)?;
+            let upstream_cost = charge.price.upstream_cost_group_ppm.is_some();
+            if upstream_cost && observed.upstream_cost_atto_usd.is_none() {
+                continue;
+            }
+            if !upstream_cost && observed.cache_creation_input_tokens.is_some_and(|v| v != 0) {
                 continue;
             }
             let (Some(input), Some(output)) = (
@@ -31,6 +41,11 @@ impl Bridge {
                 continue;
             };
             let usage = crate::billing::charging::Usage {
+                upstream_cost_atto_usd: if upstream_cost {
+                    observed.upstream_cost_atto_usd
+                } else {
+                    None
+                },
                 input,
                 cached,
                 output,
@@ -57,13 +72,20 @@ impl Bridge {
         reservation: &Reservation,
         checkpoint: &OutputCheckpoint,
     ) -> Result<(), RelayError> {
-        let (worker, output_ceiling) = {
+        let (worker, output_ceiling, upstream_cost) = {
             let active = self
                 .active
                 .lock()
                 .map_err(|_| RelayError::BillingUnavailable)?;
             let operation = active.get(&reservation.id).ok_or(RelayError::Forbidden)?;
-            (operation.worker, operation.output_token_ceiling)
+            (
+                operation.worker,
+                operation.output_token_ceiling,
+                operation
+                    .selected
+                    .as_ref()
+                    .is_some_and(|s| s.price.upstream_cost_group_ppm.is_some()),
+            )
         };
         if checkpoint
             .usage
@@ -73,10 +95,11 @@ impl Bridge {
                 .usage
                 .output_tokens
                 .is_some_and(|v| v > u64::from(output_ceiling))
-            || checkpoint
-                .usage
-                .cache_creation_input_tokens
-                .is_some_and(|v| v != 0)
+            || (!upstream_cost
+                && checkpoint
+                    .usage
+                    .cache_creation_input_tokens
+                    .is_some_and(|v| v != 0))
             || matches!((checkpoint.usage.cached_input_tokens,checkpoint.usage.input_tokens),(Some(cached),Some(input)) if cached>input)
             || matches!((checkpoint.usage.reasoning_output_tokens,checkpoint.usage.output_tokens),(Some(reasoning),Some(output)) if reasoning>output)
         {

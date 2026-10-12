@@ -53,6 +53,20 @@ pub(super) fn credit_price(
     group: &str,
 ) -> Result<Price, RelayError> {
     let rates = quote.rates();
+    if quote.billing_mode() == crate::routing::BillingMode::UpstreamCost {
+        let (group_ppm, _) = quote.multipliers_ppm();
+        let price = Price {
+            upstream_cost_group_ppm: Some(group_ppm),
+            version: format!("routing-{}-rule-{}", quote.version(), quote.rule_id()),
+            model: model.to_owned(),
+            group: group.to_owned(),
+            input_per_million: 0,
+            cached_per_million: 0,
+            output_per_million: 0,
+        };
+        price.validate().map_err(super::billing::error)?;
+        return Ok(price);
+    }
     if rates.request != 0 || rates.cache_write != 0 {
         return Err(RelayError::Unsupported(
             "price dimensions require a compatible charging contract",
@@ -73,6 +87,7 @@ pub(super) fn credit_price(
         i64::try_from(numerator / DENOMINATOR).map_err(|_| RelayError::BillingUnavailable)
     };
     let price = Price {
+        upstream_cost_group_ppm: None,
         version: format!("routing-{}-rule-{}", quote.version(), quote.rule_id()),
         model: model.to_owned(),
         group: group.to_owned(),
@@ -145,6 +160,11 @@ impl RouteProvider for Bridge {
                         .ok()
                 })
                 .is_some_and(|ip| ip.is_loopback());
+            if price.upstream_cost_group_ppm.is_some() && attempt.upstream_model() != price.model {
+                return Err(RelayError::Unsupported(
+                    "upstream-cost router cannot be mapped to another model",
+                ));
+            }
             if !local {
                 return Err(RelayError::Unsupported(
                     "external providers require validated model context bounds",
@@ -215,6 +235,7 @@ mod tests {
         PriceSnapshot::compile(PriceConfig {
             version: 3,
             rules: vec![PriceRule {
+                billing_mode: crate::routing::BillingMode::Tokens,
                 id: 1,
                 model: "test".into(),
                 group: "default".into(),
