@@ -26,6 +26,8 @@
 
 [核心身份](core-identity.md) · [跨进程接口](core-protocol.md) · [业务验收范围](microkernel-business-acceptance.md)
 
+[RT16 Markdown 隔离安全复现](../scripts/security/rt16/README.md)只验证组件，不能替代商品、客服、个人资料和助手的存储读写验收。
+
 [部署研究结论与待接入项](deployment-research.md)保留已移除实验目录的有效结论与历史来源，不作为正式部署步骤。
 
 Go 模块的接口与存储规则以各自源码目录为准：[扩展宿主](../services/extensions/README.md)、[助手](../services/extensions/internal/modules/assistant/README.md)。[CLI 子项目文档](https://github.com/TokenNotIncluded/lmm#readme)与服务端部署分开。
