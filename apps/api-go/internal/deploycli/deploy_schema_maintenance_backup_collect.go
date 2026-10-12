@@ -32,20 +32,24 @@ type schemaMaintenanceBackupStreamRunner interface {
 
 func (osProductionCommandRunner) StreamSchemaMaintenanceBackup(parent context.Context, databaseURL string, environment []string, schema, recipient string, cipher io.Writer) (string, int64, error) {
 	if !isDatabaseSchema(schema) || !schemaMaintenanceBackupRecipient(recipient) || cipher == nil {
-		return "", 0, errors.New("schema backup streaming authority is invalid")
+		return "", 0, schemaMaintenanceBackupFail("STREAM_AUTHORITY")
 	}
 	child, err := schemaMaintenanceBackupDumpEnvironment(environment, schema)
 	if err != nil {
-		return "", 0, err
+		return "", 0, schemaMaintenanceBackupFail("STREAM_ENVIRONMENT")
 	}
 	for _, executable := range []string{commandPGDump, commandAge} {
+		stage := "STREAM_PG_DUMP_EXECUTABLE"
+		if executable == commandAge {
+			stage = "STREAM_AGE_EXECUTABLE"
+		}
 		info, err := os.Lstat(executable)
 		if err != nil || !info.Mode().IsRegular() || info.Mode().Perm()&0022 != 0 || info.Mode().Perm()&0100 == 0 {
-			return "", 0, errors.New("schema backup fixed native executable is unsafe")
+			return "", 0, schemaMaintenanceBackupFail(stage)
 		}
 		owner, _, ok := deploymentFileOwnership(info)
 		if !ok || owner != 0 {
-			return "", 0, errors.New("schema backup fixed native executable owner is unsafe")
+			return "", 0, schemaMaintenanceBackupFail(stage)
 		}
 	}
 	ctx, cancel := context.WithTimeout(parent, 10*time.Minute)
@@ -60,31 +64,28 @@ func (osProductionCommandRunner) StreamSchemaMaintenanceBackup(parent context.Co
 // Only ciphertext reaches destination. Errors omit subprocess diagnostics and
 // arguments because either can contain connection credentials.
 func runSchemaMaintenanceBackupPipe(ctx context.Context, dump, age *exec.Cmd, cipher io.Writer) (string, int64, error) {
-	fail := func() (string, int64, error) {
-		return "", 0, errors.New("schema backup encrypted stream failed; reconcile the fixed export before retrying")
-	}
 	stream, err := dump.StdoutPipe()
 	if err != nil {
-		return fail()
+		return "", 0, schemaMaintenanceBackupFail("PIPE_DUMP_STDOUT")
 	}
 	defer stream.Close()
 	plain := newSchemaMaintenanceBackupHashWriter(io.Discard)
 	sink, err := age.StdinPipe()
 	if err != nil {
-		return fail()
+		return "", 0, schemaMaintenanceBackupFail("PIPE_AGE_STDIN")
 	}
 	age.Stdout = cipher
 	dump.Stderr, age.Stderr = io.Discard, io.Discard
 	dump.WaitDelay, age.WaitDelay = time.Second, time.Second
-	if age.Start() != nil {
+	if err := age.Start(); err != nil {
 		_ = sink.Close()
-		return fail()
+		return "", 0, schemaMaintenanceBackupStreamFailure("PIPE_AGE_START", nil, err, nil, ctx.Err())
 	}
-	if dump.Start() != nil {
+	if err := dump.Start(); err != nil {
 		_ = sink.Close()
 		_ = age.Process.Kill()
-		_ = age.Wait()
-		return fail()
+		ageErr := age.Wait()
+		return "", 0, schemaMaintenanceBackupStreamFailure("PIPE_DUMP_START", err, ageErr, nil, ctx.Err())
 	}
 	ageDone := make(chan error, 1)
 	go func() {
@@ -106,8 +107,11 @@ func runSchemaMaintenanceBackupPipe(ctx context.Context, dump, age *exec.Cmd, ci
 	}
 	ageErr := <-ageDone
 	dumpErr := dump.Wait()
-	if ageErr != nil || dumpErr != nil || copyErr != nil || ctx.Err() != nil || plain.bytes <= 0 || string(plain.prefix) != "PGDMP" {
-		return fail()
+	if ageErr != nil || dumpErr != nil || copyErr != nil || ctx.Err() != nil {
+		return "", 0, schemaMaintenanceBackupStreamFailure("PIPE_WAIT", dumpErr, ageErr, copyErr, ctx.Err())
+	}
+	if plain.bytes <= 0 || string(plain.prefix) != "PGDMP" {
+		return "", 0, schemaMaintenanceBackupStreamFailure("PIPE_ARCHIVE_HEADER", nil, nil, nil, nil)
 	}
 	return hex.EncodeToString(plain.hash.Sum(nil)), plain.bytes, nil
 }
@@ -162,39 +166,39 @@ func schemaMaintenanceBackupRecipient(value string) bool {
 // three-descriptor lease. No second adoption or PG owner claim is performed.
 func (c *productionSchemaMaintenanceController) collectBackup(ctx context.Context) (productionSchemaMaintenanceBackupSet, error) {
 	var result productionSchemaMaintenanceBackupSet
-	fail := func() (productionSchemaMaintenanceBackupSet, error) {
-		return productionSchemaMaintenanceBackupSet{}, errors.New("schema backup collection failed; reconcile the fixed native export before retrying")
+	fail := func(stage string) (productionSchemaMaintenanceBackupSet, error) {
+		return productionSchemaMaintenanceBackupSet{}, schemaMaintenanceBackupFail(stage)
 	}
 	if c == nil || c.runtime == nil || c.host == nil || c.origin.Host != c.plan.PrimaryHost || c.fence != nil || c.finishUncertain || c.finished {
-		return fail()
+		return fail("AUTHORITY")
 	}
 	streamer, ok := c.runtime.runner.(schemaMaintenanceBackupStreamRunner)
 	if !ok || c.host.check(ctx) != nil || c.checkPlan(ctx) != nil {
-		return fail()
+		return fail("RUNNER_LEASE_PLAN")
 	}
 	stopped, err := c.stoppedOrigins(ctx)
 	if err != nil {
-		return fail()
+		return fail("STOPPED_ORIGINS")
 	}
 	stops, err := schemaMaintenanceBackupStopBindings(c.plan, c.planSHA, stopped)
 	if err != nil {
-		return fail()
+		return fail("STOP_BINDINGS")
 	}
 	state := filepath.Join(c.origin.Workspace, "state")
 	if controllerBackupDirectory(state, 0) != nil {
-		return fail()
+		return fail("STATE_DIRECTORY")
 	}
 	recipientRaw, err := c.runtime.readExistingSchemaSealedFile(filepath.Join(state, schemaMaintenanceBackupRecipientName), true)
 	recipient := strings.TrimSuffix(string(recipientRaw), "\n")
 	if err != nil || controllerBackupDigest(recipientRaw) != c.plan.BackupPolicy.RecipientSHA256 || string(recipientRaw) != recipient+"\n" || !schemaMaintenanceBackupRecipient(recipient) {
-		return fail()
+		return fail("RECIPIENT")
 	}
 	// This fixed O_EXCL ciphertext is also the one-shot dispatch intent. Failure
 	// and acknowledgment loss preserve it for explicit reconciliation.
 	target := filepath.Join(state, schemaMaintenanceBackupCipherName)
 	file, err := os.OpenFile(target, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
 	if err != nil {
-		return fail()
+		return fail("CIPHER_RESERVE")
 	}
 	closed := false
 	defer func() {
@@ -205,60 +209,75 @@ func (c *productionSchemaMaintenanceController) collectBackup(ctx context.Contex
 	// Persist the native one-shot reservation before any source connection or
 	// pg_dump dispatch. A crash must leave the fixed export present too.
 	if file.Sync() != nil || schemaMaintenanceBackupSyncDirectory(state) != nil {
-		return fail()
+		return fail("CIPHER_RESERVE_SYNC")
 	}
 	before, err := c.captureBackupSource(ctx)
 	if err != nil {
-		return fail()
+		return fail("SOURCE_BEFORE")
 	}
 	old, err := c.runtime.loadMerchantStoreCapsule(c.origin.OldCapsule.Path, c.origin.OldCapsule.SHA256)
 	if err != nil {
-		return fail()
+		return fail("OLD_CAPSULE")
 	}
 	child, err := c.runtime.merchantStoreCapsuleEnvironment(ctx, old, c.origin.OldCapsule.SHA256, "")
 	if err != nil {
-		return fail()
+		return fail("CAPSULE_ENVIRONMENT")
 	}
 	values := map[string]string{}
 	for _, entry := range child {
 		key, value, valid := strings.Cut(entry, "=")
 		if !valid {
-			return fail()
+			return fail("ENVIRONMENT_ENTRY")
 		}
 		if _, exists := values[key]; exists {
-			return fail()
+			return fail("ENVIRONMENT_DUPLICATE")
 		}
 		values[key] = value
 	}
 	databaseURL, environment, err := productionSealedDatabaseCommand(values)
 	if err != nil {
-		return fail()
+		return fail("DATABASE_COMMAND")
 	}
 	environment, err = schemaMaintenanceBackupDumpEnvironment(environment, c.plan.PreSchema.Schema)
 	if err != nil {
-		return fail()
+		return fail("DUMP_ENVIRONMENT")
 	}
 	ciphertext := newSchemaMaintenanceBackupHashWriter(file)
 	plainSHA, plainBytes, err := streamer.StreamSchemaMaintenanceBackup(ctx, databaseURL, environment, c.plan.PreSchema.Schema, recipient, ciphertext)
 	if err != nil {
-		return fail()
+		return productionSchemaMaintenanceBackupSet{}, schemaMaintenanceBackupSafeFailure(err, "STREAM_EXECUTE")
 	}
 	syncErr, closeErr := file.Sync(), file.Close()
 	closed = true
 	if syncErr != nil || closeErr != nil {
-		return fail()
+		return fail("CIPHER_SYNC_CLOSE")
 	}
 	archive := controllerBackupArchive{CiphertextSHA256: hex.EncodeToString(ciphertext.hash.Sum(nil)), PlaintextSHA256: plainSHA, CiphertextBytes: ciphertext.bytes, PlaintextBytes: plainBytes}
-	if validateSchemaMaintenanceBackupArchive(archive) != nil || controllerBackupVerifyFile(target, 0, archive.CiphertextBytes, archive.CiphertextSHA256) != nil {
-		return fail()
+	if validateSchemaMaintenanceBackupArchive(archive) != nil {
+		return fail("ARCHIVE_DECLARATION")
+	}
+	if controllerBackupVerifyFile(target, 0, archive.CiphertextBytes, archive.CiphertextSHA256) != nil {
+		return fail("CIPHER_VERIFY")
 	}
 	after, err := c.captureBackupSource(ctx)
-	if err != nil || !reflect.DeepEqual(before, after) {
-		return fail()
+	if err != nil {
+		return fail("SOURCE_AFTER")
+	}
+	if !reflect.DeepEqual(before, after) {
+		return fail("SOURCE_COMPARE")
 	}
 	again, err := c.stoppedOrigins(ctx)
-	if err != nil || !reflect.DeepEqual(stopped, again) || c.host.check(ctx) != nil || c.checkPlan(ctx) != nil {
-		return fail()
+	if err != nil {
+		return fail("STOPPED_ORIGINS_AFTER")
+	}
+	if !reflect.DeepEqual(stopped, again) {
+		return fail("STOPPED_ORIGINS_COMPARE")
+	}
+	if c.host.check(ctx) != nil {
+		return fail("HOST_AFTER")
+	}
+	if c.checkPlan(ctx) != nil {
+		return fail("PLAN_AFTER")
 	}
 	now := time.Now()
 	if c.runtime.now != nil {
@@ -266,16 +285,22 @@ func (c *productionSchemaMaintenanceController) collectBackup(ctx context.Contex
 	}
 	result = productionSchemaMaintenanceBackupSet{Format: schemaMaintenanceBackupSetFormat, TransitionID: c.plan.TransitionID, PrePlanSHA256: c.planSHA, PreSchema: c.plan.PreSchema, CapturedUTC: utcSecond(now), RecipientSHA256: c.plan.BackupPolicy.RecipientSHA256, StoppedOrigins: stops, SourceBefore: before, SourceAfter: after, Archive: archive}
 	if validateSchemaMaintenanceBackupSet(result, c.plan, c.planSHA, stops, now) != nil {
-		return fail()
+		return fail("SET_VALIDATE")
 	}
 	for _, capture := range stopped {
 		if result.CapturedUTC.Before(capture.StopStartedUTC) {
-			return fail()
+			return fail("SET_CHRONOLOGY")
 		}
 	}
 	raw, err := json.MarshalIndent(result, "", "  ")
-	if err != nil || len(raw)+1 > schemaMaintenanceBackupSetMaxBytes || c.runtime.writeSchemaMaintenanceRawNewFile(filepath.Join(state, schemaMaintenanceBackupCollectionName), append(raw, '\n')) != nil {
-		return fail()
+	if err != nil {
+		return fail("SET_SERIALIZE")
+	}
+	if len(raw)+1 > schemaMaintenanceBackupSetMaxBytes {
+		return fail("SET_SIZE")
+	}
+	if c.runtime.writeSchemaMaintenanceRawNewFile(filepath.Join(state, schemaMaintenanceBackupCollectionName), append(raw, '\n')) != nil {
+		return fail("SET_WRITE")
 	}
 	return result, nil
 }
@@ -325,7 +350,7 @@ func (runtime *productionReleaseRuntime) collectSchemaMaintenanceBackup(ctx cont
 	}
 	output, err := runtime.runner.Run(ctx, productionCommand{Name: commandSSH, Args: append(append([]string(nil), strict...), primary.Alias, strings.Join(words, " ")), Timeout: 15*time.Minute + 10*time.Second, OutputLimit: schemaMaintenanceBackupSetMaxBytes + 4096})
 	if err != nil {
-		return fail()
+		return productionSchemaMaintenanceBackupSet{}, schemaMaintenanceBackupTransportFailure(err)
 	}
 	var reply schemaMaintenanceRPCReply
 	if schemaMaintenanceRPCDecode(bytes.TrimSuffix(output, []byte{'\n'}), &reply) != nil || !reply.OK || reply.Protocol != schemaMaintenanceRPCProtocol || reply.Action != "backup-export" || validateSchemaMaintenanceRPCBinding(reply.Binding) != nil || reply.Binding.TransitionID != plan.TransitionID || reply.Binding.PlanSHA256 != preSHA || reply.Binding.DaemonExeSHA256 != plan.Worker.Provider.DeployEngineSHA256 || !productionSHA256Pattern.MatchString(reply.Nonce) || decodeControllerBackupJSON(reply.Result, &result) != nil {
