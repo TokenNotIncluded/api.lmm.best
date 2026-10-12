@@ -1,0 +1,249 @@
+{
+  "contract": "a04/projection-v1",
+  "status": "synthetic fixtures; Rust execution blocked",
+  "main_sha": "53bf14fca577c61e75de2b3e1f1edf93e4e2fd18",
+  "log_cases": [
+    {
+      "name": "known",
+      "quota": 500000,
+      "log_type": 2,
+      "other": "{\"pricing_credits_per_usd\":500000}",
+      "expected": {
+        "quota_usd": "1",
+        "quota_money_available": true,
+        "quota_money_basis": "captured_credits_per_usd"
+      }
+    },
+    {
+      "name": "round_up_once",
+      "quota": 2,
+      "log_type": 2,
+      "other": "{\"pricing_credits_per_usd\":3}",
+      "expected": {
+        "quota_usd": "0.666666666666666667",
+        "quota_money_available": true,
+        "quota_money_basis": "captured_credits_per_usd"
+      }
+    },
+    {
+      "name": "smallest_usd_basis",
+      "quota": 1,
+      "log_type": 2,
+      "other": "{\"pricing_credits_per_usd\":9007199254740991}",
+      "expected": {
+        "quota_usd": "0.000000000000000111",
+        "quota_money_available": true,
+        "quota_money_basis": "captured_credits_per_usd"
+      }
+    },
+    {
+      "name": "exact_exponent",
+      "quota": 5,
+      "log_type": 2,
+      "other": "{\"pricing_credits_per_usd\":5e5}",
+      "expected": {
+        "quota_usd": "0.00001",
+        "quota_money_available": true,
+        "quota_money_basis": "captured_credits_per_usd"
+      }
+    },
+    {
+      "name": "known_zero",
+      "quota": 0,
+      "log_type": 2,
+      "other": "{\"pricing_credits_per_usd\":500000}",
+      "expected": {
+        "quota_usd": "0",
+        "quota_money_available": true,
+        "quota_money_basis": "captured_credits_per_usd"
+      }
+    },
+    {
+      "name": "missing_basis",
+      "quota": 500000,
+      "log_type": 2,
+      "other": "{}",
+      "expected": {
+        "quota_money_available": false,
+        "quota_money_basis": "missing_credit_basis"
+      }
+    },
+    {
+      "name": "zero_without_basis",
+      "quota": 0,
+      "log_type": 2,
+      "other": "{}",
+      "expected": {
+        "quota_money_available": false,
+        "quota_money_basis": "missing_credit_basis"
+      }
+    },
+    {
+      "name": "negative_consumption",
+      "quota": -1,
+      "log_type": 2,
+      "other": "{\"pricing_credits_per_usd\":1}",
+      "expected": {
+        "quota_money_available": false,
+        "quota_money_basis": "missing_credit_basis"
+      }
+    },
+    {
+      "name": "null_quota",
+      "quota": null,
+      "log_type": 2,
+      "other": "{\"pricing_credits_per_usd\":1}",
+      "expected": {
+        "quota_money_available": false,
+        "quota_money_basis": "invalid_stored_quota"
+      }
+    },
+    {
+      "name": "refund",
+      "quota": -50,
+      "log_type": 6,
+      "other": "{\"pricing_credits_per_usd\":1}",
+      "expected": {
+        "quota_money_available": false,
+        "quota_money_basis": "not_consumption"
+      }
+    },
+    {
+      "name": "metadata_not_json",
+      "quota": 1,
+      "log_type": 2,
+      "other": "not json",
+      "expected": {
+        "quota_money_available": false,
+        "quota_money_basis": "missing_credit_basis"
+      }
+    },
+    {
+      "name": "string_basis",
+      "quota": 1,
+      "log_type": 2,
+      "other": "{\"pricing_credits_per_usd\":\"1\"}",
+      "expected": {
+        "quota_money_available": false,
+        "quota_money_basis": "missing_credit_basis"
+      }
+    },
+    {
+      "name": "fraction_near_safe_max",
+      "quota": 1,
+      "log_type": 2,
+      "other": "{\"pricing_credits_per_usd\":9007199254740991.1}",
+      "expected": {
+        "quota_money_available": false,
+        "quota_money_basis": "missing_credit_basis"
+      }
+    },
+    {
+      "name": "out_of_range",
+      "quota": 1,
+      "log_type": 2,
+      "other": "{\"pricing_credits_per_usd\":9007199254740992}",
+      "expected": {
+        "quota_money_available": false,
+        "quota_money_basis": "missing_credit_basis"
+      }
+    },
+    {
+      "name": "duplicate_basis",
+      "quota": 1,
+      "log_type": 2,
+      "other": "{\"pricing_credits_per_usd\":1,\"pricing_credits_per_usd\":2}",
+      "expected": {
+        "quota_money_available": false,
+        "quota_money_basis": "missing_credit_basis"
+      }
+    }
+  ],
+  "statistic_cases": [
+    {
+      "name": "empty_result",
+      "rows": [],
+      "source_truncated": false,
+      "expected": {
+        "quota_usd": "0",
+        "quota_money_available": true,
+        "quota_money_basis": "empty_result",
+        "unpriced_quota_records": 0,
+        "quota_projection_truncated": false
+      }
+    },
+    {
+      "name": "different_bases",
+      "rows": [
+        {
+          "quota": 1,
+          "log_type": 2,
+          "other": "{\"pricing_credits_per_usd\":3}"
+        },
+        {
+          "quota": 1,
+          "log_type": 2,
+          "other": "{\"pricing_credits_per_usd\":6}"
+        }
+      ],
+      "source_truncated": false,
+      "expected": {
+        "quota_usd": "0.5",
+        "quota_money_available": true,
+        "quota_money_basis": "captured_credits_per_usd",
+        "unpriced_quota_records": 0,
+        "quota_projection_truncated": false
+      }
+    },
+    {
+      "name": "known_unknown_mixed",
+      "rows": [
+        {
+          "quota": 1,
+          "log_type": 2,
+          "other": "{\"pricing_credits_per_usd\":1}"
+        },
+        {
+          "quota": 1,
+          "log_type": 2,
+          "other": "{}"
+        }
+      ],
+      "source_truncated": false,
+      "expected": {
+        "quota_money_available": false,
+        "quota_money_basis": "aggregate_missing_credit_basis",
+        "unpriced_quota_records": 1,
+        "quota_projection_truncated": false
+      }
+    },
+    {
+      "name": "truncated_empty_prefix",
+      "rows": [],
+      "source_truncated": true,
+      "expected": {
+        "quota_money_available": false,
+        "quota_money_basis": "projection_limit",
+        "unpriced_quota_records": 0,
+        "quota_projection_truncated": true
+      }
+    },
+    {
+      "name": "truncated_unknown_prefix",
+      "rows": [
+        {
+          "quota": 1,
+          "log_type": 2,
+          "other": "{}"
+        }
+      ],
+      "source_truncated": true,
+      "expected": {
+        "quota_money_available": false,
+        "quota_money_basis": "projection_limit",
+        "unpriced_quota_records": 1,
+        "quota_projection_truncated": true
+      }
+    }
+  ]
+}
