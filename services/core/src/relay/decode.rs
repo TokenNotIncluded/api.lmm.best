@@ -31,6 +31,11 @@ fn index(v: &Value) -> Result<u64, RelayError> {
         .ok_or(RelayError::Protocol("invalid upstream index"))
 }
 fn counter(v: &Value, key: &str) -> Result<Option<u64>, RelayError> {
+    // A missing details object is unknown. A present scalar or array is an
+    // invalid receipt, not evidence that its billable counters are absent.
+    if !v.is_null() && !v.is_object() {
+        return Err(RelayError::Protocol("invalid usage details object"));
+    }
     v.get(key)
         .filter(|v| !v.is_null())
         .map(|v| {
@@ -90,6 +95,25 @@ fn usage(protocol: UpstreamProtocol, v: &Value) -> Result<Usage, RelayError> {
             )?;
         }
     }
+    if matches!(protocol, UpstreamProtocol::Chat | UpstreamProtocol::Responses) {
+        // Preserve the extension emitted by Usage::wire. Discarding it here
+        // would bypass the charging adapter's unsupported-cache-write guard.
+        u.cache_creation_input_tokens = counter(v, "cache_creation_input_tokens")?;
+        if let Some(total) = counter(v, "total_tokens")? {
+            let known = u
+                .input_tokens
+                .unwrap_or(0)
+                .checked_add(u.output_tokens.unwrap_or(0))
+                .ok_or(RelayError::Protocol("usage overflow"))?;
+            if known > total
+                || (u.input_tokens.is_some() && u.output_tokens.is_some() && known != total)
+            {
+                return Err(RelayError::Protocol("inconsistent usage total"));
+            }
+            // A reported total cannot fill in a missing input/output counter.
+        }
+    }
+    u.validate()?;
     Ok(u)
 }
 fn finish_reason(
@@ -775,6 +799,9 @@ impl Decoder {
         Ok(())
     }
     fn response_finish(&mut self, v: &Value, out: &mut Vec<Event>) -> Result<(), RelayError> {
+        // Reject a changed or malformed final ID before accepting its usage.
+        let id = v.get("id").filter(|id| !id.is_null()).map(text).transpose()?;
+        self.start(id, out)?;
         out.push(Event::Usage(usage(self.protocol, &v["usage"])?));
         let reason = match v["status"].as_str() {
             Some("completed") => {
@@ -902,5 +929,298 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    fn openai_receipt(protocol: UpstreamProtocol) -> Value {
+        match protocol {
+            UpstreamProtocol::Chat => serde_json::json!({
+                "prompt_tokens": 10,
+                "completion_tokens": 4,
+                "total_tokens": 14,
+                "prompt_tokens_details": {"cached_tokens": 3},
+                "completion_tokens_details": {"reasoning_tokens": 1},
+                "cache_creation_input_tokens": 2
+            }),
+            UpstreamProtocol::Responses => serde_json::json!({
+                "input_tokens": 10,
+                "output_tokens": 4,
+                "total_tokens": 14,
+                "input_tokens_details": {"cached_tokens": 3},
+                "output_tokens_details": {"reasoning_tokens": 1},
+                "cache_creation_input_tokens": 2
+            }),
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn a07_usage_wire_round_trip_preserves_cache_creation() {
+        let expected = Usage {
+            input_tokens: Some(10),
+            output_tokens: Some(4),
+            cached_input_tokens: Some(3),
+            cache_creation_input_tokens: Some(2),
+            reasoning_output_tokens: Some(1),
+        };
+        for (protocol, client) in [
+            (UpstreamProtocol::Chat, crate::relay::ClientProtocol::Chat),
+            (UpstreamProtocol::Responses, crate::relay::ClientProtocol::Responses),
+        ] {
+            assert_eq!(usage(protocol, &expected.wire(client)), Ok(expected));
+            assert_eq!(usage(protocol, &openai_receipt(protocol)), Ok(expected));
+        }
+    }
+
+    #[test]
+    fn a07_present_non_object_details_are_not_missing_usage() {
+        for (protocol, fields) in [
+            (UpstreamProtocol::Chat, ["prompt_tokens_details", "completion_tokens_details"]),
+            (UpstreamProtocol::Responses, ["input_tokens_details", "output_tokens_details"]),
+        ] {
+            for field in fields {
+                for invalid in [
+                    serde_json::json!(0),
+                    serde_json::json!(1.5),
+                    serde_json::json!(false),
+                    serde_json::json!("invalid"),
+                    serde_json::json!([]),
+                ] {
+                    let mut receipt = openai_receipt(protocol);
+                    receipt[field] = invalid;
+                    assert!(matches!(usage(protocol, &receipt), Err(RelayError::Protocol(_))));
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a07_absent_null_and_empty_details_keep_counters_unknown() {
+        for (protocol, fields) in [
+            (UpstreamProtocol::Chat, ["prompt_tokens_details", "completion_tokens_details"]),
+            (UpstreamProtocol::Responses, ["input_tokens_details", "output_tokens_details"]),
+        ] {
+            for value in [Value::Null, serde_json::json!({})] {
+                let mut receipt = openai_receipt(protocol);
+                for field in fields {
+                    receipt[field] = value.clone();
+                }
+                let observed = usage(protocol, &receipt).unwrap();
+                assert_eq!(observed.cached_input_tokens, None);
+                assert_eq!(observed.reasoning_output_tokens, None);
+                assert_eq!(observed.cache_creation_input_tokens, Some(2));
+            }
+            assert_eq!(usage(protocol, &serde_json::json!({})), Ok(Usage::default()));
+        }
+    }
+
+    #[test]
+    fn a07_cache_write_and_total_counters_must_be_unsigned_integers() {
+        for protocol in [UpstreamProtocol::Chat, UpstreamProtocol::Responses] {
+            for field in ["cache_creation_input_tokens", "total_tokens"] {
+                for invalid in [
+                    serde_json::json!(-1),
+                    serde_json::json!(1.5),
+                    serde_json::json!(true),
+                    serde_json::json!("2"),
+                    serde_json::json!([]),
+                    serde_json::json!({}),
+                ] {
+                    let mut receipt = openai_receipt(protocol);
+                    receipt[field] = invalid;
+                    assert!(usage(protocol, &receipt).is_err());
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a07_reported_total_must_match_known_input_and_output() {
+        for protocol in [UpstreamProtocol::Chat, UpstreamProtocol::Responses] {
+            for total in [0, 13, 15, u64::MAX] {
+                let mut receipt = openai_receipt(protocol);
+                receipt["total_tokens"] = serde_json::json!(total);
+                assert!(usage(protocol, &receipt).is_err());
+            }
+            assert!(usage(protocol, &openai_receipt(protocol)).is_ok());
+        }
+    }
+
+    #[test]
+    fn a07_total_does_not_create_missing_input_or_output() {
+        for (protocol, input, output) in [
+            (UpstreamProtocol::Chat, "prompt_tokens", "completion_tokens"),
+            (UpstreamProtocol::Responses, "input_tokens", "output_tokens"),
+        ] {
+            let only_total = serde_json::json!({"total_tokens": 14});
+            assert_eq!(usage(protocol, &only_total), Ok(Usage::default()));
+            for known_field in [input, output] {
+                let mut receipt = only_total.clone();
+                receipt[known_field] = serde_json::json!(10);
+                let observed = usage(protocol, &receipt).unwrap();
+                assert_eq!(observed.input_tokens, (known_field == input).then_some(10));
+                assert_eq!(observed.output_tokens, (known_field == output).then_some(10));
+                receipt["total_tokens"] = serde_json::json!(9);
+                assert!(usage(protocol, &receipt).is_err());
+            }
+        }
+    }
+
+    #[test]
+    fn a07_cache_and_reasoning_subsets_are_checked_during_decode() {
+        for (protocol, reasoning_details) in [
+            (UpstreamProtocol::Chat, "completion_tokens_details"),
+            (UpstreamProtocol::Responses, "output_tokens_details"),
+        ] {
+            let mut receipt = openai_receipt(protocol);
+            receipt["cache_creation_input_tokens"] = serde_json::json!(8);
+            assert!(usage(protocol, &receipt).is_err());
+            let mut receipt = openai_receipt(protocol);
+            receipt[reasoning_details]["reasoning_tokens"] = serde_json::json!(5);
+            assert!(usage(protocol, &receipt).is_err());
+        }
+        assert!(usage(UpstreamProtocol::Gemini, &serde_json::json!({
+            "promptTokenCount": 3, "cachedContentTokenCount": 4
+        })).is_err());
+    }
+
+    #[test]
+    fn a07_total_overflow_is_rejected_before_emitting_usage() {
+        for (protocol, receipt) in [
+            (UpstreamProtocol::Chat, serde_json::json!({
+                "prompt_tokens": u64::MAX, "completion_tokens": 1
+            })),
+            (UpstreamProtocol::Responses, serde_json::json!({
+                "input_tokens": u64::MAX, "output_tokens": 1
+            })),
+            (UpstreamProtocol::Anthropic, serde_json::json!({
+                "input_tokens": u64::MAX, "output_tokens": 1
+            })),
+            (UpstreamProtocol::Gemini, serde_json::json!({
+                "promptTokenCount": u64::MAX, "candidatesTokenCount": 1
+            })),
+        ] {
+            assert!(usage(protocol, &receipt).is_err());
+        }
+    }
+
+    #[test]
+    fn a07_explicit_zero_cache_creation_is_not_lost() {
+        for protocol in [UpstreamProtocol::Chat, UpstreamProtocol::Responses] {
+            let mut receipt = openai_receipt(protocol);
+            receipt["cache_creation_input_tokens"] = serde_json::json!(0);
+            assert_eq!(usage(protocol, &receipt).unwrap().cache_creation_input_tokens, Some(0));
+            receipt["cache_creation_input_tokens"] = Value::Null;
+            assert_eq!(usage(protocol, &receipt).unwrap().cache_creation_input_tokens, None);
+            receipt.as_object_mut().unwrap().remove("cache_creation_input_tokens");
+            assert_eq!(usage(protocol, &receipt).unwrap().cache_creation_input_tokens, None);
+        }
+    }
+
+    fn completion(protocol: UpstreamProtocol, receipt: Value) -> Value {
+        match protocol {
+            UpstreamProtocol::Chat => serde_json::json!({
+                "id": "synthetic-response",
+                "choices": [{"index": 0, "message": {"content": "ok"}, "finish_reason": "stop"}],
+                "usage": receipt
+            }),
+            UpstreamProtocol::Responses => serde_json::json!({
+                "id": "synthetic-response", "status": "completed", "output": [], "usage": receipt
+            }),
+            _ => unreachable!(),
+        }
+    }
+
+    #[test]
+    fn a07_non_streaming_decoder_preserves_billable_evidence() {
+        for protocol in [UpstreamProtocol::Chat, UpstreamProtocol::Responses] {
+            let mut decoder = Decoder::new(protocol, &Limits::default());
+            let events = decoder.json(&completion(protocol, openai_receipt(protocol))).unwrap();
+            assert!(events.iter().any(|event| matches!(
+                event, Event::Usage(Usage { cache_creation_input_tokens: Some(2), .. })
+            )));
+            assert!(decoder.is_done());
+            let mut decoder = Decoder::new(protocol, &Limits::default());
+            let mut bad = openai_receipt(protocol);
+            bad["cache_creation_input_tokens"] = serde_json::json!("invalid");
+            assert!(decoder.json(&completion(protocol, bad)).is_err());
+            assert!(!decoder.is_done());
+        }
+    }
+
+    #[test]
+    fn a07_malformed_stream_receipt_cannot_complete_the_decoder() {
+        for protocol in [UpstreamProtocol::Chat, UpstreamProtocol::Responses] {
+            let mut decoder = Decoder::new(protocol, &Limits::default());
+            let mut bad = openai_receipt(protocol);
+            bad["cache_creation_input_tokens"] = serde_json::json!("invalid");
+            let terminal = match protocol {
+                UpstreamProtocol::Chat => serde_json::json!({"choices": [], "usage": bad}),
+                UpstreamProtocol::Responses => serde_json::json!({
+                    "type": "response.completed", "response": completion(protocol, bad)
+                }),
+                _ => unreachable!(),
+            };
+            assert!(decoder.frame(Frame { event: None, data: terminal.to_string() }).is_err());
+            assert!(!decoder.is_done());
+            assert_eq!(decoder.eof().unwrap_err(), RelayError::Truncated);
+        }
+    }
+
+    #[test]
+    fn a07_responses_final_receipt_cannot_change_response_identity() {
+        for wrong_id in [
+            serde_json::json!("different-response"),
+            serde_json::json!(""),
+            serde_json::json!("invalid\nidentity"),
+            serde_json::json!(7),
+            serde_json::json!(false),
+            serde_json::json!([]),
+            serde_json::json!({}),
+        ] {
+            let mut decoder = Decoder::new(UpstreamProtocol::Responses, &Limits::default());
+            decoder.frame(Frame {
+                event: Some("response.created".into()),
+                data: serde_json::json!({
+                    "type": "response.created", "response": {"id": "synthetic-response"}
+                }).to_string(),
+            }).unwrap();
+            let mut response = completion(
+                UpstreamProtocol::Responses, openai_receipt(UpstreamProtocol::Responses),
+            );
+            response["id"] = wrong_id;
+            let result = decoder.frame(Frame {
+                event: Some("response.completed".into()),
+                data: serde_json::json!({
+                    "type": "response.completed", "response": response
+                }).to_string(),
+            });
+            assert!(matches!(result, Err(RelayError::Protocol(_))));
+            assert!(!decoder.is_done());
+        }
+    }
+
+    #[test]
+    fn a07_matching_responses_terminal_retains_cache_write_evidence() {
+        let mut decoder = Decoder::new(UpstreamProtocol::Responses, &Limits::default());
+        decoder.frame(Frame {
+            event: Some("response.created".into()),
+            data: serde_json::json!({
+                "type": "response.created", "response": {"id": "synthetic-response"}
+            }).to_string(),
+        }).unwrap();
+        let events = decoder.frame(Frame {
+            event: Some("response.completed".into()),
+            data: serde_json::json!({
+                "type": "response.completed", "response": completion(
+                    UpstreamProtocol::Responses, openai_receipt(UpstreamProtocol::Responses)
+                )
+            }).to_string(),
+        }).unwrap();
+        assert!(events.iter().any(|event| matches!(
+            event, Event::Usage(Usage { cache_creation_input_tokens: Some(2), .. })
+        )));
+        assert!(events.iter().any(|event| matches!(event, Event::Done)));
+        assert!(!events.iter().any(|event| matches!(event, Event::Start(_))));
+        assert!(decoder.is_done());
     }
 }
