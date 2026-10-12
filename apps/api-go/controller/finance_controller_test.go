@@ -3,6 +3,7 @@ package controller
 import (
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -11,7 +12,9 @@ import (
 
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
+	"github.com/LIghtJUNction/api.lmm.best/setting/operation_setting"
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 	"github.com/stretchr/testify/require"
 )
 
@@ -25,17 +28,17 @@ func TestFinanceOverviewAggregatesPaymentMethodsUsersAndTokenCost(t *testing.T) 
 		{UserId: users[0].Id, TradeNo: "finance-topup-a", Amount: 100, Money: 10, SettledAmountMicros: 10_000_000, SettlementCurrency: "USD", Status: common.TopUpStatusSuccess, PaymentMethod: "stripe", PaymentProvider: "stripe", CompleteTime: now - 10},
 		{UserId: users[1].Id, TradeNo: "finance-topup-b", Amount: 250, Money: 25, SettledAmountMicros: 25_000_000, SettlementCurrency: "USD", Status: common.TopUpStatusSuccess, PaymentMethod: "creem", PaymentProvider: "creem", CompleteTime: now - 20},
 	}).Error)
-	require.NoError(t, db.Create(&model.Log{UserId: users[0].Id, CreatedAt: now - 5, Type: model.LogTypeConsume, PromptTokens: 1000, CompletionTokens: 500, ModelName: "priced", Other: `{"model_price":0.02}`}).Error)
+	require.NoError(t, db.Create(&model.Log{UserId: users[0].Id, CreatedAt: now - 5, Type: model.LogTypeConsume, Quota: 10_000, PromptTokens: 1000, CompletionTokens: 500, ModelName: "priced", Other: `{"model_price":0.02,"pricing_schema_version":2,"pricing_currency_basis":"USD"}`}).Error)
 	_, err := model.AppendFinanceLedgerEntry(&model.FinanceLedgerEntry{EntryType: model.FinanceEntryExpense, Category: "hosting", AmountMicros: 3_000_000, Currency: "USD", Direction: model.FinanceDirectionDebit, SourceType: model.FinanceSourceManual, Note: "monthly host", OccurredAt: now - 30, CreatedBy: users[0].Id, IdempotencyKey: "hosting-1"})
 	require.NoError(t, err)
 
 	view, err := buildFinanceOverview(now-100, now+1, 0, "")
 	require.NoError(t, err)
 	require.Equal(t, int64(35_000_000), view.RevenueMicros)
-	require.Equal(t, int64(3_000_000+30), view.ExpenseMicros)
-	require.Equal(t, int64(31_999_970), view.ProfitMicros)
+	require.Equal(t, int64(3_020_000), view.ExpenseMicros)
+	require.Equal(t, int64(31_980_000), view.ProfitMicros)
 	require.Equal(t, int64(1500), view.Tokens.TotalTokens)
-	require.Equal(t, int64(30), view.Tokens.EstimatedCostMicros)
+	require.Equal(t, int64(20_000), view.Tokens.EstimatedCostMicros)
 	require.Len(t, view.RevenueByMethod, 2)
 	require.Len(t, view.Users, 2)
 	byUsername := make(map[string]financeUserMetric, len(view.Users))
@@ -60,11 +63,11 @@ func TestFinanceOverviewCountsChargedFixedPriceUsageWithoutTokens(t *testing.T) 
 	// consume log records both the charged quota and the fixed model price.
 	require.NoError(t, db.Create(&model.Log{
 		UserId: user.Id, CreatedAt: now - 5, Type: model.LogTypeConsume,
-		Quota: 50_000, ModelName: "mj_imagine", Other: `{"model_price":0.1}`,
+		Quota: 50_000, ModelName: "mj_imagine", Other: `{"model_price":0.1,"pricing_schema_version":2,"pricing_currency_basis":"legacy_pricing_unit","pricing_unit_credits_per_unit":500000,"pricing_credits_per_usd":500000}`,
 	}).Error)
 	require.NoError(t, db.Create(&model.Log{
 		UserId: user.Id, CreatedAt: now - 4, Type: model.LogTypeConsume,
-		Quota: 0, ModelName: "mj_imagine", Other: `{"model_price":0.1}`,
+		Quota: 0, ModelName: "mj_imagine", Other: `{"model_price":0.1,"pricing_schema_version":2,"pricing_currency_basis":"legacy_pricing_unit","pricing_unit_credits_per_unit":500000,"pricing_credits_per_usd":500000}`,
 	}).Error)
 
 	view, err := buildFinanceOverview(now-100, now+1, 0, "")
@@ -74,6 +77,145 @@ func TestFinanceOverviewCountsChargedFixedPriceUsageWithoutTokens(t *testing.T) 
 	require.Equal(t, int64(100_000), view.Tokens.EstimatedCostMicros)
 	require.Equal(t, int64(100_000), view.ExpenseMicros)
 	require.Equal(t, int64(100_000), view.Users[0].TokenCostMicros)
+}
+
+func TestFinanceUsageCostMicrosUsesOnlyFrozenFixedPrices(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		other  string
+		quota  int
+		cost   int64
+		priced bool
+	}{
+		{"USD fixed", `{"model_price":0.02,"pricing_schema_version":2,"pricing_currency_basis":"USD"}`, 10_000, 20_000, true},
+		{"legacy current denomination", `{"model_price":0.1,"pricing_schema_version":2,"pricing_currency_basis":"legacy_pricing_unit","pricing_unit_credits_per_unit":500000,"pricing_credits_per_usd":500000}`, 50_000, 100_000, true},
+		{"legacy frozen denomination", `{"model_price":0.1,"pricing_schema_version":2,"pricing_currency_basis":"legacy_pricing_unit","pricing_unit_credits_per_unit":500000,"pricing_credits_per_usd":3500000}`, 50_000, 14_286, true},
+		{"legacy fractional denomination", `{"model_price":1,"pricing_schema_version":2,"pricing_currency_basis":"legacy_pricing_unit","pricing_unit_credits_per_unit":500000,"pricing_credits_per_usd":3355181.5}`, 500_000, 149_023, true},
+		{"fixed session", `{"model_price":0.02,"billing_mode":"fixed","price_unit":"session","pricing_schema_version":2,"pricing_currency_basis":"USD"}`, 10_000, 20_000, true},
+		{"zero quota", `{"model_price":0.02,"pricing_schema_version":2,"pricing_currency_basis":"USD"}`, 0, 0, true},
+		{"negative quota", `{"model_price":0.02,"pricing_schema_version":2,"pricing_currency_basis":"USD"}`, -10_000, 0, true},
+		{"half micro", `{"model_price":0.0000005,"pricing_schema_version":2,"pricing_currency_basis":"USD"}`, 1, 1, true},
+		{"legacy half micro", `{"model_price":0.000001,"pricing_schema_version":2,"pricing_currency_basis":"legacy_pricing_unit","pricing_unit_credits_per_unit":1,"pricing_credits_per_usd":2}`, 1, 1, true},
+		{"sub micro", `{"model_price":0.0000004,"pricing_schema_version":2,"pricing_currency_basis":"USD"}`, 1, 0, true},
+		{"unknown historical price", `{"model_price":0.02}`, 10_000, 0, false},
+		{"plain USD label", `{"model_price":0.02,"pricing_currency":"USD"}`, 10_000, 0, false},
+		{"missing schema", `{"model_price":0.02,"pricing_currency_basis":"USD"}`, 10_000, 0, false},
+		{"unknown schema", `{"model_price":0.02,"pricing_schema_version":3,"pricing_currency_basis":"USD"}`, 10_000, 0, false},
+		{"unknown basis", `{"model_price":0.02,"pricing_schema_version":2,"pricing_currency_basis":"CNY"}`, 10_000, 0, false},
+		{"missing legacy Q", `{"model_price":0.1,"pricing_schema_version":2,"pricing_currency_basis":"legacy_pricing_unit","pricing_credits_per_usd":500000}`, 50_000, 0, false},
+		{"missing legacy K", `{"model_price":0.1,"pricing_schema_version":2,"pricing_currency_basis":"legacy_pricing_unit","pricing_unit_credits_per_unit":500000}`, 50_000, 0, false},
+		{"zero legacy Q", `{"model_price":0.1,"pricing_schema_version":2,"pricing_currency_basis":"legacy_pricing_unit","pricing_unit_credits_per_unit":0,"pricing_credits_per_usd":500000}`, 50_000, 0, false},
+		{"negative legacy K", `{"model_price":0.1,"pricing_schema_version":2,"pricing_currency_basis":"legacy_pricing_unit","pricing_unit_credits_per_unit":500000,"pricing_credits_per_usd":-500000}`, 50_000, 0, false},
+		{"string legacy Q", `{"model_price":0.1,"pricing_schema_version":2,"pricing_currency_basis":"legacy_pricing_unit","pricing_unit_credits_per_unit":"500000","pricing_credits_per_usd":500000}`, 50_000, 0, false},
+		{"tiered residual price", `{"model_price":0.02,"billing_mode":"tiered_expr","pricing_schema_version":2,"pricing_currency_basis":"USD"}`, 10_000, 0, false},
+		{"ratio residual price", `{"model_price":0.02,"billing_mode":"ratio","pricing_schema_version":2,"pricing_currency_basis":"USD"}`, 10_000, 0, false},
+		{"numeric mode", `{"model_price":0.02,"billing_mode":123,"pricing_schema_version":2,"pricing_currency_basis":"USD"}`, 10_000, 0, false},
+		{"boolean mode", `{"model_price":0.02,"billing_mode":true,"pricing_schema_version":2,"pricing_currency_basis":"USD"}`, 10_000, 0, false},
+		{"object mode", `{"model_price":0.02,"billing_mode":{},"pricing_schema_version":2,"pricing_currency_basis":"USD"}`, 10_000, 0, false},
+		{"null mode", `{"model_price":0.02,"billing_mode":null,"pricing_schema_version":2,"pricing_currency_basis":"USD"}`, 10_000, 0, false},
+		{"ratio pricing", `{"model_price":-1,"model_ratio":0.5,"completion_ratio":2,"pricing_schema_version":2,"pricing_currency_basis":"legacy_pricing_unit","pricing_unit_credits_per_unit":500000,"pricing_credits_per_usd":500000}`, 10_000, 0, false},
+		{"missing price", `{"model_ratio":0.5}`, 10_000, 0, false},
+		{"free price", `{"model_price":0,"pricing_schema_version":2,"pricing_currency_basis":"USD"}`, 0, 0, false},
+		{"USD overflow", `{"model_price":1e100,"pricing_schema_version":2,"pricing_currency_basis":"USD"}`, 1, 0, false},
+		{"legacy overflow", `{"model_price":1e300,"pricing_schema_version":2,"pricing_currency_basis":"legacy_pricing_unit","pricing_unit_credits_per_unit":1e300,"pricing_credits_per_usd":1e-300}`, 1, 0, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			other, err := common.StrToMap(tc.other)
+			require.NoError(t, err)
+			for _, tokens := range []int{0, 1500} {
+				cost, priced := financeUsageCostMicros(model.Log{Quota: tc.quota, PromptTokens: tokens}, other)
+				require.Equal(t, tc.cost, cost, "tokens=%d", tokens)
+				require.Equal(t, tc.priced, priced, "tokens=%d", tokens)
+			}
+		})
+	}
+}
+
+func TestFinanceUsageCostMicrosRejectsNonFinitePriceBasis(t *testing.T) {
+	for _, field := range []string{"model_price", "pricing_unit_credits_per_unit", "pricing_credits_per_usd"} {
+		for _, value := range []float64{math.NaN(), math.Inf(1), math.Inf(-1)} {
+			t.Run(fmt.Sprintf("%s/%v", field, value), func(t *testing.T) {
+				other, err := common.StrToMap(`{"model_price":0.1,"pricing_schema_version":2,"pricing_currency_basis":"legacy_pricing_unit","pricing_unit_credits_per_unit":500000,"pricing_credits_per_usd":500000}`)
+				require.NoError(t, err)
+				other[field] = value
+				cost, priced := financeUsageCostMicros(model.Log{Quota: 50_000}, other)
+				require.Zero(t, cost)
+				require.False(t, priced)
+			})
+		}
+	}
+}
+
+func TestFinanceUsageCostMicrosIgnoresCurrentCurrencyBasis(t *testing.T) {
+	previousAnchor, anchorErr := common.CreditsPerUSD()
+	previousPublic, publicErr := common.PublicCreditsPerUSD()
+	t.Cleanup(func() {
+		if publicErr != nil || (anchorErr == nil && previousPublic.Equal(previousAnchor)) {
+			common.ClearPublicCreditsPerUSD()
+		} else {
+			require.NoError(t, common.SetPublicCreditsPerUSD(previousPublic))
+		}
+	})
+	installIdentityCurrencyFixture(t)
+	previousUnit, previousFX := common.QuotaPerUnit, operation_setting.USDExchangeRate
+	t.Cleanup(func() {
+		common.QuotaPerUnit, operation_setting.USDExchangeRate = previousUnit, previousFX
+	})
+	other, err := common.StrToMap(`{"model_price":0.1,"pricing_schema_version":2,"pricing_currency_basis":"legacy_pricing_unit","pricing_unit_credits_per_unit":500000,"pricing_credits_per_usd":3500000}`)
+	require.NoError(t, err)
+	for _, current := range []struct {
+		unit   int64
+		anchor int64
+		fx     float64
+	}{
+		{500_000, 500_000, 7},
+		{100_000, 3_000_000, 20},
+	} {
+		common.QuotaPerUnit, operation_setting.USDExchangeRate = float64(current.unit), current.fx
+		require.NoError(t, common.SetCreditCurrencyBasis(decimal.NewFromInt(current.anchor), decimal.NewFromInt(current.unit)))
+		cost, priced := financeUsageCostMicros(model.Log{Quota: 50_000}, other)
+		require.Equal(t, int64(14_286), cost)
+		require.True(t, priced)
+	}
+	common.ClearCreditsPerUSD()
+	cost, priced := financeUsageCostMicros(model.Log{Quota: 50_000}, other)
+	require.Equal(t, int64(14_286), cost, "frozen history must not require an initialized current anchor")
+	require.True(t, priced)
+}
+
+func TestFinanceOverviewFrozenCostPreservesUnknownHistory(t *testing.T) {
+	db := setupTokenControllerTestDB(t)
+	require.NoError(t, db.AutoMigrate(&model.User{}, &model.TopUp{}, &model.SubscriptionOrder{}, &model.Log{}, &model.FinanceLedgerEntry{}, &model.FinancePaymentMethod{}))
+	now := time.Now().Unix()
+	user := model.User{Username: "finance-history", Password: "password", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Group: "default", AffCode: "finance-history", Quota: 123_456}
+	require.NoError(t, db.Create(&user).Error)
+	logs := []model.Log{
+		{UserId: user.Id, CreatedAt: now - 5, Type: model.LogTypeConsume, Quota: 50_000, PromptTokens: 1000, CompletionTokens: 500, Other: `{"model_price":0.1,"pricing_schema_version":2,"pricing_currency_basis":"legacy_pricing_unit","pricing_unit_credits_per_unit":500000,"pricing_credits_per_usd":3500000}`},
+		{UserId: user.Id, CreatedAt: now - 4, Type: model.LogTypeConsume, Quota: 10_000, PromptTokens: 20, Other: `{"model_price":0.02}`},
+		{UserId: user.Id, CreatedAt: now - 3, Type: model.LogTypeConsume, Quota: 1000, PromptTokens: 100, Other: `{"model_price":-1,"model_ratio":0.5,"completion_ratio":2}`},
+		{UserId: user.Id, CreatedAt: now - 2, Type: model.LogTypeConsume, Quota: 1000, PromptTokens: 10, Other: `{"model_price":0.02,"billing_mode":"tiered_expr","pricing_schema_version":2,"pricing_currency_basis":"USD"}`},
+	}
+	require.NoError(t, db.Create(&logs).Error)
+
+	view, err := buildFinanceOverview(now-100, now+1, 0, "")
+	require.NoError(t, err)
+	require.Equal(t, int64(4), view.Tokens.Requests)
+	require.Equal(t, int64(3), view.Tokens.UnpricedRequests)
+	require.Equal(t, int64(1630), view.Tokens.TotalTokens)
+	require.Equal(t, int64(14_286), view.Tokens.EstimatedCostMicros)
+	require.Equal(t, int64(14_286), view.ExpenseMicros)
+	require.Equal(t, int64(14_286), view.Users[0].TokenCostMicros)
+	var dailyCost int64
+	for _, daily := range view.Daily {
+		dailyCost += daily.ExpenseMicros
+	}
+	require.Equal(t, int64(14_286), dailyCost)
+	var after []model.Log
+	require.NoError(t, db.Order("id").Find(&after).Error)
+	require.Equal(t, logs, after, "finance projection must not rewrite historical quota or price metadata")
+	var afterUser model.User
+	require.NoError(t, db.First(&afterUser, user.Id).Error)
+	require.Equal(t, user.Quota, afterUser.Quota, "finance projection must not change wallet credits")
 }
 
 func TestFinanceOverviewDoesNotAttributeUsageCostToPaymentMethod(t *testing.T) {
@@ -152,8 +294,8 @@ func TestFinanceOverviewExcludesInternalCreditsAndSubtractsRefunds(t *testing.T)
 	})
 	require.NoError(t, err)
 	require.NoError(t, db.Create(&[]model.Log{
-		{UserId: user.Id, CreatedAt: now - 5, Type: model.LogTypeConsume, PromptTokens: 100, CompletionTokens: 100, Other: `{"model_price":0.01,"billing_source":"wallet"}`},
-		{UserId: user.Id, CreatedAt: now - 4, Type: model.LogTypeConsume, PromptTokens: 900, CompletionTokens: 900, Other: `{"model_price":0.01,"billing_source":"linuxdo"}`},
+		{UserId: user.Id, CreatedAt: now - 5, Type: model.LogTypeConsume, Quota: 5000, PromptTokens: 100, CompletionTokens: 100, Other: `{"model_price":0.01,"pricing_schema_version":2,"pricing_currency_basis":"USD","billing_source":"wallet"}`},
+		{UserId: user.Id, CreatedAt: now - 4, Type: model.LogTypeConsume, Quota: 5000, PromptTokens: 900, CompletionTokens: 900, Other: `{"model_price":0.01,"pricing_schema_version":2,"pricing_currency_basis":"USD","billing_source":"linuxdo"}`},
 	}).Error)
 
 	view, err := buildFinanceOverview(now-100, now+1, 0, "")
@@ -161,8 +303,8 @@ func TestFinanceOverviewExcludesInternalCreditsAndSubtractsRefunds(t *testing.T)
 	require.Equal(t, int64(10_000_000), view.RevenueMicros)
 	require.Equal(t, int64(2_000_000), view.RefundMicros)
 	require.Equal(t, int64(8_000_000), view.NetRevenueMicros)
-	require.Equal(t, int64(2), view.ExpenseMicros)
-	require.Equal(t, int64(7_999_998), view.ProfitMicros)
+	require.Equal(t, int64(10_000), view.ExpenseMicros)
+	require.Equal(t, int64(7_990_000), view.ProfitMicros)
 	require.Equal(t, int64(200), view.Tokens.TotalTokens)
 	for _, method := range view.RevenueByMethod {
 		require.NotEqual(t, "epay", method.Method)

@@ -13,6 +13,7 @@ import (
 	"github.com/LIghtJUNction/api.lmm.best/common"
 	"github.com/LIghtJUNction/api.lmm.best/model"
 	"github.com/gin-gonic/gin"
+	"github.com/shopspring/decimal"
 	"gorm.io/gorm"
 )
 
@@ -474,11 +475,49 @@ func financeNormalizePaymentSource(methodValue, providerValue string) (string, s
 	return method, provider
 }
 
-func financeMicrosFromFloat(value float64) int64 {
-	if value <= 0 || math.IsNaN(value) || math.IsInf(value, 0) {
-		return 0
+// financeUsageCostMicros estimates only a recorded fixed price. model_price is
+// a per-request price, including when the provider also reports token usage.
+// Legacy prices need their frozen credit scales; today's anchor or FX rate
+// cannot establish the USD value of an otherwise unlabelled historical price.
+func financeUsageCostMicros(log model.Log, other map[string]interface{}) (int64, bool) {
+	if rawMode, exists := other["billing_mode"]; exists {
+		mode, valid := rawMode.(string)
+		if !valid || (mode != "" && mode != "fixed") {
+			return 0, false
+		}
 	}
-	return int64(math.Round(value * 1_000_000))
+	price, ok := other["model_price"].(float64)
+	if !ok || price <= 0 || math.IsNaN(price) || math.IsInf(price, 0) {
+		return 0, false
+	}
+	version, _ := other["pricing_schema_version"].(float64)
+	if version != 2 {
+		return 0, false
+	}
+	micros := decimal.NewFromFloat(price).Mul(decimal.NewFromInt(1_000_000))
+	switch other["pricing_currency_basis"] {
+	case "USD":
+		micros = micros.Round(0)
+	case "legacy_pricing_unit":
+		unit, unitOK := other["pricing_unit_credits_per_unit"].(float64)
+		anchor, anchorOK := other["pricing_credits_per_usd"].(float64)
+		if !unitOK || !anchorOK || unit <= 0 || anchor <= 0 ||
+			math.IsNaN(unit) || math.IsInf(unit, 0) || math.IsNaN(anchor) || math.IsInf(anchor, 0) {
+			return 0, false
+		}
+		micros = micros.Mul(decimal.NewFromFloat(unit)).DivRound(decimal.NewFromFloat(anchor), 0)
+	default:
+		return 0, false
+	}
+	if micros.GreaterThan(decimal.NewFromInt(math.MaxInt64)) {
+		return 0, false
+	}
+	// Missing/failed or free usage must not create an expense merely because a
+	// configured fixed price was present in its metadata.
+	if log.Quota <= 0 {
+		return 0, true
+	}
+	return micros.IntPart(), true
 }
 
 func financeUsageIsCountable(other map[string]interface{}) bool {
@@ -868,20 +907,7 @@ func buildFinanceOverview(start, end int64, userFilter int, methodFilter string)
 		if !financeUsageIsCountable(other) {
 			return nil
 		}
-		price, priced := 0.0, false
-		if raw, ok := other["model_price"].(float64); ok && raw > 0 {
-			price, priced = raw, true
-		}
-		totalTokens := max(0, log.PromptTokens+log.CompletionTokens)
-		cost := int64(math.Round(price * float64(totalTokens)))
-		// Fixed-price requests (for example image/MJ/task calls) legitimately
-		// have no token usage. Their consume log still carries the charged quota;
-		// use the recorded per-call model price only for those durable charges.
-		// A zero-quota log is left at zero so missing/failed usage cannot inflate
-		// the platform cost estimate.
-		if priced && totalTokens == 0 && log.Quota > 0 {
-			cost = financeMicrosFromFloat(price)
-		}
+		cost, priced := financeUsageCostMicros(log, other)
 		a.addUsage(log.UserId, log.CreatedAt, log.PromptTokens, log.CompletionTokens, cost, priced)
 		return nil
 	}); err != nil {
