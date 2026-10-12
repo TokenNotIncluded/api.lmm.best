@@ -32,6 +32,7 @@ import { Label } from '@/components/ui/label'
 import { Markdown } from '@/components/ui/markdown'
 import { api } from '@/lib/api'
 import { formatTimestampToDate } from '@/lib/format'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { latestRemoteState, remoteConversation } from './commands'
 import { RemoteComposer, RemoteQuestionCard } from './controls'
@@ -45,6 +46,7 @@ import {
   normalizePiMessageEnvelopes,
   normalizePiSessionEnvelopes,
 } from './protocol'
+import { isRemoteStateFresh, useRemoteClock } from './session-safety'
 import type {
   PiMessagesResponse,
   PiRemoteSession,
@@ -148,11 +150,13 @@ function SessionDetail({
   session,
   sessionKey,
   unlockRevision,
+  ownerScope,
   onLock,
 }: {
   session: PiRemoteSession
   sessionKey: CryptoKey
   unlockRevision: number
+  ownerScope: string
   onLock: () => void
 }) {
   const { t } = useTranslation()
@@ -162,6 +166,7 @@ function SessionDetail({
       const queryKey = [
         'remote-control',
         'pi',
+        ownerScope,
         'messages',
         session.id,
         unlockRevision,
@@ -169,10 +174,17 @@ function SessionDetail({
       void queryClient.cancelQueries({ queryKey, exact: true })
       queryClient.removeQueries({ queryKey, exact: true })
     },
-    [queryClient, session.id, unlockRevision]
+    [queryClient, ownerScope, session.id, unlockRevision]
   )
   const messagesQuery = useQuery({
-    queryKey: ['remote-control', 'pi', 'messages', session.id, unlockRevision],
+    queryKey: [
+      'remote-control',
+      'pi',
+      ownerScope,
+      'messages',
+      session.id,
+      unlockRevision,
+    ],
     queryFn: async ({ signal }) => {
       const response = await api.get<PiMessagesResponse>(
         `/api/remote-control/v1/pi/sessions/${encodeURIComponent(session.id)}/messages?after=0`,
@@ -204,10 +216,23 @@ function SessionDetail({
     ...(messagesQuery.data?.messages ?? []),
   ]
   const state = latestRemoteState(messages)
-  const { send, pending } = useRemoteCommands(session.id, sessionKey, messages)
-  const stateTime = typeof state?.created_at === 'number' ? state.created_at : 0
+  const { send: deliver, pending } = useRemoteCommands(
+    session.id,
+    sessionKey,
+    messages
+  )
+  async function send(input: Parameters<typeof deliver>[0]) {
+    if (
+      !isRemoteStateFresh(state?.created_at, Date.now()) ||
+      messagesQuery.isError
+    ) {
+      throw new Error('Waiting for Pi connection')
+    }
+    return deliver(input)
+  }
+  const now = useRemoteClock()
   const stale =
-    !stateTime || Date.now() - stateTime > 45_000 || messagesQuery.isError
+    !isRemoteStateFresh(state?.created_at, now) || messagesQuery.isError
   const questions = state?.requests ?? []
   const canControl = session.capabilities?.includes('prompt') === true
 
@@ -329,7 +354,13 @@ function SessionDetail({
   )
 }
 
-function SessionWorkspace({ envelope }: { envelope: PiRemoteSessionEnvelope }) {
+function SessionWorkspace({
+  envelope,
+  ownerScope,
+}: {
+  envelope: PiRemoteSessionEnvelope
+  ownerScope: string
+}) {
   const { t } = useTranslation()
   const [pin, setPin] = useState('')
   const [unlocking, setUnlocking] = useState(false)
@@ -363,6 +394,7 @@ function SessionWorkspace({ envelope }: { envelope: PiRemoteSessionEnvelope }) {
         session={unlocked.session}
         sessionKey={unlocked.key}
         unlockRevision={unlocked.revision}
+        ownerScope={ownerScope}
         onLock={() => setUnlocked(null)}
       />
     )
@@ -422,9 +454,37 @@ function SessionWorkspace({ envelope }: { envelope: PiRemoteSessionEnvelope }) {
 
 export function RemoteControl() {
   const { t } = useTranslation()
+  const userId = useAuthStore((state) => state.auth.user?.id)
+  const loginSession = useAuthStore((state) => state.auth.session?.sid)
+  if (!Number.isSafeInteger(userId) || !userId || userId <= 0) {
+    return (
+      <SectionPageLayout>
+        <SectionPageLayout.Title>{t('Remote control')}</SectionPageLayout.Title>
+        <SectionPageLayout.Content>
+          <p>{t('Sign in to continue')}</p>
+        </SectionPageLayout.Content>
+      </SectionPageLayout>
+    )
+  }
+  const ownerScope = `${userId}:${loginSession ?? 'browser'}`
+  return <OwnedRemoteControl key={ownerScope} ownerScope={ownerScope} />
+}
+
+function OwnedRemoteControl({ ownerScope }: { ownerScope: string }) {
+  const { t } = useTranslation()
+  const queryClient = useQueryClient()
+  const now = useRemoteClock()
+  useEffect(
+    () => () => {
+      const queryKey = ['remote-control', 'pi', ownerScope]
+      void queryClient.cancelQueries({ queryKey })
+      queryClient.removeQueries({ queryKey })
+    },
+    [ownerScope, queryClient]
+  )
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const sessionsQuery = useQuery({
-    queryKey: ['remote-control', 'pi', 'sessions'],
+    queryKey: ['remote-control', 'pi', ownerScope, 'sessions'],
     queryFn: async () => {
       const response = await api.get<PiSessionsResponse>(
         '/api/remote-control/v1/pi/sessions',
@@ -436,8 +496,11 @@ export function RemoteControl() {
       return normalizePiSessionEnvelopes(response.data.data)
     },
     refetchInterval: 15_000,
+    gcTime: 0,
   })
-  const sessions = sessionsQuery.data ?? []
+  const sessions = (sessionsQuery.data ?? []).filter(
+    (session) => session.expiresAt * 1000 > now
+  )
   const selected =
     sessions.find((session) => session.sessionId === selectedId) ?? sessions[0]
 
@@ -532,8 +595,9 @@ export function RemoteControl() {
               </div>
               {selected ? (
                 <SessionWorkspace
-                  key={selected.sessionId}
+                  key={`${selected.sessionId}:${selected.deviceId}:${selected.generation ?? ''}`}
                   envelope={selected}
+                  ownerScope={ownerScope}
                 />
               ) : null}
             </div>

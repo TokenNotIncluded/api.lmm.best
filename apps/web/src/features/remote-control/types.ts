@@ -43,6 +43,7 @@ export type PiRemoteCiphertext = {
 export type PiRemoteSessionEnvelope = {
   sessionId: string
   deviceId: string
+  generation?: string
   metadata: PiRemoteCiphertext
   expiresAt: number
   updatedAt: number

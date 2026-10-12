@@ -102,6 +102,7 @@ export function normalizePiSessionEnvelopes(
       ? envelope.sessions
       : []
 
+  if (raw.length > 32) throw new Error('Invalid Pi session list')
   return raw.flatMap((item): PiRemoteSessionEnvelope[] => {
     const source = record(item)
     if (!source) return []
@@ -110,7 +111,19 @@ export function normalizePiSessionEnvelopes(
     const metadata = ciphertext(source.metadata)
     const expiresAt = finiteNumber(source.expires_at)
     const updatedAt = finiteNumber(source.updated_at)
-    if (!sessionId || !deviceId || !metadata || !expiresAt || !updatedAt) {
+    if (
+      !sessionId ||
+      !/^[A-Za-z0-9_-]{8,64}$/.test(sessionId) ||
+      !deviceId ||
+      !/^[A-Za-z0-9_-]{8,64}$/.test(deviceId) ||
+      !metadata ||
+      !expiresAt ||
+      !Number.isSafeInteger(expiresAt) ||
+      expiresAt < 0 ||
+      !updatedAt ||
+      !Number.isSafeInteger(updatedAt) ||
+      updatedAt < 0
+    ) {
       return []
     }
 
@@ -118,6 +131,7 @@ export function normalizePiSessionEnvelopes(
       {
         sessionId,
         deviceId,
+        generation: text(source.generation),
         metadata,
         expiresAt,
         updatedAt,
@@ -136,6 +150,7 @@ export function normalizePiMessageEnvelopes(
       ? envelope.messages
       : []
 
+  if (raw.length > 128) throw new Error('Invalid Pi message list')
   return raw.flatMap((item): PiRemoteMessageEnvelope[] => {
     const source = record(item)
     if (!source) return []
@@ -149,7 +164,9 @@ export function normalizePiMessageEnvelopes(
       sequence < 1 ||
       (sender !== 'plugin' && sender !== 'controller') ||
       !encrypted ||
-      createdAt === undefined
+      createdAt === undefined ||
+      !Number.isSafeInteger(createdAt) ||
+      createdAt < 0
     ) {
       return []
     }

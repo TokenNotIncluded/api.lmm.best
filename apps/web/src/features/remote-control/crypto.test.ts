@@ -115,6 +115,94 @@ test('decrypts v1 metadata and message envelopes with the shared PIN', async () 
   assert.equal(message.id, 'session_123456-1')
 })
 
+test('rejects oversized and noncanonical ciphertext before decryption', async () => {
+  const sessionId = 'session_123456'
+  const deviceId = 'device_123456'
+  const key = await encryptionKey('fixture-pin', sessionId)
+  const decryptKey = await derivePiRemoteKey('fixture-pin', sessionId)
+  const metadata = await encrypt(
+    key,
+    { version: 1, summary: 'x'.repeat(17 * 1024) },
+    `lmm-pi-remote:v1:metadata:${sessionId}:${deviceId}`,
+    3
+  )
+  await assert.rejects(
+    decryptPiSessionMetadata(
+      {
+        sessionId,
+        deviceId,
+        metadata,
+        updatedAt: 1_800_000_000,
+        expiresAt: 1_900_000_000,
+      },
+      decryptKey
+    ),
+    /Invalid base64url payload/
+  )
+  const ciphertext = await encrypt(
+    key,
+    { type: 'assistant', content: 'x'.repeat(65 * 1024) },
+    `lmm-pi-remote:v1:message:${sessionId}:plugin`,
+    4
+  )
+  await assert.rejects(
+    decryptPiRemoteMessage(
+      sessionId,
+      { sequence: 1, sender: 'plugin', createdAt: Date.now(), ...ciphertext },
+      decryptKey
+    ),
+    /Invalid base64url payload/
+  )
+  const short = await encrypt(
+    key,
+    { type: 'assistant', content: 'noncanonical' },
+    `lmm-pi-remote:v1:message:${sessionId}:plugin`,
+    5
+  )
+  assert.notEqual(short.ciphertext.length % 4, 0)
+  const alphabet =
+    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_'
+  const last = short.ciphertext.at(-1)
+  assert.ok(last)
+  const alias =
+    short.ciphertext.slice(0, -1) + alphabet[alphabet.indexOf(last) + 1]
+  assert.deepEqual(
+    Buffer.from(alias, 'base64url'),
+    Buffer.from(short.ciphertext, 'base64url')
+  )
+  await assert.rejects(
+    decryptPiRemoteMessage(
+      sessionId,
+      {
+        sequence: 1,
+        sender: 'plugin',
+        createdAt: Date.now(),
+        ...short,
+        ciphertext: alias,
+      },
+      decryptKey
+    ),
+    /Invalid base64url payload/
+  )
+})
+
+test('outer relay timestamps cannot renew a signed state without a heartbeat', async () => {
+  const sessionId = 'session_123456'
+  const key = await encryptionKey('fixture-pin', sessionId)
+  const ciphertext = await encrypt(
+    key,
+    { type: 'state', busy: false },
+    `lmm-pi-remote:v1:message:${sessionId}:plugin`,
+    6
+  )
+  const message = await decryptPiRemoteMessage(
+    sessionId,
+    { sequence: 1, sender: 'plugin', createdAt: Date.now(), ...ciphertext },
+    await derivePiRemoteKey('fixture-pin', sessionId)
+  )
+  assert.equal(message.created_at, undefined)
+})
+
 test('rejects the wrong PIN and tampered routing metadata', async () => {
   const sessionId = 'session_123456'
   const deviceId = 'device_123456'

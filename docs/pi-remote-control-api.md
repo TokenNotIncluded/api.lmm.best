@@ -1,9 +1,16 @@
 # Pi Remote Control API v1
 
-`/api/remote-control/v1/pi` is an authenticated, ephemeral relay for a Pi
-plugin and its browser controller. It stores data only in the current API
-process memory. Restarting the API or reaching the two-minute heartbeat TTL
-removes a session and its messages.
+This is the v1 contract implemented by the historical site and reused by the
+WIP browser and Pi plugin. **The current WIP hosts do not yet implement these
+relay endpoints or the `lmm-pi` OAuth authorization-server contract.** Client
+and loopback-fixture checks do not establish that a WIP deployment can serve
+remote control. Do not promote the WIP site as a replacement for this feature
+until those authenticated server contracts and their acceptance checks exist.
+
+On the historical site, `/api/remote-control/v1/pi` is an authenticated,
+ephemeral relay for a Pi plugin and its browser controller. It stores data only
+in the current API process memory. Restarting the API or reaching the two-minute
+heartbeat TTL removes a session and its messages.
 
 The server never receives a PIN or plaintext. The v1 client encryption contract
 is fixed so browser and Pi implementations are interoperable:
@@ -78,7 +85,7 @@ Heartbeat replies include an opaque `generation`. When it changes after relay re
 
 Controller plaintext is `{version:1,type:"command",id,issued_at,action,...}`. IDs are unique 8–64-character ASCII identifiers. `issued_at` is Unix milliseconds and expires after two minutes. Authenticated sender AAD is `controller`.
 
-- `prompt`: `content` (at most 32,000 UTF-8 bytes), optional `delivery` (`followUp` or `steer`). Does not expand slash commands, skills or prompt templates.
+- `prompt`: `content` (at most 32,000 UTF-8 bytes), optional `delivery` (`followUp` or `steer`). Does not expand slash commands, skills or prompt templates. Clients advertising `prompt_images` also accept one `images` entry: `{type:"image",mimeType:"image/jpeg",data:"<canonical standard base64>"}`. Text may be empty only with a valid image. The JPEG is bounded to 24 KiB and the entire command to 48 KiB of UTF-8 JSON. The browser accepts PNG/JPEG/WebP files up to 10 MiB, strips metadata and resizes locally to fit; it does not send the original file or silently discard attachments. This is compressed single-image input, not original-resolution or multi-file transfer. Unsupported Pi models reject the image before a model turn.
 - `abort`: stops Pi and cancels active UI prompts. The receive loop never waits for a model turn or an unanswered prompt.
 - `ui_response`: active `request_id`, `value` (selection index, boolean or text), or `cancelled:true`. Indices preserve original option values, including duplicate or shortened display labels.
 - `ui_input`: active `request_id` and exactly one allow-listed `key` or plain `text`. Text uses bracketed paste; arbitrary escape/control sequences are rejected.
@@ -87,13 +94,66 @@ The plugin returns encrypted `ack` events with `command_id`, `ok` and an optiona
 
 Standard Pi `select`, `confirm` and `input` prompts are answered directly. Public `custom` UI and the editor run their original component, with a bounded plain-text terminal preview and keyboard controls. This supports `pi-ask-user` without depending on the tool name or fabricating its result. Terminal previews are bounded, not a pixel-perfect terminal, mouse/clipboard/file-upload interface, or a guarantee that every third-party component is compatible. Local and remote answers race safely; stale question IDs are rejected. Turning remote control off must not break completion of a local dialog already open.
 
-Locking/unmounting the production session view cancels requests, removes decrypted query data and discards the key. It does not stop Pi or disable sharing on the local machine.
+Locking/unmounting the browser session view cancels requests, removes decrypted
+query data and discards the key. Account/login-session changes remount the
+workspace and clear its account-scoped caches. Relay generation or device
+changes require unlocking again; expired sessions are removed locally even
+before the next list poll. It does not stop Pi or disable sharing on the local
+machine.
+
+A successful poll with unchanged data does not renew an old state heartbeat:
+the browser has an independent expiry clock and rechecks the signed timestamp
+at dispatch. Unsigned outer relay timestamps cannot renew a state. The browser
+rejects noncanonical base64url and ciphertext exceeding the 16 KiB metadata /
+64 KiB message limits before decryption. Session/message lists are bounded to
+32/128 entries.
+
+## Production promotion gates
+
+The following are required; the current client checks do not close the missing
+WIP server contracts:
+
+- Core owns plugin OAuth identity, scopes, consent, expiry and revocation. Go
+  must not substitute its service credential or model-spending authority for
+  user authorization. Existing grants must not silently gain `remote:control`.
+- The relay must validate current browser/plugin credentials and isolate owners
+  on every endpoint, including guessed IDs, cursor reads, deletion and reconnect.
+  Verify refusals against actual isolated Core/Go processes, not a fixed-success
+  HTTP adapter.
+- Verify real browser ↔ relay ↔ Pi image/control delivery, cancellation, duplicate
+  commands, expired sessions and process restart under the intended proxy and
+  affinity topology. Local encryption/SDK fixtures do not test production OAuth.
+- Qualify the selected artifacts and installation procedure, protect the current
+  site's database and credentials, and prepare verified local rollback material
+  before an authorized production switch. WIP fresh-install examples are not an
+  existing-site upgrade procedure.
 
 ## Reproducible checks
 
 Historical backend check (old monolith layout; these packages are not present in
 the current `services/extensions` host): `cd apps/lmm-extensions && go test ./controller ./router -run 'TestPiRemote|TestOAuthHTTPDiscovery' -count=1`.
 
-Browser protocol: `cd apps/web && bun test src/features/remote-control/*.test.ts`.
+Browser protocol and account-isolation checks: `cd apps/web && bun test src/features/remote-control/*.test.ts src/features/remote-control/*.test.tsx`.
 
-The browser review fixture imports the production controls, encryption and command hook. Its test-only HTTP adapter connects to the plugin repository's loopback relay and official Pi SDK acceptance test. It does not sign in to production, spend model credits, or replace production authentication checks. Real OAuth consent/revocation/account isolation are tested separately against the Go routes.
+Plugin image acceptance: in the Pi plugin repository, run `npm test` and
+`npm run test:pi`. `test/remote-images.test.mjs` exercises the official Pi SDK,
+encrypted loopback relay and a synthetic vision/text-only model. It makes no
+production account, model call or billing assertion.
+
+After building Web and initializing the pinned `packages/pi-lmm-provider`
+submodule, run the full-page safety review with an already installed Playwright
+module and Chromium. The script starts/stops its own loopback server and retains
+screenshots/results in a unique temporary directory:
+
+```sh
+BUN_BIN="$(command -v bun)" \
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright/index.mjs \
+CHROME_PATH=/absolute/path/to/chromium \
+node apps/web/scripts/remote-control-review/safety-check.mjs
+```
+
+This checks the actual page's image controls, account-cache clearing, restart
+relocking and heartbeat expiry. Its users and relay are synthetic: it does not
+prove Core/Go authorization, production login or multi-instance deployment.
+
+The older browser review fixture imports the production controls, encryption and command hook. Its test-only HTTP adapter connects to the plugin repository's loopback relay and official Pi SDK acceptance test. It does not sign in to production, spend model credits, or replace production authentication checks. Real OAuth consent/revocation/account isolation are tested separately against the Go routes.

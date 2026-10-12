@@ -11,6 +11,8 @@ but WITHOUT ANY WARRANTY; without even the implied warranty of
 MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE. See the
 GNU Affero General Public License for more details.
 */
+
+import type { RemoteCommand } from './commands'
 import {
   normalizePiSessionMetadata,
   normalizeRemoteControlMessage,
@@ -21,15 +23,29 @@ import type {
   PiRemoteSessionEnvelope,
   RemoteControlMessage,
 } from './types'
-import type { RemoteCommand } from './commands'
 
 export const PI_REMOTE_KDF_ITERATIONS = 210_000
 
 const encoder = new TextEncoder()
 const decoder = new TextDecoder('utf-8', { fatal: true })
 
-function decodeBase64Url(value: string): Uint8Array<ArrayBuffer> {
-  if (!value || value.includes('=') || !/^[A-Za-z0-9_-]+$/.test(value)) {
+function encodeBase64Url(bytes: Uint8Array): string {
+  return btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(''))
+    .replaceAll('+', '-')
+    .replaceAll('/', '_')
+    .replaceAll('=', '')
+}
+
+function decodeBase64Url(
+  value: string,
+  maxBytes: number
+): Uint8Array<ArrayBuffer> {
+  if (
+    !value ||
+    value.length > Math.ceil((maxBytes * 4) / 3) ||
+    value.includes('=') ||
+    !/^[A-Za-z0-9_-]+$/.test(value)
+  ) {
     throw new Error('Invalid base64url payload')
   }
   const base64 = value.replaceAll('-', '+').replaceAll('_', '/')
@@ -38,6 +54,9 @@ function decodeBase64Url(value: string): Uint8Array<ArrayBuffer> {
   const bytes = new Uint8Array(binary.length)
   for (let index = 0; index < binary.length; index += 1) {
     bytes[index] = binary.charCodeAt(index)
+  }
+  if (bytes.length > maxBytes || encodeBase64Url(bytes) !== value) {
+    throw new Error('Invalid base64url payload')
   }
   return bytes
 }
@@ -79,10 +98,13 @@ export async function derivePiRemoteKey(
 async function decryptJson(
   key: CryptoKey,
   envelope: PiRemoteCiphertext,
-  additionalData: Uint8Array<ArrayBuffer>
+  additionalData: Uint8Array<ArrayBuffer>,
+  maxCiphertextBytes: number
 ): Promise<unknown> {
-  const nonce = decodeBase64Url(envelope.nonce)
+  const nonce = decodeBase64Url(envelope.nonce, 12)
   if (nonce.byteLength !== 12) throw new Error('Invalid AES-GCM nonce')
+  const ciphertext = decodeBase64Url(envelope.ciphertext, maxCiphertextBytes)
+  if (ciphertext.length < 16) throw new Error('Invalid AES-GCM ciphertext')
   const plaintext = await crypto.subtle.decrypt(
     {
       name: 'AES-GCM',
@@ -91,7 +113,7 @@ async function decryptJson(
       tagLength: 128,
     },
     key,
-    decodeBase64Url(envelope.ciphertext)
+    ciphertext
   )
   return JSON.parse(decoder.decode(plaintext))
 }
@@ -103,7 +125,8 @@ export async function decryptPiSessionMetadata(
   const payload = await decryptJson(
     key,
     envelope.metadata,
-    metadataAdditionalData(envelope.sessionId, envelope.deviceId)
+    metadataAdditionalData(envelope.sessionId, envelope.deviceId),
+    16 * 1024
   )
   return normalizePiSessionMetadata(payload, envelope)
 }
@@ -116,22 +139,42 @@ export async function decryptPiRemoteMessage(
   const payload = await decryptJson(
     key,
     envelope,
-    messageAdditionalData(sessionId, envelope.sender)
+    messageAdditionalData(sessionId, envelope.sender),
+    64 * 1024
   )
   const message = normalizeRemoteControlMessage(payload)
   return {
     ...message,
     id: message.id ?? `${sessionId}-${envelope.sequence}`,
-    created_at: message.created_at ?? envelope.createdAt,
+    // Relay timestamps are outside the MAC and cannot renew a state heartbeat.
+    created_at:
+      message.created_at ??
+      (message.type === 'state' ? undefined : envelope.createdAt),
   }
 }
 
-export async function encryptPiRemoteCommand(sessionId: string, command: RemoteCommand, key: CryptoKey): Promise<PiRemoteCiphertext> {
+export async function encryptPiRemoteCommand(
+  sessionId: string,
+  command: RemoteCommand,
+  key: CryptoKey
+): Promise<PiRemoteCiphertext> {
   const plaintext = encoder.encode(JSON.stringify(command))
-  if (plaintext.length > 48 * 1024) throw new Error('Command exceeds the encrypted message limit')
+  if (plaintext.length > 48 * 1024) {
+    throw new Error('Command exceeds the encrypted message limit')
+  }
   const nonce = crypto.getRandomValues(new Uint8Array(12))
-  const encrypted = await crypto.subtle.encrypt({ name: 'AES-GCM', iv: nonce,
-    additionalData: messageAdditionalData(sessionId, 'controller'), tagLength: 128 }, key, plaintext)
-  const encode = (bytes: Uint8Array) => btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join('')).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '')
-  return { nonce: encode(nonce), ciphertext: encode(new Uint8Array(encrypted)) }
+  const encrypted = await crypto.subtle.encrypt(
+    {
+      name: 'AES-GCM',
+      iv: nonce,
+      additionalData: messageAdditionalData(sessionId, 'controller'),
+      tagLength: 128,
+    },
+    key,
+    plaintext
+  )
+  return {
+    nonce: encodeBase64Url(nonce),
+    ciphertext: encodeBase64Url(new Uint8Array(encrypted)),
+  }
 }
