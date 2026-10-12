@@ -245,6 +245,7 @@ func (s *HistoryService) Status(ctx context.Context, token string) (map[string]a
 		"developer_access_granted": false, "permission_profile_available": false,
 		"agent": map[string]any{"enabled": false, "stream_enabled": false},
 		"capabilities": map[string]bool{"public_assistant": false, "history": true, "presets": true, "admin_history": false,
+			"new_user_gift":   false,
 			"developer_tools": false, "admin_config": false, "admin_pricing": false, "admin_model_inventory": false, "admin_model_sync": false},
 		"unavailable_reason": "billed_assistant_delegation_not_configured"}, nil
 }

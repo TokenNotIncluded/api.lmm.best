@@ -9,12 +9,13 @@ the Free Software Foundation, either version 3 of the License, or
 import { CheckmarkCircle02Icon, GiftIcon } from '@hugeicons/core-free-icons'
 import { HugeiconsIcon } from '@hugeicons/react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
 import { Button } from '@/components/ui/button'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
+import { useAuthStore } from '@/stores/auth-store'
 
 import {
   AssistantRequestError,
@@ -22,20 +23,62 @@ import {
   getAssistantNewUserGift,
 } from './api'
 
-export function AssistantNewUserGift(props: { enabled: boolean }) {
+export function AssistantNewUserGift(props: {
+  enabled: boolean
+  available?: boolean
+}) {
   const { t } = useTranslation()
   const { formatQuota } = useWalletCurrency()
   const queryClient = useQueryClient()
   const [claiming, setClaiming] = useState(false)
+  const userId = useAuthStore((state) => state.auth.user?.id)
+  const sessionId = useAuthStore((state) => state.auth.session?.sid)
+  const live = useRef(true)
+  const queryKey = useMemo(
+    () => ['assistant-new-user-gift', userId, sessionId] as const,
+    [userId, sessionId]
+  )
+  useEffect(() => {
+    live.current = true
+    return () => {
+      live.current = false
+      queryClient.removeQueries({ queryKey, exact: true })
+    }
+  }, [queryClient, queryKey])
+  const currentScope = () => {
+    const auth = useAuthStore.getState().auth
+    return (
+      live.current &&
+      auth.user?.id === userId &&
+      auth.session?.sid === sessionId
+    )
+  }
   const giftQuery = useQuery({
-    queryKey: ['assistant-new-user-gift'],
-    queryFn: getAssistantNewUserGift,
-    enabled: props.enabled,
+    queryKey,
+    queryFn: ({ signal }) => getAssistantNewUserGift(signal),
+    enabled: props.enabled && props.available !== false,
     staleTime: 15_000,
     retry: false,
   })
   const gift = giftQuery.data
   if (!props.enabled) return null
+
+  if (
+    props.available === false ||
+    (giftQuery.error instanceof AssistantRequestError &&
+      giftQuery.error.code === 'ASSISTANT_GIFT_UNAVAILABLE')
+  ) {
+    return (
+      <section
+        className='border-border/60 my-2 border-y px-1 py-4 sm:px-4'
+        data-testid='assistant-new-user-gift-unavailable'
+      >
+        <p className='text-muted-foreground text-sm'>
+          {t('New-user gifts are not available on this installation.')}
+        </p>
+      </section>
+    )
+  }
 
   if (giftQuery.isError && !gift) {
     return (
@@ -72,23 +115,39 @@ export function AssistantNewUserGift(props: { enabled: boolean }) {
     setClaiming(true)
     try {
       const result = await claimAssistantNewUserGift()
-      queryClient.setQueryData(['assistant-new-user-gift'], result.gift)
-      await queryClient.invalidateQueries({ queryKey: ['assistant-status'] })
-      toast.success(t('Welcome gift claimed'))
+      if (!currentScope()) return
+      queryClient.setQueryData(queryKey, result.gift)
+      await queryClient.invalidateQueries({
+        queryKey: ['assistant-status', userId, sessionId],
+        exact: true,
+      })
+      if (currentScope()) toast.success(t('Welcome gift claimed'))
     } catch (error) {
+      if (!currentScope()) return
       toast.error(
-        error instanceof AssistantRequestError && error.code === 'gift_disabled'
-          ? t('New-user gifts are currently disabled.')
+        error instanceof AssistantRequestError &&
+          error.code === 'ASSISTANT_GIFT_UNCONFIRMED'
+          ? t(
+              'Unable to confirm welcome gift. Check its status before trying again.'
+            )
           : error instanceof AssistantRequestError &&
-              error.code === 'gift_limit_exceeded'
-            ? t('This gift exceeds the current maximum and cannot be claimed.')
-            : error instanceof Error
-              ? error.message
-              : t('Unable to claim welcome gift')
+              error.code === 'ASSISTANT_GIFT_UNAVAILABLE'
+            ? t('New-user gifts are not available on this installation.')
+            : error instanceof AssistantRequestError &&
+                error.code === 'gift_disabled'
+              ? t('New-user gifts are currently disabled.')
+              : error instanceof AssistantRequestError &&
+                  error.code === 'gift_limit_exceeded'
+                ? t(
+                    'This gift exceeds the current maximum and cannot be claimed.'
+                  )
+                : error instanceof Error
+                  ? error.message
+                  : t('Unable to claim welcome gift')
       )
       await giftQuery.refetch()
     } finally {
-      setClaiming(false)
+      if (currentScope()) setClaiming(false)
     }
   }
 

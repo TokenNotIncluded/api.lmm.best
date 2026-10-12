@@ -34,6 +34,23 @@ strict-lower-role administrator history reads remain separate pending work.
 The current authority port has no reliable target-role lookup; cross-owner
 history returns 404 even for administrators.
 
+New-user gifts remain unavailable until Rust implements a bounded gift grant
+and durable claim receipt. Status explicitly advertises
+`capabilities.new_user_gift=false`; the browser hides the gift starter prompt and
+shows a non-retryable unavailable notice instead of a claim button. Authenticated
+`GET /api/assistant/new-user-gift` and `POST /api/assistant/new-user-gift/claim`
+return HTTP 503, `ASSISTANT_GIFT_UNAVAILABLE` and `retryable=false`, even without
+history storage. They never invent eligibility, an offer, a decline, a claim or
+an account credit. These handlers do not implement reward issuance.
+
+For compatible servers that actually implement gifts, the browser confirms a
+claim only from a claimed gift with a positive stored credit amount and claim
+timestamp. A lost response is uncertain, not a failed or completed claim; it is
+not automatically repeated. Gift caches are scoped to the user/login session
+and removed on unmount; a late claim response cannot populate another login's
+cache or display a success notification. These UI checks are not a substitute
+for Rust's atomic, unique grant/ledger transaction or a real issuance test.
+
 Version-2 runtime grants are explicit: schema USAGE; contract SELECT;
 records/conversations SELECT, INSERT, UPDATE; history_messages SELECT, INSERT,
 DELETE for trimming; turn_receipts SELECT, INSERT; preset_stats SELECT and

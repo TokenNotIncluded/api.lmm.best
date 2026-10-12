@@ -2225,7 +2225,8 @@ function AssistantPanelSession(props: AssistantPanelProps) {
     !preConversationPresetsQuery.isPending
       ? filterAssistantPreConversationPresets(
           preConversationPresetsQuery.data?.presets,
-          authUser
+          authUser,
+          statusQuery.data?.capabilities
         )
       : []
   const starterPrompts =
@@ -2492,6 +2493,7 @@ function AssistantPanelSession(props: AssistantPanelProps) {
                   ) : null}
                   <AssistantNewUserGift
                     enabled={accountAccessConfirmed && !isAdministrator}
+                    available={statusQuery.data?.capabilities?.new_user_gift}
                   />
                   <AssistantWeeklyDiscount
                     enabled={accountAccessConfirmed && !isAdministrator}

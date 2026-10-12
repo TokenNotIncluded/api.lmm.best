@@ -204,6 +204,7 @@ export type AssistantStatus = {
   is_root?: boolean
   capabilities?: {
     public_assistant?: boolean
+    new_user_gift?: boolean
     account?: boolean
     developer_tools?: boolean
     usage_discount?: boolean
@@ -2139,15 +2140,25 @@ export async function getAssistantJourney(): Promise<AssistantJourney> {
   return requireAssistantData(response.data, 'Unable to load task progress')
 }
 
-export async function getAssistantNewUserGift(): Promise<AssistantNewUserGift | null> {
-  const response = await api.get<
-    AssistantAPIResponse<AssistantNewUserGift | null>
-  >('/api/assistant/new-user-gift', {
-    disableDuplicate: true,
-    skipBusinessError: true,
-    skipErrorHandler: true,
-  })
-  return requireAssistantData(response.data, 'Unable to load welcome gift')
+export async function getAssistantNewUserGift(
+  signal?: AbortSignal
+): Promise<AssistantNewUserGift | null> {
+  try {
+    const response = await api.get<
+      AssistantAPIResponse<AssistantNewUserGift | null>
+    >('/api/assistant/new-user-gift', {
+      signal,
+      disableDuplicate: true,
+      skipBusinessError: true,
+      skipErrorHandler: true,
+    })
+    return requireAssistantData(response.data, 'Unable to load welcome gift')
+  } catch (error) {
+    if (axios.isAxiosError<AssistantAPIResponse<never>>(error)) {
+      throw normalizeAssistantRequestError(error, 'Unable to load welcome gift')
+    }
+    throw error
+  }
 }
 
 export async function claimAssistantNewUserGift(): Promise<{
@@ -2164,9 +2175,37 @@ export async function claimAssistantNewUserGift(): Promise<{
       skipBusinessError: true,
       skipErrorHandler: true,
     })
-    return requireAssistantData(response.data, 'Unable to claim welcome gift')
+    const result = requireAssistantData(
+      response.data,
+      'Unable to claim welcome gift'
+    )
+    // HTTP success is not proof of a completed claim. Preserve legacy receipts,
+    // but do not turn an offer, malformed data or a pending grant into success.
+    if (
+      !result ||
+      typeof result !== 'object' ||
+      typeof result.already_claimed !== 'boolean' ||
+      !result.gift ||
+      result.gift.status !== 'claimed' ||
+      !Number.isSafeInteger(result.gift.claimed_at) ||
+      result.gift.claimed_at <= 0 ||
+      !Number.isSafeInteger(result.gift.credit_amount ?? result.gift.quota) ||
+      (result.gift.credit_amount ?? result.gift.quota) <= 0
+    ) {
+      throw new AssistantRequestError(
+        'Unable to confirm welcome gift. Check its status before trying again.',
+        'ASSISTANT_GIFT_UNCONFIRMED'
+      )
+    }
+    return result
   } catch (error) {
     if (axios.isAxiosError<AssistantAPIResponse<never>>(error)) {
+      if (!error.response && !axios.isCancel(error)) {
+        throw new AssistantRequestError(
+          'Unable to confirm welcome gift. Check its status before trying again.',
+          'ASSISTANT_GIFT_UNCONFIRMED'
+        )
+      }
       throw normalizeAssistantRequestError(
         error,
         'Unable to claim welcome gift'

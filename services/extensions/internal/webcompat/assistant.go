@@ -135,6 +135,24 @@ func RegisterAssistant(mux *http.ServeMux, auth *Authenticator, history Assistan
 			assistantRespond(w, value, err)
 		}))
 	}
+	// No Rust gift grant/receipt contract is installed. An authenticated user
+	// gets an explicit unavailable outcome, never an invented offer or credit.
+	giftUnavailable := func(w http.ResponseWriter, r *http.Request) {
+		if _, err := auth.Verify(r.Context(), r); err != nil {
+			assistantRespond(w, nil, assistantAuthError(err))
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Cache-Control", "no-store")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.WriteHeader(http.StatusServiceUnavailable)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"success": false, "code": "ASSISTANT_GIFT_UNAVAILABLE", "retryable": false,
+			"message": "New-user gifts are not available on this installation.",
+		})
+	}
+	mux.HandleFunc("GET /api/assistant/new-user-gift", giftUnavailable)
+	mux.HandleFunc("POST /api/assistant/new-user-gift/claim", giftUnavailable)
 	mux.HandleFunc("POST /api/assistant/chat", protected(func(w http.ResponseWriter, r *http.Request, _ string) {
 		// No Model.Next adapter is installed: SESSION -> ApiKey substitution
 		// would change the payer and bypass the missing sponsorship policy.

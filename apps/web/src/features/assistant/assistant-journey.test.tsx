@@ -336,6 +336,100 @@ describe('assistant game-style progress', () => {
   })
 })
 
+describe('welcome gift unavailable capability', () => {
+  test('does not query or offer retry/claim when the server disables the capability', async () => {
+    let reads = 0
+    api.get = (async () => {
+      reads++
+      throw new Error('Must not query')
+    }) as typeof api.get
+    const rendered = await render(
+      <AssistantNewUserGift enabled available={false} />
+    )
+    try {
+      assert.equal(reads, 0)
+      assert.match(
+        rendered.container.textContent ?? '',
+        /New-user gifts are not available on this installation/
+      )
+      assert.equal(rendered.container.querySelector('button'), null)
+    } finally {
+      await unmount(rendered)
+    }
+  })
+
+  test('distinguishes an unavailable gift service from a transient read failure', async () => {
+    api.get = (async () => {
+      throw Object.assign(new Error('HTTP 503'), {
+        isAxiosError: true,
+        response: { status: 503, data: { code: 'ASSISTANT_GIFT_UNAVAILABLE' } },
+      })
+    }) as typeof api.get
+    const rendered = await render(<AssistantNewUserGift enabled />)
+    try {
+      assert.ok(
+        rendered.container.querySelector(
+          '[data-testid="assistant-new-user-gift-unavailable"]'
+        )
+      )
+      assert.equal(rendered.container.querySelector('button'), null)
+    } finally {
+      await unmount(rendered)
+    }
+  })
+
+  test('an unmounted claim cannot repopulate its private gift cache', async () => {
+    const gift: Gift = {
+      amount_cents: 20,
+      quota: 100000,
+      status: 'offered',
+      reason: 'Stored offer',
+      created_at: 1,
+      claimed_at: 0,
+    }
+    api.get = (async () => ({
+      data: { success: true, data: gift },
+    })) as typeof api.get
+    let finish!: (value: unknown) => void
+    let calls = 0
+    api.post = (async () => {
+      calls++
+      return await new Promise<unknown>((resolve) => {
+        finish = resolve
+      })
+    }) as typeof api.post
+    const rendered = await render(<AssistantNewUserGift enabled />)
+    const button = rendered.container.querySelector('button')
+    assert.ok(button)
+    await act(async () => {
+      button.click()
+      await flushQueries()
+    })
+    assert.equal(calls, 1)
+    await act(async () => rendered.root.unmount())
+    await act(async () => {
+      finish({
+        data: {
+          success: true,
+          data: {
+            gift: { ...gift, status: 'claimed', claimed_at: 2 },
+            already_claimed: false,
+          },
+        },
+      })
+      await flushQueries()
+    })
+    assert.equal(
+      rendered.queryClient
+        .getQueryCache()
+        .findAll({ queryKey: ['assistant-new-user-gift'] }).length,
+      0
+    )
+    rendered.queryClient.clear()
+    rendered.container.remove()
+  })
+})
+
 describe('welcome gift current cap', () => {
   for (const code of ['gift_disabled', 'gift_limit_exceeded']) {
     test(`keeps the stored offer visible but blocks claiming when ${code}`, async () => {

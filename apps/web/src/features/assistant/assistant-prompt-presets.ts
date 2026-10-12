@@ -47,11 +47,14 @@ export function canSeeAccessVerificationPreset(
 
 export function filterAssistantPreConversationPresets(
   presets: AssistantPreConversationPreset[] | undefined,
-  user: AssistantPresetViewer | null | undefined
+  user: AssistantPresetViewer | null | undefined,
+  capabilities?: { new_user_gift?: boolean }
 ): AssistantPreConversationPreset[] {
   return (presets ?? fallbackPresets).filter(
     (preset) =>
-      preset.id !== 'ai_recommendation' || canSeeAccessVerificationPreset(user)
+      (preset.id !== 'ai_recommendation' ||
+        canSeeAccessVerificationPreset(user)) &&
+      (preset.id !== 'new_user_gift' || capabilities?.new_user_gift !== false)
   )
 }
 
