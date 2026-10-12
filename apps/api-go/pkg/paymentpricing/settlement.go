@@ -2,7 +2,6 @@ package paymentpricing
 
 import (
 	"fmt"
-	"math"
 	"regexp"
 
 	"github.com/shopspring/decimal"
@@ -131,67 +130,58 @@ func parseSettlementRate(paymentMethod, field, raw string) (decimal.Decimal, err
 	return rate, nil
 }
 
-// QuoteSettlementForCredits quotes raw ledger quota, before any recharge bonus
-// or money rounding. creditsPerUSD is K; quotaPerUnit is QPU. Only the basis for
-// the selected mode is required. Paired pricing divides q*u by QPU*p as a whole,
-// never by a pre-rounded u/p rate. Division uses 96 fractional digits. Callers
-// that require exact upward rounding to money minor units must use
-// CeilSettlementMinorForCredits rather than rounding this finite decimal quote.
-func QuoteSettlementForCredits(credits int64, pricing SettlementPricing, creditsPerUSD, quotaPerUnit decimal.Decimal) (decimal.Decimal, error) {
-	numerator, denominator, err := settlementQuoteFraction(credits, pricing, creditsPerUSD, quotaPerUnit)
-	if err != nil {
-		return decimal.Zero, err
-	}
-	return numerator.DivRound(denominator, 96), nil
-}
-
-// CeilSettlementMinorForCredits returns the exact upward-rounded base amount
-// in money minor units (100 minor units per settlement unit for two decimals).
-// It uses an integer quotient and remainder, without a rounded exchange rate
-// or decimal division. It fails if the result cannot fit the invoice int64.
-func CeilSettlementMinorForCredits(credits int64, pricing SettlementPricing, creditsPerUSD, quotaPerUnit decimal.Decimal, minorUnitsPerSettlement int64) (int64, error) {
-	if minorUnitsPerSettlement <= 0 {
-		return 0, fmt.Errorf("minor units per settlement unit must be positive")
-	}
-	numerator, denominator, err := settlementQuoteFraction(credits, pricing, creditsPerUSD, quotaPerUnit)
-	if err != nil {
-		return 0, err
-	}
-	minor, remainder := numerator.Mul(decimal.NewFromInt(minorUnitsPerSettlement)).QuoRem(denominator, 0)
-	if remainder.IsPositive() {
-		minor = minor.Add(decimal.NewFromInt(1))
-	}
-	if minor.GreaterThan(decimal.NewFromInt(math.MaxInt64)) {
-		return 0, fmt.Errorf("settlement minor amount exceeds int64")
-	}
-	return minor.IntPart(), nil
-}
-
-func settlementQuoteFraction(credits int64, pricing SettlementPricing, creditsPerUSD, quotaPerUnit decimal.Decimal) (decimal.Decimal, decimal.Decimal, error) {
-	if credits <= 0 {
-		return decimal.Zero, decimal.Zero, fmt.Errorf("credit amount must be positive")
-	}
+// NormalizeCreditSettlementRate is the compatibility boundary for persisted
+// gateway pricing. Legacy batch units are resolved here once; subsequent quotes
+// and minimum checks only see settlement units per actual ledger credit.
+// The struct and its serialized field names remain unchanged for old snapshots.
+func NormalizeCreditSettlementRate(pricing SettlementPricing, creditsPerUSD, quotaPerUnit decimal.Decimal) (CreditSettlementRate, error) {
 	if pricing.UsesFixedCreditDenomination && pricing.UsesSettlementUnitsPerPlatformUnit {
-		return decimal.Zero, decimal.Zero, fmt.Errorf("conflicting settlement pricing modes")
+		return CreditSettlementRate{}, fmt.Errorf("conflicting settlement pricing modes")
 	}
-	amount := decimal.NewFromInt(credits)
 	if pricing.UsesFixedCreditDenomination {
 		if !creditsPerUSD.IsPositive() || !pricing.SettlementUnitsPerUSD.IsPositive() {
-			return decimal.Zero, decimal.Zero, fmt.Errorf("invalid credit settlement pricing")
+			return CreditSettlementRate{}, fmt.Errorf("invalid credit settlement pricing")
 		}
-		return amount.Mul(pricing.SettlementUnitsPerUSD), creditsPerUSD, nil
+		return NewCreditSettlementRate(pricing.SettlementUnitsPerUSD.String(), creditsPerUSD.String())
 	}
 	if !quotaPerUnit.IsPositive() {
-		return decimal.Zero, decimal.Zero, fmt.Errorf("quota per platform unit must be positive")
+		return CreditSettlementRate{}, fmt.Errorf("quota per platform unit must be positive")
 	}
 	if pricing.UsesSettlementUnitsPerPlatformUnit {
 		if !pricing.SettlementUnitsPerPlatformUnit.IsPositive() {
-			return decimal.Zero, decimal.Zero, fmt.Errorf("settlement units per platform unit must be positive")
+			return CreditSettlementRate{}, fmt.Errorf("settlement units per platform unit must be positive")
 		}
-		return amount.Mul(pricing.SettlementUnitsPerPlatformUnit), quotaPerUnit, nil
+		return NewCreditSettlementRate(pricing.SettlementUnitsPerPlatformUnit.String(), quotaPerUnit.String())
 	}
 	if !pricing.PlatformUnitsPerUSD.IsPositive() || !pricing.SettlementUnitsPerUSD.IsPositive() {
-		return decimal.Zero, decimal.Zero, fmt.Errorf("USD settlement rates must be positive")
+		return CreditSettlementRate{}, fmt.Errorf("USD settlement rates must be positive")
 	}
-	return amount.Mul(pricing.SettlementUnitsPerUSD), quotaPerUnit.Mul(pricing.PlatformUnitsPerUSD), nil
+	// Preserve the whole denominator. Dividing the paired rates here would
+	// round a recurring fraction before it is multiplied by the purchased amount.
+	return NewCreditSettlementRate(pricing.SettlementUnitsPerUSD.String(), quotaPerUnit.Mul(pricing.PlatformUnitsPerUSD).String())
+}
+
+// QuoteSettlementForCredits retains the public helper signature while all
+// arithmetic goes through the normalized credit-only rate. Its 96-place quote
+// and the caller's promotion/final-rounding policy are unchanged.
+func QuoteSettlementForCredits(credits int64, pricing SettlementPricing, creditsPerUSD, quotaPerUnit decimal.Decimal) (decimal.Decimal, error) {
+	rate, err := NormalizeCreditSettlementRate(pricing, creditsPerUSD, quotaPerUnit)
+	if err != nil {
+		return decimal.Zero, err
+	}
+	quote, err := rate.QuoteDecimal(credits)
+	if err != nil {
+		return decimal.Zero, err
+	}
+	return decimal.NewFromString(quote)
+}
+
+// CeilSettlementMinorForCredits retains the existing exact upward-rounding
+// policy. It never feeds a finite decimal quote back into the minor-unit check.
+func CeilSettlementMinorForCredits(credits int64, pricing SettlementPricing, creditsPerUSD, quotaPerUnit decimal.Decimal, minorUnitsPerSettlement int64) (int64, error) {
+	rate, err := NormalizeCreditSettlementRate(pricing, creditsPerUSD, quotaPerUnit)
+	if err != nil {
+		return 0, err
+	}
+	return rate.CeilMinor(credits, minorUnitsPerSettlement)
 }

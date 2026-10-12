@@ -27,7 +27,7 @@ import (
 	pancake "github.com/waffo-com/waffo-pancake-sdk-go"
 )
 
-const merchantStoreCreditsPerUSD int64 = 500000
+const merchantStoreCreditsPerUSD int64 = common.FixedCreditsPerUSD
 
 var (
 	merchantStoreTradeNoPattern = regexp.MustCompile(`^MS[A-Za-z0-9]{30}$`)
@@ -135,24 +135,25 @@ func merchantStoreQuotePayment(quota int64, currency, rate string) (int64, error
 	if err != nil {
 		return 0, err
 	}
-	amount := decimal.NewFromInt(quota).Div(decimal.NewFromInt(merchantStoreCreditsPerUSD))
 	switch currency {
 	case "USD":
 		if !ratio.Equal(decimal.NewFromInt(1)) {
 			return 0, ErrMerchantStorePaymentConfiguration
 		}
 	case "CNY", "LDC":
-		amount = amount.Mul(ratio)
 	default:
 		return 0, ErrMerchantStorePaymentConfiguration
 	}
-	// Providers cannot collect fractions of their smallest currency unit.
-	// Round up the payable money, without changing the frozen credit price.
-	minor := amount.Mul(decimal.NewFromInt(100)).Ceil()
-	if !minor.IsPositive() || minor.GreaterThan(decimal.NewFromInt(math.MaxInt64)) {
+	normalized, err := paymentpricing.NewCreditSettlementRate(ratio.String(), anchor.String())
+	if err != nil {
 		return 0, ErrMerchantStorePaymentConfiguration
 	}
-	return minor.IntPart(), nil
+	// Keep this provider path's existing two-decimal upward-rounding policy.
+	minor, err := normalized.CeilMinor(quota, 100)
+	if err != nil {
+		return 0, ErrMerchantStorePaymentConfiguration
+	}
+	return minor, nil
 }
 
 func merchantStoreMoneyToMinor(value string) (int64, error) {
@@ -375,37 +376,31 @@ func loadMerchantStorePaymentContext(order *model.MerchantStoreOrder) (merchantS
 // rounding. Never turn a fractional-cent price into a larger gateway bill.
 func merchantStoreDiscountPaymentMinimum(order *model.MerchantStoreOrder, rate string, pricing *paymentpricing.SettlementPricing) error {
 	anchor, err := common.CreditsPerUSD()
-	if err != nil || !anchor.Equal(decimal.NewFromInt(merchantStoreCreditsPerUSD)) || order.PriceQuota <= 0 {
+	if err != nil || !anchor.Equal(decimal.NewFromInt(merchantStoreCreditsPerUSD)) || order == nil || order.PriceQuota <= 0 {
 		return ErrMerchantStorePaymentConfiguration
 	}
-	numerator := decimal.NewFromInt(int64(order.PriceQuota))
-	denominator := anchor
+	var normalized paymentpricing.CreditSettlementRate
 	if pricing != nil {
-		quotaBasis, err := common.LegacyPricingQuotaPerUnit()
-		if err != nil || !quotaBasis.Equal(anchor) {
+		quotaBasis, basisErr := common.LegacyPricingQuotaPerUnit()
+		if basisErr != nil || !quotaBasis.Equal(anchor) {
 			return ErrMerchantStorePaymentConfiguration
 		}
-		switch {
-		case pricing.UsesFixedCreditDenomination:
-			numerator = numerator.Mul(pricing.SettlementUnitsPerUSD)
-		case pricing.UsesSettlementUnitsPerPlatformUnit:
-			numerator = numerator.Mul(pricing.SettlementUnitsPerPlatformUnit)
-			denominator = quotaBasis
-		default:
-			numerator = numerator.Mul(pricing.SettlementUnitsPerUSD)
-			denominator = quotaBasis.Mul(pricing.PlatformUnitsPerUSD)
-		}
+		normalized, err = paymentpricing.NormalizeCreditSettlementRate(*pricing, anchor, quotaBasis)
 	} else {
-		ratio, err := merchantStoreParsePositiveRate(rate)
-		if err != nil {
-			return err
+		ratio, rateErr := merchantStoreParsePositiveRate(rate)
+		if rateErr != nil {
+			return rateErr
 		}
-		numerator = numerator.Mul(ratio)
+		normalized, err = paymentpricing.NewCreditSettlementRate(ratio.String(), anchor.String())
 	}
-	if !numerator.IsPositive() || !denominator.IsPositive() {
+	if err != nil {
 		return ErrMerchantStorePaymentConfiguration
 	}
-	if numerator.Mul(decimal.NewFromInt(100)).LessThan(denominator) {
+	reachesMinimum, err := normalized.ReachesMinor(int64(order.PriceQuota), 100)
+	if err != nil {
+		return ErrMerchantStorePaymentConfiguration
+	}
+	if !reachesMinimum {
 		return ErrMerchantStorePaymentMinimum
 	}
 	return nil
