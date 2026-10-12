@@ -55,3 +55,23 @@ A02/S11 must provide and verify the actual human-cookie/CSRF routes, login,
 consent, claim, profile, owner revocation and off/on behavior. The other A10
 business journeys and independent CLI checks remain separate requirements.
 This directory does not mark any of those journeys complete.
+
+## Optional Chromium transport checks
+
+`client-browser.mjs` loads the **compiled** HumanGrant client in a fresh
+Chromium context and serves a local synthetic HTTP fixture. It does not
+authenticate against LMM or prove the Rust/Go backend, Cookie policy, React
+settings screen, database, or payment behavior.
+
+Run only in an isolated environment that permits fresh loopback listeners,
+with approved installed Playwright/Chromium. Do not weaken browser security:
+
+```sh
+LMM_A10_CLIENT_MODULE=/absolute/private/a10/humangrant.js \
+PLAYWRIGHT_MODULE=/absolute/path/to/playwright/index.mjs \
+node --test tests/e2e/a10/client-browser.mjs
+```
+
+The Chromium runner was syntax-checked but its 11 browser cases did not reach
+business assertions in the previous restricted environment. Until a real
+browser run passes, mark it **PENDING**, not browser acceptance.
