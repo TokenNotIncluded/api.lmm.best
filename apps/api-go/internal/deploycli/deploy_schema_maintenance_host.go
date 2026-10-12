@@ -711,10 +711,12 @@ func (h *productionSchemaMaintenanceHost) probeRestoredAdmission(ctx context.Con
 	if err != nil {
 		return err
 	}
-	out, err := h.runtime.runner.Run(ctx, productionCommand{Name: "/usr/bin/curl", Args: []string{"--disable", "--silent", "--show-error", "--include", "--max-time", "5", "--noproxy", "*", "--connect-to", "api.lmm.best:443:127.0.0.1:443", "https://api.lmm.best/api/status"}, Env: []string{"PATH=/usr/bin:/bin", "LANG=C", "LC_ALL=C"}, Timeout: 7 * time.Second, OutputLimit: 32768})
+	// Bind the provider to this host directly. The original edge IP policy may
+	// legitimately conceal /api/status from a loopback TLS client with a 404.
+	out, err := h.runtime.runner.Run(ctx, productionCommand{Name: "/usr/bin/curl", Args: []string{"--disable", "--silent", "--show-error", "--include", "--max-time", "5", "--noproxy", "*", "http://127.0.0.1:3000/api/status"}, Env: []string{"PATH=/usr/bin:/bin", "LANG=C", "LC_ALL=C"}, Timeout: 7 * time.Second, OutputLimit: 32768})
 	parts := bytes.SplitN(out, []byte("\r\n\r\n"), 2)
 	if err != nil || len(parts) != 2 {
-		return errors.New("schema maintenance reopened direct-origin readiness is unavailable")
+		return errors.New("schema maintenance current loopback provider readiness is unavailable")
 	}
 	status := strings.Fields(strings.SplitN(string(parts[0]), "\r\n", 2)[0])
 	var body struct {
@@ -724,7 +726,24 @@ func (h *productionSchemaMaintenanceHost) probeRestoredAdmission(ctx context.Con
 		} `json:"data"`
 	}
 	if len(status) < 2 || status[1] != "200" || json.Unmarshal(parts[1], &body) != nil || !body.Success || body.Data.Version != version {
-		return errors.New("schema maintenance reopened direct-origin provider differs")
+		return errors.New("schema maintenance current loopback provider differs")
+	}
+	// /api/scripts is already public in both its exact and named nginx
+	// locations. A successful response proves TLS admission is restored without
+	// changing the IP policy or inventing edge headers. The maintenance barrier
+	// still precedes this location and returns 503 while admission is closed.
+	out, err = h.runtime.runner.Run(ctx, productionCommand{Name: "/usr/bin/curl", Args: []string{"--disable", "--silent", "--show-error", "--include", "--max-time", "5", "--noproxy", "*", "--connect-to", "api.lmm.best:443:127.0.0.1:443", "https://api.lmm.best/api/scripts"}, Env: []string{"PATH=/usr/bin:/bin", "LANG=C", "LC_ALL=C"}, Timeout: 7 * time.Second, OutputLimit: 32768})
+	parts = bytes.SplitN(out, []byte("\r\n\r\n"), 2)
+	if err != nil || len(parts) != 2 {
+		return errors.New("schema maintenance reopened direct-origin public readiness is unavailable")
+	}
+	status = strings.Fields(strings.SplitN(string(parts[0]), "\r\n", 2)[0])
+	var public struct {
+		Success bool              `json:"success"`
+		Data    []json.RawMessage `json:"data"`
+	}
+	if len(status) < 2 || status[1] != "200" || json.Unmarshal(parts[1], &public) != nil || !public.Success || public.Data == nil {
+		return errors.New("schema maintenance reopened direct-origin public response differs")
 	}
 	return nil
 }
