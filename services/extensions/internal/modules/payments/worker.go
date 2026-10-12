@@ -46,6 +46,7 @@ func priority(kind string) int {
 func (s *Service) Step(ctx context.Context, id string) error {
 	var chosen Job
 	var snapshot Order
+	var a Adapter
 	token := make([]byte, 16)
 	if _, err := rand.Read(token); err != nil {
 		return err
@@ -87,6 +88,27 @@ func (s *Service) Step(ctx context.Context, id string) error {
 					continue
 				}
 			}
+			// Only external writes need a live Go adapter. Receipt lookup and
+			// accepted-proof settlement remain bound and authorized by Rust,
+			// even while this host temporarily lacks provider configuration.
+			if j.Kind == "checkout" || j.Kind == "refund_submit" {
+				candidate, bindingErr := s.orderAdapter(*o)
+				if bindingErr != nil {
+					// No provider call started. Preserve prior dispatch history and
+					// defer only this order; another channel can still make progress.
+					j.State = "pending"
+					if errors.Is(bindingErr, ErrConflict) {
+						j.State = "review"
+					}
+					j.ErrorCode = errorCode(bindingErr)
+					j.NextAttempt = now.Add(time.Minute)
+					j.Lease = ""
+					j.LeaseUntil = time.Time{}
+					o.Jobs[key] = j
+					continue
+				}
+				a = candidate
+			}
 			j.State = "running"
 			j.Lease = lease
 			j.LeaseUntil = now.Add(30 * time.Second)
@@ -103,10 +125,6 @@ func (s *Service) Step(ctx context.Context, id string) error {
 	})
 	if err != nil || chosen.Key == "" {
 		return err
-	}
-	a := s.adapters[snapshot.ChannelID]
-	if a == nil {
-		return ErrUnavailable
 	}
 	bounded, cancel := context.WithTimeout(ctx, 8*time.Second)
 	defer cancel()
