@@ -14,6 +14,49 @@ use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use tower::ServiceExt;
 
+#[sqlx::test(migrations = false)]
+async fn unsupported_registration_email_is_rejected_before_identity_writes(pool: PgPool) {
+    use lmm_core::identity::{BrowserAuth, BrowserAuthError, BrowserRegistration};
+    let (store, app) = setup(pool.clone()).await;
+    let counts_sql = "SELECT (SELECT count(*) FROM core_identity.users), (SELECT count(*) FROM core_identity.accounts), (SELECT count(*) FROM core_identity.password_logins), (SELECT count(*) FROM core_identity.user_profiles), (SELECT count(*) FROM core_identity.credentials), (SELECT count(*) FROM core_identity.audit)";
+    let before: (i64, i64, i64, i64, i64, i64) =
+        sqlx::query_as(counts_sql).fetch_one(&pool).await.unwrap();
+    for email in ["person@example.invalid", " person@example.invalid "] {
+        let (status, headers, body) = call(
+            &app,
+            "POST",
+            "/api/user/register",
+            Some(json!({
+                "username":"email-request", "password":"abc12345",
+                "accepted_legal":true, "email":email
+            })),
+            &[],
+        )
+        .await;
+        assert_eq!(status, StatusCode::SERVICE_UNAVAILABLE);
+        assert_eq!(body["code"], "AUTH_REGISTRATION_FEATURE_UNAVAILABLE");
+        assert_eq!(body["success"], false);
+        assert!(body.get("data").is_none());
+        assert!(headers.get("set-cookie").is_none());
+        assert_eq!(headers["cache-control"], "no-store");
+    }
+    let browser = BrowserAuth::new(store, &[43; 32]).unwrap();
+    assert!(matches!(
+        browser.register(&BrowserRegistration {
+            username: "direct-email", password: "abc12345",
+            email: "person@example.invalid",
+        }).await,
+        Err(BrowserAuthError::Identity(IdentityError::Forbidden))
+    ));
+    // HTTP rate-limit observations may change. Identity data must not.
+    let after: (i64, i64, i64, i64, i64, i64) =
+        sqlx::query_as(counts_sql).fetch_one(&pool).await.unwrap();
+    assert_eq!(before, after);
+    register(&app, "no-email").await;
+    let (_, bundle) = login(&app, "no-email").await;
+    assert_eq!(bundle["user"]["email"], "");
+}
+
 const ORIGIN: &str = "http://api.lmm.local";
 fn config() -> LegacyAuthConfig {
     LegacyAuthConfig::new(ORIGIN, &[43; 32])
@@ -618,7 +661,10 @@ async fn consent_email_alias_and_policy_changes_are_enforced(pool: PgPool) {
         assert_eq!(denied.2["code"], "AUTH_LEGAL_ACCEPTANCE_REQUIRED");
     }
     let registered=call(&app,"POST","/api/user/register",Some(json!({"username":"owner","password":"abc12345","accepted_legal":true,"email":"unverified@test.tld"})),&[]).await;
-    assert_eq!(registered.0, StatusCode::OK);
+    assert_eq!(registered.0, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(registered.2["code"], "AUTH_REGISTRATION_FEATURE_UNAVAILABLE");
+    assert!(registered.1.get("set-cookie").is_none());
+    register(&app, "owner").await;
     let (_, bundle) = login(&app, "owner").await;
     assert_eq!(bundle["user"]["email"], "");
     assert_eq!(
