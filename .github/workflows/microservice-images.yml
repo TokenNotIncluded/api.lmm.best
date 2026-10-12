@@ -1,0 +1,218 @@
+name: Manual GHCR microservice previews
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: microservice-images-${{ github.sha }}
+  cancel-in-progress: false
+defaults:
+  run:
+    shell: bash
+jobs:
+  build:
+    if: github.repository == 'TokenNotIncluded/api.lmm.best' && (github.ref == 'refs/heads/wip/rust-core-go-extensions' || startsWith(github.ref, 'refs/tags/microservice-preview-'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [core, extensions]
+    env:
+      COMPONENT: ${{ matrix.component }}
+      IMAGE: ghcr.io/tokennotincluded/lmm-${{ matrix.component }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Check publication contracts and record the exact source
+        run: |
+          python3 -B scripts/test_docker_image_publication.py -v
+          bash -n scripts/smoke-runtime-image.sh
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+            test "$GITHUB_REF_NAME" = "microservice-preview-$GITHUB_SHA"
+            git merge-base --is-ancestor "$GITHUB_SHA" refs/remotes/origin/wip/rust-core-go-extensions
+          fi
+          test -z "$(git status --porcelain)"
+          echo "SOURCE_REVISION=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "PREVIEW_TAG=preview-$(git rev-parse --short=12 HEAD)" >> "$GITHUB_ENV"
+          mkdir -p artifacts
+          docker version > artifacts/docker-version.txt
+          docker buildx version > artifacts/buildx-version.txt
+      - name: Build and load the existing independent runtime image
+        run: |
+          docker buildx build --platform linux/amd64 --target runtime --load \
+            --provenance=false --metadata-file artifacts/build-metadata.json \
+            --file "deployment/docker/${COMPONENT}.Dockerfile" \
+            --label "org.opencontainers.image.source=https://github.com/$GITHUB_REPOSITORY" \
+            --label "org.opencontainers.image.revision=$SOURCE_REVISION" \
+            --label "org.opencontainers.image.title=lmm-$COMPONENT" \
+            --label 'org.opencontainers.image.licenses=AGPL-3.0-or-later' \
+            --tag "$IMAGE:sha-$SOURCE_REVISION" --tag "$IMAGE:$PREVIEW_TAG" . \
+            2>&1 | tee artifacts/build.log
+      - name: Actual nonroot offline startup and license smoke before publication
+        run: |
+          bash scripts/smoke-runtime-image.sh "$COMPONENT" "$IMAGE:sha-$SOURCE_REVISION" artifacts/smoke \
+            2>&1 | tee artifacts/smoke.log
+      - name: Stage the tested image and honest provenance summary
+        run: |
+          docker image save "$IMAGE:sha-$SOURCE_REVISION" "$IMAGE:$PREVIEW_TAG" | gzip -1 > artifacts/image.tar.gz
+          (cd artifacts && sha256sum image.tar.gz > image.tar.gz.sha256)
+          python3 - <<'PY'
+          import hashlib, json, os, pathlib, subprocess
+          component = os.environ['COMPONENT']
+          inputs = ['LICENSE', 'NOTICE', 'THIRD-PARTY-LICENSES.md',
+                    '.github/workflows/microservice-images.yml',
+                    'scripts/test_docker_image_publication.py', 'scripts/smoke-runtime-image.sh',
+                    f'deployment/docker/{component}.Dockerfile', f'services/{component}']
+          inputs += ['contracts/proto'] if component == 'core' else ['config/legal']
+          paths = subprocess.check_output(['git', 'ls-files', '-z', '--', *inputs]).split(b'\0')
+          hashes = {os.fsdecode(p): hashlib.sha256(pathlib.Path(os.fsdecode(p)).read_bytes()).hexdigest()
+                    for p in paths if p}
+          smoke = json.loads(pathlib.Path('artifacts/smoke/smoke-result.json').read_text())
+          image, = json.loads(pathlib.Path('artifacts/smoke/image-inspect.json').read_text())
+          labels = image['Config']['Labels']
+          source = 'https://github.com/' + os.environ['GITHUB_REPOSITORY']
+          revision = os.environ['SOURCE_REVISION']
+          assert labels['org.opencontainers.image.source'] == source
+          assert labels['org.opencontainers.image.revision'] == revision
+          record = {'component': component, 'image': os.environ['IMAGE'], 'revision': revision,
+                    'source': source, 'tags': ['sha-' + revision, os.environ['PREVIEW_TAG']],
+                    'platform': 'linux/amd64', 'image_id': image['Id'], 'smoke': smoke,
+                    'input_sha256': hashes, 'publication': 'not yet pushed',
+                    'workflow_run': source + '/actions/runs/' + os.environ['GITHUB_RUN_ID'],
+                    'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'],
+                    'provenance_kind': 'unsigned workflow build/source summary; NOT a signed SLSA attestation',
+                    'buildkit_attestations': False,
+                    'scope': 'preview only; image smoke is NOT full business acceptance or production deployment'}
+          pathlib.Path('artifacts/source-provenance.json').write_text(json.dumps(record, indent=2) + '\n')
+          PY
+      - name: Preserve staged image and build evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ghcr-stage-${{ matrix.component }}-${{ github.sha }}
+          path: artifacts/
+          if-no-files-found: error
+          retention-days: 3
+          compression-level: 0
+      - name: Preserve diagnostics even when build or smoke fails
+        if: failure()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ghcr-failed-${{ matrix.component }}-${{ github.sha }}
+          path: artifacts/
+          if-no-files-found: warn
+          retention-days: 3
+          compression-level: 0
+  publish:
+    # Both independent matrix builds and their actual smoke must pass first.
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        component: [core, extensions]
+    env:
+      COMPONENT: ${{ matrix.component }}
+      IMAGE: ghcr.io/tokennotincluded/lmm-${{ matrix.component }}
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      # actions/download-artifact v4.3.0, pinned; no moving action tags.
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ghcr-stage-${{ matrix.component }}-${{ github.sha }}
+          path: artifacts
+      - name: Load only the exact tested image, without rebuilding
+        run: |
+          echo "DOCKER_CONFIG=$RUNNER_TEMP/ghcr-auth-$COMPONENT-$GITHUB_RUN_ID-$GITHUB_RUN_ATTEMPT" >> "$GITHUB_ENV"
+          (cd artifacts && sha256sum --check image.tar.gz.sha256)
+          gzip -dc artifacts/image.tar.gz | docker image load
+          echo "SOURCE_REVISION=$(git rev-parse HEAD)" >> "$GITHUB_ENV"
+          echo "PREVIEW_TAG=preview-$(git rev-parse --short=12 HEAD)" >> "$GITHUB_ENV"
+          python3 - <<'PY'
+          import json, os, pathlib, subprocess
+          record = json.loads(pathlib.Path('artifacts/source-provenance.json').read_text())
+          revision = subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip()
+          assert revision == os.environ['GITHUB_SHA'] == record['revision']
+          assert record['component'] == os.environ['COMPONENT'] and record['image'] == os.environ['IMAGE']
+          assert record['smoke']['smoke'] == 'passed' and not record['smoke']['business_acceptance']
+          for tag in record['tags']:
+              image, = json.loads(subprocess.check_output(['docker', 'image', 'inspect', record['image'] + ':' + tag]))
+              assert image['Id'] == record['image_id'] == record['smoke']['image_id']
+              assert image['Config']['Labels']['org.opencontainers.image.revision'] == revision
+              assert image['Config']['Labels']['org.opencontainers.image.source'] == record['source']
+          PY
+      - name: Authenticate with this publication job token only
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          umask 077
+          mkdir -p "$DOCKER_CONFIG"
+          printf '%s' "$GHCR_TOKEN" | docker login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+      - name: Refuse tag replacement, push tested bytes and read back registry digests
+        run: |
+          # Never treat authentication/network failure as an absent manifest.
+          for tag in "sha-$SOURCE_REVISION" "$PREVIEW_TAG"; do
+            if docker buildx imagetools inspect "$IMAGE:$tag" > artifacts/tag-check.txt 2> artifacts/tag-check-error.txt; then
+              echo "Refusing to replace existing immutable preview tag: $IMAGE:$tag" >&2
+              exit 1
+            elif { ! grep -Eiq 'manifest unknown|no such manifest' artifacts/tag-check-error.txt \
+                && ! grep -Fq "ERROR: $IMAGE:$tag: not found" artifacts/tag-check-error.txt; } \
+                || grep -Eiq 'unauthorized|denied|forbidden|timeout|connection|TLS' artifacts/tag-check-error.txt; then
+              echo 'Registry preflight failed; no publication attempted' >&2
+              exit 1
+            fi
+          done
+          docker push "$IMAGE:sha-$SOURCE_REVISION" 2>&1 | tee artifacts/push-sha.log
+          docker push "$IMAGE:$PREVIEW_TAG" 2>&1 | tee artifacts/push-preview.log
+          for tag in "sha-$SOURCE_REVISION" "$PREVIEW_TAG"; do
+            docker buildx imagetools inspect --raw "$IMAGE:$tag" > "artifacts/manifest-$tag.json"
+            docker buildx imagetools inspect --format '{{json .Manifest}}' "$IMAGE:$tag" > "artifacts/descriptor-$tag.json"
+          done
+          python3 - <<'PY'
+          import json, os, pathlib, re
+          directory = pathlib.Path('artifacts')
+          record = json.loads((directory / 'source-provenance.json').read_text())
+          digests = {}
+          for tag in record['tags']:
+              manifest = json.loads((directory / f'manifest-{tag}.json').read_text())
+              assert manifest['config']['digest'] == record['image_id'], 'pushed image differs from tested image'
+              descriptor = json.loads((directory / f'descriptor-{tag}.json').read_text())
+              digest = descriptor['digest']
+              assert re.fullmatch(r'sha256:[0-9a-f]{64}', digest)
+              digests[tag] = digest
+          assert len(set(digests.values())) == 1, 'preview and SHA tags differ'
+          record['publication'] = 'pushed and registry manifests read back'
+          record['pushed_digests'] = digests
+          record['digest_reference'] = record['image'] + '@' + next(iter(digests.values()))
+          (directory / 'publication.json').write_text(json.dumps(record, indent=2) + '\n')
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
+              summary.write('### ' + record['component'] + ' preview\n\n`' + record['digest_reference'] + '`\n\n')
+              summary.write('Source: `' + record['revision'] + '`; linux/amd64. Basic offline nonroot startup smoke only, not business acceptance or deployment. Provenance is an unsigned workflow summary, not a signed attestation.\n')
+          PY
+      - name: Preserve digests, provenance and partial-failure evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
+        with:
+          name: ghcr-publication-${{ matrix.component }}-${{ github.sha }}-${{ github.run_attempt }}
+          path: |
+            artifacts/*.json
+            artifacts/*.txt
+            artifacts/*.log
+            artifacts/smoke/
+          if-no-files-found: error
+          retention-days: 14
+      - name: Remove only this job's private registry authentication
+        if: always()
+        run: |
+          rm -rf -- "${DOCKER_CONFIG:?}"

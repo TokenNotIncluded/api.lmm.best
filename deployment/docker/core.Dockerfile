@@ -4,7 +4,8 @@ COPY services/core/Cargo.toml services/core/Cargo.lock services/core/build.rs ./
 COPY contracts/proto /src/contracts/proto
 COPY services/core/src ./src
 COPY services/core/schema ./schema
-RUN cargo build --locked --release --bin lmm-core
+# Bound formal image compilation independently of runtime container limits.
+RUN cargo build --locked --release --jobs 2 --bin lmm-core
 
 FROM scratch AS binaries
 COPY --from=build /src/services/core/target/release/lmm-core /lmm-core

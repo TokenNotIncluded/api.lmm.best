@@ -6,6 +6,28 @@ Compose 已拆开安装 owner 与运行时凭据，并提供[显式离线授权�
 
 真实快照的身份 ETL 曾在隔离克隆库与独立本地核心目标库之间验证，完成时覆盖 888 位旧用户；资金、API Key 和 session 未迁移，生产未写入。这是当时的身份迁移基线，不是当前用户总数或完整业务迁移。
 
+## GitHub Container Registry 预览镜像
+
+[手动发布入口](../../.github/workflows/microservice-images.yml)接受本仓库 WIP 分支的实际提交，
+或精确的 `microservice-preview-<完整提交>` 标签；标签提交必须已在 WIP 历史中。
+并行开发时使用已校验提交的预览标签，避免发布过程中分支继续前进导致来源变化。
+Core 和 Go 各自构建现有运行镜像，首次支持 `linux/amd64`；两者均通过真实的非 root、无网络启动及许可证冒烟后，才发布同一组已测试字节：
+
+- `ghcr.io/tokennotincluded/lmm-core:sha-<完整提交>`
+- `ghcr.io/tokennotincluded/lmm-extensions:sha-<完整提交>`
+
+另有对应的 `preview-<至少12位提交>` 标签；工作流拒绝覆盖已有标签，不写 `latest`。
+以运行记录的 `publication.json` 中读回的摘要为准，拉取时优先使用 `IMAGE@sha256:...`。
+两镜像的推送不是跨包原子事务；出现部分失败时先读回实际结果，不盲目重跑。
+包首次创建可能默认私有；发布成功不代表匿名可拉取，访问权限需另外核对。
+记录是未签名的源码/构建摘要，不宣称 SLSA 签名认证。
+
+此入口不打包 Web 或客户端，不自动初始化数据库、启动 Compose、替换旧服务或部署生产。
+Web 仍是独立静态文件，客户端仍由固定子模块构建。容器启动冒烟不是身份、订单、资金及供应商的完整验收。
+当前 Compose 默认使用本地 `lmm-core` / `lmm-extensions` 镜像名；若使用已发布包，可先明确拉取选定摘要，
+再为该摘要设置本次项目的本地标签，并通过 `LMM_DOCKER_CORE_IMAGE_TAG` / `LMM_DOCKER_EXTENSIONS_IMAGE_TAG` 选择。
+保持原有只读 TOML、私有文件、owner/runtime 分离和 RPC 覆盖，不能把镜像发布当成已有站点的升级授权。
+
 ## 凭据与网络
 
 本地 PostgreSQL 固定为已缓存的 18.6 镜像摘要。18 的数据卷挂载 `/var/lib/postgresql`，不要复用 17 的旧数据卷。数据库仅加入内部 `identity` 网络，不映射宿主端口；Go 不获得核心数据库网络、凭据或数据卷。核心网络随实际 Compose 项目命名为 `<项目名>-runtime`；扩展必须显式选择 `LMM_DOCKER_NETWORK`，RPC 两侧也必须明确选择同一个本次自有 `LMM_DOCKER_RPC_VOLUME`，不会默认连接一个固定共享卷。
