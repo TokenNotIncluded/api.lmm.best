@@ -23,26 +23,30 @@ export function StoreProductPrice({ product }: { product: StoreProduct }) {
       </span>
     )
   }
+  if (product.variants?.length === 0) {
+    return <span>{t('No variants are currently available.')}</span>
+  }
   const low = product.price_min_quota
   const high = product.price_max_quota
-  return Number.isSafeInteger(low) &&
+  return low != null &&
+    high != null &&
+    Number.isSafeInteger(low) &&
     Number.isSafeInteger(high) &&
-    low != null &&
     low >= 0 &&
-    (high ?? 0) >= (low ?? 0) ? (
+    high >= low ? (
     <span>
-      <StoreAmount quota={low!} />
+      <StoreAmount quota={low} />
       {high !== low && (
         <>
           {' '}
-          – <StoreAmount quota={high!} />
+          – <StoreAmount quota={high} />
         </>
       )}
     </span>
-  ) : product.variants !== undefined ? (
-    <span>{t('No variants are currently available.')}</span>
   ) : (
-    <StoreAmount quota={product.price_quota} />
+    <StoreAmount
+      quota={product.variants !== undefined ? null : product.price_quota}
+    />
   )
 }
 export function StoreInventoryTotals({

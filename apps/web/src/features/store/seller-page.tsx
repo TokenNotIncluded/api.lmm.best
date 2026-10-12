@@ -32,7 +32,7 @@ import {
   formatMinimumQuotaInCurrency,
   getCurrencyFormattingLocale,
 } from '@/lib/currency'
-import { useAuthStore } from '@/stores/auth-store'
+import { useAuthStore, type AuthUser } from '@/stores/auth-store'
 
 import { STORE_ACCESS_COPY as accessCopy } from './access-copy'
 import { StoreProductAccessSettings } from './access-settings'
@@ -126,14 +126,13 @@ export function StoreSellerPage() {
   const user = useAuthStore((state) => state.auth.user)
   return (
     <StoreAuthGate>
-      <StoreSellerCenter key={user?.id || 'guest'} />
+      {user && <StoreSellerCenter key={user.id} user={user} />}
     </StoreAuthGate>
   )
 }
-function StoreSellerCenter() {
+function StoreSellerCenter({ user }: { user: AuthUser }) {
   const { t } = useTranslation()
   const [page, setPage] = useState(1)
-  const user = useAuthStore((state) => state.auth.user)!
   const client = useQueryClient()
   const query = useQuery({
     queryKey: ['store', 'my-products', user.id, page],
@@ -1692,6 +1691,8 @@ export function StoreInventoryImport({
   )
   const [busy, setBusy] = useState(false)
   const [dirty, setDirty] = useState(false)
+  const user = useAuthStore((state) => state.auth.user)
+  if (!user) return null
   const legacy = legacyVariantProduct(product)
   const variant = product.variants?.find(
     (item) => item.id === variantId && item.product_id === product.id
@@ -1772,7 +1773,8 @@ export function StoreInventoryImport({
                 </p>
               ) : (
                 <StoreInventoryContent
-                  key={variant?.id || 'legacy-default'}
+                  key={`${user.id}-${variant?.id || 'legacy-default'}`}
+                  user={user}
                   product={product}
                   variant={variant}
                   onSaved={onSaved}
@@ -1793,6 +1795,7 @@ export function StoreInventoryImport({
   )
 }
 function StoreInventoryContent({
+  user,
   product,
   variant,
   onSaved,
@@ -1800,6 +1803,7 @@ function StoreInventoryContent({
   onBusyChange,
   onDirtyChange,
 }: {
+  user: AuthUser
   product: StoreProduct
   variant?: StoreVariant
   onBusyChange: (value: boolean) => void
@@ -1812,7 +1816,6 @@ function StoreInventoryContent({
   const [text, setText] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
-  const user = useAuthStore((state) => state.auth.user)!
   const stock = useQuery({
     queryKey: [
       'store',

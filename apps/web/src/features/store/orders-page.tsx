@@ -5,7 +5,7 @@ import { useTranslation } from 'react-i18next'
 
 import { Button } from '@/components/ui/button'
 import { refreshCurrentAccount } from '@/features/onboarding/use-auth-user-refresh'
-import { useAuthStore } from '@/stores/auth-store'
+import { useAuthStore, type AuthUser } from '@/stores/auth-store'
 
 import { StoreAPIError, storeApi } from './api'
 import { StoreDeliveryEmail } from './delivery-email'
@@ -42,13 +42,12 @@ export function StoreOrdersPage() {
   }
   return (
     <StoreAuthGate>
-      <StoreOrders />
+      {user && <StoreOrders key={user.id} user={user} />}
     </StoreAuthGate>
   )
 }
-function StoreOrders() {
+function StoreOrders({ user }: { user: AuthUser }) {
   const { t, i18n } = useTranslation()
-  const user = useAuthStore((state) => state.auth.user)!
   const [role, setRole] = useState<'buyer' | 'seller'>('buyer')
   const [page, setPage] = useState(1)
   const selectedId =
@@ -176,17 +175,28 @@ function StoreOrders() {
     </div>
   )
 }
-export function StoreOrderRow({
-  order,
-  buyer,
-  locale,
-}: {
+type StoreOrderRowProps = {
   order: StoreOrder
   buyer: boolean
   locale: string
-}) {
+}
+export function StoreOrderRow(props: StoreOrderRowProps) {
+  const user = useAuthStore((state) => state.auth.user)
+  return user ? (
+    <AuthenticatedStoreOrderRow
+      key={`${user.id}-${props.order.id}`}
+      {...props}
+      user={user}
+    />
+  ) : null
+}
+function AuthenticatedStoreOrderRow({
+  order,
+  buyer,
+  locale,
+  user,
+}: StoreOrderRowProps & { user: AuthUser }) {
   const { t } = useTranslation()
-  const user = useAuthStore((state) => state.auth.user)!
   const client = useQueryClient()
   const native = order.record_kind === 'native'
   const [busy, setBusy] = useState(false)

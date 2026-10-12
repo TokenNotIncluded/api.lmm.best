@@ -664,9 +664,7 @@ function ResolvedStoreCheckout({
           {(result?.order.unit_price_quota ?? unitPrice) === undefined ? (
             '—'
           ) : (
-            <StoreAmount
-              quota={(result?.order.unit_price_quota ?? unitPrice)!}
-            />
+            <StoreAmount quota={result?.order.unit_price_quota ?? unitPrice} />
           )}
         </div>
         <p className='text-muted-foreground text-xs'>

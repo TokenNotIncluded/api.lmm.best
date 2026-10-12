@@ -1,6 +1,6 @@
 /* Copyright (C) 2026 LIghtJUNction; SPDX-License-Identifier: AGPL-3.0-or-later */
 import assert from 'node:assert/strict'
-import { test } from 'node:test'
+import { afterEach, beforeEach, test } from 'node:test'
 
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { ReactNode } from 'react'
@@ -49,10 +49,27 @@ const product = {
   ],
 } as unknown as StoreProduct // Deliberately partial native DTO: legacy metadata is absent.
 
+beforeEach(() => {
+  useAuthStore
+    .getState()
+    .auth.setUser({ id: 1, username: 'synthetic-buyer', role: 1 })
+})
+afterEach(() => useAuthStore.getState().auth.reset())
+
 function render(node: ReactNode) {
-  return renderToStaticMarkup(
-    <QueryClientProvider client={new QueryClient()}>{node}</QueryClientProvider>
-  )
+  // Static rendering reads Zustand's initial snapshot, not its live client state.
+  const snapshot = useAuthStore.getInitialState()
+  const previousAuth = snapshot.auth
+  snapshot.auth = useAuthStore.getState().auth
+  try {
+    return renderToStaticMarkup(
+      <QueryClientProvider client={new QueryClient()}>
+        {node}
+      </QueryClientProvider>
+    )
+  } finally {
+    snapshot.auth = previousAuth
+  }
 }
 
 test('native exact units preserve zero, safe integer and currency minor amounts', () => {
@@ -172,6 +189,49 @@ test('legacy zero quote is distinct from unknown; legacy capacity unchanged', ()
   )
 })
 
+test('legacy nonempty variants with corrupt ranges stay unknown, not free or out of stock', () => {
+  for (const [low, high] of [
+    [null, 0],
+    [0, null],
+    [-1, 0],
+    [1, 0],
+    [0.5, 1],
+    [0, Number.MAX_SAFE_INTEGER + 1],
+    [Number.NaN, 0],
+    [0, Number.POSITIVE_INFINITY],
+  ]) {
+    const markup = render(
+      <StoreProductPrice
+        product={{
+          ...product,
+          record_kind: 'legacy',
+          price_quota: 0,
+          price_min_quota: low,
+          price_max_quota: high,
+        }}
+      />
+    )
+    assert.match(markup, /No data provided/)
+    assert.doesNotMatch(markup, /No variants|0 credits|NaN|Infinity/)
+  }
+})
+
+test('an explicitly empty legacy variant list is unavailable even with stale zero-price range', () => {
+  const markup = render(
+    <StoreProductPrice
+      product={{
+        ...product,
+        record_kind: 'legacy',
+        variants: [],
+        price_min_quota: 0,
+        price_max_quota: 0,
+      }}
+    />
+  )
+  assert.match(markup, /No variants are currently available/)
+  assert.doesNotMatch(markup, /0 credits/)
+})
+
 for (const buyer of [true, false]) {
   for (const status of [
     'pending',
@@ -211,6 +271,19 @@ for (const buyer of [true, false]) {
     })
   }
 }
+
+test('logged-out order rows expose neither order content nor transaction actions', () => {
+  useAuthStore.getState().auth.reset()
+  const order = {
+    id: 'private-order',
+    trade_no: 'private-order',
+    product_title: 'Private order content',
+    status: 'pending',
+    quantity: 1,
+    price_quota: 100,
+  } as StoreOrder
+  assert.equal(render(<StoreOrderRow order={order} buyer locale='en' />), '')
+})
 
 test('native checkout stays read-only even with legacy-looking capabilities', () => {
   useAuthStore.getState().auth.setBootstrapState('complete')

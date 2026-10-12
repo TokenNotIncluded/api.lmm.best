@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { MarketAIReviewHistory } from '@/features/market-ai-review/history'
 import { useMarketMoneyDraft } from '@/features/tool-market/money'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
-import { useAuthStore } from '@/stores/auth-store'
+import { useAuthStore, type AuthUser } from '@/stores/auth-store'
 
 import { storeApi } from './api'
 import { StoreCategoriesManager } from './categories'
@@ -23,15 +23,15 @@ import { safeStoreUrl } from './utils'
 import { StoreProductPrice } from './variant-summary'
 
 export function StoreReviewPage() {
+  const user = useAuthStore((state) => state.auth.user)
   return (
     <StoreAuthGate>
-      <StoreReviews />
+      {user && <StoreReviews key={user.id} user={user} />}
     </StoreAuthGate>
   )
 }
-function StoreReviews() {
+function StoreReviews({ user }: { user: AuthUser }) {
   const { t } = useTranslation()
-  const user = useAuthStore((state) => state.auth.user)!
   const [page, setPage] = useState(1)
   const [aiReviewId, setAIReviewId] = useState<string | null>(null)
   const query = useQuery({

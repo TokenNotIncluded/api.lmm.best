@@ -2713,6 +2713,56 @@ for (const preparation of [
   })
 }
 
+test('account switching and logout discard an order row payment session without issuing another payment', async () => {
+  owner(2)
+  const pending = pendingPaymentOrder()
+  let payments = 0
+  api.post = (async () => {
+    payments++
+    return result({
+      order_id: pending.id,
+      method: 'GET',
+      payment_url: 'https://gateway.example.test/private-session',
+      currency: 'CNY',
+      amount: '7.00',
+      amount_minor: 700,
+      status: 'pending',
+    })
+  }) as typeof api.post
+  await mount(<StoreOrderRow order={pending} buyer locale='en' />)
+  await click(button('Prepare payment'))
+  assert.ok(button('Continue to payment'))
+  await act(async () => {
+    owner(3)
+    await flush()
+  })
+  assert.equal(
+    document.body.textContent?.includes('Continue to payment'),
+    false
+  )
+  assert.equal(
+    document.querySelector(
+      '[href="https://gateway.example.test/private-session"]'
+    ),
+    null
+  )
+  await act(async () => {
+    owner(null)
+    await flush()
+  })
+  assert.equal(document.body.textContent?.trim(), '')
+  await act(async () => {
+    owner(2)
+    await flush()
+  })
+  assert.ok(button('Prepare payment'))
+  assert.equal(
+    document.body.textContent?.includes('Continue to payment'),
+    false
+  )
+  assert.equal(payments, 1)
+})
+
 test('an updated paid order clears a previously prepared payment session', async () => {
   owner(2)
   const pending = pendingPaymentOrder()
