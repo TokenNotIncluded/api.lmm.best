@@ -94,7 +94,7 @@ func nativeProductView(row LocatedProduct, public bool) (map[string]any, error) 
 	var min, max any
 	allCredits := true
 	for _, v := range row.Variants {
-		if v.Legacy != nil || v.ProductID != p.ID || !Text(v.ID, 128) || !v.Price.valid() || v.Price.Amount > legacySafeInteger || v.Stock < 0 || v.Stock > legacySafeInteger || v.Reserved < 0 || v.Reserved > v.Stock || v.Claimed < 0 || v.Claimed > legacySafeInteger || v.Quota < -1 {
+		if v.Legacy != nil || v.ProductID != p.ID || !Text(v.ID, 128) || !v.Price.valid() || v.Price.Amount > legacySafeInteger || v.Stock < 0 || v.Stock > legacySafeInteger || v.Reserved < 0 || v.Reserved > legacySafeInteger || (v.TrackStock && v.Reserved > v.Stock) || v.Claimed < 0 || v.Claimed > legacySafeInteger || v.Quota < -1 {
 			return nil, ErrUnavailable
 		}
 		var credits any

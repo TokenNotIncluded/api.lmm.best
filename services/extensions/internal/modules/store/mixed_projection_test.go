@@ -49,6 +49,44 @@ func TestNativeProductProjectionKeepsUnitsAndRejectsCorruption(t *testing.T) {
 	}
 }
 
+func TestNativeProductProjectionReservationBounds(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		trackStock bool
+		stock      int64
+		reserved   int64
+		valid      bool
+	}{
+		{"unlimited reservation", false, 0, 1, true},
+		{"unlimited safe maximum", false, 0, legacySafeInteger, true},
+		{"tracked reservation", true, 2, 1, true},
+		{"tracked exhausted", true, 1, 1, true},
+		{"tracked over-reserved", true, 0, 1, false},
+		{"negative reservation", false, 0, -1, false},
+		{"unsafe reservation", false, 0, legacySafeInteger + 1, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			row := LocatedProduct{Owner: Account{Kind: "personal", ID: 1}, Product: Product{ID: "native", Title: "Native", Published: true}, Variants: []Variant{{ID: "v", ProductID: "native", Title: "Native", Price: Price{Unit: "credits", Amount: 123}, Quota: -1, TrackStock: tc.trackStock, Stock: tc.stock, Reserved: tc.reserved}}}
+			view, err := legacyProductView(row, true, true)
+			if !tc.valid {
+				if !errors.Is(err, ErrUnavailable) || view != nil {
+					t.Fatalf("invalid reservation projected: %v %v", view, err)
+				}
+				return
+			}
+			must(t, err)
+			variant := view["variants"].([]map[string]any)[0]
+			available := tc.stock - tc.reserved
+			if !tc.trackStock {
+				available = -1
+			}
+			if variant["inventory_available"] != available || variant["reserved_stock"] != tc.reserved || variant["unlimited_supply"] != !tc.trackStock {
+				t.Fatal(variant)
+			}
+		})
+	}
+}
+
 func TestNativeOrderProjectionNoDeliveryOrInventedMetadata(t *testing.T) {
 	row := LocatedOrder{ProductID: "native", Order: Order{ID: "o", Buyer: Account{Kind: "personal", ID: 2}, Seller: Account{Kind: "personal", ID: 1}, Quantity: 1, UnitPrice: Price{Unit: "credits", Amount: 123}, Total: Price{Unit: "credits", Amount: 123}, Delivery: "PRIVATE_DELIVERY", PaymentRef: "PRIVATE_RECEIPT"}}
 	for _, state := range []string{AwaitingPayment, PaymentPending, Paid, Fulfilled, SettlementPending, Settled, RefundPending, Refunded, Cancelled} {
