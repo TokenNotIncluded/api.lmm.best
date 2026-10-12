@@ -7,6 +7,7 @@
 默认开发主线为 `wip/rust-core-go-extensions`；`main` 与 `traditional` 已冻结，
 见[分支交接规则](development-branches.md)。
 传统 main 的增量是否已移植，见[固定源码对齐核查](main-wip-parity-audit.md)。
+保存内容的本机组件测试入口见 [RT16](../scripts/security/rt16/README.md)。
 [Extore 商品同步](extore-shop-binding-followup.md)尚未验收，禁止部署。
 
 ## 主要入口
