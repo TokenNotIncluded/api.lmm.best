@@ -69,10 +69,11 @@ func TestSchemaMaintenanceRequiresFinanciallyCleanNormalShutdownReports(t *testi
 	}
 	for name, journal := range map[string]string{
 		"missing refund":    strings.Replace(good, refund, "", 1),
-		"missing flush":     strings.Replace(good, flush, "", 1),
 		"refund incomplete": strings.Replace(good, "finished=2", "finished=1", 1),
 		"refund failed":     strings.Replace(good, "active=0 failed=0", "active=0 failed=1", 1),
+		"flush failed":      strings.Replace(good, "persisted=12 failed=0", "persisted=12 failed=1", 1),
 		"flush dropped":     strings.Replace(good, "dropped=0", "dropped=1", 1),
+		"flush malformed":   strings.Replace(good, flush, "quota dashboard flush: persisted=12 failed=0\n", 1),
 		"double flush":      good + flush,
 		"double refund":     good + refund,
 		"missing exit":      strings.Replace(good, "server exited", "", 1),
@@ -81,6 +82,27 @@ func TestSchemaMaintenanceRequiresFinanciallyCleanNormalShutdownReports(t *testi
 		t.Run(name, func(t *testing.T) {
 			if validateSchemaMaintenanceShutdown([]byte(journal)) == nil {
 				t.Fatal("accepted incomplete/failed shutdown financial drain")
+			}
+		})
+	}
+}
+
+// SaveQuotaDataCache emits no flush line when both pending and dropped are zero.
+func TestSchemaMaintenanceAcceptsNormalShutdownWithEmptyQuotaCache(t *testing.T) {
+	refund := "refund_tasks execution_complete=true accepted=0 finished=0 active=0 failed=0 (execution completion is not financial success)\n"
+	good := "received signal: terminated\n" + refund + "server exited\n"
+	if err := validateSchemaMaintenanceShutdown([]byte(good)); err != nil {
+		t.Fatalf("clean normal exit with an empty quota cache: %v", err)
+	}
+	for name, journal := range map[string]string{
+		"missing refund":       strings.Replace(good, refund, "", 1),
+		"incomplete refund":    strings.Replace(good, "execution_complete=true", "execution_complete=false", 1),
+		"missing exit":         strings.Replace(good, "server exited", "", 1),
+		"failed present flush": strings.Replace(good, "server exited", "quota dashboard flush: persisted=0 failed=1 dropped=0\nserver exited", 1),
+	} {
+		t.Run(name, func(t *testing.T) {
+			if validateSchemaMaintenanceShutdown([]byte(journal)) == nil {
+				t.Fatal("accepted missing normal completion or failed present flush")
 			}
 		})
 	}

@@ -459,8 +459,10 @@ func validateSchemaMaintenanceShutdown(journal []byte) error {
 	if err := validateBillingShutdownJournal(journal); err != nil {
 		return err
 	}
-	if bytes.Count(journal, []byte("refund_tasks execution_complete=")) != 1 || bytes.Count(journal, []byte("quota dashboard flush:")) != 1 {
-		return errors.New("schema maintenance requires the tracked refund completion and quota flush reports")
+	// SaveQuotaDataCache is silent when no quota data or drops remain. The
+	// billing validator still rejects every failed or malformed present flush.
+	if bytes.Count(journal, []byte("refund_tasks execution_complete=")) != 1 {
+		return errors.New("schema maintenance requires the tracked refund completion report")
 	}
 	return nil
 }
