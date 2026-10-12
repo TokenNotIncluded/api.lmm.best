@@ -68,24 +68,30 @@ func TestSchemaMaintenanceDeadPreExecDataActualPostgres(t *testing.T) {
 		}
 		f.unchanged(options, money)
 	})
-	t.Run("delete trigger changes old money and rolls owner and money back", func(t *testing.T) {
-		f.t = t
-		f.reset()
-		f.mutate(`GRANT UPDATE ON dead_pre.credits TO lmm_dead_pre_business;
-CREATE FUNCTION public.dead_pre_change_money() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN UPDATE dead_pre.credits SET quota=quota-1 WHERE id=1; RETURN OLD; END$$;
-CREATE TRIGGER change_money_after_owner_delete AFTER DELETE ON dead_pre.options FOR EACH ROW EXECUTE FUNCTION public.dead_pre_change_money()`)
-		t.Cleanup(func() {
-			f.mutate(`DROP TRIGGER change_money_after_owner_delete ON dead_pre.options; DROP FUNCTION public.dead_pre_change_money()`)
-		})
-		expected := f.snapshot()
-		before := schemaMaintenanceDeadPreExecDataFixture(t, f)
-		owner, raw := f.owner()
-		f.seed(owner, raw)
-		options, money := f.options(), f.money()
-		data := productionSchemaMaintenanceDeadPreExecData{Before: before, OriginalOwnerRaw: raw}
-		if err := f.lease.recoverSchemaMaintenanceDeadPreWorkerOwner(f.ctx, expected, raw, schemaMaintenanceDeadPreWorkerExactOwner, func(context.Context) error { return nil }, data); err == nil {
-			t.Fatal("typed data gate ignored money changed by the exact owner DELETE")
+	for _, deferred := range []bool{false, true} {
+		name, trigger := "immediate", "CREATE TRIGGER change_money_after_owner_delete AFTER DELETE ON dead_pre.options FOR EACH ROW EXECUTE FUNCTION public.dead_pre_change_money()"
+		if deferred {
+			name, trigger = "deferred", "CREATE CONSTRAINT TRIGGER change_money_after_owner_delete AFTER DELETE ON dead_pre.options DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION public.dead_pre_change_money()"
 		}
-		f.unchanged(options, money)
-	})
+		t.Run(name+" delete trigger changes old money and rolls owner and money back", func(t *testing.T) {
+			f.t = t
+			f.reset()
+			f.mutate(`GRANT UPDATE ON dead_pre.credits TO lmm_dead_pre_business;
+CREATE FUNCTION public.dead_pre_change_money() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN UPDATE dead_pre.credits SET quota=quota-1 WHERE id=1; RETURN OLD; END$$;
+` + trigger)
+			t.Cleanup(func() {
+				f.mutate(`DROP TRIGGER change_money_after_owner_delete ON dead_pre.options; DROP FUNCTION public.dead_pre_change_money()`)
+			})
+			expected := f.snapshot()
+			before := schemaMaintenanceDeadPreExecDataFixture(t, f)
+			owner, raw := f.owner()
+			f.seed(owner, raw)
+			options, money := f.options(), f.money()
+			data := productionSchemaMaintenanceDeadPreExecData{Before: before, OriginalOwnerRaw: raw}
+			if err := f.lease.recoverSchemaMaintenanceDeadPreWorkerOwner(f.ctx, expected, raw, schemaMaintenanceDeadPreWorkerExactOwner, func(context.Context) error { return nil }, data); err == nil {
+				t.Fatal("typed data gate ignored money changed by the exact owner DELETE")
+			}
+			f.unchanged(options, money)
+		})
+	}
 }

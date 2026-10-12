@@ -112,6 +112,13 @@ func (lease *productionMerchantStoreFence) recoverSchemaMaintenanceDeadPreWorker
 			return errors.New("dead-preworker CAS did not return its sole exact original owner")
 		}
 	}
+	if len(preExecData) == 1 {
+		// Drain deferred DELETE triggers before the final catalog/data checks;
+		// otherwise a trigger could change old money only during COMMIT.
+		if _, err := tx.Exec(ctx, "SET CONSTRAINTS ALL IMMEDIATE"); err != nil {
+			return errors.New("dead-preworker pre-execution deferred constraints did not finish before data qualification")
+		}
+	}
 	if err := guard(ctx); err != nil {
 		return err
 	}
