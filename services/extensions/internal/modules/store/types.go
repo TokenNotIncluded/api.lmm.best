@@ -111,7 +111,7 @@ type Variant struct {
 // Stock includes reserved physical units. Quota is an absolute sales ceiling;
 // -1 means unlimited. Lowering it below Claimed stops new sales, not existing orders.
 func (v *Variant) reserve(n int64) error {
-	if n <= 0 || v.Reserved > math.MaxInt64-n || v.Claimed > math.MaxInt64-n {
+	if n <= 0 || v.Reserved < 0 || v.Claimed < 0 || v.Reserved > math.MaxInt64-n || v.Claimed > math.MaxInt64-n {
 		return ErrInvalid
 	}
 	if (v.TrackStock && v.Stock-v.Reserved < n) || (v.Quota >= 0 && (v.Claimed >= v.Quota || v.Quota-v.Claimed < n)) {
@@ -122,6 +122,9 @@ func (v *Variant) reserve(n int64) error {
 	return nil
 }
 func (v *Variant) release(n int64) error {
+	if n <= 0 {
+		return ErrInvalid
+	}
 	if v.Reserved < n || v.Claimed < n {
 		return ErrConflict
 	}
@@ -189,11 +192,12 @@ func Key(s string) bool   { return Text(s, 128) }
 func Page(limit int) bool { return limit > 0 && limit <= 100 }
 
 type Service struct {
-	repo          Repository
-	auth          Authority
-	funds         Funds
-	recoveryMu    sync.Mutex
-	recoveryAfter string
+	repo               Repository
+	auth               Authority
+	funds              Funds
+	recoveryMu         sync.Mutex
+	recoveryAfter      string
+	moneyRecoveryAfter MoneyCursor
 }
 
 func New(repo Repository, auth Authority, funds Funds) (*Service, error) {

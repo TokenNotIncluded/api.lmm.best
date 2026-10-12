@@ -229,17 +229,22 @@ func (s *Service) legacyOrder(ctx context.Context, token string, actor Account, 
 	case "cancel_order":
 		_, err = s.ChangeOrder(ctx, token, OrderChange{ShopID: row.ShopID, OrderID: o.ID, Action: "cancel"})
 		return nil, err
-	case "pay_order", "reconcile_order":
-		if r.Action == "pay_order" {
-			var in struct {
-				Currency string `json:"currency"`
-			}
-			if legacyDecode(r.Body, &in) != nil {
-				return nil, ErrInvalid
-			}
-			if in.Currency != "" && in.Currency != "USD" {
-				return nil, ErrInvalid
-			}
+	case "reconcile_order":
+		o, err = s.reconcileOrderMoney(ctx, row.ShopID, o.ID)
+		if err != nil {
+			return nil, err
+		}
+		row.Order = o
+		return legacyOrderView(row)
+	case "pay_order":
+		var in struct {
+			Currency string `json:"currency"`
+		}
+		if legacyDecode(r.Body, &in) != nil {
+			return nil, ErrInvalid
+		}
+		if in.Currency != "" && in.Currency != "USD" {
+			return nil, ErrInvalid
 		}
 		if o.Total.Amount > 0 && !s.funds.Available() {
 			return nil, ErrPaymentUnavailable
@@ -278,9 +283,6 @@ func (s *Service) legacyOrder(ctx context.Context, token string, actor Account, 
 				view, _ := legacyOrderView(row)
 				return view, ErrPending
 			}
-		}
-		if r.Action == "reconcile_order" {
-			return legacyOrderView(row)
 		}
 		return map[string]any{"order_id": o.ID, "method": "balance", "amount_minor": 0, "amount": "0", "currency": "", "status": "paid"}, nil
 	}

@@ -1,6 +1,7 @@
 //! Authenticated store escrow over the real ledger. Never calls Go or a provider.
 //! A service credential only enables this port; the current user, exact frozen
 //! order, key scope, funding grants and shared budgets authorize every mutation.
+mod identifiers;
 pub mod rpc;
 
 use crate::{
@@ -161,7 +162,7 @@ impl MoneyCommand {
     fn validate(&self) -> Result<i64> {
         if !hash_id(&self.shop_id)
             || !hash_id(&self.order_id)
-            || !hash_id(&self.order_snapshot.variant_id)
+            || !identifiers::variant_id(&self.order_snapshot.variant_id)
             || !self.buyer.is_valid()
             || !self.seller.is_valid()
             || self.buyer == self.seller
