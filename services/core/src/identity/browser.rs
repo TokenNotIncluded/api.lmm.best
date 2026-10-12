@@ -1,4 +1,5 @@
 //! Browser-session compatibility without importing legacy sessions or funds.
+mod password;
 use super::*;
 use hmac::{Hmac, Mac};
 use subtle::ConstantTimeEq;

@@ -250,22 +250,60 @@ async fn models(State(state): State<AuthState>, headers: HeaderMap) -> Response 
         .await,
     )
 }
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(super) struct PasswordUpdate {
+    original_password: String,
+    password: String,
+    display_name: Option<String>,
+}
+
+// Both variants reject unknown fields. Mixed password/preferences requests
+// fail rather than silently dropping one part of a security-sensitive update.
+#[derive(Deserialize)]
+#[serde(untagged)]
+pub(super) enum ProfileMutation {
+    Password(PasswordUpdate),
+    Preferences(ProfileUpdate),
+}
+
 pub(super) async fn profile(
     State(state): State<AuthState>,
     headers: HeaderMap,
-    input: Result<Json<ProfileUpdate>, JsonRejection>,
+    input: Result<Json<ProfileMutation>, JsonRejection>,
 ) -> Response {
     let Ok(Json(body)) = input else {
         return auth_failure(IdentityError::Invalid.into());
     };
-    respond(
-        async {
-            state
-                .store
-                .update_dashboard_profile(access(&headers)?, &body)
-                .await?;
-            Ok(Value::Null)
+    match body {
+        ProfileMutation::Password(body) => {
+            let result = async {
+                state
+                    .browser
+                    .change_password(
+                        access(&headers)?,
+                        &body.original_password,
+                        &body.password,
+                        body.display_name.as_deref(),
+                        expected_sid(&headers)?,
+                    )
+                    .await
+            }
+            .await;
+            match result {
+                Ok(bundle) => bundle_response(bundle, &state.config),
+                Err(error) => auth_failure(error),
+            }
         }
-        .await,
-    )
+        ProfileMutation::Preferences(body) => respond(
+            async {
+                state
+                    .store
+                    .update_dashboard_profile(access(&headers)?, &body)
+                    .await?;
+                Ok(Value::Null)
+            }
+            .await,
+        ),
+    }
 }
