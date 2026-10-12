@@ -11,6 +11,10 @@ import (
 )
 
 func SaveMerchantStoreProduct(actor int, id string, in MerchantStoreProductInput) (*MerchantStoreProduct, error) {
+	return saveMerchantStoreProductDB(DB, actor, id, in, false)
+}
+
+func saveMerchantStoreProductDB(db *gorm.DB, actor int, id string, in MerchantStoreProductInput, upstream bool) (*MerchantStoreProduct, error) {
 	if e := storePrepareProductVariants(id, &in); e != nil {
 		return nil, e
 	}
@@ -18,7 +22,12 @@ func SaveMerchantStoreProduct(actor int, id string, in MerchantStoreProductInput
 		return nil, e
 	}
 	var p MerchantStoreProduct
-	e := marketTransaction(DB, func(tx *gorm.DB) error {
+	e := marketTransaction(db, func(tx *gorm.DB) error {
+		if id != "" && !upstream {
+			if err := storeRequireLocalProductSource(tx, id); err != nil {
+				return err
+			}
+		}
 		if in.CategoryID != nil {
 			if e := storeRequireCategoriesWriter(tx); e != nil {
 				return e

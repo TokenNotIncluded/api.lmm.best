@@ -3,6 +3,8 @@ import { api } from '@/lib/api'
 
 import { STORE_ACCESS_COPY } from './access-copy'
 import type { StoreCatalogueProduct } from './catalogue-types'
+import type { ExtoreConnections } from './extore-sync'
+import type { ExtoreCatalog } from './extore-import-protocol'
 import type { ExtoreAuthorization } from './extore-import-protocol'
 import { storeSocialProductResponse } from './product-social-state'
 import { STORE_PUBLISHING_COPY as publishingCopy } from './publishing-copy'
@@ -164,6 +166,9 @@ async function allStoreCategories(admin = false): Promise<StoreCategoryList> {
   }
 }
 export const storeApi = {
+  extoreConnections: () => unwrap<ExtoreConnections>(api.get(`${root}/extore/connections`, options)),
+  extoreConnectionCatalog: (id: string) => unwrap<ExtoreCatalog & {products:(ExtoreCatalog['products'][number] & {card_summary?:{total?:number;states?:Record<string,number>}})[]}>(api.get(`${root}/extore/connections/${encodeURIComponent(id)}/catalog`,options)),
+  extoreSync: (id: string, source_id: string) => unwrap<unknown>(api.post(`${root}/extore/connections/${encodeURIComponent(id)}/sync`,{source_id},options)),
   extoreAuthorize: (base_url: string, client_id: string) =>
     unwrap<ExtoreAuthorization>(
       api.post(`${root}/extore/authorize`, { base_url, client_id }, options)

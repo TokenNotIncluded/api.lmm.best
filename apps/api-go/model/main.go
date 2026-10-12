@@ -368,6 +368,7 @@ func mainMigrationModels() []interface{} {
 		&PublicRelayContribution{}, &PublicRelayReport{}, &PublicRelayTip{}, &PublicRelayReview{}, &PublicRelayPreference{}, &AIDirectoryAd{},
 	}, toolMarketModels()...)
 	models = append(models, MerchantStoreModels()...)
+	models = append(models, MerchantStoreExtoreModels()...)
 	return append(models, MerchantStoreSupportModels()...)
 }
 

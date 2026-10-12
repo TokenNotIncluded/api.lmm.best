@@ -48,6 +48,7 @@ import {
 } from './delivery-template'
 import { extoreCallbackURL, clearExtoreCallbackURL } from './extore-callback'
 import { StoreExtoreImport } from './extore-import'
+import { StoreExtoreConnections, StoreExtoreProductSync } from './extore-sync'
 import { EXTORE_COPY as extoreCopy } from './extore-import-copy'
 import type { ExtoreDraft } from './extore-import-protocol'
 import { STORE_FIXED_CONTENT_COPY as fixedCopy } from './fixed-content-copy'
@@ -314,6 +315,7 @@ function StoreSellerCenter() {
           </Button>
         </div>
       </div>
+      <StoreExtoreConnections />
       <StoreError
         error={error || query.error}
         retry={() => void query.refetch()}
@@ -358,6 +360,7 @@ function StoreSellerCenter() {
                     )}
                   </div>
                   <div className='flex flex-wrap gap-2 [&_button]:min-h-10 [&_button]:rounded-full'>
+                  <StoreExtoreProductSync productId={product.id} />
                     <Button
                       size='sm'
                       variant='outline'
@@ -674,19 +677,14 @@ function StoreSellerCenter() {
         ) : config.data?.extore_import_supported &&
           config.data.extore_redirect_uri ? (
           <StoreExtoreImport
-            userId={user.id}
             callbackUrl={extoreCallback}
-            redirectUri={config.data.extore_redirect_uri}
-            accessSupported={config.data.store_access_supported === true}
             onClose={() => {
               setImporting(false)
               setExtoreCallback(null)
             }}
-            onImport={(draft) => {
-              setImportedDraft(draft)
-              setImporting(false)
-              setExtoreCallback(null)
-              setEditing('new')
+            onImported={() => {
+              void client.invalidateQueries({queryKey:['store']})
+              setImportedDraft(null)
             }}
           />
         ) : (

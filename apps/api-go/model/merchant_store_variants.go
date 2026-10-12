@@ -197,6 +197,9 @@ func SaveMerchantStoreVariant(actor int, productID, id string, in MerchantStoreV
 	}
 	var result MerchantStoreVariant
 	err := storeWithActiveProduct(productID, func(tx *gorm.DB, p *MerchantStoreProduct) error {
+		if err := storeRequireLocalProductSource(tx, productID); err != nil {
+			return err
+		}
 		if err := storeRequireVariantWriter(tx); err != nil {
 			return err
 		}
@@ -252,6 +255,9 @@ func SaveMerchantStoreVariant(actor int, productID, id string, in MerchantStoreV
 
 func SetMerchantStoreVariantEnabled(actor int, productID, id string, enabled bool) error {
 	return storeWithActiveProduct(productID, func(tx *gorm.DB, p *MerchantStoreProduct) error {
+		if err := storeRequireLocalProductSource(tx, productID); err != nil {
+			return err
+		}
 		if err := storeRequireVariantWriter(tx); err != nil {
 			return err
 		}

@@ -91,6 +91,9 @@ func SetMerchantStoreProductSaleLimit(actor int, id string, limit *int64) error 
 		return ErrMerchantStoreInput
 	}
 	return storeWithActiveProduct(id, func(tx *gorm.DB, p *MerchantStoreProduct) error {
+		if err := storeRequireLocalProductSource(tx, id); err != nil {
+			return err
+		}
 		if err := storeRequireWriter(tx); err != nil {
 			return err
 		}

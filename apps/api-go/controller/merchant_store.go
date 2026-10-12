@@ -37,6 +37,8 @@ func merchantStoreRespond(c *gin.Context, value any, err error) {
 	status, code, message := http.StatusInternalServerError, "STORE_UNAVAILABLE", "The shop could not complete this request."
 	var termsUpdated *model.MerchantStoreTermsUpdatedError
 	switch {
+	case errors.Is(err, model.ErrMerchantStoreExtoreSourceManaged):
+		status, code, message = http.StatusConflict, "STORE_EXTORE_SOURCE_MANAGED", "Edit this imported product in Extore, then synchronize it"
 	case errors.Is(err, gorm.ErrRecordNotFound):
 		status, code, message = http.StatusNotFound, "STORE_NOT_FOUND", "The shop item or order was not found."
 	case errors.Is(err, model.ErrMerchantStoreInput):

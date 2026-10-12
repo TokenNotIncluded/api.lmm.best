@@ -45,6 +45,9 @@ func setMerchantStoreRouter(parent *assistantRouterGroup) {
 
 	self := parent.Group("/store")
 	self.Use(middleware.UserAuth(), middleware.DisableCache())
+	self.GET("/extore/connections", controller.ListMerchantStoreExtoreConnections)
+	self.GET("/extore/connections/:id/catalog", controller.GetMerchantStoreExtoreConnectionCatalog)
+	self.POST("/extore/connections/:id/sync", middleware.RequestBodyLimit(4<<10), middleware.CriticalRateLimit(), controller.SyncMerchantStoreExtoreProduct)
 	self.POST("/extore/authorize", middleware.RequestBodyLimit(4<<10), middleware.CriticalRateLimit(), controller.AuthorizeMerchantStoreExtore)
 	self.POST("/extore/catalog", middleware.RequestBodyLimit(16<<10), middleware.CriticalRateLimit(), controller.ReadMerchantStoreExtoreCatalog)
 	self.POST("/orders", middleware.RequestBodyLimit(8<<10), middleware.CriticalRateLimit(), controller.CreateMerchantStoreOrder)
