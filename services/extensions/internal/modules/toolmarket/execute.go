@@ -2,9 +2,6 @@ package toolmarket
 
 import (
 	"context"
-	"encoding/json"
-
-	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/assistant/redaction"
 )
 
 func (m *Module) execute(ctx context.Context, p Principal, credential string, in ExecuteInput) (any, error) {
@@ -125,7 +122,11 @@ func (m *Module) execute(ctx context.Context, p Principal, credential string, in
 	if e != nil {
 		return nil, ErrPending
 	}
-	defer c.close(ctx)
+	defer func() {
+		if !c.preserve {
+			c.close(ctx)
+		}
+	}()
 	// Network initialization may be slow. Recheck live Core authority and local
 	// consent after it, then persist the dispatch boundary before tools/call.
 	if e = m.reauthorize(ctx, p, credential, "toolmarket.execute"); e != nil {
@@ -151,52 +152,32 @@ func (m *Module) execute(ctx context.Context, p Principal, credential string, in
 	if e != nil {
 		return nil, ErrPending
 	}
+	expected := Execution{Owner: p, Fingerprint: fingerprint, RequestHash: requestHash, Grant: in.Grant, State: "dispatched", Charge: charge}
+	m.bindExecutionStream(ctx, p, credential, id, expected, i, r, c)
 	result, e := c.rpc(ctx, "tools/call", map[string]any{"name": t.Name, "arguments": canonical})
 	if e != nil {
 		return nil, ErrPending
 	}
-	var check struct {
-		Content []json.RawMessage `json:"content"`
-		IsError bool              `json:"isError"`
-	}
-	if json.Unmarshal(result, &check) != nil || check.Content == nil {
-		return nil, ErrPending
-	}
-	result, e = redaction.JSON(result, credential, s.Access, s.Refresh)
+	// A valid isError result is still an accepted fixed-price invocation.
+	record, e := m.saveExecutionResult(p, id, expected, result, credential, s.Access, s.Refresh)
 	if e != nil {
 		return nil, ErrPending
 	}
-	// A valid isError result still represents an accepted fixed-price call.
-	// Sanitization precedes persistence and every response, including retries.
-	state := "done"
-	if q.Amount > 0 {
-		state = "settlement_pending"
-	}
-	record := Execution{Owner: p, Fingerprint: fingerprint, RequestHash: requestHash, Grant: in.Grant, State: state, Charge: charge, Result: result}
-	e = m.store.update(func(d *database) error {
-		v, ok := d.Executions[id]
-		if !ok || v.Owner != p || v.RequestHash != requestHash || v.State != "dispatched" {
-			return ErrConflict
-		}
-		d.Executions[id] = record
-		d.audit(p, "execute", id, state)
-		return nil
-	})
-	if e != nil {
-		return nil, ErrPending
-	}
-	if state == "settlement_pending" {
+	c.preserve = false
+	if record.State == "settlement_pending" {
 		return m.settle(ctx, p, credential, id, record)
 	}
-	return result, nil
+	return record.Result, nil
 }
 
 func (m *Module) replay(ctx context.Context, p Principal, credential, id string, record Execution) (any, error) {
 	switch record.State {
 	case "done":
-		return record.Result, nil
+		return m.executionResult(p, credential, record)
 	case "settlement_pending":
 		return m.settle(ctx, p, credential, id, record)
+	case "dispatched":
+		return m.resumeExecution(ctx, p, credential, id, record)
 	default:
 		return nil, ErrPending
 	}
@@ -205,6 +186,10 @@ func (m *Module) replay(ctx context.Context, p Principal, credential, id string,
 func (m *Module) settle(ctx context.Context, p Principal, credential, id string, record Execution) (any, error) {
 	if m.funds == nil {
 		return nil, ErrFunds
+	}
+	result, err := m.executionResult(p, credential, record)
+	if err != nil {
+		return nil, err
 	}
 	if e := m.funds.Commit(ctx, credential, p, record.Charge); e != nil {
 		return nil, ErrPending
@@ -221,6 +206,7 @@ func (m *Module) settle(ctx context.Context, p Principal, credential, id string,
 			return ErrConflict
 		}
 		v.State = "done"
+		v.Result = result
 		d.Executions[id] = v
 		d.audit(p, "settle", id, "done")
 		return nil
@@ -228,5 +214,5 @@ func (m *Module) settle(ctx context.Context, p Principal, credential, id string,
 	if e != nil {
 		return nil, ErrPending
 	}
-	return record.Result, nil
+	return result, nil
 }

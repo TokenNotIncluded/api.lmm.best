@@ -16,6 +16,10 @@ Construct the module with `New(store, authority, Config{...})`.
   requires explicit `toolmarket.review` and `toolmarket.config` decisions. The existing three read-only
   RPCs must not be treated as proof of these new permissions. No permissive
   default or local role store is provided.
+- Confirmation additionally requires `ConfirmationAuthority.VerifyToolConfirmation`
+  with a server-built immutable `ConfirmationIntent`, verified human-session
+  identity and short-lived proof of the exact intent. Missing proof fails
+  closed. It is a local consumer interface, not an implemented Core RPC.
 - `Funds` is an optional adapter interface, not a protobuf proposal. No real
   adapter is included because the shared money RPC is not yet available.
   With `Funds == nil`, every known paid call fails with HTTP 503
@@ -190,10 +194,12 @@ still applies: revoking the user's action permission blocks this endpoint. `POST
 An uncertain reserve, disconnected provider call or crash leaves
 `execution_in_doubt`. The module does **not** invent exactly-once guarantees for
 external side effects, automatically retry calls, or release a reservation when
-the provider might already have executed. `started` and `dispatched` records require reconciliation through the future
-core contract. `started` may include an uncertain reserve; `dispatched` means
-external dispatch was authorized and durably marked, not that a response was
-received. Neither state is proof of failure or permission to refund. Never retry an uncertain call with a new key.
+the provider might already have executed. `started` may include an uncertain
+reserve. A `dispatched` operation can read its original SSE result only when it
+has a valid durable stream checkpoint, as described below. Without that evidence
+it remains uncertain and needs the future reconciliation contract. Neither
+state proves failure or permits a refund. Never retry an uncertain call with a
+new key.
 
 ## Durable execution consent
 
@@ -206,7 +212,8 @@ Native user endpoints are separate from the four MCP metatools:
   neither reserves funds nor invokes the tool.
 - `POST /grants/confirm`: exactly `grant` and `confirmation`; no editable owner,
   price or limit fields. The matching owner must confirm within five minutes
-  and before expiry. Reusing confirmation is rejected.
+  and before expiry, after the independent direct-human check succeeds.
+  Reusing confirmation is rejected.
 - `POST /grants/revoke`: `grant`; revocation is idempotent.
 - `POST /grants/status`: `grant`; reads the caller's record, never the confirmation
   hash or another user's consent.
@@ -214,9 +221,14 @@ Native user endpoints are separate from the four MCP metatools:
 Preview/confirm/revoke require live `toolmarket.authorize`; status requires
 `toolmarket.read`; execution separately requires `toolmarket.execute`. The
 A01/A02 adapter must distinguish a direct user's approval from an agent's
-execution permission. These endpoints alone do not prove a human was present,
-and no model metatool can issue or confirm a grant. HumanGrant/session scope
-integration remains an independent gate.
+execution permission. Ordinary `Authorize` success cannot activate a grant:
+`confirmGrant` also calls `VerifyToolConfirmation`, rejecting missing,
+invalid, expired, cancelled or panicking checks before it writes approval state.
+The verifier binds the complete server-side intent hash, human session, owner,
+audience and validity; it cannot trust model or client fields. No model metatool
+can issue or confirm a grant. The
+browser gateway still needs its own session and request-forgery protection;
+this local interface is not proof of a completed HumanGrant integration.
 
 Consent binds the user **and** account, installation, immutable release/tool,
 connection generation, schema handle, exact argument hash, quote, amount and currency. It has a
@@ -245,18 +257,24 @@ effects cannot be recalled. Later consent revocation does not erase receipts.
 
 Existing encrypted files remain readable through an optional `execution_grants`
 section. No startup migration or automatic grants are added. New calls without
-consent fail. Legacy execution receipts without the new request hash retain
-the older replay checks; they are not retroactively assigned a grant or given
-new retry authority. Storage remains bounded single-writer Linux storage.
+consent fail. Grants without a valid `ApprovalID` and matching server-built `ApprovalHash`
+cannot authorize new dispatches; they require a new preview and confirmation.
+Old records are not automatically promoted. Already accepted operations retain
+their original reconciliation paths. Legacy execution receipts without the new
+request hash retain the older replay checks; they are not retroactively assigned
+a grant or given new retry authority. Storage remains bounded single-writer
+Linux storage.
 
 MCP result JSON is checked for duplicate keys, depth, size and valid UTF-8, then
 masked before persistence, model/client delivery and replay. The shared
 assistant redactor masks credential fields plus the active connection's raw
 access/refresh credentials and the caller credential. JSON structure, `isError`
 and exact numeric literals are retained; ambiguous JSON fails with an uncertain
-operation, not a free retry. This is best-effort data filtering, not proof that
-arbitrary encodings contain no secrets, and it does not rewrite old stored
-results.
+operation, not a free retry. Older results also pass this filter on duplicate
+execution, status reads and settlement, even for disabled installations. A
+successful settlement saves the filtered result. Ordinary reads do not rewrite
+old files. This is best-effort filtering, not proof that arbitrary encodings or
+unknown rotated credentials contain no secrets, and not a historical-data purge.
 
 ## Independent human confirmation
 
@@ -293,9 +311,45 @@ results are marked as untrusted data, not instructions.
 The pinned external protocol is MCP **2025-11-25**, with initialization, private
 per-operation session handling, JSON and bounded SSE responses, and paginated
 tool discovery. This is not a claim to support every MCP version/extension.
-No local stdio processes, legacy HTTP+SSE fallback, sampling, elicitation,
-long-lived server subscriptions, or automatic SSE resumption are implemented.
-A failed or unsupported exchange stops without retrying a tool side effect.
+Stateful SSE responses can resume by bounded GET requests. No local stdio
+processes, legacy HTTP+SSE fallback, sampling, elicitation or long-lived server
+subscriptions are implemented. A failed or unsupported exchange never retries
+a tool side effect.
+
+### Durable SSE result recovery
+
+A server can send an empty-data primer with an event ID before the final JSON-RPC
+reply. The client saves the server session, request ID, cursor, release and
+installation generation in the encrypted operation record. These fields are
+removed from public execution status. Credentials are not copied into this
+checkpoint.
+
+After a disconnect, the client uses GET with `Last-Event-ID` on the same checked
+endpoint and session. It never sends a new `initialize` or `tools/call` POST for
+an accepted operation. Each attempt permits at most two GET reconnections and
+one MiB of stream input in total; the normal network deadline and rate limits
+also apply. Each GET rechecks live action authority, installation generation,
+release and credential expiry. A later request can recover the same checkpoint
+for five minutes from its first save, including after an operating-system
+process restart. A version change or missing/expired checkpoint stops recovery.
+
+The supported server retry delay is 0–5000 milliseconds. A larger or overflowing
+decimal delay clears the old cursor instead of polling too early. Empty event
+IDs also clear it. Malformed responses, wrong request IDs, 404 sessions and
+missing cursors remain uncertain; none authorizes a fresh tool call or refund.
+
+Only primers and notifications advance a durable cursor. The terminal reply's
+cursor is not saved before its filtered result and state are committed together.
+A crash before that commit therefore cannot skip the unsaved result. Paid
+results then settle the original charge; recovery never reserves again or
+quotes a new price. This is not an exactly-once guarantee for arbitrary providers.
+
+Failed initialization and completed sessions receive a bounded DELETE cleanup,
+even if the caller context was cancelled. An uncertain session with a saved
+cursor is kept for read recovery. The five-minute limit controls local recovery,
+not the provider's session lifetime. Provider expiry and final host cleanup still
+need integration; there is no new background worker or unconditional session
+revocation claim.
 
 The input-schema validator supports object, array, string, number, integer,
 boolean and null types; properties, required, boolean additionalProperties,
@@ -329,6 +383,17 @@ Protocol references:
 All tests use local mock MCP/OAuth servers. The unsafe local transport override
 is unexported and exists only in tests; no runtime configuration disables the
 production network policy. No real paid provider was called.
+
+A08 continuation validation used Linux / Go 1.23.2 in an isolated module with
+exact copies of this whole package, `assistant/redaction`, and the existing mock
+fixture. The three-run race check passed 82 top-level tests and 82 subtests per
+run. Three shared-redactor tests also passed in each run. The optional external
+Mocklab adapter was skipped because it was not configured. The subprocess helper
+is skipped only in the parent run; the real child-process tests executed,
+including killing a process after saving an SSE cursor and reopening its store.
+These are synthetic MCP/authority/funds tests, not the project's pinned build,
+real Core funds, PostgreSQL, complete assistant package or browser acceptance.
+The root dependencies and pinned tool versions were not changed for this check.
 
 The historical native-only validation below used Go 1.23.2 with the package's
 standard-library-only sources; it does not validate the newer Web package:

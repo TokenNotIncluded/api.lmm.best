@@ -53,6 +53,18 @@ func (a *testAuthority) Authorize(_ context.Context, credential, account, action
 	}
 }
 
+// This is synthetic identity authority, not a production approval adapter.
+func (a *testAuthority) AuthorizeHumanConfirmation(ctx context.Context, credential string, p Principal) error {
+	actual, err := a.Authorize(ctx, credential, p.Account, "toolmarket.authorize")
+	if err != nil {
+		return err
+	}
+	if actual != p || credential != "alice" && credential != "bob" {
+		return ErrDenied
+	}
+	return nil
+}
+
 type mockMCP struct {
 	server           *httptest.Server
 	calls            atomic.Int32
@@ -75,6 +87,7 @@ type mockMCP struct {
 	blockCall        chan struct{}
 	enteredCall      chan struct{}
 	callResult       json.RawMessage
+	resume           *resumeFixture
 }
 
 const echoSchema = `{"type":"object","properties":{"q":{"type":"string","minLength":1,"maxLength":32},"n":{"type":"integer","minimum":1,"maximum":10}},"required":["q"],"additionalProperties":false}`
@@ -90,6 +103,10 @@ func newMockConfigured(t *testing.T, configure func(*mockMCP)) *mockMCP {
 	mock.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		base := mock.server.URL
 		w.Header().Set("Content-Type", "application/json")
+		if mock.resume != nil && r.Method == "GET" && r.URL.Path == "/mcp" && r.Header.Get("Last-Event-ID") != "" {
+			mock.resume.serveGet(w, r)
+			return
+		}
 		switch {
 		case r.Method == "GET" && r.URL.Path == "/mcp":
 			w.Header().Set("WWW-Authenticate", `Bearer resource_metadata="`+base+`/resource", scope="read,write"`)
@@ -151,6 +168,9 @@ func newMockConfigured(t *testing.T, configure func(*mockMCP)) *mockMCP {
 			}
 			return
 		case r.Method == "DELETE":
+			if mock.resume != nil {
+				mock.resume.deletes.Add(1)
+			}
 			w.WriteHeader(204)
 			return
 		case r.Method == "POST" && r.URL.Path == "/mcp":
@@ -178,6 +198,9 @@ func newMockConfigured(t *testing.T, configure func(*mockMCP)) *mockMCP {
 			var result any
 			switch req.Method {
 			case "initialize":
+				if mock.resume != nil {
+					mock.resume.initializes.Add(1)
+				}
 				w.Header().Set("Mcp-Session-Id", sid)
 				result = map[string]any{"protocolVersion": ProtocolVersion, "capabilities": map[string]any{"tools": map[string]any{}}, "serverInfo": map[string]string{"name": "mock", "version": "1"}}
 			case "notifications/initialized":
@@ -194,6 +217,10 @@ func newMockConfigured(t *testing.T, configure func(*mockMCP)) *mockMCP {
 				}
 			case "tools/call":
 				mock.calls.Add(1)
+				if mock.resume != nil {
+					mock.resume.serveCall(w, r, req.ID)
+					return
+				}
 				if mock.enteredCall != nil {
 					mock.enteredCall <- struct{}{}
 				}

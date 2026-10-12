@@ -157,6 +157,7 @@ type Execution struct {
 	State       string          `json:"state"`
 	Charge      Charge          `json:"charge"`
 	Result      json.RawMessage `json:"result,omitempty"`
+	Resume      *StreamResume   `json:"resume,omitempty"`
 }
 type Audit struct {
 	At      int64     `json:"at"`

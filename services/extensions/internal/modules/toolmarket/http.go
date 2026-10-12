@@ -98,6 +98,13 @@ func (m *Module) dispatch(ctx context.Context, p Principal, credential, action s
 				result = r
 				return nil
 			})
+			if e != nil {
+				return nil, e
+			}
+			result.Resume = nil // Session/cursor coordinates never leave private storage.
+			if len(result.Result) > 0 {
+				result.Result, e = m.executionResult(p, credential, result)
+			}
 			return result, e
 		}, "idempotency_key")
 	default:
