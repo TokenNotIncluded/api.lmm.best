@@ -367,10 +367,11 @@ async fn pg_activation_is_single_scoped_durable_and_uses_native_login(pool: sqlx
     assert!(store.authorize(&old_session).await.is_err());
     assert!(store.authorize(&format!("lmmk_{}", "c".repeat(64))).await.is_err());
     let issued = store.login(&identity::LoginRequest { login_name:"a01-fixture".into(), password:"synthetic-a01-test-password-only".into() }).await.unwrap();
+    let actor = store.authorize(&issued.secret).await.unwrap();
     let mut tx = pool.begin().await.unwrap();
-    assert!(permissions::require_platform_in_transaction(&mut tx, &issued.secret,
+    assert!(permissions::require_platform_in_transaction(&mut tx, &actor,
         permissions::Permission::ChannelRead, permissions::ResourceScope::ChannelCollection).await.is_ok());
-    assert!(permissions::require_platform_in_transaction(&mut tx, &issued.secret,
+    assert!(permissions::require_platform_in_transaction(&mut tx, &actor,
         permissions::Permission::ChannelRead, permissions::ResourceScope::CompanyProfile(41)).await.is_err());
     tx.rollback().await.unwrap();
     // An active policy change invalidates the previously issued native session.
@@ -385,8 +386,9 @@ async fn pg_activation_is_single_scoped_durable_and_uses_native_login(pool: sqlx
     tx.commit().await.unwrap();
     assert!(store.authorize(&issued.secret).await.is_err());
     let fresh = store.login(&identity::LoginRequest { login_name:"a01-fixture".into(), password:"synthetic-a01-test-password-only".into() }).await.unwrap();
+    let actor = store.authorize(&fresh.secret).await.unwrap();
     let mut tx = pool.begin().await.unwrap();
-    assert!(matches!(permissions::require_platform_in_transaction(&mut tx, &fresh.secret,
+    assert!(matches!(permissions::require_platform_in_transaction(&mut tx, &actor,
         permissions::Permission::ChannelRead, permissions::ResourceScope::ChannelCollection).await,
         Err(identity::IdentityError::Forbidden)));
     tx.rollback().await.unwrap();
@@ -472,6 +474,7 @@ async fn pg_live_gate_needs_no_write_privilege_on_policy(pool: sqlx::PgPool) {
     let issued = store.login(&identity::LoginRequest {
         login_name:"a01-fixture".into(), password:"synthetic-a01-test-password-only".into(),
     }).await.unwrap();
+    let actor = store.authorize(&issued.secret).await.unwrap();
     let role = format!("a01_policy_reader_{}",rand::random::<u64>());
     let mut tx = pool.begin().await.unwrap();
     sqlx::raw_sql(&format!("CREATE ROLE {role} NOLOGIN; GRANT USAGE ON SCHEMA core_identity TO {role}; GRANT SELECT ON ALL TABLES IN SCHEMA core_identity TO {role}; GRANT UPDATE ON core_identity.users,core_identity.accounts,core_identity.credentials TO {role}; SET LOCAL ROLE {role};"))
@@ -479,9 +482,82 @@ async fn pg_live_gate_needs_no_write_privilege_on_policy(pool: sqlx::PgPool) {
     let can_write: bool = sqlx::query_scalar("SELECT has_table_privilege('core_identity.admin_policies','INSERT,UPDATE,DELETE')")
         .fetch_one(&mut *tx).await.unwrap();
     assert!(!can_write);
-    assert!(permissions::require_platform_in_transaction(&mut tx,&issued.secret,
+    assert!(permissions::require_platform_in_transaction(&mut tx,&actor,
         permissions::Permission::ChannelRead,permissions::ResourceScope::ChannelCollection).await.is_ok());
     tx.rollback().await.unwrap();
+}
+
+// Authentication happened before these state changes. The operation must not
+// trust that earlier result, even though the caller has a genuine Principal.
+async fn pg_active_principal(pool: &sqlx::PgPool) -> identity::Principal {
+    let (value, _) = pg_fixture(pool).await;
+    let signed = verify_signed_approval(
+        &signed_bytes(&value, &[7; 32], "synthetic-operator"),
+        &[7; 32],
+    ).unwrap();
+    apply_approved_activation(pool, &signed, &policy(1)).await.unwrap();
+    let store = identity::IdentityStore::from_pool(pool.clone());
+    let issued = store.login(&identity::LoginRequest {
+        login_name: "a01-fixture".into(),
+        password: "synthetic-a01-test-password-only".into(),
+    }).await.unwrap();
+    store.authorize(&issued.secret).await.unwrap()
+}
+
+#[sqlx::test]
+async fn pg_live_gate_rechecks_revoked_principal(pool: sqlx::PgPool) {
+    let actor = pg_active_principal(&pool).await;
+    sqlx::query("UPDATE core_identity.credentials SET revoked_at=clock_timestamp() WHERE id=$1")
+        .bind(actor.credential_id).execute(&pool).await.unwrap();
+    let before = pg_snapshot(&pool).await;
+    let mut tx = pool.begin().await.unwrap();
+    assert_eq!(permissions::require_platform_in_transaction(
+        &mut tx, &actor, permissions::Permission::ChannelRead,
+        permissions::ResourceScope::ChannelCollection,
+    ).await, Err(identity::IdentityError::Unauthorized));
+    tx.rollback().await.unwrap();
+    assert_eq!(before, pg_snapshot(&pool).await);
+}
+
+#[sqlx::test]
+async fn pg_live_gate_rechecks_disabled_account_and_expiry(pool: sqlx::PgPool) {
+    let actor = pg_active_principal(&pool).await;
+    let mut tx = pool.begin().await.unwrap();
+    sqlx::query("UPDATE core_identity.accounts SET active=FALSE WHERE id=$1")
+        .bind(actor.owner_account_id).execute(&mut *tx).await.unwrap();
+    assert_eq!(permissions::require_platform_in_transaction(
+        &mut tx, &actor, permissions::Permission::ChannelRead,
+        permissions::ResourceScope::ChannelCollection,
+    ).await, Err(identity::IdentityError::Unauthorized));
+    tx.rollback().await.unwrap();
+    sqlx::query("UPDATE core_identity.credentials SET expires_at=clock_timestamp()-interval '1 second' WHERE id=$1")
+        .bind(actor.credential_id).execute(&pool).await.unwrap();
+    let before = pg_snapshot(&pool).await;
+    let mut tx = pool.begin().await.unwrap();
+    assert_eq!(permissions::require_platform_in_transaction(
+        &mut tx, &actor, permissions::Permission::ChannelRead,
+        permissions::ResourceScope::ChannelCollection,
+    ).await, Err(identity::IdentityError::Unauthorized));
+    tx.rollback().await.unwrap();
+    assert_eq!(before, pg_snapshot(&pool).await);
+}
+
+#[sqlx::test]
+async fn pg_live_gate_rechecks_browser_revocation(pool: sqlx::PgPool) {
+    let actor = pg_active_principal(&pool).await;
+    let version: i64 = sqlx::query_scalar("SELECT auth_version FROM core_identity.users WHERE id=$1")
+        .bind(actor.user_id).fetch_one(&pool).await.unwrap();
+    sqlx::query("INSERT INTO core_identity.web_sessions(sid,user_id,user_version,current_credential_id,refresh_digest,ip,user_agent,revoked_at) VALUES ($1,$2,$3,$4,$5,'127.0.0.1','synthetic-a01-revoked',clock_timestamp())")
+        .bind("d".repeat(64)).bind(actor.user_id).bind(version)
+        .bind(actor.credential_id).bind(vec![5_u8; 32]).execute(&pool).await.unwrap();
+    let before = pg_snapshot(&pool).await;
+    let mut tx = pool.begin().await.unwrap();
+    assert_eq!(permissions::require_platform_in_transaction(
+        &mut tx, &actor, permissions::Permission::ChannelRead,
+        permissions::ResourceScope::ChannelCollection,
+    ).await, Err(identity::IdentityError::Unauthorized));
+    tx.rollback().await.unwrap();
+    assert_eq!(before, pg_snapshot(&pool).await);
 }
 
 // Byte-identical to the S11 schema patch; never installed by production code here.

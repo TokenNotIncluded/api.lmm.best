@@ -4,7 +4,7 @@ use lmm_core::accounts;
 #[path = "../src/identity/permissions.rs"]
 pub(crate) mod permissions;
 mod identity {
-    pub use lmm_core::identity::{CredentialKind, IdentityError, Principal, authorize_in_transaction};
+    pub use lmm_core::identity::{CredentialKind, IdentityError, Principal};
     pub(crate) use crate::permissions;
 }
 #[allow(dead_code)]

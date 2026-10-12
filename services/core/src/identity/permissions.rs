@@ -429,11 +429,11 @@ pub(crate) fn decide_team(
 /// resource, never a caller-selected action, host credential or model output.
 pub(crate) async fn require_platform_in_transaction(
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    secret: &str,
+    actor: &crate::identity::Principal,
     permission: Permission,
     scope: ResourceScope,
-) -> Result<crate::identity::Principal, crate::identity::IdentityError> {
-    use crate::identity::{IdentityError, authorize_in_transaction};
+) -> Result<(), crate::identity::IdentityError> {
+    use crate::identity::IdentityError;
     use sqlx::Row;
 
     // This helper cannot stand in for A02's action-bound secure confirmation.
@@ -442,17 +442,32 @@ pub(crate) async fn require_platform_in_transaction(
     if matches!(permission, Permission::ChannelSecretView | Permission::ChannelSensitiveWrite) {
         return Err(IdentityError::Forbidden);
     }
-    // Native authentication locks credentials/user/account rows and applies
-    // expiry, revocation, current auth_version and browser-family policy.
-    let actor = authorize_in_transaction(&mut **tx, secret).await?;
+    // A02 supplies a Core-authenticated Principal. It is not Deserialize and
+    // contains a private generation. Revalidate its immutable credential row in
+    // THIS transaction: a previous authentication result is not a live grant.
+    // Read authority from storage; do not use the public platform_level/owner.
     if actor.credential_kind != CredentialKind::Session {
         return Err(IdentityError::Forbidden);
     }
     let row = sqlx::query(
         "SELECT u.platform_role,u.auth_version,c.user_version \
          FROM core_identity.users u JOIN core_identity.credentials c ON c.user_id=u.id \
-         WHERE u.id=$1 AND c.id=$2 AND u.active FOR SHARE OF u,c",
-    ).bind(actor.user_id).bind(actor.credential_id).fetch_one(&mut **tx).await?;
+         JOIN core_identity.accounts pa ON pa.id=u.personal_account_id \
+         JOIN core_identity.accounts own ON own.id=c.owner_account_id \
+         WHERE u.id=$1 AND c.id=$2 AND c.kind='session' \
+         AND c.owner_account_id=u.personal_account_id \
+         AND u.active AND pa.active AND own.active \
+         AND c.revoked_at IS NULL AND c.expires_at>clock_timestamp() \
+         AND c.user_version=u.auth_version \
+         AND NOT EXISTS (SELECT 1 FROM core_identity.api_key_settings ks \
+             WHERE ks.credential_id=c.id AND NOT ks.enabled) \
+         AND NOT EXISTS (SELECT 1 FROM core_identity.web_sessions ws \
+             WHERE ws.current_credential_id=c.id AND (ws.revoked_at IS NOT NULL \
+             OR ws.expires_at<=clock_timestamp() OR ws.user_version<>u.auth_version \
+             OR (ws.weekly_logout AND ws.created_at<=clock_timestamp()-interval '7 days'))) \
+         FOR SHARE OF u,c,pa,own",
+    ).bind(actor.user_id).bind(actor.credential_id).fetch_optional(&mut **tx).await?
+        .ok_or(IdentityError::Unauthorized)?;
     let current_role = PlatformRole::from_storage(&row.try_get::<String, _>("platform_role")?)
         .map_err(|_| IdentityError::Storage)?;
     if !current_role.is_admin() { return Err(IdentityError::Forbidden); }
@@ -477,7 +492,7 @@ pub(crate) async fn require_platform_in_transaction(
         &row.try_get::<Vec<i16>, _>("effects")?, &row.try_get::<Vec<u8>, _>("fingerprint")?,
     ).map_err(|_| IdentityError::Storage)?;
     match decide_platform(facts, &policy, policy.version(), permission, scope) {
-        PermissionDecision::Allow => Ok(actor),
+        PermissionDecision::Allow => Ok(()),
         PermissionDecision::Deny(_) => Err(IdentityError::Forbidden),
     }
 }
