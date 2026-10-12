@@ -5,7 +5,9 @@ This file is a map, not a checklist to run in full.
 
 ## Start once
 
-Use `wip/rust-core-go-extensions` for ongoing microservice work. Read its current
+Use `wip/rust-core-go-extensions`, now the GitHub default development branch, for
+ongoing microservice work. `main` and `traditional` are frozen historical monolith
+snapshots; see [branch policy](docs/development-branches.md). Read its current
 revision and local changes; preserve other work. Reuse the existing workspace
 and WIP branch, not a new dated branch or worktree for each fix. Never force-push.
 Inspect other PRs or branch history only when the task depends on them.
@@ -13,6 +15,13 @@ Inspect other PRs or branch history only when the task depends on them.
 Read the affected code, callers and matching guide below. Small changes need no
 plan file or extra approval round. Reuse information and authorization already
 given. Ask only for a missing decision that tools cannot resolve.
+
+## Pending cross-repository work
+
+[Extore shop binding](docs/extore-shop-binding-followup.md) is pushed but not
+accepted, merged or deployed. Preserve the recorded task workspaces and other
+contributors' edits. Do not deploy or merge/push Extore `main` (automatic deployment).
+Read that handoff before continuing product sync or updating its submodule pointer.
 
 ## Find the work
 

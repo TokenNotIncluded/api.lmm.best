@@ -15,6 +15,10 @@
 
 **这是全新安装的微服务重构分支，仍为 WIP，不是现有网站的可部署替代品。** 模块测试通过，不代表整站调用、支付和资金链路已接通。不直接连接旧业务库，不自动升级表结构，不使用旧单体作为运行时回退。旧数据仅在隔离副本中做受控迁移实验，范围见[架构与状态](docs/core-migration.md)。
 
+默认开发主线为 `wip/rust-core-go-extensions`；旧单体 `main` 与 `traditional`
+已冻结。[主线交接](docs/development-branches.md)不表示上线或验收通过。
+[Extore 商品同步](docs/extore-shop-binding-followup.md)仍未完成，禁止部署。
+
 全新核心数据库须显式执行 `lmm-core init-db`；普通启动不建表、不改表。
 
 ## 从这里开始

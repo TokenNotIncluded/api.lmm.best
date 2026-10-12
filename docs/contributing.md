@@ -38,6 +38,9 @@ debt and review rules. Record actual commands, tested input and unverified items
 
 ## Delivery
 
+The default development branch is `wip/rust-core-go-extensions`; `main` and
+`traditional` are frozen historical snapshots. Existing legacy PRs need porting,
+not just a base change; see [branch policy](development-branches.md).
 Reuse the WIP workspace and branch for ongoing work. Preserve concurrent changes;
 never force-push. CLI changes go to its own repository first, then update the
 submodule to the verified, pushed commit.

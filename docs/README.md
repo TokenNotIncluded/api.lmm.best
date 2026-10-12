@@ -4,6 +4,10 @@
 
 本目录以微服务分支为准：可执行程序只有 `lmm` 客户端、`lmm-core` 核心和 `lmm-extensions` 扩展；Web 是单独构建的静态文件。线上 Go 单体的历史说明不是新架构安装步骤。
 
+默认开发主线为 `wip/rust-core-go-extensions`；`main` 与 `traditional` 已冻结，
+见[分支交接规则](development-branches.md)。
+[Extore 商品同步](extore-shop-binding-followup.md)尚未验收，禁止部署。
+
 ## 主要入口
 
 | 主题 | 文档 |
