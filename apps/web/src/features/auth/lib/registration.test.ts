@@ -28,6 +28,38 @@ import {
 } from './registration'
 
 describe('registration availability', () => {
+  test('advertises a configured Google-only preset without requiring custom records', () => {
+    const status = {
+      google_oauth: true,
+      google_client_id: 'client.apps.googleusercontent.com',
+      password_register_enabled: false,
+    }
+    assert.equal(hasOAuthLoginProvider(status), true)
+    assert.equal(hasOAuthRegistrationProvider(status), true)
+    assert.equal(hasRegistrationMethod(status), true)
+    for (const google of [
+      { google_oauth: true },
+      { google_oauth: false, google_client_id: 'client' },
+      { google_oauth: true, google_client_id: ' ' },
+    ]) {
+      assert.equal(hasOAuthLoginProvider(google), false)
+      assert.equal(hasOAuthRegistrationProvider(google), false)
+    }
+  })
+
+  test('Google registration switches never disable existing Google login', () => {
+    const google = { google_oauth: true, google_client_id: 'client' }
+    for (const policy of [
+      { register_enabled: false },
+      { oauth_register_enabled: false },
+      { oauth_registration_disabled_methods: ['GOOGLE'] },
+    ]) {
+      const status = { ...google, ...policy }
+      assert.equal(hasOAuthRegistrationProvider(status), false)
+      assert.equal(hasOAuthLoginProvider(status), true)
+    }
+  })
+
   test('requires the global registration switch', () => {
     const status = {
       register_enabled: false,

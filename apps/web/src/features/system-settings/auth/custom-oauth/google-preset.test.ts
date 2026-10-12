@@ -14,24 +14,55 @@ GNU Affero General Public License for more details.
 import assert from 'node:assert/strict'
 import { describe, test } from 'node:test'
 
-import { OAUTH_PRESETS } from './types'
+import { GOOGLE_BUILT_IN_PRESET } from '@/features/auth/lib/google-oauth'
 
-describe('Google custom OAuth preset', () => {
-  test('provides the standard OpenID Connect endpoints without a base URL', () => {
-    const google = OAUTH_PRESETS.find((preset) => preset.key === 'google')
-    assert.deepEqual(google, {
-      key: 'google',
+import { customOAuthFormSchema, OAUTH_PRESETS } from './types'
+
+describe('Google built-in vs custom registry', () => {
+  test('moves the template to the fixed built-in provider', () => {
+    assert.equal(
+      OAUTH_PRESETS.some((preset) => preset.key === 'google'),
+      false
+    )
+    assert.equal(GOOGLE_BUILT_IN_PRESET.key, 'google')
+    assert.equal(
+      GOOGLE_BUILT_IN_PRESET.authorization_endpoint,
+      'https://accounts.google.com/o/oauth2/v2/auth'
+    )
+    assert.equal(
+      GOOGLE_BUILT_IN_PRESET.token_endpoint,
+      'https://oauth2.googleapis.com/token'
+    )
+    assert.equal(
+      GOOGLE_BUILT_IN_PRESET.user_info_endpoint,
+      'https://openidconnect.googleapis.com/v1/userinfo'
+    )
+    assert.equal(GOOGLE_BUILT_IN_PRESET.scopes, 'openid profile email')
+    assert.ok(Object.isFrozen(GOOGLE_BUILT_IN_PRESET))
+    assert.ok(OAUTH_PRESETS.some((preset) => preset.key === 'gitlab'))
+  })
+
+  test('existing custom Google credentials and slug remain valid editable records', () => {
+    const existing = {
       name: 'Google',
+      slug: 'google',
       icon: 'google',
-      authorization_endpoint: 'https://accounts.google.com/o/oauth2/v2/auth',
-      token_endpoint: 'https://oauth2.googleapis.com/token',
-      user_info_endpoint: 'https://openidconnect.googleapis.com/v1/userinfo',
+      enabled: true,
+      client_id: 'existing-test-client',
+      client_secret: 'synthetic-test-secret',
+      authorization_endpoint: GOOGLE_BUILT_IN_PRESET.authorization_endpoint,
+      token_endpoint: GOOGLE_BUILT_IN_PRESET.token_endpoint,
+      user_info_endpoint: GOOGLE_BUILT_IN_PRESET.user_info_endpoint,
       scopes: 'openid profile email',
       user_id_field: 'sub',
       username_field: 'email',
       display_name_field: 'name',
       email_field: 'email',
-      needsBaseUrl: false,
-    })
+      well_known: '',
+      auth_style: 0,
+      access_policy: '',
+      access_denied_message: '',
+    }
+    assert.deepEqual(customOAuthFormSchema.parse(existing), existing)
   })
 })

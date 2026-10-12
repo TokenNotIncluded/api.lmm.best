@@ -90,6 +90,9 @@ pub(super) async fn list_credentials(
     ))
 }
 async fn google_start(State(store): State<IdentityStore>) -> Result<Response> {
+    if !store.google_native_enabled() {
+        return Err(IdentityError::Forbidden);
+    }
     let mut random = [0u8; 32];
     rand::rngs::OsRng
         .try_fill_bytes(&mut random)
@@ -137,6 +140,9 @@ async fn google_callback(
     Query(query): Query<Callback>,
 ) -> Response {
     let result = async {
+        if !store.google_native_enabled() {
+            return Err(IdentityError::Forbidden);
+        }
         if query.error.is_some() {
             return Err(IdentityError::Unauthorized);
         }

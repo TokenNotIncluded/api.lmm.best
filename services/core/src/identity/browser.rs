@@ -1,4 +1,5 @@
 //! Browser-session compatibility without importing legacy sessions or funds.
+mod google;
 mod password;
 use super::*;
 use hmac::{Hmac, Mac};
@@ -142,12 +143,28 @@ impl BrowserAuth {
             .store
             .lock_password_user(&mut tx, &canonical, &verified)
             .await?;
+        let bundle = self
+            .issue_browser_family(&mut tx, user, metadata, "session.web_login")
+            .await?;
+        tx.commit().await?;
+        Ok(bundle)
+    }
+    /// Issue directly inside the authenticated transaction, never by adapting a
+    /// native session after it has been exposed. All login methods share limits.
+    async fn issue_browser_family(
+        &self,
+        tx: &mut PgConnection,
+        user: i64,
+        metadata: &BrowserSessionMetadata,
+        action: &str,
+    ) -> BrowserResult<BrowserBundle> {
+        if metadata.ip.len() > 128 || metadata.user_agent.len() > 1024 {
+            return Err(IdentityError::Invalid.into());
+        }
         let sid = new_secret("")?;
         let refresh = new_secret("lmmr_")?;
         let access = self.derived_secret(b"browser-access-v1", &sid, &refresh, "lmms_")?;
-        let credential =
-            auth::issue_session_with_secret(&mut tx, user, "session.web_login", access.clone())
-                .await?;
+        let credential = auth::issue_session_with_secret(tx, user, action, access.clone()).await?;
         sqlx::query("UPDATE core_identity.credentials SET expires_at=LEAST(expires_at,clock_timestamp()+interval '15 minutes') WHERE id=$1").bind(credential.id).execute(&mut *tx).await?;
         let setting: String =
             sqlx::query_scalar("SELECT setting FROM core_identity.user_profiles WHERE user_id=$1")
@@ -167,14 +184,13 @@ impl BrowserAuth {
         .execute(&mut *tx)
         .await?;
         let bundle = make_bundle(
-            &mut tx,
+            tx,
             &sid,
             &access,
             format!("{sid}.{refresh}"),
             self.store.financial_profile_enabled,
         )
         .await?;
-        tx.commit().await?;
         Ok(bundle)
     }
     /// A previous token inside the race window deterministically recovers the
@@ -396,11 +412,11 @@ async fn make_bundle(
     refresh: String,
     financial: bool,
 ) -> BrowserResult<BrowserBundle> {
-    let r=sqlx::query("SELECT s.*,extract(epoch FROM s.created_at)::bigint AS created,extract(epoch FROM s.last_active_at)::bigint AS active,extract(epoch FROM s.expires_at)::bigint AS expires,extract(epoch FROM c.expires_at)::bigint AS access_expires FROM core_identity.web_sessions s JOIN core_identity.credentials c ON c.id=s.current_credential_id WHERE s.sid=$1").bind(sid).fetch_one(&mut *c).await?;
+    let r=sqlx::query("SELECT s.*,EXISTS(SELECT 1 FROM core_identity.web_session_credentials m JOIN core_identity.audit a ON a.target->>'session_id'=m.credential_id::text WHERE m.sid=s.sid AND a.action='session.google_browser_login') AS google_login,extract(epoch FROM s.created_at)::bigint AS created,extract(epoch FROM s.last_active_at)::bigint AS active,extract(epoch FROM s.expires_at)::bigint AS expires,extract(epoch FROM c.expires_at)::bigint AS access_expires FROM core_identity.web_sessions s JOIN core_identity.credentials c ON c.id=s.current_credential_id WHERE s.sid=$1").bind(sid).fetch_one(&mut *c).await?;
     let expires: i64 = r.try_get("expires")?;
     let user = user_projection(c, r.try_get("user_id")?, financial).await?;
     Ok(BrowserBundle {
-        data: json!({"access_token":access,"token_type":"Bearer","access_expires_at":r.try_get::<i64,_>("access_expires")?,"user":user,"session":{"sid":sid,"current":true,"login_method":"password","ip":r.try_get::<String,_>("ip")?,"user_agent":r.try_get::<String,_>("user_agent")?,"created_at":r.try_get::<i64,_>("created")?,"last_active_at":r.try_get::<i64,_>("active")?,"expires_at":expires}}),
+        data: json!({"access_token":access,"token_type":"Bearer","access_expires_at":r.try_get::<i64,_>("access_expires")?,"user":user,"session":{"sid":sid,"current":true,"login_method":if r.try_get::<bool,_>("google_login")? {"google"} else {"password"},"ip":r.try_get::<String,_>("ip")?,"user_agent":r.try_get::<String,_>("user_agent")?,"created_at":r.try_get::<i64,_>("created")?,"last_active_at":r.try_get::<i64,_>("active")?,"expires_at":expires}}),
         refresh_token: refresh,
         expires_at: expires,
     })

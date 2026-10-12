@@ -7,12 +7,16 @@ use crate::identity::{
 };
 use axum::{
     Json, Router,
-    extract::{ConnectInfo, DefaultBodyLimit, Request, State, rejection::JsonRejection},
+    extract::{
+        ConnectInfo, DefaultBodyLimit, Query, Request, State,
+        rejection::{JsonRejection, QueryRejection},
+    },
     http::{HeaderMap, HeaderValue, StatusCode, header},
     middleware::{self, Next},
-    response::{IntoResponse, Response},
+    response::{IntoResponse, Redirect, Response},
     routing::{get, post},
 };
+use rand::RngCore;
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::{
@@ -53,6 +57,11 @@ impl LegacyAuthConfig {
             secure: true,
             require_legal_acceptance: true,
         })
+    }
+    /// Only exact configured Web callbacks enable the built-in browser preset.
+    /// The client ID is public; credentials and provider endpoints stay private.
+    pub fn google_client_id<'a>(&self, store: &'a IdentityStore) -> Option<&'a str> {
+        store.google_browser_client_id(&self.origin)
     }
     /// Explicitly match the operator's published registration policy.
     pub fn with_legal_acceptance_required(mut self, required: bool) -> Self {
@@ -95,6 +104,8 @@ pub fn router(store: IdentityStore, config: LegacyAuthConfig) -> Router {
         .route("/api/user/login", post(login))
         .route("/api/user/auth/refresh", post(refresh))
         .route("/api/user/auth/logout", post(logout))
+        .route("/api/oauth/google", post(google_start))
+        .route("/api/oauth/google/callback", get(google_callback))
         .route(
             "/api/user/self",
             get(current_user).put(compatibility::profile),
@@ -114,7 +125,7 @@ async fn security(State(state): State<AuthState>, request: Request, next: Next) 
             "AUTH_ORIGIN_FORBIDDEN",
             "Request origin is not allowed",
         )
-    } else if unsafe_method {
+    } else if unsafe_method || request.uri().path() == "/api/oauth/google/callback" {
         let peer = request
             .extensions()
             .get::<ConnectInfo<SocketAddr>>()
@@ -382,6 +393,141 @@ async fn current_user(State(state): State<AuthState>, headers: HeaderMap) -> Res
         Ok(user) => success(Some(user)),
         Err(error) => auth_failure(error),
     }
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GoogleStart {
+    accepted_legal: Option<bool>,
+}
+async fn google_start(
+    State(state): State<AuthState>,
+    input: Result<Json<GoogleStart>, JsonRejection>,
+) -> Response {
+    if state.config.google_client_id(&state.store).is_none() {
+        return auth_failure(IdentityError::Forbidden.into());
+    }
+    let Ok(Json(input)) = input else {
+        return auth_failure(IdentityError::Invalid.into());
+    };
+    if state.config.require_legal_acceptance && input.accepted_legal != Some(true) {
+        return failure(
+            StatusCode::BAD_REQUEST,
+            "AUTH_LEGAL_ACCEPTANCE_REQUIRED",
+            "Accept the published legal terms before signing in",
+        );
+    }
+    let mut random = [0u8; 32];
+    if rand::rngs::OsRng.try_fill_bytes(&mut random).is_err() {
+        return auth_failure(IdentityError::Storage.into());
+    }
+    let binding: String = random.iter().map(|byte| format!("{byte:02x}")).collect();
+    match state.browser.begin_google_login(&binding).await {
+        Ok(url) => google_flow_cookie(
+            success(Some(json!({"authorization_url":url}))),
+            Some(&binding),
+            &state.config,
+        ),
+        Err(error) => auth_failure(error),
+    }
+}
+fn google_cookie_name(config: &LegacyAuthConfig) -> &'static str {
+    if config.secure {
+        "__Host-lmm_web_google_flow"
+    } else {
+        "lmm_web_google_flow"
+    }
+}
+fn google_binding_cookie<'a>(
+    headers: &'a HeaderMap,
+    config: &LegacyAuthConfig,
+) -> Result<&'a str, IdentityError> {
+    let mut found = None;
+    for raw in headers.get_all(header::COOKIE) {
+        let raw = raw.to_str().map_err(|_| IdentityError::Unauthorized)?;
+        for part in raw.split(';') {
+            if let Some((name, value)) = part.trim().split_once('=')
+                && name == google_cookie_name(config)
+            {
+                if found.is_some()
+                    || value.len() != 64
+                    || !value.bytes().all(|b| b.is_ascii_hexdigit())
+                {
+                    return Err(IdentityError::Unauthorized);
+                }
+                found = Some(value);
+            }
+        }
+    }
+    found.ok_or(IdentityError::Unauthorized)
+}
+fn google_flow_cookie(
+    mut response: Response,
+    binding: Option<&str>,
+    config: &LegacyAuthConfig,
+) -> Response {
+    let secure = if config.secure { "Secure; " } else { "" };
+    let cookie = format!(
+        "{}={}; Path=/; {secure}HttpOnly; SameSite=Lax; Max-Age={}",
+        google_cookie_name(config),
+        binding.unwrap_or_default(),
+        if binding.is_some() { 600 } else { 0 }
+    );
+    if let Ok(cookie) = HeaderValue::from_str(&cookie) {
+        response.headers_mut().append(header::SET_COOKIE, cookie);
+    }
+    response
+}
+#[derive(Deserialize)]
+struct GoogleCallback {
+    state: Option<String>,
+    code: Option<String>,
+    error: Option<String>,
+}
+async fn google_callback(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    peer: Result<ConnectInfo<SocketAddr>, axum::extract::rejection::ExtensionRejection>,
+    query: Result<Query<GoogleCallback>, QueryRejection>,
+) -> Response {
+    let result = async {
+        if state.config.google_client_id(&state.store).is_none() {
+            return Err(IdentityError::Forbidden.into());
+        }
+        let Query(query) = query.map_err(|_| IdentityError::Invalid)?;
+        if query.error.is_some() {
+            return Err(IdentityError::Unauthorized.into());
+        }
+        let binding = google_binding_cookie(&headers, &state.config)?;
+        let metadata = BrowserSessionMetadata {
+            ip: peer.map(|peer| peer.0.ip().to_string()).unwrap_or_default(),
+            user_agent: headers
+                .get(header::USER_AGENT)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or_default()
+                .chars()
+                .take(512)
+                .collect(),
+        };
+        state
+            .browser
+            .finish_google_login(
+                query.state.as_deref().ok_or(IdentityError::Unauthorized)?,
+                binding,
+                query.code.as_deref().ok_or(IdentityError::Unauthorized)?,
+                &metadata,
+            )
+            .await
+    }
+    .await;
+    let response = match result {
+        Ok(bundle) => set_cookie(
+            Redirect::to("/console").into_response(),
+            Some((&bundle.refresh_token, bundle.expires_at)),
+            &state.config,
+        ),
+        Err(error) => auth_failure(error),
+    };
+    google_flow_cookie(response, None, &state.config)
 }
 fn success(data: Option<Value>) -> Response {
     let mut body = json!({"success":true,"message":""});

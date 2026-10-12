@@ -189,6 +189,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
                 password_register_enabled: config.registration_enabled,
                 user_agreement_enabled: config.user_agreement_enabled,
                 privacy_policy_enabled: config.privacy_policy_enabled,
+                google_client_id: config.auth.google_client_id(&store).map(str::to_owned),
             };
             routes = routes.merge(lmm_core::legacy_auth::router(store, config.auth));
             capabilities.legacy_web_auth = true;

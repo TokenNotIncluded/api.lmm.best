@@ -97,12 +97,15 @@ pub struct Capabilities {
     pub commerce: bool,
 }
 
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Default)]
 pub struct PublicStatus {
     pub password_login_enabled: bool,
     pub password_register_enabled: bool,
     pub user_agreement_enabled: bool,
     pub privacy_policy_enabled: bool,
+    /// Only set after the browser callback, origin and cookie bridge match.
+    /// A client ID is public; provider secrets never enter this projection.
+    pub google_client_id: Option<String>,
 }
 
 #[derive(Clone)]
@@ -155,6 +158,12 @@ async fn public_status_response(
     State(state): State<Readiness>,
 ) -> ([(String, String); 1], Json<Value>) {
     let status = state.public_status;
+    let google_client_id = status
+        .google_client_id
+        .as_deref()
+        .filter(|id| !id.trim().is_empty())
+        .unwrap_or("");
+    let google_enabled = !google_client_id.is_empty();
     (
         [("cache-control".into(), "no-store".into())],
         Json(json!({"success":true,"message":"","data":{
@@ -164,7 +173,9 @@ async fn public_status_response(
             "password_register_enabled":status.password_register_enabled,
             "user_agreement_enabled":status.user_agreement_enabled,
             "privacy_policy_enabled":status.privacy_policy_enabled,
-            "oauth_register_enabled":false,"github_oauth":false,"discord_oauth":false,
+            "google_oauth":google_enabled,"google_client_id":google_client_id,
+            "oauth_register_enabled":google_enabled && status.password_register_enabled,
+            "github_oauth":false,"discord_oauth":false,
             "oidc_enabled":false,"linuxdo_oauth":false,"telegram_oauth":false,
             "wechat_login":false,"passkey_login":false,"email_verification":false,
             "turnstile_check":false,"two_factor_enabled":false,"payments_enabled":false,
@@ -318,6 +329,60 @@ mod tests {
                 .unwrap();
             assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
             assert_eq!(response.headers()["cache-control"], "no-store");
+        }
+    }
+
+    #[tokio::test]
+    async fn google_public_status_is_positive_only_for_the_browser_projection() {
+        // Status is a pure projection; this pool is lazy and never connected.
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://unused@127.0.0.1:1/unused")
+            .unwrap();
+        for (client_id, registration, enabled) in [
+            (None, true, false),
+            (Some(" "), true, false),
+            (Some("public-client.apps.googleusercontent.com"), true, true),
+            (
+                Some("public-client.apps.googleusercontent.com"),
+                false,
+                true,
+            ),
+        ] {
+            let router = configured_router_with_rpc(
+                pool.clone(),
+                Capabilities::default(),
+                None,
+                PublicStatus {
+                    google_client_id: client_id.map(str::to_owned),
+                    password_register_enabled: registration,
+                    ..PublicStatus::default()
+                },
+            );
+            let response = router
+                .oneshot(
+                    Request::builder()
+                        .uri("/api/status")
+                        .body(Body::empty())
+                        .unwrap(),
+                )
+                .await
+                .unwrap();
+            assert_eq!(response.status(), StatusCode::OK);
+            assert_eq!(response.headers()["cache-control"], "no-store");
+            let bytes = axum::body::to_bytes(response.into_body(), 65536)
+                .await
+                .unwrap();
+            let body: Value = serde_json::from_slice(&bytes).unwrap();
+            let data = &body["data"];
+            assert_eq!(data["google_oauth"], enabled);
+            assert_eq!(data["oauth_register_enabled"], enabled && registration);
+            assert_eq!(
+                data["google_client_id"],
+                if enabled { client_id.unwrap() } else { "" }
+            );
+            assert!(data.get("google_client_secret").is_none());
+            assert!(data.get("google_client_secret_file").is_none());
+            assert_eq!(data["custom_oauth_providers"], json!([]));
         }
     }
 

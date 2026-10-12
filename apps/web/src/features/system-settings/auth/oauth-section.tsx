@@ -50,6 +50,7 @@ import {
 import { SettingsPageFormActions } from '../components/settings-page-context'
 import { SettingsSection } from '../components/settings-section'
 import { useUpdateOption } from '../hooks/use-update-option'
+import { GoogleBuiltInSection } from './google-built-in-section'
 import {
   buildOAuthCallbackUrl,
   resolveOAuthSiteUrl,
@@ -291,6 +292,8 @@ export function OAuthSection(props: OAuthSectionProps) {
   }, [props.defaultValues, form])
 
   const onSubmit = async (values: OAuthFormValues) => {
+    // Google is configured by the core TOML file, not the legacy option API.
+    if (activeTab === 'google') return
     let finalValues = values
 
     try {
@@ -365,6 +368,8 @@ export function OAuthSection(props: OAuthSectionProps) {
               onSave={form.handleSubmit(onSubmit)}
               onReset={handleReset}
               isSaving={form.formState.isSubmitting}
+              isSaveDisabled={activeTab === 'google'}
+              saveLabel={activeTab === 'google' ? 'Read-only' : undefined}
               isResetDisabled={
                 form.formState.isSubmitting || !form.formState.isDirty
               }
@@ -376,6 +381,7 @@ export function OAuthSection(props: OAuthSectionProps) {
                 variant='navigation'
                 aria-label={t('OAuth integration')}
               >
+                <TabsTrigger value='google'>Google</TabsTrigger>
                 <TabsTrigger value='github'>{t('GitHub')}</TabsTrigger>
                 <TabsTrigger value='discord'>{t('Discord')}</TabsTrigger>
                 <TabsTrigger value='oidc'>{t('OIDC')}</TabsTrigger>
@@ -383,6 +389,10 @@ export function OAuthSection(props: OAuthSectionProps) {
                 <TabsTrigger value='linuxdo'>{t('LinuxDO')}</TabsTrigger>
                 <TabsTrigger value='wechat'>{t('WeChat')}</TabsTrigger>
               </TabsList>
+
+              <TabsContent value='google'>
+                <GoogleBuiltInSection serverAddress={props.serverAddress} />
+              </TabsContent>
 
               <TabsContent value='github' className={oauthTabContentClassName}>
                 <OAuthSetupGuide

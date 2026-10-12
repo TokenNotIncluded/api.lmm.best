@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import type { SystemStatus } from '../types'
+import { isBuiltInGoogleConfigured } from './google-oauth'
 
 type RegistrationSetting =
   | 'register_enabled'
@@ -42,6 +43,8 @@ export function isOAuthProviderConfigured(
   switch (normalizedMethod) {
     case 'wechat':
       return status.wechat_login === true
+    case 'google':
+      return isBuiltInGoogleConfigured(status)
     case 'github':
       return status.github_oauth === true && hasText(status.github_client_id)
     case 'discord':
@@ -74,7 +77,7 @@ export function hasOAuthLoginProvider(
   status: SystemStatus | null | undefined
 ): boolean {
   return (
-    ['wechat', 'github', 'discord', 'oidc', 'linuxdo', 'telegram'].some(
+    ['wechat', 'google', 'github', 'discord', 'oidc', 'linuxdo', 'telegram'].some(
       (method) => isOAuthProviderConfigured(status, method)
     ) ||
     (status?.custom_oauth_providers ?? []).some((provider) =>
@@ -147,6 +150,9 @@ export function hasOAuthRegistrationProvider(
   const isAllowed = (method: string) => !disabled.has(method)
 
   if (isOAuthProviderConfigured(status, 'wechat') && isAllowed('wechat')) {
+    return true
+  }
+  if (isOAuthProviderConfigured(status, 'google') && isAllowed('google')) {
     return true
   }
   if (isOAuthProviderConfigured(status, 'github') && isAllowed('github')) {

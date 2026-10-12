@@ -16,6 +16,30 @@ Key 保存 `owner_account_id`；每个付款候选保存于 `key_funding_rules` 
 
 计费接入必须在接受请求时固定付款账号，校验当前团队成员身份和明确的消费许可。拒绝、数据库故障或未知结果不能触发换人付款；一笔费用不能拆分到多个账号。预算须包含已提交金额和待结算预留，不能通过退出重入、换 Key 或修改角色清零；资金操作还需独立授权。这些是接入约束，不表示团队付费流量已启用。
 
+## Google 内置登录预设
+
+Google 已归入内置 OAuth 预设，不再作为新建自定义提供者的模板。
+已有自定义记录及绑定不删除、不自动迁移 Client ID、密钥或用户；内置浏览器入口实际可用时才替代对应登录按钮，未配置时保留客户端的自定义回退行为。
+
+安装配置仍由 Core 的只读 TOML 和独立私有密钥文件提供，管理页展示固定端点、scope 和回调说明，不能通过未实现的 `/api/option` 保存来冒充配置成功。
+浏览器安装的片段如下；须保留完整配置中的数据库、Web、RPC 等设置，并明确只读挂载密钥文件：
+
+```toml
+[identity.google]
+client_id = "registered-client-id.apps.googleusercontent.com"
+client_secret_file = "/run/secrets/google-client-secret"
+redirect_uri = "https://api.example.test/api/oauth/google/callback"
+```
+
+该回调必须在 Google 应用中登记，并严格匹配 `[identity.web] origin` 加 `/api/oauth/google/callback`。
+原生 API 回调 `/core/v1/auth/oauth/google/callback` 仍是另一种有效安装方式，但不启用浏览器预设，不能拿原生凭证 JSON 当网页登录完成。
+公开状态仅在浏览器桥接配置匹配时提供 `google_oauth=true` 和公开 Client ID，不返回密钥。
+
+浏览器先提交同源 `POST /api/oauth/google` 及法律协议确认，随后使用固定 Google 授权端点和 PKCE。
+回调校验签名、issuer/audience、nonce、一次性 state 及 HttpOnly 浏览器绑定，再签发既有浏览器 cookie 家族，并固定跳转到 `/console`。
+已有用户禁用、本地 MFA 或注册限制不绕过；当前 Google 浏览器路径对需要本地 MFA 的账号失败关闭，尚不提供该路径的第二因素续接。
+合成签名供应商及隔离 PostgreSQL 测试不等于真实 Google 账号验收，也不代表旧站点已启用。
+
 ## 创建测试用户并验证 Key
 
 `bootstrap-user` 是离线开发工具，不是注册、登录或 OAuth 接口。它只创建新用户，不覆盖已有用户；会话仅输出一次。不要将该命令公开为网页接口。
@@ -89,4 +113,4 @@ python3 -B scripts/test-core-rpc-docker.py
 
 测试覆盖非空库保护、并发安装、结构版本不匹配、账号关系、付款规则、权限分离、并发邀请、退出重入、审计回滚、凭证过期/撤销及数据库故障。
 
-正式注册和登录/OAuth、会话续期、邀请拒绝/撤回、创始人转移、完整成员编辑、预算、账本、订阅权益和真实计费尚未完成。身份响应只是当前权限快照，不是资金预留许可。核心 `/health/ready` 和模型接口继续返回 503。
+当前源码已提供密码注册/登录、浏览器会话续期及上述 Google 桥接；具体安装仍需匹配配置和独立验收，不能据此声称管理员激活、MFA 全链、所有提供者或旧站点迁移已完成。身份响应只是当前权限快照，不是资金预留许可。`/health/ready` 取决于受限运行角色及启用组件；模型默认关闭，启用后的 readiness 也不证明实际供应商调用或扣费成功。其余业务及资金范围按[业务验收](microkernel-business-acceptance.md)记录。

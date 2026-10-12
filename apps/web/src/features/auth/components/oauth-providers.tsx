@@ -32,6 +32,11 @@ import { cn } from '@/lib/utils'
 
 import { useOAuthLogin } from '../hooks/use-oauth-login'
 import {
+  isBuiltInGoogleConfigured,
+  isCustomGoogleProvider,
+  shouldShowCustomGoogleProvider,
+} from '../lib/google-oauth'
+import {
   getDisabledOAuthRegistrationMethods,
   isOAuthProviderConfigured,
 } from '../lib/registration'
@@ -60,16 +65,6 @@ type ProviderButton = {
   featured?: boolean
 }
 
-function isGoogleProvider(provider: {
-  name: string
-  slug: string
-  icon: string
-}) {
-  return [provider.name, provider.slug, provider.icon].some(
-    (value) => value.trim().toLowerCase() === 'google'
-  )
-}
-
 export function OAuthProviders({
   status,
   disabled = false,
@@ -86,6 +81,7 @@ export function OAuthProviders({
     isLoading,
     githubButtonText,
     githubButtonDisabled,
+    handleGoogleLogin,
     handleGitHubLogin,
     handleDiscordLogin,
     handleOIDCLogin,
@@ -103,7 +99,19 @@ export function OAuthProviders({
     ? getDisabledOAuthRegistrationMethods(status)
     : new Set<string>()
   const registrationAllowed = (method: string) =>
-    !disabledRegistrationMethods.has(method)
+    !disabledRegistrationMethods.has(method.trim().toLowerCase())
+
+  const builtInGoogleAllowed = registrationAllowed('google')
+  if (isBuiltInGoogleConfigured(status) && builtInGoogleAllowed) {
+    providerButtons.push({
+      key: 'google',
+      label: t('Continue with Google'),
+      shortLabel: 'Google',
+      onClick: handleGoogleLogin,
+      icon: <IconGoogle className='size-[18px]' />,
+      featured: featureGoogle,
+    })
+  }
 
   if (
     isOAuthProviderConfigured(status, 'wechat') &&
@@ -194,11 +202,12 @@ export function OAuthProviders({
     for (const provider of customProviders) {
       if (
         !isOAuthProviderConfigured(status, `custom:${provider.slug}`) ||
-        !registrationAllowed(`custom:${provider.slug}`)
+        !registrationAllowed(`custom:${provider.slug}`) ||
+        !shouldShowCustomGoogleProvider(status, provider, builtInGoogleAllowed)
       ) {
         continue
       }
-      const google = isGoogleProvider(provider)
+      const google = isCustomGoogleProvider(provider)
       providerButtons.push({
         key: `custom-${provider.slug}`,
         label: google
@@ -207,7 +216,12 @@ export function OAuthProviders({
         shortLabel: google ? 'Google' : provider.name,
         onClick: () => handleCustomOAuthLogin(provider),
         icon: google ? <IconGoogle className='size-[18px]' /> : undefined,
-        featured: featureGoogle && google,
+        // Only one button occupies the featured slot; keep other legacy
+        // Google entries visible when the built-in provider is unavailable.
+        featured:
+          featureGoogle &&
+          google &&
+          !providerButtons.some((button) => button.featured),
       })
     }
   }

@@ -10,6 +10,7 @@ use subtle::ConstantTimeEq;
 
 const ISSUER: &str = "https://accounts.google.com";
 const CALLBACK_PATH: &str = "/core/v1/auth/oauth/google/callback";
+const BROWSER_CALLBACK_PATH: &str = "/api/oauth/google/callback";
 const MAX_PROVIDER_BODY: usize = 65_536;
 
 /// No Debug implementation: this contains a client secret.
@@ -38,7 +39,7 @@ impl GoogleOAuth {
             || redirect.password().is_some()
             || redirect.query().is_some()
             || redirect.fragment().is_some()
-            || redirect.path() != CALLBACK_PATH
+            || !matches!(redirect.path(), CALLBACK_PATH | BROWSER_CALLBACK_PATH)
         {
             return Err(IdentityError::Invalid);
         }
@@ -201,6 +202,33 @@ impl IdentityStore {
         browser_binding: &str,
         code: &str,
     ) -> Result<IssuedCredential> {
+        let subject = self
+            .exchange_google_code(state, browser_binding, code)
+            .await?;
+        let mut tx = self.pool.begin().await?;
+        let user_id = self.google_user(&mut tx, &subject).await?;
+        let issued = auth::issue_session(&mut tx, user_id, "session.google_login").await?;
+        tx.commit().await?;
+        Ok(issued)
+    }
+    /// Public readiness exposes only the installation's public client ID. A
+    /// native callback or a different origin cannot enable browser login.
+    pub fn google_browser_client_id(&self, origin: &str) -> Option<&str> {
+        let config = self.google.as_ref()?;
+        (config.redirect_uri == format!("{origin}{BROWSER_CALLBACK_PATH}"))
+            .then_some(config.client_id.as_str())
+    }
+    pub(crate) fn google_native_enabled(&self) -> bool {
+        self.google.as_ref().is_some_and(|config| {
+            Url::parse(&config.redirect_uri).is_ok_and(|url| url.path() == CALLBACK_PATH)
+        })
+    }
+    pub(super) async fn exchange_google_code(
+        &self,
+        state: &str,
+        browser_binding: &str,
+        code: &str,
+    ) -> Result<String> {
         let config = self.google.as_ref().ok_or(IdentityError::Forbidden)?;
         if code.is_empty() || code.len() > 4096 || code.chars().any(char::is_control) {
             return Err(IdentityError::Unauthorized);
@@ -231,13 +259,17 @@ impl IdentityStore {
             .map_err(|_| IdentityError::Storage)?;
         let keys: KeySet = bounded_json(response).await?;
         let claims = verify_token(&tokens.id_token, &keys, &nonce, &config.client_id)?;
-        let mut tx = self.pool.begin().await?;
-        auth::lock_registration(&mut tx).await?;
+        Ok(claims.sub)
+    }
+    /// Resolve only a cryptographically verified provider subject. Never link
+    /// by email or trust provider-supplied privileges. Caller owns the commit.
+    pub(super) async fn google_user(&self, tx: &mut PgConnection, subject: &str) -> Result<i64> {
+        auth::lock_registration(tx).await?;
         let existing: Option<i64> = sqlx::query_scalar(
             "SELECT user_id FROM core_identity.oauth_identities WHERE issuer=$1 AND subject=$2",
         )
         .bind(ISSUER)
-        .bind(&claims.sub)
+        .bind(subject)
         .fetch_optional(&mut *tx)
         .await?;
         let user_id = match existing {
@@ -246,15 +278,13 @@ impl IdentityStore {
                 if !self.registration_enabled {
                     return Err(IdentityError::Forbidden);
                 }
-                let id = auth::create_user(&mut tx).await?;
+                let id = auth::create_user(tx).await?;
                 sqlx::query("INSERT INTO core_identity.oauth_identities(issuer,subject,user_id) VALUES ($1,$2,$3)")
-                    .bind(ISSUER).bind(&claims.sub).bind(id).execute(&mut *tx).await?;
+                    .bind(ISSUER).bind(subject).bind(id).execute(&mut *tx).await?;
                 id
             }
         };
-        let issued = auth::issue_session(&mut tx, user_id, "session.google_login").await?;
-        tx.commit().await?;
-        Ok(issued)
+        Ok(user_id)
     }
     async fn take_google_flow(&self, state: &str, binding: &str) -> Result<PgRow> {
         sqlx::query("DELETE FROM core_identity.oauth_flows WHERE state_digest=$1 AND binding_digest=$2 AND expires_at>clock_timestamp() RETURNING nonce_digest,pkce_verifier")

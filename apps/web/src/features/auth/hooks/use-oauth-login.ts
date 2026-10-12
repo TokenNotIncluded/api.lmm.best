@@ -20,7 +20,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
-import { clearAuthentication, isAuthBundle } from '@/lib/api'
+import { api, clearAuthentication, isAuthBundle } from '@/lib/api'
 
 import {
   createOAuthFlow,
@@ -28,6 +28,11 @@ import {
   startTelegramLogin,
   telegramLogin,
 } from '../api'
+import {
+  GOOGLE_BUILT_IN_PRESET,
+  buildGoogleBrowserStartRequest,
+  validateGoogleBrowserAuthorizationUrl,
+} from '../lib/google-oauth'
 import {
   buildGitHubOAuthUrl,
   buildDiscordOAuthUrl,
@@ -122,6 +127,43 @@ export function useOAuthLogin(
       throw new Error(response.message || t('Failed to sign out session'))
     }
     clearAuthentication()
+  }
+
+  const handleGoogleLogin = async () => {
+    const payload = buildGoogleBrowserStartRequest(status, acceptedLegal)
+    if (!payload) {
+      toast.error(t('Login failed'))
+      return
+    }
+
+    setIsLoading(true)
+    try {
+      // The built-in browser bridge owns state, PKCE and the HttpOnly binding
+      // cookie. Do not use the generic legacy flow or native credential API.
+      const response = await api.post(
+        GOOGLE_BUILT_IN_PRESET.browser_start,
+        payload,
+        {
+          skipAuthRefresh: true,
+        }
+      )
+      if (response.data?.success !== true) {
+        throw new Error('Google login unavailable')
+      }
+      const authorizationUrl = validateGoogleBrowserAuthorizationUrl(
+        response.data?.data?.authorization_url,
+        status?.google_client_id,
+        window.location.origin,
+        import.meta.env.DEV
+      )
+      window.location.assign(authorizationUrl)
+    } catch {
+      toast.error(
+        t('Failed to start {{provider}} login', { provider: 'Google' })
+      )
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   const handleGitHubLogin = async () => {
@@ -313,6 +355,7 @@ export function useOAuthLogin(
     githubButtonDisabled,
     isTelegramDialogOpen,
     isTelegramPending,
+    handleGoogleLogin,
     handleGitHubLogin,
     handleDiscordLogin,
     handleOIDCLogin,
