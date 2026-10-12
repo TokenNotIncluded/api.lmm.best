@@ -394,9 +394,9 @@ test('public tier prices retain cache TTL, audio and per-minute units at base ra
       assertQuote(face, '0.028 CNY')
       assertQuote(face, '0.14 CNY')
       assertQuote(face, '0.042 CNY')
+      assertQuote(face, '0.0028 CNY')
       assert.match(face.textContent ?? '', /minute/)
     }
-    assertQuote(section(container, 'Catalog table'), '0.0028 CNY')
     const details = section(container, 'Public model details')
     for (const quote of [
       '0.028 CNY',
@@ -418,5 +418,21 @@ test('public tier prices retain cache TTL, audio and per-minute units at base ra
     assert.match(details.textContent ?? '', /1K/)
     assert.match(details.textContent ?? '', /minute/)
     assert.match(details.textContent ?? '', /1h|1 hour/i)
+  }
+})
+
+test('cache-only tier prices appear on the catalog card at base rates', async () => {
+  const tieredModel: PricingModel = {
+    ...model,
+    billing_mode: 'tiered_expr',
+    billing_expr: 'len < 200000 ? tier("short", cr*0.4) : tier("long", cr*0.8)',
+  }
+  const container = await renderFaces('CNY', 'K', tieredModel)
+  for (const group of ['all', 'cheap', 'premium']) {
+    await selectGroup(container, group)
+    const card = section(container, 'Catalog card')
+    assertQuote(card, '0.0028 CNY')
+    assert.match(card.textContent ?? '', /Cache Read/)
+    assert.doesNotMatch(card.textContent ?? '', /Tiered pricing/)
   }
 })
