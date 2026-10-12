@@ -79,6 +79,14 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
         ),
       })
     : null
+  const dynamicCardEntries = dynamicSummary
+    ? [
+        ...dynamicSummary.primaryEntries,
+        ...dynamicSummary.secondaryEntries.filter(
+          (entry) => entry.field === 'cacheReadPrice' && entry.unit === 'tokens'
+        ),
+      ]
+    : []
   const hasDurationPrice = dynamicSummary?.entries.some(
     (entry) => entry.unit === 'minute'
   )
@@ -113,10 +121,10 @@ export const ModelCard = memo(function ModelCard(props: ModelCardProps) {
           </code>
         </span>
       )
-    } else if (dynamicSummary.primaryEntries.length > 0) {
+    } else if (dynamicCardEntries.length > 0) {
       priceSummary = (
         <>
-          {dynamicSummary.primaryEntries.map((entry) => (
+          {dynamicCardEntries.map((entry) => (
             <span
               key={entry.key}
               className='text-muted-foreground whitespace-nowrap'

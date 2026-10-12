@@ -425,7 +425,7 @@ export function UserAuthForm({
             <Button
               type='submit'
               className='mt-1 h-11 w-full justify-center gap-2 rounded-xl'
-              disabled={isLoading || (requiresLegalConsent && !agreedToLegal)}
+              disabled={isLoading}
             >
               {isLoading ? <Loader2 className='animate-spin' /> : <LogIn />}
               {t('Sign in')}
