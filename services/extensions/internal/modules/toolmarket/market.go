@@ -138,6 +138,7 @@ type ExecuteInput struct {
 	Handle         string          `json:"handle"`
 	Quote          string          `json:"quote"`
 	IdempotencyKey string          `json:"idempotency_key"`
+	Grant          string          `json:"grant"`
 	Arguments      json.RawMessage `json:"arguments"`
 }
 type Quote struct {

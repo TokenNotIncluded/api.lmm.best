@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/assistant/access"
+	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/assistant/redaction"
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/assistant/storage"
 )
 
@@ -51,6 +53,7 @@ func (s *Service) Chat(ctx context.Context, token string, account access.Account
 	if e != nil {
 		return Reply{}, e
 	}
+	owner := p
 	turn := freshID()
 	if turn == "" {
 		return Reply{}, access.ErrUnavailable
@@ -73,8 +76,8 @@ func (s *Service) Chat(ctx context.Context, token string, account access.Account
 	defer func() {
 		cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
 		defer cancel()
-		_ = s.repo.Within(cleanup, scope(p), func(tx storage.Tx) error {
-			session, e := sessionFor(tx, p, sessionID)
+		_ = s.repo.Within(cleanup, scope(owner), func(tx storage.Tx) error {
+			session, e := sessionFor(tx, owner, sessionID)
 			if e != nil {
 				return e
 			}
@@ -98,15 +101,20 @@ func (s *Service) Chat(ctx context.Context, token string, account access.Account
 		if e != nil {
 			return out, e
 		}
+		if p.UserID != owner.UserID || p.Account != owner.Account {
+			return out, access.ErrForbidden
+		}
 		names := make([]string, 0, len(loaded))
 		for name := range loaded {
 			names = append(names, name)
 		}
 		sort.Strings(names)
 		catalog := make([]Definition, 0, len(names))
+		offered := make(map[string]bool, len(names))
 		for _, name := range names {
 			if d, err := s.registry.Describe(p, name); err == nil {
 				catalog = append(catalog, d)
+				offered[name] = true
 			}
 		}
 		request := ModelRequest{Input: input, Tools: catalog, Results: append([]Result(nil), out.Results...)}
@@ -126,7 +134,15 @@ func (s *Service) Chat(ctx context.Context, token string, account access.Account
 			_, _ = stop("model_error")
 			return out, access.ErrLimit
 		}
-		out.Text = response.Text
+		// Revocation during a model request also forbids releasing its reply.
+		current, err := s.check(ctx, token, account, access.Read)
+		if err != nil {
+			return out, err
+		}
+		if current.UserID != owner.UserID || current.Account != owner.Account {
+			return out, access.ErrForbidden
+		}
+		out.Text = redaction.Text(strings.ReplaceAll(response.Text, token, "[REDACTED]"))
 		if len(response.Calls) == 0 {
 			if response.Text == "" {
 				return stop("no_action")
@@ -134,6 +150,13 @@ func (s *Service) Chat(ctx context.Context, token string, account access.Account
 			return stop("completed")
 		}
 		for _, call := range response.Calls {
+			// A name found in untrusted text is not a loaded tool. Even describe
+			// followed by invoke in one model batch cannot skip the next round's
+			// exact schema and live permission check.
+			if !offered[call.Name] {
+				_, _ = stop("model_error")
+				return out, access.ErrForbidden
+			}
 			if !access.ID(call.ID) || len(call.ID) > 64 {
 				_, _ = stop("model_error")
 				return out, access.ErrInvalid
@@ -154,7 +177,9 @@ func (s *Service) Chat(ctx context.Context, token string, account access.Account
 				return out, e
 			}
 			if call.Name == "tools.describe" {
-				if d, ok := result.Value.(Definition); ok {
+				// Load only from the trusted registry, never a returned JSON value.
+				name, _ := args["name"].(string)
+				if d, err := s.registry.Describe(p, name); err == nil {
 					if !loaded[d.Name] && len(loaded) >= 11 {
 						_, _ = stop("turn_limit")
 						return out, access.ErrLimit
@@ -162,6 +187,7 @@ func (s *Service) Chat(ctx context.Context, token string, account access.Account
 					loaded[d.Name] = true
 				}
 			}
+			// Invoke already filtered the result before releasing it to any caller.
 			out.Results = append(out.Results, result)
 			b, _ := json.Marshal(out.Results)
 			if len(b) > 32<<10 {

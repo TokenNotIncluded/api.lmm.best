@@ -74,13 +74,19 @@ type mockMCP struct {
 	enteredToken     chan struct{}
 	blockCall        chan struct{}
 	enteredCall      chan struct{}
+	callResult       json.RawMessage
 }
 
 const echoSchema = `{"type":"object","properties":{"q":{"type":"string","minLength":1,"maxLength":32},"n":{"type":"integer","minimum":1,"maximum":10}},"required":["q"],"additionalProperties":false}`
 
-func newMock(t *testing.T) *mockMCP {
+func newMock(t *testing.T) *mockMCP { return newMockConfigured(t, nil) }
+
+func newMockConfigured(t *testing.T, configure func(*mockMCP)) *mockMCP {
 	t.Helper()
 	mock := &mockMCP{}
+	if configure != nil {
+		configure(mock)
+	}
 	mock.server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		base := mock.server.URL
 		w.Header().Set("Content-Type", "application/json")
@@ -199,6 +205,9 @@ func newMock(t *testing.T) *mockMCP {
 					}
 				}
 				result = map[string]any{"content": []any{map[string]string{"type": "text", "text": "mock result"}}}
+				if mock.callResult != nil {
+					result = mock.callResult
+				}
 			default:
 				w.WriteHeader(400)
 				return
@@ -310,7 +319,27 @@ func invocation(t *testing.T, m *Module, p Principal, id, key string) ExecuteInp
 		t.Fatal(e)
 	}
 	out := v.(map[string]any)
-	return ExecuteInput{Installation: id, Name: "echo", Handle: out["handle"].(string), Quote: out["quote"].(Quote).ID, IdempotencyKey: key, Arguments: json.RawMessage(`{"q":"hello"}`)}
+	in := ExecuteInput{Installation: id, Name: "echo", Handle: out["handle"].(string), Quote: out["quote"].(Quote).ID, IdempotencyKey: key, Arguments: json.RawMessage(`{"q":"hello"}`)}
+	q := out["quote"].(Quote)
+	if q.Available {
+		credential := "alice"
+		if p == bob {
+			credential = "bob"
+		}
+		preview, err := m.previewGrant(context.Background(), p, credential, GrantPreviewInput{
+			Installation: id, Name: in.Name, Handle: in.Handle, Quote: in.Quote, Arguments: in.Arguments,
+			MaxCalls: 4, MaxAmount: 4 * q.Amount, Expires: min(m.now().Add(time.Hour).Unix(), q.Expires),
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		grant, err := m.confirmGrant(context.Background(), p, credential, GrantConfirmInput{preview.Grant.ID, preview.Confirmation})
+		if err != nil {
+			t.Fatal(err)
+		}
+		in.Grant = grant.ID
+	}
+	return in
 }
 func post(t *testing.T, m *Module, path, credential, body string) *httptest.ResponseRecorder {
 	t.Helper()
@@ -351,8 +380,15 @@ func TestLifecycleSearchLoadExecute(t *testing.T) {
 	if e = m.enable(alice, EnableInput{inst.ID, true}); e != nil {
 		t.Fatal(e)
 	}
+	if _, e = m.execute(context.Background(), alice, "alice", in); e != nil {
+		t.Fatal("saved result cannot be replayed after disable", e)
+	}
+	in.IdempotencyKey = "new-after-disable"
 	if _, e = m.execute(context.Background(), alice, "alice", in); !errors.Is(e, ErrDenied) {
-		t.Fatal("disabled generation did not invalidate handle", e)
+		t.Fatal("disabled generation did not invalidate new calls", e)
+	}
+	if mock.calls.Load() != 1 {
+		t.Fatal("replayed external side effect")
 	}
 	if _, e = m.release(alice, ReleaseInput{srv.ID, "v1", r.Prices}); !errors.Is(e, ErrConflict) {
 		t.Fatal("mutable version", e)

@@ -171,22 +171,112 @@ integer arithmetic and reject overflow-risk values. Variable/metered upstream
 pricing has no automatic estimator in this release: leave it unknown.
 
 `market.load` returns the immutable quote ID and a user/installation/version/
-generation/schema-bound handle. Execution needs both values and an
-`idempotency_key`. An accepted fixed-price provider invocation is priced per
+generation/schema-bound handle. Loading a schema is **not execution consent**.
+Execution needs those values, a confirmed `grant`, and an `idempotency_key`. An accepted fixed-price provider invocation is priced per
 call, including a provider's `isError` result; the rule is not token-based.
 
-Execution order is durable intent → Rust reserve → recheck installation →
-provider call → persist result → Rust commit. Idempotency keys are scoped to
+Execution order is durable intent plus atomic consent consumption → Rust
+reserve → live authority/installation checks → MCP initialization → another
+live authority and consent check → durable `dispatched` record → provider call
+→ sanitize and persist result → Rust commit. Idempotency keys are scoped to
 user/account across installations. Reusing a key with different arguments,
-installation, tool or quote fails. A completed retry returns its saved result.
-A settlement retry only calls the idempotent Rust commit; it never calls the
-provider again. `POST /executions/status` reads the caller's saved operation.
+installation, tool or quote fails. A completed retry returns its saved result. A saved request hash is checked
+before current installation/price validation. Thus expiry, disabling or a later
+upgrade cannot reprice an accepted operation or make its completed result
+unreadable. A settlement retry uses only the original stored charge and calls
+the idempotent Rust commit; it never calls the provider again. Live authority
+still applies: revoking the user's action permission blocks this endpoint. `POST /executions/status` reads the caller's saved operation.
 
 An uncertain reserve, disconnected provider call or crash leaves
 `execution_in_doubt`. The module does **not** invent exactly-once guarantees for
 external side effects, automatically retry calls, or release a reservation when
-the provider might already have executed. `started` records require reconciliation
-through the future core contract. Never retry an uncertain call with a new key.
+the provider might already have executed. `started` and `dispatched` records require reconciliation through the future
+core contract. `started` may include an uncertain reserve; `dispatched` means
+external dispatch was authorized and durably marked, not that a response was
+received. Neither state is proof of failure or permission to refund. Never retry an uncertain call with a new key.
+
+## Durable execution consent
+
+Native user endpoints are separate from the four MCP metatools:
+
+- `POST /grants/preview`: `installation`, `name`, `handle`, `quote`,
+  `arguments`, `max_calls`, `max_amount`, `expires`. Returns the exact validated
+  arguments, frozen grant and a one-use
+  `confirmation` value. The confirmation is stored only as a hash. This request
+  neither reserves funds nor invokes the tool.
+- `POST /grants/confirm`: exactly `grant` and `confirmation`; no editable owner,
+  price or limit fields. The matching owner must confirm within five minutes
+  and before expiry. Reusing confirmation is rejected.
+- `POST /grants/revoke`: `grant`; revocation is idempotent.
+- `POST /grants/status`: `grant`; reads the caller's record, never the confirmation
+  hash or another user's consent.
+
+Preview/confirm/revoke require live `toolmarket.authorize`; status requires
+`toolmarket.read`; execution separately requires `toolmarket.execute`. The
+A01/A02 adapter must distinguish a direct user's approval from an agent's
+execution permission. These endpoints alone do not prove a human was present,
+and no model metatool can issue or confirm a grant. HumanGrant/session scope
+integration remains an independent gate.
+
+Consent binds the user **and** account, installation, immutable release/tool,
+connection generation, schema handle, exact argument hash, quote, amount and currency. It has a
+1–1024 call limit, total amount limit, and expiry at most 24 hours and no later
+than the quoted price. Amounts are **USD millionths**, not Core ledger credits.
+A free tool still needs explicit zero-cost consent. Schema loading cannot be
+used to approve purchases. The caller must preview and confirm the exact tool
+arguments; changing a recipient, amount or other input then requires new
+consent. JSON object-key order and whitespace do not change this binding. The
+store retains the argument hash, not the full preview input. The UI must display
+the returned canonical arguments as data rather than executing remote markup.
+Per-tool semantics and the A02 distinction between human approval and an agent
+remain separate gates; this does not grant authority to arbitrary commands.
+
+The grant counters and execution intent change in one encrypted store
+transaction. Simultaneous requests cannot overrun the local limits; duplicate
+requests consume no additional consent. An uncertain operation keeps its
+consumed amount/call. A new idempotency key cannot restore the same grant's
+capacity. These counters are not a wallet, refund or platform sponsorship
+budget, and do not replace Core's independent reservation limits.
+
+Credential replacement, installation upgrade/disable, changed handle, expiry
+or revocation prevents new dispatch. A revocation completed before the durable
+`dispatched` transition wins the local race. Already dispatched external side
+effects cannot be recalled. Later consent revocation does not erase receipts.
+
+Existing encrypted files remain readable through an optional `execution_grants`
+section. No startup migration or automatic grants are added. New calls without
+consent fail. Legacy execution receipts without the new request hash retain
+the older replay checks; they are not retroactively assigned a grant or given
+new retry authority. Storage remains bounded single-writer Linux storage.
+
+MCP result JSON is checked for duplicate keys, depth, size and valid UTF-8, then
+masked before persistence, model/client delivery and replay. The shared
+assistant redactor masks credential fields plus the active connection's raw
+access/refresh credentials and the caller credential. JSON structure, `isError`
+and exact numeric literals are retained; ambiguous JSON fails with an uncertain
+operation, not a free retry. This is best-effort data filtering, not proof that
+arbitrary encodings contain no secrets, and it does not rewrite old stored
+results.
+
+## Independent human confirmation
+
+`Authority` must also implement the local `ConfirmationAuthority` port in
+`confirmation.go` before a preview can become active. Ordinary action permission
+and knowledge of the preview nonce are insufficient. Without this port,
+`grants/confirm` returns 503 and leaves the grant inactive, even for free tools.
+
+The adapter must obtain a Core-verified direct-human session decision for the
+server-built `ConfirmationIntent`. The response binds its audience, exact intent
+hash, user/account, `human_session` kind, audit reference and short validity.
+It is not a client JSON field and is not a new implemented Core RPC. A01/A02
+must provide the real adapter; test fixtures are explicitly synthetic.
+
+Core verification runs outside the local store lock. Before activation, the
+module rechecks live authority, cancellation, expiry, nonce, installation and the
+entire immutable intent. Revocation or any changed argument, version or budget
+rejects activation. The approval reference and intent hash persist with the
+same grant; old active records without them cannot execute. No automatic
+migration silently promotes those records.
 
 ## Lightweight metatools and protocol limits
 
