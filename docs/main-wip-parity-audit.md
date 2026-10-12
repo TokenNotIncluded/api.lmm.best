@@ -2,7 +2,81 @@
 
 [文档目录](README.md) · [主线交接](development-branches.md) · [架构状态](core-migration.md)
 
-## 后续并行推进：已进入 WIP 的窄增量
+## 最新交接：2026-10-13 独立候选与源码状态
+
+本节覆盖下文旧固定 WIP 的相应验收缺项，不删除历史记录，也不改变传统 main
+`3948a0a1` 的历史比较范围。本轮入场源码为 `b70ae815bd60c957de9b18c45b96e61d0433d514`，
+分支仍为 `wip/rust-core-go-extensions`；有其他贡献者未提交工作，不能称工作区干净。
+三路子 agent 分别处理文档、归档和健康/Issue；父 agent 读回结果并收集本轮文档与
+插件指针修改。没有变更生产服务或操作旧库，也没有重新发布或安装候选。
+
+### 已提交、已发布与候选运行不是同一状态
+
+- 已提交源码：`41e52ede49` 实现 Google 内置浏览器 OAuth 预设；`f6081b14f8`
+  修复 append-only funding evidence 的运行权限与未知用量处理；`6583c76278`
+  加入源码锁定的 GHCR 预览发布。依据为证据根下 `google-integration/commits.json`。
+- 入场源码 HEAD `b70ae815bd` 修复助手礼包：Go 在缺少 Rust grant/receipt 合同时返回
+  鉴权后的 `503 ASSISTANT_GIFT_UNAVAILABLE`，声明能力不可用；Web 不再提供虚假领取，
+  只有已完成的持久回执才认成功，丢失响应不自动重发。不是已经发放礼包或接通资金宿主。
+  `assistant-gift-safety/lmm-gift-web-tests.log` 为 **125 通过、0 失败**（5 文件），
+  Go 日志记录 assistant/webcompat 两包通过；这些是本地定向回归，非候选浏览器验收。
+- 已发布材料：`google-integration/registry-{core,extensions}/publication.json`
+  记录 `6583c76278` 的 GHCR 预览镜像发布；正式镜像 Rust **1.99**。
+  匿名拉取仍在 `anonymous-registry/{core,extensions}.log` 记录 **401 Unauthorized**，
+  不能称公开匿名分发验收通过，更不能称生产上线或最新版礼包已发布。
+- 候选运行记录：`deploy/runtime-v3.json` 标为 `candidate-running-not-activated`，
+  独立原生候选地址 `http://127.0.0.1:55953`；Core/Web 来源为
+  `6583c76278f5f9f63bf8165c4304cb0f16e9c721`，Go 复用 `fd1999a8` 的原候选
+  （含当时保留的贡献者 dirty 输入），不是清洁 HEAD 构建。**候选 Go 和 Web 均不是
+  最新 `b70ae815`，后续助手/远程控制修改未安装**；没有切换 `api.lmm.local`。
+  原生 Core 是 Rust **1.98 补充验证/debug**，不是正式 1.99 镜像运行验收。
+
+### 最新实测覆盖与仍保留的财务状态
+
+`google-integration/final-core-checks/core-focused-tests.log` 七个 target 实际合计
+**244 通过、0 失败、1 跳过**：169+19+1+12+28+7+8；跳过的是需 release 显式运行的
+`routing_benchmark`。245 是含跳过的总数，不是通过数。对应 `core-commands.json`
+中的定向 Cargo test、Clippy、build 均 exit 0；源码绑定
+`artifact-commit-binding.json` 核对 Core 140/Web 2479 输入匹配 `6583c76278`。
+这不是最新 HEAD 的全仓测试，也不能与历史轮次重复相加。
+
+`deploy/report-v2.md` 保留真实内部 Core/Go/PG 的购买→结算→退款及 Chromium
+余额购买/存储交付证据；其当时模型请求因 funding 权限被拒绝、0 dispatch 的结论
+**只属于 v2**。v3 的 `deploy/candidate-v3/model-acceptance.json` 覆盖该窄模型缺项：
+合成供应商共 3 dispatch、匿名 0 dispatch，真实内部账本扣费 **49 credits**，
+140 预留中的 91 已释放；供应商拒绝与缺失用量各 **140 credits**、共 **280 待核对**。
+记录钱包 199671、预留 280、journal 守恒，无不安全权限放宽。
+必须保留扣费及待核对状态；不得猜测退款、删除、重发请求或更改预留/账本。
+**供应商是合成服务，不是真实供应商验收。**
+
+v3 `browser-results.json` 记录真实 Chromium/合成账号、登录 200、HttpOnly 严格
+session cookie 与刷新 200，无响应 mock；未配置 Google 不展示入口，start 拒绝 403。
+Google 仅内置预设实现，真实 Google 授权/MFA、管理员激活仍未验收。页面 HTML 200
+不等于业务通过：财务日志/统计、充值、订阅、返利、catalog/orders 等 API 仍 503，
+助手 greeting 404、完整对话与礼包资金链未验收。HumanGrant、支付网关、迁移/恢复、
+CLI、负载及全站功能对齐仍缺证据，不编造追平百分比。
+
+证据根：`~/.local/state/api-lmm-microservices-20261011/pr-issue-local-integration/`；
+礼包定向日志在同级 `assistant-gift-safety/`。私密材料只留统一 Backups 私有目录，
+不输出凭据或用户数据。三路实际结果已读回，分别见
+`deploy/handoff-parallel/{docs,archive,health}-result.md`：
+
+- 已将五个未引用 Google 中间构建归档到统一 Backups，逐文件校验内容、权限和链接后
+  移除原文件；旧 Core 重复副本复用已有验证恢复文件后移除。计入新归档后，本轮目标
+  实际释放约 **368.7 MiB**。旧 Web 仍被候选恢复配置引用，**保留未清理**。
+- 归档前后五个候选 unit 均 active/running，应用 PID/二进制哈希未变化；Core、Go
+  live/ready 与 Web status 的只读健康检查通过。磁盘仍 79%、余量约 198.7 GiB；
+  不把并发文件活动的全盘变化归因于本轮清理，也没有新查库或重发业务请求。
+- [#895 状态评论](https://github.com/TokenNotIncluded/api.lmm.best/issues/895#issuecomment-6129958838)
+  已写入并读回，Issue 保持 OPEN。正式镜像与匿名下载回执只证明各自窄范围，
+  不抵扣容器内完整业务、升级恢复或真实供应商验收。
+- 独立 Pi 插件提交 `255383070c` 兼容余额 v2，显示明确的 public credits 而非 USD；
+  129 个本地测试、类型检查、原生 loader 与打包检查通过。本机插件已更新，
+  微服务仓库同步该子模块指针。已用原生 `/lmm-prices` 正常续接现有凭据，
+  只读余额 HTTP 200/schema v2，解析后状态不再 unavailable，未输出金额或凭据。
+  此为用户自身账号的插件校验，不是候选业务验收；没有新增付费模型调用或候选部署。
+
+## 历史后续并行推进：已进入 WIP 的窄增量
 
 以下五笔提交接续本页的历史核查，传统 main 仍固定为 `3948a0a1`。
 六个独立子 agent 按文件归属并行开发、执行定向测试，父 agent 串行集成并正常推送；
