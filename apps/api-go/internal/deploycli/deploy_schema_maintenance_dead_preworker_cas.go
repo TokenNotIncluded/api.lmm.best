@@ -106,6 +106,14 @@ func (lease *productionMerchantStoreFence) recoverSchemaMaintenanceDeadPreWorker
 	if err := guard(ctx); err != nil {
 		return err
 	}
+	if len(preExecData) == 1 {
+		var deleteEffects int
+		if err := tx.QueryRow(ctx, `SELECT
+ (SELECT count(*) FROM pg_catalog.pg_trigger WHERE tgrelid=pg_catalog.to_regclass($1) AND NOT tgisinternal AND tgenabled<>'D' AND (tgtype & 8)<>0)
+ +(SELECT count(*) FROM pg_catalog.pg_rewrite WHERE ev_class=pg_catalog.to_regclass($1) AND ev_type='4' AND ev_enabled<>'D')`, schemaMaintenanceQuoteIdentifier(lease.identity.Schema)+`.options`).Scan(&deleteEffects); err != nil || deleteEffects != 0 {
+			return errors.New("dead-preworker pre-execution owner DELETE has active user DELETE triggers or rules")
+		}
+	}
 	if mode == schemaMaintenanceDeadPreWorkerExactOwner {
 		var returned string
 		if err := tx.QueryRow(ctx, `DELETE FROM "`+lease.identity.Schema+`".options WHERE key=$1 AND value=$2 RETURNING value`, merchantStoreFenceOwnerKey(owner), string(ownerRaw)).Scan(&returned); err != nil || returned != string(ownerRaw) {
