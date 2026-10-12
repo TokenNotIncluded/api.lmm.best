@@ -23,7 +23,8 @@ export function createHumanGrantSessionScope(
       !Number.isSafeInteger(userId) ||
       userId === undefined ||
       userId <= 0 ||
-      !sessionId ||
+      typeof sessionId !== 'string' ||
+      sessionId.length === 0 ||
       current.userId !== userId ||
       current.sessionId !== sessionId
     ) {
@@ -32,17 +33,31 @@ export function createHumanGrantSessionScope(
     }
   }
 
-  const scopedFetch: typeof fetch = async (input, init) => {
-    check()
-    const response = await fetcher(input, init)
+  function checkOrCancel(response: Response): void {
     try {
       check()
-      return response
     } catch (error) {
       // Drop a late response without reading its CSRF proof or account data.
       void response.body?.cancel().catch(() => {})
       throw error
     }
+  }
+
+  const scopedFetch: typeof fetch = async (input, init) => {
+    check()
+    const response = await fetcher(input, init)
+    checkOrCancel(response)
+    const json = response.json.bind(response)
+    Object.defineProperty(response, 'json', {
+      configurable: true,
+      value: async () => {
+        checkOrCancel(response)
+        const value: unknown = await json()
+        checkOrCancel(response)
+        return value
+      },
+    })
+    return response
   }
 
   return {
