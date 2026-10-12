@@ -15,6 +15,11 @@ This branch has exactly three executable programs: the `lmm` client, the `lmm-co
 
 **This fresh-install microservice branch is WIP, not a deployable replacement for the existing site.** Passing module tests does not prove a complete model, payment or funds flow. The runtime does not connect to the old application database, automatically upgrade schemas or fall back to the legacy server. Controlled migration experiments use isolated copies; see [architecture and status](docs/core-migration.md).
 
+The default development branch is `wip/rust-core-go-extensions`; legacy `main`
+and `traditional` are frozen. [Branch promotion](docs/development-branches.md)
+is not deployment or acceptance. [Extore product sync](docs/extore-shop-binding-followup.md)
+remains incomplete and must not be deployed.
+
 Initialize a new core database explicitly with `lmm-core init-db`; normal startup does not create or alter tables.
 
 ## Start here
