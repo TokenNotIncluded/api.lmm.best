@@ -441,7 +441,15 @@ export interface AffiliateTransferRequest {
 /**
  * User wallet data
  */
-export interface UserWalletData {
+export interface UserWalletData extends Pick<
+  import('@/stores/auth-store').AuthUser,
+  | 'wallet_unit'
+  | 'wallet_spendable_quota'
+  | 'wallet_reserved_quota'
+  | 'wallet_debt'
+  | 'wallet_money_basis'
+  | 'wallet_money_available'
+> {
   /** User ID */
   id: number
   /** Username */

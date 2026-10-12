@@ -40,6 +40,7 @@ import { rememberStoreGuestOrder } from './guest-order-storage'
 import { useStoreGuestSession, useStoreGuestDisclaimer } from './guest-session'
 import { StoreMerchantIdentity } from './merchant-identity'
 import { StoreMerchantTermsAcceptance } from './merchant-terms'
+import { StoreNativeProduct } from './native-projection'
 import {
   storeProductGalleryImages,
   storeProductHeaderImage,
@@ -258,6 +259,9 @@ type StoreCheckoutProps = {
 export function StoreCheckout(props: StoreCheckoutProps) {
   const user = useAuthStore((state) => state.auth.user)
   const bootstrapState = useAuthStore((state) => state.auth.bootstrapState)
+  if (props.product.record_kind === 'native') {
+    return <StoreNativeProduct product={props.product} />
+  }
   if (!user && bootstrapState !== 'complete') {
     return <StoreAuthenticationLoading />
   }
@@ -490,6 +494,7 @@ function ResolvedStoreCheckout({
     code.length >= 8 && new TextEncoder().encode(code).length <= 72
   const emailValid = isStoreEmail(pickupEmail)
   const valid =
+    product.record_kind !== 'native' &&
     (!!user || (!!guestAllowed && !!guest.session && !guest.loading)) &&
     (!initialVariantId || !!selectedVariant) &&
     (!guestAllowed ||
@@ -620,7 +625,7 @@ function ResolvedStoreCheckout({
   const resultNeedsPayment =
     result?.order.status === 'pending' &&
     result.order.payment_method !== 'free' &&
-    result.order.price_quota > 0
+    (result.order.price_quota ?? 0) > 0
   async function paymentError(issue: unknown) {
     setError(issue)
     if (
@@ -648,6 +653,9 @@ function ResolvedStoreCheckout({
       promotion.refresh()
       void client.invalidateQueries({ queryKey: ['store', 'orders', user?.id] })
     }
+  }
+  if (product.record_kind === 'native') {
+    return <StoreNativeProduct product={product} />
   }
   return (
     <aside className='bg-card space-y-4 rounded-lg border p-5 lg:sticky lg:top-24'>

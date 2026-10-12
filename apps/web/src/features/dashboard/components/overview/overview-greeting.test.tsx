@@ -257,6 +257,39 @@ for (const [label, status, payload] of [
   })
 }
 
+for (const quota of [
+  0,
+  -70,
+  Number.MAX_SAFE_INTEGER,
+  undefined,
+  Number.MAX_SAFE_INTEGER + 1,
+]) {
+  test(`native greeting balance preserves raw signed integer or unknown: ${quota}`, async () => {
+    api.defaults.adapter = async (config) =>
+      respond(config, 200, {
+        success: true,
+        data: { ...emptyPreference, templates: { en: 'Balance: $balance' } },
+      })
+    const { container } = await mount({
+      quota,
+      financial_projection_available: true,
+      usage_projection_available: false,
+      wallet_unit: 'core_credit',
+      wallet_money_basis: 'unknown',
+      wallet_money_available: false,
+    })
+    const expected =
+      typeof quota === 'number' && Number.isSafeInteger(quota)
+        ? `${quota.toLocaleString()} Credits`
+        : 'Unknown'
+    await until(
+      () =>
+        container.querySelector('.overview-greeting-message')?.textContent ===
+        `Balance: ${expected}`
+    )
+  })
+}
+
 for (const quota of [0, 5_000_000]) {
   test(`financial projection false substitutes unavailable for a ${quota} greeting balance`, async () => {
     api.defaults.adapter = async (config) =>

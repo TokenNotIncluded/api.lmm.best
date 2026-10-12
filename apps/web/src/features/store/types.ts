@@ -53,16 +53,30 @@ export type StoreCategoryInput = Pick<
   StoreCategory,
   'name' | 'sort_order' | 'active'
 >
+export type StorePrice =
+  | {
+      unit: 'credits'
+      amount_credits: number
+      amount_minor?: never
+      currency?: never
+    }
+  | {
+      unit?: 'currency'
+      amount_minor: number
+      currency: string
+      amount_credits?: never
+    }
 export interface StoreVariant {
+  price?: StorePrice
   id: string
   product_id: string
   name: string
-  price_quota: number
+  price_quota: number | null
   template: StoreDeliveryTemplate
   unlimited_supply?: boolean
   enabled: boolean
-  created_at: number
-  updated_at: number
+  created_at: number | null
+  updated_at: number | null
   is_default: boolean
   inventory_total: number
   inventory_available: number
@@ -73,8 +87,10 @@ export interface StoreVariant {
 export type StoreVariantInput = Pick<
   StoreVariant,
   'name' | 'price_quota' | 'template' | 'enabled'
-> & { fixed_content?: string }
+> & { price_quota: number; fixed_content?: string }
 export interface StoreProduct {
+  record_kind?: 'native' | 'legacy'
+  price?: StorePrice
   category_id?: string
   category?: Pick<StoreCategory, 'id' | 'name'> & { active?: boolean }
   id: string
@@ -84,8 +100,8 @@ export interface StoreProduct {
   variants?: StoreVariant[]
   inventory_total?: number
   inventory_available?: number
-  price_min_quota?: number
-  price_max_quota?: number
+  price_min_quota?: number | null
+  price_max_quota?: number | null
   test_mode?: boolean
   visibility?: StoreVisibility
   purchase_login_required?: boolean
@@ -96,7 +112,7 @@ export interface StoreProduct {
   image_urls: string[]
   contact: string
   links: StoreLink[]
-  price_quota: number
+  price_quota: number | null
   template: StoreDeliveryTemplate
   delivery_strategy: 'sequential' | 'random'
   payment_methods: StorePaymentMethod[]
@@ -122,14 +138,16 @@ export interface StoreProduct {
   reserved_quantity?: number
   sale_available?: number
   promotion_expires_at: number
-  created_at: number
-  updated_at: number
+  created_at: number | null
+  updated_at: number | null
   review_note: string
   trading_paused?: boolean
 }
 export type StoreProductInput = Omit<
   StoreProduct,
   | 'id'
+  | 'record_kind'
+  | 'price'
   | 'seller_id'
   | 'official'
   | 'available_stock'
@@ -152,8 +170,15 @@ export type StoreProductInput = Omit<
   | 'status'
   | 'trading_paused'
   | 'category'
-> & { fixed_content?: string; variants?: StoreVariantInput[] }
+> & {
+  price_quota: number
+  fixed_content?: string
+  variants?: StoreVariantInput[]
+}
 export interface StoreOrder {
+  record_kind?: 'native' | 'legacy'
+  unit_price?: StorePrice
+  total?: StorePrice
   variant_id?: string
   variant_name?: string
   delivery_template?: string
@@ -164,10 +189,10 @@ export interface StoreOrder {
   product_id: string
   product_title: string
   quantity: number
-  unit_price_quota: number
-  price_quota: number
-  fee_quota: number
-  payment_method: StorePaymentMethod | 'free'
+  unit_price_quota: number | null
+  price_quota: number | null
+  fee_quota?: number
+  payment_method: StorePaymentMethod | 'free' | ''
   promotion_code?: string
   status:
     | 'pending'
@@ -180,8 +205,8 @@ export interface StoreOrder {
   amount_minor: number
   currency: string
   frozen_usd_fx: string | number
-  created_at: number
-  paid_at: number
+  created_at: number | null
+  paid_at: number | null
   expires_at: number
   pickup_login_required: boolean
   pickup_code_required: boolean

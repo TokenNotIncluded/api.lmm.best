@@ -14,11 +14,13 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import { storeApi } from './api'
 import { StoreCategoriesManager } from './categories'
+import { StoreNativeProduct } from './native-projection'
 import { safeStoreMediaUrl } from './product-media'
 import { StoreRootRefunds } from './refund-panel'
-import { StoreAmount, StoreAuthGate, StoreError, StoreLoading } from './shared'
+import { StoreAuthGate, StoreError, StoreLoading } from './shared'
 import type { StoreProduct } from './types'
 import { safeStoreUrl } from './utils'
+import { StoreProductPrice } from './variant-summary'
 
 export function StoreReviewPage() {
   return (
@@ -171,7 +173,7 @@ function StoreReviewRow({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<unknown>(null)
   async function review(approved: boolean) {
-    if (busy) return
+    if (busy || product.record_kind === 'native') return
     setBusy(true)
     setError(null)
     try {
@@ -184,6 +186,14 @@ function StoreReviewRow({
       setBusy(false)
     }
   }
+  if (product.record_kind === 'native') {
+    return (
+      <article className='space-y-4 p-4'>
+        <h2 className='font-semibold'>{product.title}</h2>
+        <StoreNativeProduct product={product} />
+      </article>
+    )
+  }
   return (
     <article className='space-y-4 p-4'>
       <div className='flex flex-wrap justify-between gap-3'>
@@ -194,7 +204,7 @@ function StoreReviewRow({
           </p>
         </div>
         <strong className='text-sm'>
-          <StoreAmount quota={product.price_quota} />
+          <StoreProductPrice product={product} />
         </strong>
       </div>
       <p className='max-w-prose text-sm break-words whitespace-pre-wrap'>

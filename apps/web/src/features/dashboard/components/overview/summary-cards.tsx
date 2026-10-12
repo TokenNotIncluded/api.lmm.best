@@ -27,6 +27,11 @@ import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
 import { getUserQuotaDates } from '@/features/dashboard/api'
 import { useSummaryCardsConfig } from '@/features/dashboard/hooks/use-dashboard-config'
+import { NativeWalletDetails } from '@/features/wallet/components/native-wallet-details'
+import {
+  nativeCreditDisplay,
+  walletProjection,
+} from '@/features/wallet/lib/wallet-projection'
 import { useStatus } from '@/hooks/use-status'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { toIntlLocale } from '@/i18n/languages'
@@ -87,11 +92,9 @@ export function SummaryCards() {
   const { loading } = useStatus()
 
   const summaryTimeRange = useMemo(() => computeTimeRange(1), [])
-  const financialAvailable = user?.financial_projection_available !== false
-  const remainQuota = financialAvailable ? Number(user?.quota ?? 0) : null
-  const requestCount = financialAvailable
-    ? Number(user?.request_count ?? 0)
-    : null
+  const projection = walletProjection(user)
+  const remainQuota = projection.available
+  const requestCount = projection.requests
 
   const usageTrendQuery = useQuery({
     queryKey: [
@@ -109,12 +112,16 @@ export function SummaryCards() {
         default_time: 'hour',
       }),
     staleTime: 60 * 1000,
-    enabled: Boolean(user?.id),
+    enabled: Boolean(user?.id) && projection.history,
   })
 
   // Formatting follows the current language and currency configuration on every render.
   const summaryValues = {
-    usedDisplay: financialAvailable ? formatUserUsage(user) : t('Unavailable'),
+    usedDisplay:
+      user?.financial_projection_available !== false &&
+      (!projection.native || projection.history)
+        ? formatUserUsage(user)
+        : t('Unavailable'),
     requestCountDisplay:
       requestCount === null ? t('Unavailable') : formatNumber(requestCount),
   }
@@ -129,11 +136,13 @@ export function SummaryCards() {
   )
 
   const usageReady =
-    usageTrendQuery.isSuccess && usageTrendQuery.data.success === true
+    projection.history &&
+    usageTrendQuery.isSuccess &&
+    usageTrendQuery.data.success === true
   const usageFailed =
     usageTrendQuery.isError || usageTrendQuery.data?.success === false
   // Without captured bucket units, raw history cannot predict the current wallet's runway.
-  const usageComparable = usageReady && recentUsage === 0
+  const usageComparable = !projection.native && usageReady && recentUsage === 0
   const healthLevel =
     remainQuota === null
       ? null
@@ -150,7 +159,9 @@ export function SummaryCards() {
         t('Raw credits'),
         toIntlLocale(i18n.resolvedLanguage || i18n.language)
       )
-    : '—'
+    : projection.history
+      ? '—'
+      : t('Unavailable')
   let runwayDisplay: string
   if (remainQuota === null) {
     runwayDisplay = t('Unavailable')
@@ -201,23 +212,36 @@ export function SummaryCards() {
             </span>
           ) : null}
         </div>
-        <BalanceCurrencySwitch />
+        {!projection.native && <BalanceCurrencySwitch />}
         <div
           className='overview-balance-value'
           aria-live='polite'
           aria-atomic='true'
         >
           {remainQuota === null ? (
-            t('Unavailable')
+            projection.native ? (
+              t('Unknown')
+            ) : (
+              t('Unavailable')
+            )
           ) : loading ? (
             <Skeleton className='h-12 w-48 max-w-full' />
           ) : (
             <>
-              <span>{formatQuota(remainQuota, { showSymbol: false })}</span>{' '}
-              <span className='overview-unit'>{currencyLabel}</span>
+              {projection.native ? (
+                <span>
+                  {nativeCreditDisplay(remainQuota, t('Credits'), t('Unknown'))}
+                </span>
+              ) : (
+                <>
+                  <span>{formatQuota(remainQuota, { showSymbol: false })}</span>{' '}
+                  <span className='overview-unit'>{currencyLabel}</span>
+                </>
+              )}
             </>
           )}
         </div>
+        <NativeWalletDetails user={user} />
         <div className='overview-balance-footer'>
           <dl className='min-w-0 text-sm'>
             <dt className='text-muted-foreground text-xs'>{t('Runway')}</dt>

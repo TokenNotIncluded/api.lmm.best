@@ -427,6 +427,44 @@ for (const projection of [undefined, true]) {
   })
 }
 
+test('native wallet with unknown imported history stays raw and keeps reservations separate', async () => {
+  configureCurrencyOverview()
+  const current = useAuthStore.getState().auth.user
+  assert.ok(current)
+  useAuthStore.getState().auth.setUser({
+    ...current,
+    quota: 199671,
+    financial_projection_available: true,
+    wallet_unit: 'core_credit',
+    wallet_money_basis: 'unknown',
+    wallet_money_available: false,
+    wallet_spendable_quota: 199671,
+    wallet_reserved_quota: 280,
+    wallet_debt: 0,
+    usage_projection_available: false,
+    used_quota: undefined,
+    normalized_used_quota: undefined,
+    request_count: undefined,
+  })
+  const container = await mount(SummaryCards)
+  assert.match(
+    container.querySelector('.overview-balance-value')?.textContent ?? '',
+    /199,671 Credits/
+  )
+  assert.match(
+    container.querySelector('[data-native-wallet-details]')?.textContent ?? '',
+    /280 Credits/
+  )
+  assert.equal(container.querySelector('[data-currency="USD"]'), null)
+  const metrics =
+    container.querySelector('.overview-metrics')?.textContent ?? ''
+  assert.match(metrics, /Unavailable/)
+  assert.doesNotMatch(
+    container.querySelector('.overview-balance')?.textContent ?? '',
+    /Healthy|No recent usage/
+  )
+})
+
 function currencyButton(container: HTMLElement, currency: string) {
   const element = container.querySelector<HTMLButtonElement>(
     `[data-currency="${currency}"]`

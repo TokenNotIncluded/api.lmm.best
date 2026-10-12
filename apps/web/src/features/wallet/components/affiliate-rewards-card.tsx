@@ -25,6 +25,7 @@ import { IconBadge } from '@/components/ui/icon-badge'
 import { Skeleton } from '@/components/ui/skeleton'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 
+import { walletProjection } from '../lib/wallet-projection'
 import type { UserWalletData } from '../types'
 import { AffiliateInviteDialog } from './affiliate-invite-dialog'
 import { ReferralHistoryDialog } from './referral-history-dialog'
@@ -61,7 +62,9 @@ export function AffiliateRewardsCard({
     )
   }
 
-  const financialAvailable = user?.financial_projection_available !== false
+  const projection = walletProjection(user)
+  const financialAvailable =
+    user?.financial_projection_available !== false && !projection.readOnly
   const hasRewards = financialAvailable && (user?.aff_quota ?? 0) > 0
 
   return (

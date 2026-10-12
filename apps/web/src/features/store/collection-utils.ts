@@ -13,6 +13,7 @@ export function storeCartCapacity(
   product: StoreCatalogueProduct,
   variantId: string
 ): number {
+  if (product.record_kind === 'native') return 0
   const price = storeVariantPrice(product, variantId)
   if (!price || product.status !== 'published' || product.trading_paused) {
     return 0

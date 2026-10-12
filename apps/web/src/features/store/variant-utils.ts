@@ -2,7 +2,11 @@
 import type { StoreProduct, StoreVariant } from './types'
 
 export function legacyVariantProduct(product: StoreProduct) {
-  return product.variants === undefined && !product.default_variant_id
+  return (
+    product.record_kind !== 'native' &&
+    product.variants === undefined &&
+    !product.default_variant_id
+  )
 }
 export function enabledStoreVariants(product: StoreProduct): StoreVariant[] {
   return (product.variants || []).filter((variant) => variant.enabled)
@@ -23,7 +27,9 @@ export function storeVariantPrice(
   const price = legacyVariantProduct(product)
     ? product.price_quota
     : selectedStoreVariant(product, id)?.price_quota
-  return Number.isSafeInteger(price) && (price ?? 0) > 0 ? price : undefined
+  return typeof price === 'number' && Number.isSafeInteger(price) && price > 0
+    ? price
+    : undefined
 }
 export function storeVariantCapacity(
   product: StoreProduct,

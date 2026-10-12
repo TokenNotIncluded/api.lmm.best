@@ -17,6 +17,8 @@ import {
   storeGuestOrderIds,
 } from './guest-order-storage'
 import { readStoreGuestSession } from './guest-session'
+import { StoreNativeAmount, StoreNativeNotice } from './native-projection'
+import { STORE_NATIVE_COPY } from './native-projection-values'
 import { StoreAmount, StoreAuthGate, StoreError } from './shared'
 import type { StoreOrder, StorePaymentSession } from './types'
 import { continueStorePayment, safeStoreUrl } from './utils'
@@ -164,6 +166,19 @@ export function StoreGuestOrderRow({
     } finally {
       setBusy(false)
     }
+  }
+  if (order.record_kind === 'native') {
+    return (
+      <article className='space-y-3 p-4'>
+        <h2 className='font-semibold break-words'>{order.product_title}</h2>
+        <p className='text-xs break-all'>{order.trade_no}</p>
+        <StoreNativeAmount price={order.total} />
+        <p className='text-muted-foreground text-xs'>
+          {t(STORE_NATIVE_COPY.time, { defaultValue: 'Time unknown' })}
+        </p>
+        <StoreNativeNotice />
+      </article>
+    )
   }
   return (
     <article className='space-y-3 p-4'>

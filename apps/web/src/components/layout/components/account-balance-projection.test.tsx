@@ -5,6 +5,8 @@ import { after, afterEach, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 
+import type { AuthUser } from '@/stores/auth-store'
+
 const dom = new Window({ url: 'http://localhost/' })
 for (const key of [
   'window',
@@ -69,7 +71,11 @@ afterEach(async () => {
 })
 after(() => dom.close())
 
-async function mount(projection: boolean | undefined, quota: number) {
+async function mount(
+  projection: boolean | undefined,
+  quota: number,
+  overrides: Partial<AuthUser> = {}
+) {
   useSystemConfigStore.setState({
     config: {
       ...originalConfig,
@@ -89,6 +95,7 @@ async function mount(projection: boolean | undefined, quota: number) {
     financial_projection_available: projection,
     usage_projection_available: false,
     setting: JSON.stringify({ wallet_display_currency: 'USD' }),
+    ...overrides,
   })
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -149,6 +156,37 @@ for (const quota of [0, 5_000_000]) {
     const links = [...container.querySelectorAll('a')]
     assert.equal(links.length, 4)
     assert.ok(links.every((link) => link.getAttribute('href') === '/wallet'))
+  })
+}
+
+for (const [quota, expected] of [
+  [720, '720 Credits'],
+  [-70, '-70 Credits'],
+  [0, '0 Credits'],
+  [Number.MAX_SAFE_INTEGER + 1, 'Unknown'],
+] as const) {
+  test(`native wallet ${quota} stays signed raw credits in the header and sidebar, never legacy USD`, async () => {
+    const container = await mount(true, quota, {
+      wallet_unit: 'core_credit',
+      wallet_money_available: false,
+    })
+    assert.equal(
+      container
+        .querySelector('[data-testid="mobile-account-balance"]')
+        ?.getAttribute('aria-label'),
+      `Balance: ${expected} · Wallet`
+    )
+    assert.ok(
+      container
+        .querySelector('[data-testid="account-balance-badge"]')
+        ?.textContent?.includes(expected)
+    )
+    assert.ok(
+      container
+        .querySelector('[data-testid="console-balance"]')
+        ?.textContent?.includes(expected)
+    )
+    assert.doesNotMatch(container.textContent ?? '', /USD|Top up/)
   })
 }
 

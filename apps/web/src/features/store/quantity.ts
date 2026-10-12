@@ -12,6 +12,7 @@ export function storeCheckoutCapacity(
     Partial<
       Pick<
         StoreProduct,
+        | 'record_kind'
         | 'sale_available'
         | 'sale_limit'
         | 'unlimited_supply'
@@ -22,6 +23,7 @@ export function storeCheckoutCapacity(
     >,
   method: StorePaymentMethod | ''
 ) {
+  if (product.record_kind === 'native') return 0
   const { available_stock: stock, price_quota: price } = product
   const unlimited = product.unlimited_supply === true
   if (
@@ -33,6 +35,7 @@ export function storeCheckoutCapacity(
   }
   if (
     (!unlimited && (!Number.isSafeInteger(stock) || stock < 0)) ||
+    typeof price !== 'number' ||
     !Number.isSafeInteger(price) ||
     price < 1
   ) {

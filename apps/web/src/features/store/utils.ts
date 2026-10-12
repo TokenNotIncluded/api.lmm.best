@@ -52,8 +52,14 @@ export function storeTotal(unit: number, quantity: number) {
   }
   return unit * quantity
 }
-export function storeDate(timestamp: number, locale: string) {
-  return timestamp > 0
+export function storeDate(
+  timestamp: number | null | undefined,
+  locale: string
+) {
+  return typeof timestamp === 'number' &&
+    Number.isSafeInteger(timestamp) &&
+    timestamp > 0 &&
+    Number.isFinite(new Date(timestamp * 1000).getTime())
     ? new Date(timestamp * 1000).toLocaleString(toIntlLocale(locale))
     : '—'
 }
@@ -87,7 +93,7 @@ export function continueStorePayment(
   }
 }
 
-export function paymentLabel(method: StorePaymentMethod | 'free') {
+export function paymentLabel(method: StorePaymentMethod | 'free' | '') {
   if (method === 'free') return 'Free claim'
   if (method === 'balance') return 'Balance payment'
   if (method.endsWith('waffo_pancake')) return 'Waffo Pancake'

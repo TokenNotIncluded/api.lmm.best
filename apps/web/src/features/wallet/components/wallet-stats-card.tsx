@@ -37,7 +37,9 @@ import {
   useSystemConfigStore,
 } from '@/stores/system-config-store'
 
+import { nativeCreditDisplay, walletProjection } from '../lib/wallet-projection'
 import type { UserWalletData } from '../types'
+import { NativeWalletDetails } from './native-wallet-details'
 import { PlatformCreditAmount } from './platform-credit-help'
 import { WalletTokenCloud, type WalletCloudSuccess } from './wallet-token-cloud'
 
@@ -57,8 +59,8 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
   const { t } = useTranslation()
   const walletCurrency = useWalletCurrency()
   const { formatQuota, formatUserUsage } = walletCurrency
-  const financialAvailable =
-    props.user?.financial_projection_available !== false
+  const projection = walletProjection(props.user)
+  const financialAvailable = projection.available !== null
   const configuredQuotaPerUnit = useSystemConfigStore(
     (state) => state.config.currency.quotaPerUnit
   )
@@ -66,9 +68,11 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
     Number.isFinite(configuredQuotaPerUnit) && configuredQuotaPerUnit > 0
       ? configuredQuotaPerUnit
       : DEFAULT_CURRENCY_CONFIG.quotaPerUnit
-  const balanceCredits = financialAvailable
-    ? Math.max(0, (props.user?.quota ?? 0) / quotaPerUnit)
-    : 0
+  const balanceCredits = projection.native
+    ? (projection.spendable ?? 0)
+    : financialAvailable
+      ? Math.max(0, (props.user?.quota ?? 0) / quotaPerUnit)
+      : 0
   if (props.loading) {
     return (
       <div className='bg-card grid grid-cols-3 overflow-hidden rounded-xl border'>
@@ -101,9 +105,11 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
   }[] = [
     {
       label: t('Current Balance'),
-      value: financialAvailable
-        ? formatQuota(props.user?.quota ?? 0)
-        : t('Unavailable'),
+      value: projection.native
+        ? nativeCreditDisplay(projection.available, t('Credits'), t('Unknown'))
+        : financialAvailable
+          ? formatQuota(props.user?.quota ?? 0)
+          : t('Unavailable'),
       description: t('Remaining quota'),
       icon: WalletCards,
       tone: 'primary',
@@ -111,19 +117,24 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
     },
     {
       label: t('Total Usage'),
-      value: financialAvailable
-        ? formatUserUsage(props.user)
-        : t('Unavailable'),
+      value:
+        props.user?.financial_projection_available !== false &&
+        (!projection.native || projection.history)
+          ? formatUserUsage(props.user)
+          : t('Unavailable'),
       description: t('Total consumed quota'),
       icon: BarChart3,
       tone: 'neutral',
-      available: financialAvailable,
+      available:
+        props.user?.financial_projection_available !== false &&
+        (!projection.native || projection.history),
     },
     {
       label: t('API Requests'),
-      value: financialAvailable
-        ? (props.user?.request_count ?? 0).toLocaleString()
-        : t('Unavailable'),
+      value:
+        projection.requests !== null
+          ? projection.requests.toLocaleString()
+          : t('Unavailable'),
       description: t('Total requests made'),
       icon: Activity,
       tone: 'neutral',
@@ -153,7 +164,7 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
               : 'border-e last:border-e-0'
           )}
         >
-          {index === 0 && financialAvailable && (
+          {index === 0 && financialAvailable && !projection.native && (
             <WalletTokenCloud
               amount={balanceCredits}
               success={props.success}
@@ -175,8 +186,12 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
                     { value: 'USD', label: 'USD' },
                     { value: 'CREDIT', label: t('Credits') },
                   ]}
-                  value={walletCurrency.currency}
-                  disabled={walletCurrency.saving || !financialAvailable}
+                  value={projection.native ? 'CREDIT' : walletCurrency.currency}
+                  disabled={
+                    projection.native ||
+                    walletCurrency.saving ||
+                    !financialAvailable
+                  }
                   onValueChange={(value) => {
                     if (
                       value === 'CNY' ||
@@ -212,7 +227,7 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
               index === 0 ? 'text-3xl sm:text-4xl' : 'text-sm sm:text-xl'
             )}
           >
-            {index < 2 && item.available !== false ? (
+            {index < 2 && item.available !== false && !projection.native ? (
               <PlatformCreditAmount value={item.value} />
             ) : (
               item.value
@@ -223,13 +238,16 @@ export function WalletStatsCard(props: WalletStatsCardProps) {
               <div className='text-muted-foreground pointer-events-none text-xs'>
                 {item.description}
               </div>
-              {financialAvailable ? props.balanceAction : null}
+              {financialAvailable && !projection.readOnly
+                ? props.balanceAction
+                : null}
             </div>
           ) : (
             <div className='text-muted-foreground pointer-events-none relative z-10 mt-1 hidden text-xs sm:block'>
               {item.description}
             </div>
           )}
+          {index === 0 && <NativeWalletDetails user={props.user} />}
           {index === 0 && walletCurrency.error && (
             <p
               role='alert'

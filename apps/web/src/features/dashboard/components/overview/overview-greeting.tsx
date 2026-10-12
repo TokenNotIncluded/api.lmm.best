@@ -13,6 +13,10 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog'
+import {
+  nativeCreditDisplay,
+  walletProjection,
+} from '@/features/wallet/lib/wallet-projection'
 import { useWalletCurrency } from '@/hooks/use-wallet-currency'
 import { normalizeInterfaceLanguage } from '@/i18n/languages'
 import { api } from '@/lib/api'
@@ -110,8 +114,13 @@ function OverviewGreetingSession({ user }: { user: AuthUser }) {
     ),
     $level: level,
     $site: site,
-    $balance:
-      user.financial_projection_available === false
+    $balance: walletProjection(user).native
+      ? nativeCreditDisplay(
+          walletProjection(user).available,
+          t('Credits'),
+          t('Unknown')
+        )
+      : user.financial_projection_available === false
         ? t('Unavailable')
         : typeof user.quota === 'number'
           ? wallet.formatQuota(user.quota)

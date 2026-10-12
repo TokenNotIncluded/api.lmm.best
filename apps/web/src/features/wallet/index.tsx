@@ -84,6 +84,7 @@ import {
   isSettlementQuoteChanged,
 } from './lib/settlement-quote'
 import { getWalletTopupPrefill } from './lib/topup-link'
+import { walletProjection } from './lib/wallet-projection'
 import { WalletTransfers } from './transfers/wallet-transfers'
 import type {
   UserWalletData,
@@ -116,7 +117,9 @@ const PAYMENT_REFRESH_DEADLINE_MS = 2 * 60 * 1_000
 export function Wallet(props: WalletProps) {
   const ownerKey = useCheckoutOwnerKey()
   const financialUnavailable = useAuthStore(
-    (state) => state.auth.user?.financial_projection_available === false
+    (state) =>
+      state.auth.user?.financial_projection_available === false ||
+      walletProjection(state.auth.user).readOnly
   )
   // Unmount all checkout effects/dialogs, including in-flight callback scopes.
   // An absent flag remains compatible with main and older servers.
@@ -146,26 +149,32 @@ function WalletUnavailable({ initialShowHistory = false }: WalletProps) {
   return (
     <>
       <SectionPageLayout>
-        <SectionPageLayout.Title>{t('Wallet')}</SectionPageLayout.Title>
+        <SectionPageLayout.Title>
+          <span className='whitespace-nowrap'>{t('Wallet')}</span>
+        </SectionPageLayout.Title>
         <SectionPageLayout.Actions>
-          <Button variant='outline' onClick={() => setHistoryOpen(true)}>
-            {t('Order History')}
-          </Button>
-          <Button
-            variant='outline'
-            disabled={refreshing}
-            onClick={() => void refresh()}
-          >
-            {t('Refresh account status')}
-          </Button>
+          <div className='flex max-w-[70vw] flex-wrap justify-end gap-2'>
+            <Button variant='outline' onClick={() => setHistoryOpen(true)}>
+              {t('Order History')}
+            </Button>
+            <Button
+              variant='outline'
+              disabled={refreshing}
+              onClick={() => void refresh()}
+            >
+              {t('Refresh account status')}
+            </Button>
+          </div>
         </SectionPageLayout.Actions>
         <SectionPageLayout.Content>
           <div className='wallet-editorial mx-auto flex w-full max-w-5xl flex-col gap-4 sm:gap-5'>
             <Alert>
               <AlertDescription>
-                {t(
-                  'Wallet data is unavailable. Payments and transfers are disabled until it is restored.'
-                )}
+                {walletProjection(user).readOnly
+                  ? t('Credit conversion unavailable')
+                  : t(
+                      'Wallet data is unavailable. Payments and transfers are disabled until it is restored.'
+                    )}
               </AlertDescription>
             </Alert>
             {refreshFailed ? <p role='alert'>{t('Refresh failed')}</p> : null}

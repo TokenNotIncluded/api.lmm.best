@@ -99,12 +99,13 @@ export function StoreAuthenticationLoading() {
     </div>
   )
 }
-export function StoreAmount({ quota }: { quota: number }) {
+export function StoreAmount({ quota }: { quota: number | null | undefined }) {
   const money = useWalletCurrency()
   const { t } = useTranslation()
-  if (!Number.isSafeInteger(quota) || quota < 0) {
+  if (typeof quota !== 'number' || !Number.isSafeInteger(quota) || quota < 0) {
     return <span>{t('No data provided')}</span>
   }
+  if (quota === 0) return <span className='tabular-nums'>0 credits</span>
   return (
     <span className='tabular-nums'>
       {money.formatQuota(quota, { abbreviate: false, digitsSmall: 2 })}

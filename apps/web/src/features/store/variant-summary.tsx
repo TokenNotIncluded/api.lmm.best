@@ -2,16 +2,33 @@
 import { useTranslation } from 'react-i18next'
 
 import { STORE_FIXED_CONTENT_COPY as fixedCopy } from './fixed-content-copy'
+import { StoreNativeAmount } from './native-projection'
 import { StoreAmount } from './shared'
 import type { StoreProduct, StoreVariant } from './types'
 
 export function StoreProductPrice({ product }: { product: StoreProduct }) {
   const { t } = useTranslation()
+  if (product.record_kind === 'native') {
+    return (
+      <span className='inline-flex flex-wrap gap-x-3 gap-y-1'>
+        {product.variants?.length ? (
+          product.variants.map((variant) => (
+            <span key={variant.id}>
+              {variant.name}: <StoreNativeAmount price={variant.price} />
+            </span>
+          ))
+        ) : (
+          <StoreNativeAmount price={product.price} />
+        )}
+      </span>
+    )
+  }
   const low = product.price_min_quota
   const high = product.price_max_quota
   return Number.isSafeInteger(low) &&
     Number.isSafeInteger(high) &&
-    (low ?? 0) > 0 &&
+    low != null &&
+    low >= 0 &&
     (high ?? 0) >= (low ?? 0) ? (
     <span>
       <StoreAmount quota={low!} />

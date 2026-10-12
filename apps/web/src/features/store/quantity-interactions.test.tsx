@@ -257,6 +257,10 @@ function mockCheckout() {
     const checkout = body as Record<string, unknown>
     writes.push(checkout)
     const quantity = checkout.quantity as number
+    assert.ok(
+      product.price_quota !== null,
+      'legacy checkout fixture must have a known price'
+    )
     return envelope({
       order: {
         ...pending,

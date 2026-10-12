@@ -590,6 +590,56 @@ test('unavailable ledger facts disable wallet writes without inventing zero amou
   queryClient.clear()
 })
 
+test('native read-only wallet renders actual credits without mounting payment effects', async () => {
+  window.history.replaceState({}, '', '/wallet')
+  const posts: string[] = []
+  api.post = (async (url: string) => {
+    posts.push(url)
+    throw new Error('No native payment capability')
+  }) as typeof api.post
+  const { container, queryClient } = await renderWallet(true, {
+    quota: 199671,
+    user: {
+      financial_projection_available: true,
+      usage_projection_available: false,
+      wallet_unit: 'core_credit',
+      wallet_money_basis: 'unknown',
+      wallet_money_available: false,
+      wallet_spendable_quota: 199671,
+      wallet_reserved_quota: 280,
+      wallet_debt: 0,
+      used_quota: undefined,
+      request_count: undefined,
+      aff_quota: undefined,
+      aff_history_quota: undefined,
+      aff_count: undefined,
+    },
+  })
+  assert.match(
+    container.querySelector('#wallet-balance')?.textContent ?? '',
+    /199,671 Credits/
+  )
+  assert.match(
+    container.querySelector('#wallet-balance')?.textContent ?? '',
+    /280 Credits/
+  )
+  assert.equal(container.querySelector('#topup-amount'), null)
+  for (const label of [
+    'Add funds',
+    'Subscriptions',
+    'Transfer',
+    'Transfer to Balance',
+  ]) {
+    const button = [
+      ...container.querySelectorAll<HTMLButtonElement>('button'),
+    ].find((item) => item.textContent?.trim() === label)
+    assert.ok(button?.disabled, label)
+    await act(async () => button.click())
+  }
+  assert.equal(posts.length, 0)
+  queryClient.clear()
+})
+
 test('restored financial facts resume checkout even when historical usage has no projection', async () => {
   window.history.replaceState({}, '', '/wallet')
   const posts: string[] = []

@@ -151,7 +151,9 @@ function StoreVariantEditor({
 }) {
   const { t, i18n } = useTranslation()
   const wallet = useWalletCurrency()
-  const money = useStoreMoneyDraft(variant?.price_quota ?? product.price_quota)
+  const money = useStoreMoneyDraft(
+    variant?.price_quota ?? product.price_quota ?? Number.NaN
+  )
   const [name, setName] = useState(variant?.name ?? '')
   const [template, setTemplate] = useState(
     variant?.template ??

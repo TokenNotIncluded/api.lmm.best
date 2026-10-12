@@ -10,6 +10,7 @@ import { StoreCatalogueTags } from './catalogue-tags'
 import type { StoreCatalogueProduct } from './catalogue-types'
 import { StoreCollectionActions } from './collection-actions'
 import { StoreMerchantIdentity } from './merchant-identity'
+import { StoreNativeNotice } from './native-projection'
 import { StoreProductCardMedia } from './product-card-media'
 import { StoreBadges } from './shared'
 import {
@@ -85,6 +86,7 @@ export function StoreCatalogueProductCard({
             </p>
           )}
           <StoreCatalogueTags product={product} />
+          {product.record_kind === 'native' && <StoreNativeNotice />}
         </div>
       </div>
       <div

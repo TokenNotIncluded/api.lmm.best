@@ -10,6 +10,8 @@ import { useAuthStore } from '@/stores/auth-store'
 import { StoreAPIError, storeApi } from './api'
 import { StoreDeliveryEmail } from './delivery-email'
 import { StoreGuestOrders } from './guest-orders'
+import { StoreNativeAmount, StoreNativeNotice } from './native-projection'
+import { STORE_NATIVE_COPY } from './native-projection-values'
 import { StoreRefundPanel } from './refund-panel'
 import {
   CopyStoreValue,
@@ -186,6 +188,7 @@ export function StoreOrderRow({
   const { t } = useTranslation()
   const user = useAuthStore((state) => state.auth.user)!
   const client = useQueryClient()
+  const native = order.record_kind === 'native'
   const [busy, setBusy] = useState(false)
   const [payment, setPayment] = useState<StorePaymentSession | null>(null)
   const [paymentIssuanceUncertain, setPaymentIssuanceUncertain] =
@@ -236,7 +239,7 @@ export function StoreOrderRow({
     setPaymentIssuanceUncertain(false)
   }
   async function action(fn: () => Promise<void>) {
-    if (busy) return
+    if (busy || native) return
     setBusy(true)
     setError(null)
     try {
@@ -285,13 +288,19 @@ export function StoreOrderRow({
             {order.trade_no}
           </p>
           <p className='text-muted-foreground text-xs'>
-            {storeDate(order.created_at, locale)} ·{' '}
-            {t(paymentLabel(order.payment_method))}
+            {order.created_at == null
+              ? t(STORE_NATIVE_COPY.time, { defaultValue: 'Time unknown' })
+              : storeDate(order.created_at, locale)}
+            {!native && <> · {t(paymentLabel(order.payment_method))}</>}
           </p>
         </div>
         <div className='space-y-1 text-right text-sm'>
           <strong>
-            <StoreAmount quota={order.price_quota} />
+            {native ? (
+              <StoreNativeAmount price={order.total} />
+            ) : (
+              <StoreAmount quota={order.price_quota} />
+            )}
           </strong>
           <p className='text-muted-foreground'>
             {order.status === 'reconciliation_pending' &&
@@ -300,18 +309,41 @@ export function StoreOrderRow({
               : t(order.status)}{' '}
             · {t('Quantity')}: {order.quantity}
           </p>
-          {!buyer && (
+          {!buyer && !native && (
             <p className='text-muted-foreground text-xs'>
               {t('Seller fee')}: <StoreAmount quota={order.fee_quota} />
             </p>
           )}
         </div>
       </div>
+      {native && (
+        <>
+          <p className='text-sm'>
+            {t('Unit price')}: <StoreNativeAmount price={order.unit_price} />
+          </p>
+          <StoreNativeNotice />
+          <div className='flex flex-wrap gap-2'>
+            {buyer && (
+              <>
+                <Button size='sm' disabled>
+                  {t('Prepare payment')}
+                </Button>
+                <Button size='sm' disabled>
+                  {t('Get pickup link')}
+                </Button>
+              </>
+            )}
+            <Button size='sm' variant='outline' disabled>
+              {t('Refund')}
+            </Button>
+          </div>
+        </>
+      )}
       <StoreError error={error} />
-      {order.buyer_id > 0 && (
+      {!native && order.buyer_id > 0 && (
         <StoreContactButton orderId={order.id} buyer={buyer} />
       )}
-      {buyer && (
+      {!native && buyer && (
         <div className='flex flex-wrap items-center gap-2'>
           {['paid', 'refund_pending'].includes(order.status) && (
             <Button
@@ -377,41 +409,44 @@ export function StoreOrderRow({
           )}
         </div>
       )}
-      {buyer && order.status === 'pending' && payment?.status === 'pending' && (
-        <div className='flex flex-wrap items-center gap-3 text-sm'>
-          <span>
-            {t('Actual payment')}:{' '}
-            <strong>
-              {payment.amount} {payment.currency}
-            </strong>
-          </span>
-          <Button
-            size='sm'
-            disabled={busy}
-            onClick={() =>
-              void action(async () => {
-                const current = await storeApi.pay(order.id, payment.currency)
-                setPayment(current.status === 'pending' ? current : null)
-                if (current.status !== 'pending') {
-                  await refreshOrders()
-                  return
-                }
-                // A changed quote must be displayed for a fresh explicit confirmation.
-                if (
-                  current.amount_minor !== payment.amount_minor ||
-                  current.currency !== payment.currency
-                ) {
-                  return
-                }
-                continueStorePayment(current)
-              })
-            }
-          >
-            {t('Continue to payment')}
-          </Button>
-        </div>
-      )}
-      {buyer && link && (
+      {!native &&
+        buyer &&
+        order.status === 'pending' &&
+        payment?.status === 'pending' && (
+          <div className='flex flex-wrap items-center gap-3 text-sm'>
+            <span>
+              {t('Actual payment')}:{' '}
+              <strong>
+                {payment.amount} {payment.currency}
+              </strong>
+            </span>
+            <Button
+              size='sm'
+              disabled={busy}
+              onClick={() =>
+                void action(async () => {
+                  const current = await storeApi.pay(order.id, payment.currency)
+                  setPayment(current.status === 'pending' ? current : null)
+                  if (current.status !== 'pending') {
+                    await refreshOrders()
+                    return
+                  }
+                  // A changed quote must be displayed for a fresh explicit confirmation.
+                  if (
+                    current.amount_minor !== payment.amount_minor ||
+                    current.currency !== payment.currency
+                  ) {
+                    return
+                  }
+                  continueStorePayment(current)
+                })
+              }
+            >
+              {t('Continue to payment')}
+            </Button>
+          </div>
+        )}
+      {!native && buyer && link && (
         <div className='bg-muted flex flex-wrap items-center justify-between gap-3 rounded-md p-3'>
           <a href={link} className='min-w-0 text-sm break-all underline'>
             {t('Open pickup page')}
@@ -419,20 +454,21 @@ export function StoreOrderRow({
           <CopyStoreValue value={link} label='Copy pickup link' />
         </div>
       )}
-      {buyer && order.email_pickup_link && (
+      {!native && buyer && order.email_pickup_link && (
         <p className='text-muted-foreground text-xs'>
           {t(
             'The pickup link will be sent to the email provided at checkout. You can always retrieve the link here.'
           )}
         </p>
       )}
-      {['paid', 'refund_pending', 'refunded'].includes(order.status) && (
-        <StoreRefundPanel
-          orderId={order.id}
-          audience={buyer ? 'buyer' : 'seller'}
-          onChanged={refreshOrders}
-        />
-      )}
+      {!native &&
+        ['paid', 'refund_pending', 'refunded'].includes(order.status) && (
+          <StoreRefundPanel
+            orderId={order.id}
+            audience={buyer ? 'buyer' : 'seller'}
+            onChanged={refreshOrders}
+          />
+        )}
     </article>
   )
 }

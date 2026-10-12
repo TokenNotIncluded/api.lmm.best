@@ -61,6 +61,7 @@ import { StoreInventoryImportPreview } from './inventory-import-preview'
 import { StoreLinkPresetChooser } from './link-presets'
 import { STORE_MINIMUM_PRICE_COPY as minimumCopy } from './minimum-price-copy'
 import { useStoreMoneyDraft } from './money'
+import { StoreNativeProduct } from './native-projection'
 import {
   storeNewVariantInput,
   storeNewVariantsError,
@@ -332,243 +333,255 @@ function StoreSellerCenter() {
                 {t('No products yet')}
               </p>
             )}
-            {query.data.items.map((product) => (
-              <article
-                key={product.id}
-                data-store-product-id={product.id}
-                className='space-y-4 py-6'
-              >
-                <div className='flex flex-wrap items-start justify-between gap-3'>
-                  <div className='min-w-0 space-y-1'>
-                    <h2 className='font-semibold break-words'>
-                      {product.title}
-                    </h2>
-                    <div className='text-muted-foreground flex flex-wrap items-center gap-3 text-xs'>
-                      <span>
-                        {t(
-                          product.status === 'off_shelf'
-                            ? salesCopy.offShelfStatus
-                            : product.status
-                        )}
-                      </span>
-                      <StoreProductPrice product={product} />
-                      <StoreBadges product={product} />
+            {query.data.items.map((product) =>
+              product.record_kind === 'native' ? (
+                <article
+                  key={product.id}
+                  data-store-product-id={product.id}
+                  className='space-y-4 py-6'
+                >
+                  <h2 className='font-semibold break-words'>{product.title}</h2>
+                  <StoreNativeProduct product={product} />
+                </article>
+              ) : (
+                <article
+                  key={product.id}
+                  data-store-product-id={product.id}
+                  className='space-y-4 py-6'
+                >
+                  <div className='flex flex-wrap items-start justify-between gap-3'>
+                    <div className='min-w-0 space-y-1'>
+                      <h2 className='font-semibold break-words'>
+                        {product.title}
+                      </h2>
+                      <div className='text-muted-foreground flex flex-wrap items-center gap-3 text-xs'>
+                        <span>
+                          {t(
+                            product.status === 'off_shelf'
+                              ? salesCopy.offShelfStatus
+                              : product.status
+                          )}
+                        </span>
+                        <StoreProductPrice product={product} />
+                        <StoreBadges product={product} />
+                      </div>
+                      {config.data?.store_categories_supported === true && (
+                        <StoreProductCategoryEditor
+                          key={`${product.id}-${product.category_id ?? ''}`}
+                          product={product}
+                        />
+                      )}
                     </div>
-                    {config.data?.store_categories_supported === true && (
-                      <StoreProductCategoryEditor
-                        key={`${product.id}-${product.category_id ?? ''}`}
-                        product={product}
-                      />
-                    )}
-                  </div>
-                  <div className='flex flex-wrap gap-2 [&_button]:min-h-10 [&_button]:rounded-full'>
-                    <Button
-                      size='sm'
-                      variant='outline'
-                      onClick={() => setEditing(product)}
-                    >
-                      {t('Edit')}
-                    </Button>
-                    {config.data?.store_catalogue_supported === true && (
+                    <div className='flex flex-wrap gap-2 [&_button]:min-h-10 [&_button]:rounded-full'>
                       <Button
                         size='sm'
                         variant='outline'
-                        onClick={() => setCatalogueProduct(product)}
+                        onClick={() => setEditing(product)}
                       >
-                        {t('Product tags')}
+                        {t('Edit')}
                       </Button>
-                    )}
-                    <Button
-                      size='sm'
-                      variant='outline'
-                      onClick={() => setInventory(product)}
-                    >
-                      {t('Add inventory')}
-                    </Button>
-                    <Button
-                      size='sm'
-                      variant='outline'
-                      onClick={() => setPromotionCodes(product)}
-                    >
-                      {t('Promotion codes')}
-                    </Button>
-                    {storeVisibility(product) !== 'private' &&
-                      ['draft', 'rejected'].includes(product.status) && (
+                      {config.data?.store_catalogue_supported === true && (
                         <Button
                           size='sm'
-                          disabled={busy !== null}
-                          onClick={() =>
-                            void action(product, () =>
-                              storeApi.submitProduct(product.id)
-                            )
-                          }
+                          variant='outline'
+                          onClick={() => setCatalogueProduct(product)}
                         >
-                          {t('Submit for review')}
+                          {t('Product tags')}
                         </Button>
                       )}
-                    {(['published', 'paused'].includes(product.status) ||
-                      (storeVisibility(product) === 'private' &&
-                        ['draft', 'pending'].includes(product.status))) && (
                       <Button
                         size='sm'
                         variant='outline'
-                        disabled={busy !== null}
-                        onClick={() =>
-                          void action(product, () =>
-                            storeApi.pauseProduct(
-                              product.id,
-                              product.status !== 'paused'
-                            )
-                          )
-                        }
+                        onClick={() => setInventory(product)}
                       >
-                        {t(
-                          product.status === 'paused'
-                            ? 'Resume trading'
-                            : 'Pause trading'
+                        {t('Add inventory')}
+                      </Button>
+                      <Button
+                        size='sm'
+                        variant='outline'
+                        onClick={() => setPromotionCodes(product)}
+                      >
+                        {t('Promotion codes')}
+                      </Button>
+                      {storeVisibility(product) !== 'private' &&
+                        ['draft', 'rejected'].includes(product.status) && (
+                          <Button
+                            size='sm'
+                            disabled={busy !== null}
+                            onClick={() =>
+                              void action(product, () =>
+                                storeApi.submitProduct(product.id)
+                              )
+                            }
+                          >
+                            {t('Submit for review')}
+                          </Button>
                         )}
-                      </Button>
-                    )}
-                    {storeVisibility(product) !== 'private' &&
-                      product.status === 'published' && (
-                        <Button
-                          size='sm'
-                          variant='outline'
-                          onClick={() => setPromoting(product)}
-                        >
-                          {t('Promote product')}
-                        </Button>
-                      )}
-                    {storeVisibility(product) === 'private' && (
-                      <Button
-                        size='sm'
-                        variant='outline'
-                        render={<a href={`/store/preview/${product.id}`} />}
-                      >
-                        {t(testCopy.preview)}
-                      </Button>
-                    )}
-                    {storeVisibility(product) !== 'private' &&
-                      ['published', 'paused', 'off_shelf'].includes(
-                        product.status
-                      ) && (
+                      {(['published', 'paused'].includes(product.status) ||
+                        (storeVisibility(product) === 'private' &&
+                          ['draft', 'pending'].includes(product.status))) && (
                         <Button
                           size='sm'
                           variant='outline'
                           disabled={busy !== null}
                           onClick={() =>
                             void action(product, () =>
-                              storeApi.listing(
+                              storeApi.pauseProduct(
                                 product.id,
-                                product.status === 'off_shelf'
+                                product.status !== 'paused'
                               )
                             )
                           }
                         >
                           {t(
-                            product.status === 'off_shelf'
-                              ? salesCopy.relist
-                              : publishingCopy.offShelf
+                            product.status === 'paused'
+                              ? 'Resume trading'
+                              : 'Pause trading'
                           )}
                         </Button>
                       )}
-                    {product.status !== 'unlisted' && (
+                      {storeVisibility(product) !== 'private' &&
+                        product.status === 'published' && (
+                          <Button
+                            size='sm'
+                            variant='outline'
+                            onClick={() => setPromoting(product)}
+                          >
+                            {t('Promote product')}
+                          </Button>
+                        )}
+                      {storeVisibility(product) === 'private' && (
+                        <Button
+                          size='sm'
+                          variant='outline'
+                          render={<a href={`/store/preview/${product.id}`} />}
+                        >
+                          {t(testCopy.preview)}
+                        </Button>
+                      )}
+                      {storeVisibility(product) !== 'private' &&
+                        ['published', 'paused', 'off_shelf'].includes(
+                          product.status
+                        ) && (
+                          <Button
+                            size='sm'
+                            variant='outline'
+                            disabled={busy !== null}
+                            onClick={() =>
+                              void action(product, () =>
+                                storeApi.listing(
+                                  product.id,
+                                  product.status === 'off_shelf'
+                                )
+                              )
+                            }
+                          >
+                            {t(
+                              product.status === 'off_shelf'
+                                ? salesCopy.relist
+                                : publishingCopy.offShelf
+                            )}
+                          </Button>
+                        )}
+                      {product.status !== 'unlisted' && (
+                        <Button
+                          size='sm'
+                          variant='outline'
+                          disabled={busy !== null}
+                          onClick={() => {
+                            setError(null)
+                            setLifecycle({ product, kind: 'unlist' })
+                          }}
+                        >
+                          {t(publishingCopy.withdraw)}
+                        </Button>
+                      )}
                       <Button
                         size='sm'
-                        variant='outline'
+                        variant='destructive'
                         disabled={busy !== null}
                         onClick={() => {
                           setError(null)
-                          setLifecycle({ product, kind: 'unlist' })
+                          setLifecycle({ product, kind: 'delete' })
                         }}
                       >
-                        {t(publishingCopy.withdraw)}
+                        {t('Delete product')}
                       </Button>
-                    )}
-                    <Button
-                      size='sm'
-                      variant='destructive'
-                      disabled={busy !== null}
-                      onClick={() => {
-                        setError(null)
-                        setLifecycle({ product, kind: 'delete' })
-                      }}
-                    >
-                      {t('Delete product')}
-                    </Button>
+                    </div>
                   </div>
-                </div>
-                <details className='text-muted-foreground text-xs leading-5'>
-                  <summary className='cursor-pointer py-1'>
-                    {t(publishingCopy.offShelf)} / {t(publishingCopy.withdraw)}
-                  </summary>
-                  <p className='py-1'>{t(publishingCopy.offShelfHelp)}</p>
-                  <p className='py-1'>{t(publishingCopy.withdrawHelp)}</p>
-                </details>
-                <StoreInventoryTotals product={product} />
-                <StoreVariantsManager
-                  product={product}
-                  fixedContentSupported={
-                    config.data?.fixed_content_supported === true
-                  }
-                  minimumPriceQuota={config.data?.minimum_unit_price_quota}
-                  onChanged={async () => {
-                    await Promise.all([
-                      client.invalidateQueries({
-                        queryKey: ['store', 'my-products', user.id],
-                      }),
-                      client.invalidateQueries({
-                        queryKey: ['store', 'products'],
-                      }),
-                      client.invalidateQueries({
-                        queryKey: ['store', 'product'],
-                      }),
-                      client.invalidateQueries({
-                        queryKey: [
-                          'store',
-                          'product-preview',
-                          product.id,
-                          user.id,
-                        ],
-                      }),
-                      client.invalidateQueries({
-                        queryKey: [
-                          'market-ai-reviews',
-                          user.id,
-                          'product',
-                          product.id,
-                        ],
-                      }),
-                    ])
-                  }}
-                />
-                {product.sale_limit !== undefined && (
-                  <StoreSalesLimit
-                    key={`${product.id}:${product.updated_at}:${product.sale_limit}`}
+                  <details className='text-muted-foreground text-xs leading-5'>
+                    <summary className='cursor-pointer py-1'>
+                      {t(publishingCopy.offShelf)} /{' '}
+                      {t(publishingCopy.withdraw)}
+                    </summary>
+                    <p className='py-1'>{t(publishingCopy.offShelfHelp)}</p>
+                    <p className='py-1'>{t(publishingCopy.withdrawHelp)}</p>
+                  </details>
+                  <StoreInventoryTotals product={product} />
+                  <StoreVariantsManager
                     product={product}
-                    onSaved={async () => {
-                      await client.invalidateQueries({
-                        queryKey: ['store', 'my-products', user.id],
-                      })
+                    fixedContentSupported={
+                      config.data?.fixed_content_supported === true
+                    }
+                    minimumPriceQuota={config.data?.minimum_unit_price_quota}
+                    onChanged={async () => {
+                      await Promise.all([
+                        client.invalidateQueries({
+                          queryKey: ['store', 'my-products', user.id],
+                        }),
+                        client.invalidateQueries({
+                          queryKey: ['store', 'products'],
+                        }),
+                        client.invalidateQueries({
+                          queryKey: ['store', 'product'],
+                        }),
+                        client.invalidateQueries({
+                          queryKey: [
+                            'store',
+                            'product-preview',
+                            product.id,
+                            user.id,
+                          ],
+                        }),
+                        client.invalidateQueries({
+                          queryKey: [
+                            'market-ai-reviews',
+                            user.id,
+                            'product',
+                            product.id,
+                          ],
+                        }),
+                      ])
                     }}
                   />
-                )}
-                <MarketAIReviewHistory
-                  source='product'
-                  id={product.id}
-                  lazy
-                  open={aiReviewId === product.id}
-                  onOpenChange={(open) =>
-                    setAIReviewId(open ? product.id : null)
-                  }
-                />
-                {product.review_note && (
-                  <p className='bg-muted rounded-md px-3 py-2 text-sm'>
-                    {t('Review note')}: {product.review_note}
-                  </p>
-                )}
-              </article>
-            ))}
+                  {product.sale_limit !== undefined && (
+                    <StoreSalesLimit
+                      key={`${product.id}:${product.updated_at}:${product.sale_limit}`}
+                      product={product}
+                      onSaved={async () => {
+                        await client.invalidateQueries({
+                          queryKey: ['store', 'my-products', user.id],
+                        })
+                      }}
+                    />
+                  )}
+                  <MarketAIReviewHistory
+                    source='product'
+                    id={product.id}
+                    lazy
+                    open={aiReviewId === product.id}
+                    onOpenChange={(open) =>
+                      setAIReviewId(open ? product.id : null)
+                    }
+                  />
+                  {product.review_note && (
+                    <p className='bg-muted rounded-md px-3 py-2 text-sm'>
+                      {t('Review note')}: {product.review_note}
+                    </p>
+                  )}
+                </article>
+              )
+            )}
           </div>
         )
       )}
@@ -923,6 +936,10 @@ export function StoreProductEditor({
   const [draft, setDraft] = useState<StoreProductInput>(() => ({
     ...EMPTY,
     ...initialProduct,
+    // Unknown prices stay invalid until the editor receives a verified input.
+    price_quota: initialProduct?.price_quota ?? Number.NaN,
+    // Existing variant read DTOs are not create/update inputs.
+    variants: product ? undefined : importedDraft?.fields.variants,
     visibility: storeVisibility(initialProduct || {}),
     purchase_login_required: storePurchaseLoginRequired(initialProduct || {}),
     links: initialProduct?.links?.map((link) => ({ ...link })) || [],

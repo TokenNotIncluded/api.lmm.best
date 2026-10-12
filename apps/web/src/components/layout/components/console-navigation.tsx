@@ -50,6 +50,10 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar'
 import { useSearch } from '@/context/search-provider'
+import {
+  nativeCreditDisplay,
+  walletProjection,
+} from '@/features/wallet/lib/wallet-projection'
 import { useSidebarView } from '@/hooks/use-sidebar-view'
 import { useTopNavLinks } from '@/hooks/use-top-nav-links'
 import { formatQuota } from '@/lib/format'
@@ -165,16 +169,19 @@ export function ConsoleBalanceEntry() {
   const { t } = useTranslation()
   const { setOpenMobile } = useSidebar()
   const user = useAuthStore((state) => state.auth.user)
-  const balance =
-    user?.financial_projection_available === false
+  const projection = walletProjection(user)
+  const balance = projection.native
+    ? nativeCreditDisplay(projection.available, t('Credits'), t('Unknown'))
+    : user?.financial_projection_available === false
       ? t('Unavailable')
       : formatQuota(Math.max(0, user?.quota ?? 0))
+  const walletAction = projection.native ? t('Wallet') : t('Top up')
 
   return (
     <SidebarMenu>
       <SidebarMenuItem>
         <SidebarMenuButton
-          tooltip={`${t('Balance')}: ${balance} · ${t('Top up')}`}
+          tooltip={`${t('Balance')}: ${balance} · ${walletAction}`}
           className='border-sidebar-border/70 bg-sidebar-accent/20 h-9 rounded-lg border'
           onClick={() => setOpenMobile(false)}
           render={<Link to='/wallet' />}
@@ -186,11 +193,13 @@ export function ConsoleBalanceEntry() {
               {balance}
             </span>
           </span>
-          <PlusIcon
-            aria-hidden='true'
-            className='text-muted-foreground size-3.5 shrink-0'
-          />
-          <span className='sr-only'>{t('Top up')}</span>
+          {!projection.native && (
+            <PlusIcon
+              aria-hidden='true'
+              className='text-muted-foreground size-3.5 shrink-0'
+            />
+          )}
+          <span className='sr-only'>{walletAction}</span>
         </SidebarMenuButton>
       </SidebarMenuItem>
     </SidebarMenu>

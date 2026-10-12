@@ -99,6 +99,13 @@ export interface AuthUser {
   quota?: number
   /** False means ledger projections are unavailable, not a zero balance. */
   financial_projection_available?: boolean
+  /** Native credits are not legacy quota units and have no implied fiat value. */
+  wallet_unit?: string
+  wallet_spendable_quota?: number
+  wallet_reserved_quota?: number
+  wallet_debt?: number
+  wallet_money_basis?: string
+  wallet_money_available?: boolean
   used_quota?: number
   normalized_used_quota?: number | null
   usage_projection_available?: boolean
