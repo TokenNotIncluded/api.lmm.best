@@ -728,3 +728,285 @@ async fn session_rotation_preserves_pending_invites_but_explicit_revocation_does
             .is_err()
     );
 }
+
+#[sqlx::test(migrations = false)]
+async fn password_change_rotates_only_its_session_and_invalidates_old_user_credentials(
+    pool: PgPool,
+) {
+    let store = fresh(pool.clone()).await;
+    let original = store.register(&login("alice")).await.unwrap();
+    let other = store.login(&login("alice")).await.unwrap();
+    let bob = store.register(&login("bob")).await.unwrap();
+    let actor = store.authorize(&original.secret).await.unwrap();
+    sqlx::query("INSERT INTO core_identity.developer_access(user_id,granted,source_reference) VALUES ($1,TRUE,'password-change-test')")
+        .bind(actor.user_id).execute(&pool).await.unwrap();
+    let key = store
+        .issue_key(
+            &original.secret,
+            personal(actor.user_id),
+            FundingPolicy::new_personal_key(),
+            3600,
+        )
+        .await
+        .unwrap();
+    let before: (String, String) = sqlx::query_as(
+        "SELECT session_started_at::text,expires_at::text FROM core_identity.credentials WHERE id=$1",
+    )
+    .bind(original.id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let updated = store
+        .change_password(
+            &original.secret,
+            &login("alice").password,
+            "a different test passphrase",
+        )
+        .await
+        .unwrap();
+    assert_ne!(updated.id, original.id);
+    assert_ne!(updated.secret, original.secret);
+    assert_eq!(
+        store.authorize(&updated.secret).await.unwrap().user_id,
+        actor.user_id
+    );
+    for stale in [&original.secret, &other.secret, &key.secret] {
+        assert!(matches!(store.authorize(stale).await, Err(E::Unauthorized)));
+    }
+    assert!(store.authorize(&bob.secret).await.is_ok());
+    let summaries = store
+        .list_credentials(&updated.secret, 0, None)
+        .await
+        .unwrap();
+    for id in [original.id, other.id, key.id] {
+        assert!(
+            summaries
+                .iter()
+                .find(|summary| summary.id == id)
+                .unwrap()
+                .revoked
+        );
+    }
+    assert!(matches!(
+        store.login(&login("alice")).await,
+        Err(E::Unauthorized)
+    ));
+    assert!(
+        store
+            .login(&LoginRequest {
+                login_name: "alice".into(),
+                password: "a different test passphrase".into(),
+            })
+            .await
+            .is_ok()
+    );
+    let after: (String, String) = sqlx::query_as(
+        "SELECT session_started_at::text,expires_at::text FROM core_identity.credentials WHERE id=$1",
+    )
+    .bind(updated.id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(before, after);
+    let hash: String = sqlx::query_scalar(
+        "SELECT password_hash FROM core_identity.password_logins WHERE user_id=$1",
+    )
+    .bind(actor.user_id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(hash.starts_with("$argon2id$v=19$m=19456,t=2,p=1$"));
+    let audits: Vec<String> = sqlx::query_scalar(
+        "SELECT target::text FROM core_identity.audit WHERE action='user.password_changed'",
+    )
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(audits.len(), 1);
+    for secret in [
+        original.secret.as_str(),
+        updated.secret.as_str(),
+        hash.as_str(),
+        "a different test passphrase",
+    ] {
+        assert!(!audits[0].contains(secret));
+    }
+}
+
+#[sqlx::test(migrations = false)]
+async fn password_change_requires_session_old_password_and_strict_http_body(pool: PgPool) {
+    let store = fresh(pool.clone()).await;
+    let original = store.register(&login("alice")).await.unwrap();
+    let actor = store.authorize(&original.secret).await.unwrap();
+    sqlx::query("INSERT INTO core_identity.developer_access(user_id,granted,source_reference) VALUES ($1,TRUE,'password-change-test')")
+        .bind(actor.user_id).execute(&pool).await.unwrap();
+    let key = store
+        .issue_key(
+            &original.secret,
+            personal(actor.user_id),
+            FundingPolicy::new_personal_key(),
+            3600,
+        )
+        .await
+        .unwrap();
+    assert!(matches!(
+        store
+            .change_password(
+                &key.secret,
+                &login("alice").password,
+                "a different test passphrase"
+            )
+            .await,
+        Err(E::Forbidden)
+    ));
+    assert!(matches!(
+        store
+            .change_password(&original.secret, "incorrect", "a different test passphrase")
+            .await,
+        Err(E::Unauthorized)
+    ));
+    for password in ["short".to_owned(), "x".repeat(1025)] {
+        assert!(matches!(
+            store
+                .change_password(&original.secret, &login("alice").password, &password)
+                .await,
+            Err(E::Invalid)
+        ));
+    }
+    let app = identity_http::router(store.clone());
+    for body in [
+        json!({"original_password":login("alice").password,"password":"a different test passphrase","user_id":999}),
+        json!({"password":"a different test passphrase"}),
+        json!({"original_password":null,"password":"a different test passphrase"}),
+    ] {
+        let response = app
+            .clone()
+            .oneshot(
+                Request::builder()
+                    .method("POST")
+                    .uri("/core/v1/auth/password")
+                    .header("authorization", format!("Bearer {}", original.secret))
+                    .header("content-type", "application/json")
+                    .body(Body::from(body.to_string()))
+                    .unwrap(),
+            )
+            .await
+            .unwrap();
+        assert!(response.status().is_client_error());
+        assert_eq!(response.headers()["cache-control"], "no-store");
+    }
+    assert!(store.authorize(&original.secret).await.is_ok());
+    assert!(store.authorize(&key.secret).await.is_ok());
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core_identity.audit WHERE action='user.password_changed'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 0);
+    let response = app
+        .oneshot(
+            Request::builder()
+                .method("POST")
+                .uri("/core/v1/auth/password")
+                .header("authorization", format!("Bearer {}", original.secret))
+                .header("content-type", "application/json")
+                .body(Body::from(
+                    json!({"original_password":login("alice").password,
+            "password":"a different test passphrase"})
+                    .to_string(),
+                ))
+                .unwrap(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(response.status(), StatusCode::OK);
+    let body: Value =
+        serde_json::from_slice(&to_bytes(response.into_body(), 65536).await.unwrap()).unwrap();
+    assert!(
+        store
+            .authorize(body["secret"].as_str().unwrap())
+            .await
+            .is_ok()
+    );
+}
+
+#[sqlx::test(migrations = false)]
+async fn concurrent_password_changes_have_one_winner_and_do_not_revive_old_sessions(pool: PgPool) {
+    let store = fresh(pool.clone()).await;
+    let original = store.register(&login("alice")).await.unwrap();
+    let old_password = login("alice").password;
+    let (one, two) = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        tokio::join!(
+            store.change_password(&original.secret, &old_password, "first new passphrase"),
+            store.change_password(&original.secret, &old_password, "second new passphrase"),
+        )
+    })
+    .await
+    .unwrap();
+    let first_won = one.is_ok();
+    assert_eq!(usize::from(first_won) + usize::from(two.is_ok()), 1);
+    let (winner, loser) = if first_won {
+        (one.unwrap(), two)
+    } else {
+        (two.unwrap(), one)
+    };
+    assert!(matches!(loser, Err(E::Unauthorized | E::Conflict)));
+    assert!(store.authorize(&winner.secret).await.is_ok());
+    assert!(store.authorize(&original.secret).await.is_err());
+    let correct = if first_won {
+        "first new passphrase"
+    } else {
+        "second new passphrase"
+    };
+    assert!(
+        store
+            .login(&LoginRequest {
+                login_name: "alice".into(),
+                password: correct.into()
+            })
+            .await
+            .is_ok()
+    );
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core_identity.audit WHERE action='user.password_changed'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 1);
+}
+
+#[sqlx::test(migrations = false)]
+async fn password_change_audit_failure_rolls_back_hash_epoch_and_replacement(pool: PgPool) {
+    let store = fresh(pool.clone()).await;
+    let original = store.register(&login("alice")).await.unwrap();
+    let before: (String, i64, i64) = sqlx::query_as(
+        "SELECT p.password_hash,u.auth_version,(SELECT count(*) FROM core_identity.credentials) FROM core_identity.password_logins p JOIN core_identity.users u ON u.id=p.user_id WHERE p.login_name='alice'",
+    ).fetch_one(&pool).await.unwrap();
+    sqlx::raw_sql("CREATE FUNCTION core_identity.reject_password_audit() RETURNS TRIGGER LANGUAGE plpgsql AS $$ BEGIN IF NEW.action='user.password_changed' THEN RAISE EXCEPTION 'synthetic password audit failure'; END IF; RETURN NEW; END $$; CREATE TRIGGER reject_password_audit BEFORE INSERT ON core_identity.audit FOR EACH ROW EXECUTE FUNCTION core_identity.reject_password_audit();")
+        .execute(&pool).await.unwrap();
+    assert!(matches!(
+        store
+            .change_password(
+                &original.secret,
+                &login("alice").password,
+                "a different test passphrase"
+            )
+            .await,
+        Err(E::Storage)
+    ));
+    let after: (String, i64, i64) = sqlx::query_as(
+        "SELECT p.password_hash,u.auth_version,(SELECT count(*) FROM core_identity.credentials) FROM core_identity.password_logins p JOIN core_identity.users u ON u.id=p.user_id WHERE p.login_name='alice'",
+    ).fetch_one(&pool).await.unwrap();
+    assert_eq!(before, after);
+    assert!(store.authorize(&original.secret).await.is_ok());
+    assert!(store.login(&login("alice")).await.is_ok());
+    let count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core_identity.audit WHERE action='user.password_changed'",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(count, 0);
+}

@@ -10,6 +10,7 @@ pub(super) fn routes(store: IdentityStore) -> Router<IdentityStore> {
     Router::new()
         .route("/core/v1/auth/register", post(register))
         .route("/core/v1/auth/login", post(login))
+        .route("/core/v1/auth/password", post(change_password))
         .route("/core/v1/auth/session/refresh", post(refresh))
         .route("/core/v1/auth/logout", post(logout))
         .route("/core/v1/auth/logout-all", post(logout_all))
@@ -45,6 +46,23 @@ async fn login(
     Json(body): Json<LoginRequest>,
 ) -> Result<impl IntoResponse> {
     Ok(Json(store.login(&body).await?))
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct PasswordChange {
+    original_password: String,
+    password: String,
+}
+async fn change_password(
+    State(store): State<IdentityStore>,
+    headers: HeaderMap,
+    Json(body): Json<PasswordChange>,
+) -> Result<impl IntoResponse> {
+    Ok(Json(
+        store
+            .change_password(bearer(&headers)?, &body.original_password, &body.password)
+            .await?,
+    ))
 }
 async fn refresh(
     State(store): State<IdentityStore>,

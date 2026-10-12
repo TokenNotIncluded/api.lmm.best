@@ -62,6 +62,19 @@ pub(super) async fn issue_session_with_secret(
 ) -> Result<IssuedCredential> {
     let user = sqlx::query("SELECT u.personal_account_id,u.auth_version FROM core_identity.users u JOIN core_identity.accounts a ON a.id=u.personal_account_id WHERE u.id=$1 AND u.active AND a.active FOR SHARE OF u,a")
         .bind(user_id).fetch_optional(&mut *c).await?.ok_or(IdentityError::Unauthorized)?;
+    // This helper has no completed second-factor proof. A provider identity
+    // alone must not bypass an account's local second-factor requirement.
+    // Read after the user lock with a fresh statement snapshot. Do not lock
+    // the profile: profile_policy_generation takes the user lock in turn.
+    let second_factor_required: Option<bool> = sqlx::query_scalar(
+        "SELECT second_factor_required FROM core_identity.user_profiles WHERE user_id=$1",
+    )
+    .bind(user_id)
+    .fetch_optional(&mut *c)
+    .await?;
+    if second_factor_required == Some(true) {
+        return Err(IdentityError::Unauthorized);
+    }
     let id = sqlx::query_scalar("INSERT INTO core_identity.credentials(digest,kind,user_id,user_version,owner_account_id,expires_at) VALUES ($1,'session',$2,$3,$4,clock_timestamp()+interval '7 days') RETURNING id")
         .bind(digest(&secret)?).bind(user_id).bind(user.try_get::<i64,_>("auth_version")?)
         .bind(user.try_get::<i64,_>("personal_account_id")?).fetch_one(&mut *c).await?;
@@ -87,6 +100,27 @@ pub(super) fn normalize_login(input: &str) -> Result<String> {
     }
     Ok(name)
 }
+/// Contains verified password material. Never log or serialize this value.
+pub(super) struct PreparedPasswordChange {
+    pub(super) credential_id: i64,
+    user_id: i64,
+    user_version: i64,
+    login_name: String,
+    old_hash: String,
+    new_hash: String,
+}
+
+pub(super) fn password_change_error(error: sqlx::Error) -> IdentityError {
+    if error
+        .as_database_error()
+        .is_some_and(|db| db.code().as_deref() == Some("55P03"))
+    {
+        IdentityError::Conflict
+    } else {
+        error.into()
+    }
+}
+
 fn password_policy(password: &str) -> Result<()> {
     if password.len() > 1024 || password.chars().count() < 12 {
         return Err(IdentityError::Invalid);
@@ -209,6 +243,15 @@ impl IdentityStore {
         name: &str,
         password: &str,
     ) -> Result<(String, Option<String>)> {
+        let (hash, legacy) = self.check_password_login(name, password).await?;
+        let upgraded = if legacy {
+            Some(self.hash_password(password.to_owned()).await?)
+        } else {
+            None
+        };
+        Ok((hash, upgraded))
+    }
+    async fn check_password_login(&self, name: &str, password: &str) -> Result<(String, bool)> {
         if password.is_empty()
             || password.len() > 1024
             || !self.auth_rate_limit("password", name, 10).await?
@@ -263,12 +306,7 @@ impl IdentityStore {
         {
             return Err(IdentityError::Unauthorized);
         }
-        let upgraded = if legacy {
-            Some(self.hash_password(password.to_owned()).await?)
-        } else {
-            None
-        };
-        Ok((hash, upgraded))
+        Ok((hash, legacy))
     }
     pub(super) async fn lock_password_user(
         &self,
@@ -302,6 +340,150 @@ impl IdentityStore {
         let issued = issue_session(&mut tx, user_id, "session.login").await?;
         tx.commit().await?;
         Ok(issued)
+    }
+    /// Change only the authenticated user's existing password. The old login
+    /// and API keys lose authority; only the returned replacement session works.
+    /// Browser sessions must use BrowserAuth so their refresh cookie also rotates.
+    pub async fn change_password(
+        &self,
+        secret: &str,
+        original_password: &str,
+        password: &str,
+    ) -> Result<IssuedCredential> {
+        password_policy(password)?;
+        let prepared = self
+            .prepare_password_change(secret, original_password, password)
+            .await?;
+        let mut tx = self.pool.begin().await?;
+        let issued = self
+            .apply_password_change(&mut tx, secret, &prepared, None, new_secret("lmms_")?)
+            .await?;
+        tx.commit().await?;
+        Ok(issued)
+    }
+    pub(super) async fn prepare_password_change(
+        &self,
+        secret: &str,
+        original_password: &str,
+        password: &str,
+    ) -> Result<PreparedPasswordChange> {
+        if password.is_empty() || password.len() > 1024 {
+            return Err(IdentityError::Invalid);
+        }
+        // Password hashing holds no database transaction or authority locks.
+        let actor = {
+            let mut c = self.pool.acquire().await?;
+            authenticate(&mut c, secret, false).await?
+        };
+        if actor.credential_kind != CredentialKind::Session {
+            return Err(IdentityError::Forbidden);
+        }
+        let name: String = sqlx::query_scalar(
+            "SELECT login_name FROM core_identity.password_logins WHERE user_id=$1",
+        )
+        .bind(actor.user_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or(IdentityError::Unauthorized)?;
+        // Uses the existing bounded verifier and shared per-login rate limit.
+        // It does not create a password for a provider-only account or bypass MFA.
+        let (old_hash, _) = self.check_password_login(&name, original_password).await?;
+        let new_hash = self.hash_password(password.to_owned()).await?;
+        Ok(PreparedPasswordChange {
+            credential_id: actor.credential_id,
+            user_id: actor.user_id,
+            user_version: actor.user_version,
+            login_name: name,
+            old_hash,
+            new_hash,
+        })
+    }
+    /// The caller must commit before it exposes the replacement credential.
+    pub(super) async fn apply_password_change(
+        &self,
+        c: &mut PgConnection,
+        secret: &str,
+        prepared: &PreparedPasswordChange,
+        browser_sid: Option<&str>,
+        replacement: String,
+    ) -> Result<IssuedCredential> {
+        // Do not upgrade shared user/credential locks after waiting on a family
+        // or password lock. A busy authority row is a retryable conflict, not a
+        // second password change. All mutable rows are acquired with NOWAIT.
+        let row = sqlx::query(&format!(
+            "{AUTH} AND c.digest=$1 FOR UPDATE OF c,u NOWAIT FOR SHARE OF pa,own NOWAIT"
+        ))
+        .bind(digest(secret)?)
+        .fetch_optional(&mut *c)
+        .await
+        .map_err(password_change_error)?
+        .ok_or(IdentityError::Unauthorized)?;
+        let actor = principal(c, row).await?;
+        if actor.credential_kind != CredentialKind::Session
+            || actor.credential_id != prepared.credential_id
+            || actor.user_id != prepared.user_id
+            || actor.user_version != prepared.user_version
+        {
+            return Err(IdentityError::Unauthorized);
+        }
+        let bound: Option<String> = sqlx::query_scalar(
+            "SELECT sid FROM core_identity.web_session_credentials WHERE credential_id=$1",
+        )
+        .bind(actor.credential_id)
+        .fetch_optional(&mut *c)
+        .await?;
+        if bound.as_deref() != browser_sid {
+            return Err(IdentityError::Forbidden);
+        }
+        // A fresh statement checks the password and policy after taking user
+        // authority. NOWAIT avoids the inverse profile-trigger/user lock order.
+        let login = sqlx::query("SELECT p.password_hash,pr.password_login_allowed,pr.second_factor_required,pr.legacy_bcrypt_allowed FROM core_identity.password_logins p JOIN core_identity.user_profiles pr ON pr.user_id=p.user_id WHERE p.user_id=$1 AND p.login_name=$2 FOR UPDATE OF p,pr NOWAIT")
+            .bind(actor.user_id).bind(&prepared.login_name)
+            .fetch_optional(&mut *c).await.map_err(password_change_error)?
+            .ok_or(IdentityError::Unauthorized)?;
+        let current_hash: String = login.try_get("password_hash")?;
+        if current_hash != prepared.old_hash
+            || !login.try_get::<bool, _>("password_login_allowed")?
+            || login.try_get::<bool, _>("second_factor_required")?
+            || (current_hash.starts_with("$2")
+                && !login.try_get::<bool, _>("legacy_bcrypt_allowed")?)
+        {
+            return Err(IdentityError::Unauthorized);
+        }
+        let changed = sqlx::query("UPDATE core_identity.password_logins SET password_hash=$3 WHERE user_id=$1 AND password_hash=$2")
+            .bind(actor.user_id).bind(&prepared.old_hash).bind(&prepared.new_hash)
+            .execute(&mut *c).await?.rows_affected();
+        if changed != 1 {
+            return Err(IdentityError::Conflict);
+        }
+        sqlx::query(
+            "UPDATE core_identity.user_profiles SET legacy_bcrypt_allowed=FALSE WHERE user_id=$1",
+        )
+        .bind(actor.user_id)
+        .execute(&mut *c)
+        .await?;
+        let version: i64 = sqlx::query_scalar("UPDATE core_identity.users SET auth_version=auth_version+1 WHERE id=$1 AND auth_version=$2 RETURNING auth_version")
+            .bind(actor.user_id).bind(actor.user_version)
+            .fetch_optional(&mut *c).await?.ok_or(IdentityError::Conflict)?;
+        // Keep the old absolute start and expiry. Password changes are not a
+        // way to extend a login. No old credential is reassigned to a new epoch.
+        let id: i64 = sqlx::query_scalar("INSERT INTO core_identity.credentials(digest,kind,user_id,user_version,owner_account_id,expires_at,session_started_at) SELECT $1,'session',user_id,$2,owner_account_id,LEAST(expires_at,session_started_at+interval '30 days'),session_started_at FROM core_identity.credentials WHERE id=$3 AND expires_at>clock_timestamp() AND session_started_at+interval '30 days'>clock_timestamp() RETURNING id")
+            .bind(digest(&replacement)?).bind(version).bind(actor.credential_id)
+            .fetch_optional(&mut *c).await?.ok_or(IdentityError::Unauthorized)?;
+        sqlx::query("UPDATE core_identity.credentials SET revoked_at=clock_timestamp() WHERE id=$1 AND revoked_at IS NULL")
+            .bind(actor.credential_id).execute(&mut *c).await?;
+        audit(
+            c,
+            &actor,
+            "user.password_changed",
+            json!({"user_id":actor.user_id,"old_session_id":actor.credential_id,
+                "session_id":id,"auth_version":version}),
+        )
+        .await?;
+        Ok(IssuedCredential {
+            id,
+            secret: replacement,
+        })
     }
     /// Rotation extends inactivity expiry by seven days, never beyond 30 days
     /// from the original login. The old bearer cannot be replayed.
@@ -391,7 +573,7 @@ impl IdentityStore {
         } else {
             (None, false)
         };
-        let rows = sqlx::query("SELECT id,kind,user_id,owner_account_id,EXTRACT(EPOCH FROM expires_at)::bigint AS expires,revoked_at IS NOT NULL AS revoked,EXTRACT(EPOCH FROM created_at)::bigint AS created FROM core_identity.credentials WHERE id>$1 AND ($2::bigint IS NULL OR owner_account_id=$2) AND ($3 OR user_id=$4) ORDER BY id LIMIT 100")
+        let rows = sqlx::query("SELECT c.id,c.kind,c.user_id,c.owner_account_id,EXTRACT(EPOCH FROM c.expires_at)::bigint AS expires,(c.revoked_at IS NOT NULL OR c.user_version<>u.auth_version) AS revoked,EXTRACT(EPOCH FROM c.created_at)::bigint AS created FROM core_identity.credentials c JOIN core_identity.users u ON u.id=c.user_id WHERE c.id>$1 AND ($2::bigint IS NULL OR c.owner_account_id=$2) AND ($3 OR c.user_id=$4) ORDER BY c.id LIMIT 100")
             .bind(after).bind(owner).bind(all_members).bind(actor.user_id).fetch_all(&mut *tx).await?;
         let result = rows
             .into_iter()
@@ -436,6 +618,228 @@ mod tests {
                 .unwrap()
                 .verify_password(b"bad password", &dummy)
                 .is_err()
+        );
+    }
+    async fn password_change_fixture(pool: PgPool) -> (IdentityStore, IssuedCredential) {
+        let store = IdentityStore::from_pool(pool).with_registration_enabled(true);
+        store.init_database().await.unwrap();
+        let credential = store
+            .register(&LoginRequest {
+                login_name: "password-test".into(),
+                password: "original test passphrase".into(),
+            })
+            .await
+            .unwrap();
+        (store, credential)
+    }
+
+    #[sqlx::test(migrations = false)]
+    async fn password_change_rechecks_policy_generation_after_password_verification(pool: PgPool) {
+        let (store, credential) = password_change_fixture(pool.clone()).await;
+        let prepared = store
+            .prepare_password_change(
+                &credential.secret,
+                "original test passphrase",
+                "replacement test passphrase",
+            )
+            .await
+            .unwrap();
+        // Returning to the same policy must not make an old proof current again.
+        for required in [true, false] {
+            sqlx::query(
+                "UPDATE core_identity.user_profiles SET second_factor_required=$2 WHERE user_id=$1",
+            )
+            .bind(prepared.user_id)
+            .bind(required)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        let mut tx = pool.begin().await.unwrap();
+        let result = store
+            .apply_password_change(
+                &mut tx,
+                &credential.secret,
+                &prepared,
+                None,
+                new_secret("lmms_").unwrap(),
+            )
+            .await;
+        assert!(matches!(result, Err(IdentityError::Unauthorized)));
+        tx.rollback().await.unwrap();
+        let actual: String = sqlx::query_scalar(
+            "SELECT password_hash FROM core_identity.password_logins WHERE user_id=$1",
+        )
+        .bind(prepared.user_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(actual, prepared.old_hash);
+        let count: i64 = sqlx::query_scalar("SELECT count(*) FROM core_identity.credentials")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 1);
+    }
+
+    #[sqlx::test(migrations = false)]
+    async fn password_change_rejects_changed_hash_and_expired_session_after_preparation(
+        pool: PgPool,
+    ) {
+        let (store, credential) = password_change_fixture(pool.clone()).await;
+        let prepared = store
+            .prepare_password_change(
+                &credential.secret,
+                "original test passphrase",
+                "replacement test passphrase",
+            )
+            .await
+            .unwrap();
+        let changed = store
+            .hash_password("different owner password".into())
+            .await
+            .unwrap();
+        sqlx::query("UPDATE core_identity.password_logins SET password_hash=$2 WHERE user_id=$1")
+            .bind(prepared.user_id)
+            .bind(&changed)
+            .execute(&pool)
+            .await
+            .unwrap();
+        let mut tx = pool.begin().await.unwrap();
+        assert!(matches!(
+            store
+                .apply_password_change(
+                    &mut tx,
+                    &credential.secret,
+                    &prepared,
+                    None,
+                    new_secret("lmms_").unwrap(),
+                )
+                .await,
+            Err(IdentityError::Unauthorized)
+        ));
+        tx.rollback().await.unwrap();
+        let actual: String = sqlx::query_scalar(
+            "SELECT password_hash FROM core_identity.password_logins WHERE user_id=$1",
+        )
+        .bind(prepared.user_id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(actual, changed);
+        let prepared = store
+            .prepare_password_change(
+                &credential.secret,
+                "different owner password",
+                "replacement test passphrase",
+            )
+            .await
+            .unwrap();
+        sqlx::query("UPDATE core_identity.credentials SET expires_at=clock_timestamp()-interval '1 second' WHERE id=$1")
+            .bind(credential.id).execute(&pool).await.unwrap();
+        let mut tx = pool.begin().await.unwrap();
+        assert!(matches!(
+            store
+                .apply_password_change(
+                    &mut tx,
+                    &credential.secret,
+                    &prepared,
+                    None,
+                    new_secret("lmms_").unwrap(),
+                )
+                .await,
+            Err(IdentityError::Unauthorized)
+        ));
+        tx.rollback().await.unwrap();
+    }
+
+    #[sqlx::test(migrations = false)]
+    async fn password_change_returns_conflict_instead_of_waiting_for_inverse_profile_lock(
+        pool: PgPool,
+    ) {
+        let (store, credential) = password_change_fixture(pool.clone()).await;
+        let prepared = store
+            .prepare_password_change(
+                &credential.secret,
+                "original test passphrase",
+                "replacement test passphrase",
+            )
+            .await
+            .unwrap();
+        let mut blocker = pool.begin().await.unwrap();
+        sqlx::query("SELECT user_id FROM core_identity.user_profiles WHERE user_id=$1 FOR UPDATE")
+            .bind(prepared.user_id)
+            .fetch_one(&mut *blocker)
+            .await
+            .unwrap();
+        let mut tx = pool.begin().await.unwrap();
+        let result = tokio::time::timeout(
+            Duration::from_secs(2),
+            store.apply_password_change(
+                &mut tx,
+                &credential.secret,
+                &prepared,
+                None,
+                new_secret("lmms_").unwrap(),
+            ),
+        )
+        .await
+        .unwrap();
+        assert!(matches!(result, Err(IdentityError::Conflict)));
+        tx.rollback().await.unwrap();
+        blocker.rollback().await.unwrap();
+        assert!(store.authorize(&credential.secret).await.is_ok());
+        let count: i64 = sqlx::query_scalar(
+            "SELECT count(*) FROM core_identity.audit WHERE action='user.password_changed'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[sqlx::test(migrations = false)]
+    async fn password_change_verifies_legacy_bcrypt_and_disables_it_after_argon_replacement(
+        pool: PgPool,
+    ) {
+        let (store, credential) = password_change_fixture(pool.clone()).await;
+        let user = store.authorize(&credential.secret).await.unwrap().user_id;
+        let legacy = bcrypt::hash("legacy-test-pass", 4).unwrap();
+        sqlx::query("UPDATE core_identity.password_logins SET password_hash=$2 WHERE user_id=$1")
+            .bind(user)
+            .bind(legacy)
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query(
+            "UPDATE core_identity.user_profiles SET legacy_bcrypt_allowed=TRUE WHERE user_id=$1",
+        )
+        .bind(user)
+        .execute(&pool)
+        .await
+        .unwrap();
+        let updated = store
+            .change_password(
+                &credential.secret,
+                "legacy-test-pass",
+                "replacement test passphrase",
+            )
+            .await
+            .unwrap();
+        assert!(store.authorize(&updated.secret).await.is_ok());
+        assert!(store.authorize(&credential.secret).await.is_err());
+        let (hash, legacy): (String, bool) = sqlx::query_as("SELECT p.password_hash,pr.legacy_bcrypt_allowed FROM core_identity.password_logins p JOIN core_identity.user_profiles pr ON pr.user_id=p.user_id WHERE p.user_id=$1")
+            .bind(user).fetch_one(&pool).await.unwrap();
+        assert!(hash.starts_with("$argon2id$"));
+        assert!(!legacy);
+        assert!(
+            store
+                .login(&LoginRequest {
+                    login_name: "password-test".into(),
+                    password: "replacement test passphrase".into(),
+                })
+                .await
+                .is_ok()
         );
     }
 }

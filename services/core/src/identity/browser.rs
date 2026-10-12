@@ -1,4 +1,5 @@
 //! Browser-session compatibility without importing legacy sessions or funds.
+mod password;
 use super::*;
 use hmac::{Hmac, Mac};
 use subtle::ConstantTimeEq;
@@ -90,6 +91,11 @@ impl BrowserAuth {
             || (!email.is_empty() && !email.contains('@'))
         {
             return Err(IdentityError::Invalid.into());
+        }
+        // Email verification is not implemented. Do not report successful
+        // registration while silently discarding a requested email address.
+        if !email.is_empty() {
+            return Err(IdentityError::Forbidden.into());
         }
         let hash = self.store.hash_password(input.password.to_owned()).await?;
         let mut tx = self.store.pool.begin().await?;

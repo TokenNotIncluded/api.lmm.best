@@ -266,12 +266,15 @@ async fn register(
             "Accept the published legal terms before registering",
         );
     }
-    if !body.verification_code.is_empty() || !body.aff_code.is_empty() || !body.turnstile.is_empty()
+    if !body.email.trim().is_empty()
+        || !body.verification_code.is_empty()
+        || !body.aff_code.is_empty()
+        || !body.turnstile.is_empty()
     {
         return failure(
             StatusCode::SERVICE_UNAVAILABLE,
             "AUTH_REGISTRATION_FEATURE_UNAVAILABLE",
-            "Email verification and referral registration are not yet enabled",
+            "Email, verification, referral and challenge registration are not yet enabled",
         );
     }
     match state

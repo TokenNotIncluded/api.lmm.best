@@ -1,6 +1,109 @@
 use super::*;
 use jsonwebtoken::{EncodingKey, Header, encode};
 
+#[sqlx::test(migrations = false)]
+async fn google_login_cannot_issue_sessions_while_local_second_factor_is_required(pool: PgPool) {
+    let mock = MockProvider::default();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let address = listener.local_addr().unwrap();
+    let app = Router::new()
+        .route("/token", post(exchange))
+        .route("/keys", get(public_keys))
+        .with_state(mock.clone());
+    let server = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let mut config = GoogleOAuth::new(
+        "client-1".into(),
+        "test-only-client-secret".into(),
+        format!("https://example.com{CALLBACK_PATH}"),
+    )
+    .unwrap();
+    // Only this private test module can use the loopback provider.
+    config.client = Client::builder()
+        .redirect(Policy::none())
+        .timeout(Duration::from_secs(3))
+        .build()
+        .unwrap();
+    config.token_endpoint = Url::parse(&format!("http://{address}/token")).unwrap();
+    config.keys_endpoint = Url::parse(&format!("http://{address}/keys")).unwrap();
+    let store = IdentityStore::from_pool(pool.clone())
+        .with_google_oauth(config)
+        .with_registration_enabled(true);
+    store.init_database().await.unwrap();
+    let native = store
+        .register(&LoginRequest {
+            login_name: "mfa-account".into(),
+            password: "test-only long passphrase".into(),
+        })
+        .await
+        .unwrap();
+    let user_id = store.authorize(&native.secret).await.unwrap().user_id;
+    // Synthetic prelinked identity. This does not test an account-link API.
+    sqlx::query(
+        "INSERT INTO core_identity.oauth_identities(issuer,subject,user_id) VALUES ($1,$2,$3)",
+    )
+    .bind(ISSUER)
+    .bind("mfa-subject")
+    .bind(user_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let binding_a = new_secret("").unwrap();
+    let binding_b = new_secret("").unwrap();
+    let url_a = store.begin_google_login(&binding_a).await.unwrap();
+    let url_b = store.begin_google_login(&binding_b).await.unwrap();
+    let (state_a, code_a) = prepare_code(&store, &mock, &url_a, "mfa-subject").await;
+    let (state_b, code_b) = prepare_code(&store, &mock, &url_b, "mfa-subject").await;
+    // The policy changes after the flows begin but before the callbacks.
+    sqlx::query(
+        "UPDATE core_identity.user_profiles SET second_factor_required=TRUE WHERE user_id=$1",
+    )
+    .bind(user_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(store.authorize(&native.secret).await.is_err());
+    let counts_sql = "SELECT (SELECT count(*) FROM core_identity.credentials), (SELECT count(*) FROM core_identity.audit WHERE action='session.google_login')";
+    let before: (i64, i64) = sqlx::query_as(counts_sql).fetch_one(&pool).await.unwrap();
+    let (first, second) = tokio::join!(
+        store.finish_google_login(&state_a, &binding_a, &code_a),
+        store.finish_google_login(&state_b, &binding_b, &code_b),
+    );
+    assert!(matches!(first, Err(IdentityError::Unauthorized)));
+    assert!(matches!(second, Err(IdentityError::Unauthorized)));
+    let after: (i64, i64) = sqlx::query_as(counts_sql).fetch_one(&pool).await.unwrap();
+    assert_eq!(before, after);
+    assert_eq!(mock.exchanges.load(Ordering::SeqCst), 2);
+    // A rejected callback still consumes its state. Replaying it does not
+    // make another provider exchange or recover an issued credential.
+    assert!(matches!(
+        store
+            .finish_google_login(&state_a, &binding_a, &code_a)
+            .await,
+        Err(IdentityError::Unauthorized)
+    ));
+    assert_eq!(mock.exchanges.load(Ordering::SeqCst), 2);
+    sqlx::query(
+        "UPDATE core_identity.user_profiles SET second_factor_required=FALSE WHERE user_id=$1",
+    )
+    .bind(user_id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    assert!(store.authorize(&native.secret).await.is_err());
+    let binding = new_secret("").unwrap();
+    let url = store.begin_google_login(&binding).await.unwrap();
+    let (state, code) = prepare_code(&store, &mock, &url, "mfa-subject").await;
+    let issued = store
+        .finish_google_login(&state, &binding, &code)
+        .await
+        .unwrap();
+    assert_eq!(
+        store.authorize(&issued.secret).await.unwrap().user_id,
+        user_id
+    );
+    server.abort();
+}
+
 fn fixture() -> Value {
     serde_json::from_str(include_str!("../testdata/google-signing-key.json")).unwrap()
 }
