@@ -108,7 +108,7 @@ async fn prior_owner_upgrade_changes_only_verified_index_and_two_receipts(pool: 
     };
     ledger.execute(&request).await.unwrap();
     let before = snapshot(&pool).await;
-    let grants = permissions(&mut *pool.acquire().await.unwrap())
+    let grants = permissions(&mut pool.acquire().await.unwrap())
         .await
         .unwrap();
     assert!(
@@ -126,7 +126,7 @@ async fn prior_owner_upgrade_changes_only_verified_index_and_two_receipts(pool: 
     };
     assert_eq!(financial(before), financial(snapshot(&pool).await));
     assert_eq!(
-        permissions(&mut *pool.acquire().await.unwrap())
+        permissions(&mut pool.acquire().await.unwrap())
             .await
             .unwrap(),
         grants
@@ -231,7 +231,7 @@ async fn startup_required_shape_cannot_be_bypassed_by_re_receipting(pool: PgPool
         if !ddl.is_empty() {
             sqlx::query(ddl).execute(&pool).await.unwrap();
         }
-        let hash = catalog(&mut *pool.acquire().await.unwrap()).await.unwrap();
+        let hash = catalog(&mut pool.acquire().await.unwrap()).await.unwrap();
         sqlx::query("UPDATE core_meta.runtime_contract SET catalog_fingerprint=$1")
             .bind(hash)
             .execute(&pool)
@@ -244,7 +244,7 @@ async fn startup_required_shape_cannot_be_bypassed_by_re_receipting(pool: PgPool
         .await
         .unwrap();
     sqlx::query(USAGE_INDEX_DDL).execute(&pool).await.unwrap();
-    let hash = catalog(&mut *pool.acquire().await.unwrap()).await.unwrap();
+    let hash = catalog(&mut pool.acquire().await.unwrap()).await.unwrap();
     sqlx::query("UPDATE core_meta.runtime_contract SET catalog_fingerprint=$1")
         .bind(hash)
         .execute(&pool)
@@ -271,7 +271,7 @@ async fn upgrade_rejects_existing_index_even_with_approved_catalog(pool: PgPool)
         "CREATE INDEX ledger_commands_request_operation ON core_charging.ledger_commands(operation_id,request_id)",
     ] {
         sqlx::query(ddl).execute(&pool).await.unwrap();
-        let hash = catalog(&mut *pool.acquire().await.unwrap()).await.unwrap();
+        let hash = catalog(&mut pool.acquire().await.unwrap()).await.unwrap();
         sqlx::query("UPDATE core_meta.runtime_contract SET catalog_fingerprint=$1")
             .bind(&hash)
             .execute(&pool)
