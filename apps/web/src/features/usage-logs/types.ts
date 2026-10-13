@@ -253,6 +253,13 @@ export interface LogOtherData {
   is_system_prompt_overwritten?: boolean
   po?: string[]
   billing_source?: string
+  // Native Core receipts distinguish gross settlement from refunded net usage.
+  billing_basis?: string
+  gross_settled_credits?: number
+  refunded_credits?: number
+  net_consumption_credits?: number
+  request_state?: string
+  usage_status?: string
   upstream_empty_usage?: boolean
   group?: string
   stream_status?: {

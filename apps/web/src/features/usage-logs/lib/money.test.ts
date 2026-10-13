@@ -8,6 +8,7 @@ import { formatQuotaInCurrency, formatUSDInCurrency } from '@/lib/currency'
 import { DEFAULT_CURRENCY_CONFIG } from '@/stores/system-config-store'
 
 import type { UsageLog } from '../data/schema'
+import type { LogOtherData } from '../types'
 import { renderAuditContent } from './format'
 import {
   buildLogCopyText,
@@ -15,6 +16,8 @@ import {
   formatLogAddonPrice,
   formatLogTokenPrice,
   logExpressionCurrency,
+  logCostRows,
+  logNetConsumptionAmounts,
   type LogCurrencyFormatter,
 } from './money'
 
@@ -53,6 +56,107 @@ function formatter(
       ),
   }
 }
+
+describe('native net-consumption receipts', () => {
+  const settled: LogOtherData = {
+    billing_basis: 'net_consumption',
+    request_state: 'settled',
+    usage_status: 'settled',
+    pricing_credits_per_usd: 500_000,
+    gross_settled_credits: 500_000,
+    refunded_credits: 200_000,
+    net_consumption_credits: 300_000,
+  }
+  const log = { type: 2, quota: 300_000 } as UsageLog
+
+  test('copies distinct gross, refund and net amounts with the captured scale', () => {
+    const original = JSON.stringify(settled)
+    const copy = buildLogCopyText(
+      'Original trace',
+      log,
+      settled,
+      formatter({ creditsPerUsd: 1_000_000 }),
+      (key) => key
+    )
+    assert.match(copy, /Gross settlement: 1 USD/)
+    assert.match(copy, /Recorded refunds: 0\.4 USD/)
+    assert.match(copy, /Net consumption: 0\.6 USD/)
+    assert.doesNotMatch(copy, /Total Cost:/)
+    assert.ok(copy.endsWith('Original trace'))
+    assert.equal(JSON.stringify(settled), original)
+  })
+
+  test('a full refund remains distinct from an originally free settled request', () => {
+    const zero = { ...log, quota: 0 }
+    const refund = buildLogCopyText(
+      '',
+      zero,
+      { ...settled, refunded_credits: 500_000, net_consumption_credits: 0 },
+      formatter(),
+      (key) => key
+    )
+    assert.match(refund, /Gross settlement: 1 USD/)
+    assert.match(refund, /Recorded refunds: 1 USD/)
+    assert.match(refund, /Net consumption: 0 USD/)
+    const free = buildLogCopyText(
+      '',
+      zero,
+      {
+        ...settled,
+        gross_settled_credits: 0,
+        refunded_credits: 0,
+        net_consumption_credits: 0,
+      },
+      formatter(),
+      (key) => key
+    )
+    assert.match(free, /Gross settlement: 0 USD/)
+    assert.match(free, /Recorded refunds: 0 USD/)
+    assert.match(free, /Net consumption: 0 USD/)
+  })
+
+  test('incomplete, unsafe or contradictory receipts never present a known cost', () => {
+    const invalid: Array<Partial<LogOtherData>> = [
+      { billing_basis: undefined },
+      { billing_basis: 'unknown' },
+      { request_state: 'streaming', usage_status: 'incomplete' },
+      { gross_settled_credits: undefined },
+      { refunded_credits: -1 },
+      { refunded_credits: 0.5 },
+      { refunded_credits: 600_000 },
+      { net_consumption_credits: 0 },
+      { gross_settled_credits: Number.MAX_SAFE_INTEGER + 1 },
+      { net_consumption_credits: Number.NaN },
+    ]
+    for (const patch of invalid) {
+      const other = { ...settled, ...patch }
+      assert.equal(logNetConsumptionAmounts(log, other), null)
+      const rows = logCostRows(
+        log,
+        other,
+        () => 'SHOULD NOT FORMAT',
+        (k) => k
+      )
+      assert.deepEqual(
+        rows.map((row) => row.value),
+        ['—', '—', '—']
+      )
+      assert.deepEqual(
+        rows.map((row) => row.label),
+        ['Gross settlement', 'Recorded refunds', 'Net consumption']
+      )
+    }
+    assert.equal(logNetConsumptionAmounts({ ...log, quota: 0 }, settled), null)
+    assert.equal(logNetConsumptionAmounts({ ...log, type: 6 }, settled), null)
+    assert.equal(
+      logNetConsumptionAmounts(
+        { ...log, quota_money_basis: 'invalid_stored_quota' },
+        settled
+      ),
+      null
+    )
+  })
+})
 
 describe('log monetary snapshots', () => {
   test('renders audit ledger amounts in USD without mutating stored evidence', () => {

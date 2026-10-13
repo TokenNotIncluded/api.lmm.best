@@ -87,6 +87,7 @@ import {
   formatLogAddonPrice,
   formatLogTokenPrice,
   logExpressionCurrency,
+  logCostRows,
 } from '../../lib/money'
 import { safeLogDiagnostic } from '../../lib/recovery'
 import {
@@ -461,10 +462,7 @@ function BillingBreakdown(props: {
     })
   }
 
-  rows.push({
-    label: t('Total Cost'),
-    value: formatLogQuota(log.quota),
-  })
+  rows.push(...logCostRows(log, other, formatLogQuota, t))
 
   if (rows.length === 0) return null
 

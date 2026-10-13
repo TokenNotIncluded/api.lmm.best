@@ -144,6 +144,83 @@ const subscription = {
   subscription_total: 7_000_000,
 }
 
+test('native partial refunds show gross, refund and net instead of total cost', async () => {
+  const dialog = await mount(
+    usageLog(
+      {
+        billing_basis: 'net_consumption',
+        request_state: 'settled',
+        usage_status: 'settled',
+        pricing_credits_per_usd: 500_000,
+        gross_settled_credits: 500_000,
+        refunded_credits: 200_000,
+        net_consumption_credits: 300_000,
+      },
+      { quota: 300_000 }
+    )
+  )
+  assert.equal(detailValue(dialog, 'Gross settlement'), '1 USD')
+  assert.equal(detailValue(dialog, 'Recorded refunds'), '0.4 USD')
+  assert.equal(detailValue(dialog, 'Net consumption'), '0.6 USD')
+  assert.equal(summaryValue(dialog, 'Net consumption'), '0.6 USD')
+  assert.doesNotMatch(dialog.textContent ?? '', /Total Cost/)
+  assert.match(dialog.textContent ?? '', /it is not a wallet debit/)
+  assert.doesNotMatch(
+    dialog.textContent ?? '',
+    /Final net charge is not available/
+  )
+})
+
+test('native full refunds preserve the original settled cost, including subscriptions', async () => {
+  const dialog = await mount(
+    usageLog(
+      {
+        billing_basis: 'net_consumption',
+        request_state: 'settled',
+        usage_status: 'settled',
+        billing_source: 'subscription',
+        pricing_credits_per_usd: 500_000,
+        gross_settled_credits: 500_000,
+        refunded_credits: 500_000,
+        net_consumption_credits: 0,
+      },
+      {
+        quota: 0,
+        quota_money_available: true,
+        quota_money_basis: 'captured_credits_per_usd',
+        quota_usd: '0',
+      }
+    )
+  )
+  assert.equal(detailValue(dialog, 'Gross settlement'), '1 USD')
+  assert.equal(detailValue(dialog, 'Recorded refunds'), '1 USD')
+  assert.equal(detailValue(dialog, 'Net consumption'), '0 USD')
+  assert.equal(summaryValue(dialog, 'Net consumption'), '0 USD')
+  assert.doesNotMatch(dialog.textContent ?? '', /Total Cost/)
+})
+
+test('invalid or incomplete native receipt amounts are unknown in details and summary', async () => {
+  const dialog = await mount(
+    usageLog(
+      {
+        billing_basis: 'net_consumption',
+        request_state: 'streaming',
+        usage_status: 'incomplete',
+        pricing_credits_per_usd: 500_000,
+        gross_settled_credits: 0,
+        refunded_credits: 0,
+        net_consumption_credits: 0,
+      },
+      { quota: 0 }
+    )
+  )
+  assert.equal(detailValue(dialog, 'Gross settlement'), '—')
+  assert.equal(detailValue(dialog, 'Recorded refunds'), '—')
+  assert.equal(detailValue(dialog, 'Net consumption'), '—')
+  assert.equal(summaryValue(dialog, 'Net consumption'), '—')
+  assert.doesNotMatch(dialog.textContent ?? '', /Total Cost/)
+})
+
 test('details without a captured anchor keep charges and subscription snapshots raw', async () => {
   const dialog = await mount(usageLog(subscription))
   assert.equal(detailValue(dialog, 'Total Cost'), '3,500,000 Raw credits')

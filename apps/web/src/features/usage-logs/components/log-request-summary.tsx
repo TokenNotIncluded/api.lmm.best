@@ -25,6 +25,10 @@ import { useHistoricalQuotaMoney } from '@/hooks/use-historical-quota-money'
 import { formatTokens } from '@/lib/format'
 
 import type { UsageLog } from '../data/schema'
+import {
+  hasNetConsumptionMetadata,
+  logNetConsumptionAmounts,
+} from '../lib/money'
 import { logRecovery, safeLogDiagnostic } from '../lib/recovery'
 import type { LogOtherData } from '../types'
 
@@ -40,6 +44,8 @@ export function LogRequestSummary({
   const { t } = useTranslation()
   const { formatHistoricalLogQuota } = useHistoricalQuotaMoney()
   const { copyToClipboard } = useCopyToClipboard()
+  const netBasis = hasNetConsumptionMetadata(other)
+  const amounts = logNetConsumptionAmounts(log, other)
   if (![2, 5, 6].includes(log.type)) return null
   const cacheReadDetails = [
     { label: t('Text cache read tokens'), tokens: other?.cache_text_tokens },
@@ -154,30 +160,37 @@ export function LogRequestSummary({
         <div>
           <dt className='text-muted-foreground'>
             {t(
-              log.type === 6
-                ? 'Refund recorded in this entry'
-                : other?.billing_source === 'subscription'
-                  ? 'Plan quota used in this entry'
-                  : 'Charge recorded in this entry'
+              netBasis
+                ? 'Net consumption'
+                : log.type === 6
+                  ? 'Refund recorded in this entry'
+                  : other?.billing_source === 'subscription'
+                    ? 'Plan quota used in this entry'
+                    : 'Charge recorded in this entry'
             )}
           </dt>
           <dd>
-            {formatHistoricalLogQuota({
-              quota: log.quota,
-              other,
-              type: log.type,
-              projection: log,
-              consumedQuota:
-                other?.billing_source === 'subscription'
-                  ? (other.subscription_consumed ?? log.quota)
-                  : log.quota,
-            })}
+            {netBasis && !amounts
+              ? '—'
+              : formatHistoricalLogQuota({
+                  quota: log.quota,
+                  other,
+                  type: log.type,
+                  projection: log,
+                  consumedQuota: netBasis
+                    ? amounts?.net
+                    : other?.billing_source === 'subscription'
+                      ? (other.subscription_consumed ?? log.quota)
+                      : log.quota,
+                })}
           </dd>
         </div>
       </dl>
       <p className='text-muted-foreground text-xs'>
         {t(
-          'This entry does not reconcile other charges or refunds for the same request. Final net charge is not available here.'
+          netBasis
+            ? 'Net consumption is gross settlement minus recorded refunds; it is not a wallet debit.'
+            : 'This entry does not reconcile other charges or refunds for the same request. Final net charge is not available here.'
         )}
       </p>
       {failed && (

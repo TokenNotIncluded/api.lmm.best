@@ -131,6 +131,71 @@ export function formatLogTokenPrice(
   return currency.formatUSD(modelRatio * scale * multiplier, PRICE_OPTIONS)
 }
 
+/** Partial or invalid native metadata must never fall back to a legacy total. */
+export function hasNetConsumptionMetadata(other: LogOtherData | null): boolean {
+  return (
+    other?.billing_basis !== undefined ||
+    other?.gross_settled_credits !== undefined ||
+    other?.refunded_credits !== undefined ||
+    other?.net_consumption_credits !== undefined
+  )
+}
+
+export function logNetConsumptionAmounts(
+  log: UsageLog,
+  other: LogOtherData | null
+): { gross: number; refunded: number; net: number } | null {
+  const gross = other?.gross_settled_credits
+  const refunded = other?.refunded_credits
+  const net = other?.net_consumption_credits
+  const safeAmount = (value: unknown): value is number =>
+    typeof value === 'number' && Number.isSafeInteger(value) && value >= 0
+  if (
+    log.type !== 2 ||
+    other?.billing_basis !== 'net_consumption' ||
+    other.request_state !== 'settled' ||
+    other.usage_status !== 'settled' ||
+    log.quota_money_basis === 'invalid_stored_quota' ||
+    !safeAmount(gross) ||
+    !safeAmount(refunded) ||
+    !safeAmount(net) ||
+    !safeAmount(log.quota) ||
+    gross < refunded ||
+    gross - refunded !== net ||
+    net !== log.quota
+  ) {
+    return null
+  }
+  return { gross, refunded, net }
+}
+
+/** Shared rows keep the details dialog and copied bill on the same basis. */
+export function logCostRows(
+  log: UsageLog,
+  other: LogOtherData | null,
+  format: (quota: number) => string,
+  t: (key: string) => string
+): Array<{ label: string; value: string }> {
+  if (!hasNetConsumptionMetadata(other)) {
+    return [{ label: t('Total Cost'), value: format(log.quota) }]
+  }
+  const amounts = logNetConsumptionAmounts(log, other)
+  return [
+    {
+      label: t('Gross settlement'),
+      value: amounts ? format(amounts.gross) : '—',
+    },
+    {
+      label: t('Recorded refunds'),
+      value: amounts ? format(amounts.refunded) : '—',
+    },
+    {
+      label: t('Net consumption'),
+      value: amounts ? format(amounts.net) : '—',
+    },
+  ]
+}
+
 /** Copy the currently displayed bill and preserve the original text as evidence. */
 export function buildLogCopyText(
   original: string,
@@ -169,7 +234,9 @@ export function buildLogCopyText(
     }) !== null
   const rows = [
     `${t('Billing Details')} (${moneyAvailable ? currency.currency : t('Raw credits')})`,
-    `${t('Total Cost')}: ${format(log.quota)}`,
+    ...logCostRows(log, other, format, t).map(
+      (row) => `${row.label}: ${row.value}`
+    ),
     `${t('Billing Source')}: ${t(other?.billing_source === 'subscription' ? 'Subscription' : 'Wallet')}`,
   ]
   if (other?.billing_mode === 'tiered_expr') {
