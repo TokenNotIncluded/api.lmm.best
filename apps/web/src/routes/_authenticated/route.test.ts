@@ -117,6 +117,38 @@ describe('authenticated route access', () => {
     assert.equal(redirect.options.to, '/sign-in')
   })
 
+  test('allows a signed-in L0 account to use native remote control without opening developer routes', async () => {
+    authenticate({
+      id: 9,
+      username: 'native-remote-l0',
+      role: 1,
+      developer_access_granted: false,
+    })
+
+    for (const pathname of ['/remote-control', '/remote-control/']) {
+      assert.equal(await runBeforeLoad(pathname), undefined)
+    }
+    for (const pathname of [
+      '/dashboard',
+      '/remote-control/admin',
+      '/remote-control-extra',
+    ]) {
+      const redirect = await runBeforeLoad(pathname)
+      assert.ok(isRedirect(redirect))
+      assert.equal(redirect.options.to, '/wallet')
+    }
+  })
+
+  test('still requires authentication for the native remote-control page', async () => {
+    useAuthStore.getState().auth.reset('complete')
+    for (const pathname of ['/remote-control', '/remote-control/']) {
+      const redirect = await runBeforeLoad(pathname)
+      assert.ok(isRedirect(redirect))
+      assert.equal(redirect.options.to, '/sign-in')
+      assert.deepEqual(redirect.options.search, { redirect: pathname })
+    }
+  })
+
   test('keeps an L0 account on wallet and redirects restricted console routes there', async () => {
     authenticate({
       id: 7,

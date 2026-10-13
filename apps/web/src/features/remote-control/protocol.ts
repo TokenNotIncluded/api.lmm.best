@@ -100,9 +100,9 @@ export function normalizePiSessionEnvelopes(
     ? payload
     : Array.isArray(envelope?.sessions)
       ? envelope.sessions
-      : []
+      : undefined
 
-  if (raw.length > 32) throw new Error('Invalid Pi session list')
+  if (!raw || raw.length > 32) throw new Error('Invalid Pi session list')
   return raw.flatMap((item): PiRemoteSessionEnvelope[] => {
     const source = record(item)
     if (!source) return []
@@ -148,9 +148,9 @@ export function normalizePiMessageEnvelopes(
     ? payload
     : Array.isArray(envelope?.messages)
       ? envelope.messages
-      : []
+      : undefined
 
-  if (raw.length > 128) throw new Error('Invalid Pi message list')
+  if (!raw || raw.length > 128) throw new Error('Invalid Pi message list')
   return raw.flatMap((item): PiRemoteMessageEnvelope[] => {
     const source = record(item)
     if (!source) return []

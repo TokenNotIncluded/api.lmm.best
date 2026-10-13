@@ -182,6 +182,8 @@ export function isContributorRoute(pathname: string): boolean {
   // remain subject to the server's payment access gate. Account settings and
   // the API key access explanation are also available; the key management
   // components still require the explicit server developer-access decision.
+  // Native Pi control needs only a signed-in browser owner. This exception does
+  // not grant model access; the server still checks each session's ownership.
   return (
     pathname === '/keys' ||
     pathname === '/keys/' ||
@@ -193,6 +195,8 @@ export function isContributorRoute(pathname: string): boolean {
     pathname === '/todos/' ||
     pathname === '/wallet' ||
     pathname === '/wallet/' ||
+    pathname === '/remote-control' ||
+    pathname === '/remote-control/' ||
     pathname === '/tool-market' ||
     pathname.startsWith('/tool-market/')
   )
