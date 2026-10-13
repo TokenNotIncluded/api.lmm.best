@@ -139,6 +139,11 @@ pub fn configured_router_with_runtime_status(
     models_healthy: Option<Arc<AtomicBool>>,
     public_status: PublicStatus,
 ) -> Router {
+    let usage = if capabilities.identity {
+        crate::usage::router(crate::usage::UsageStore::new(pool.clone()))
+    } else {
+        Router::new()
+    };
     Router::new()
         .route("/health/live", get(live))
         .route("/health/ready", get(ready))
@@ -152,6 +157,7 @@ pub fn configured_router_with_runtime_status(
             models_healthy,
             public_status,
         })
+        .merge(usage)
 }
 
 async fn public_status_response(
