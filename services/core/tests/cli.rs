@@ -802,3 +802,119 @@ async fn assembled_service_exposes_web_auth_and_explicit_capabilities_without_go
     std::fs::remove_dir_all(directory).unwrap();
     role.cleanup().await;
 }
+
+#[test]
+fn usage_index_stdin_is_bounded_strict_redacted_and_precedes_configuration() {
+    for input in [
+        vec![],
+        vec![b'a'; 63],
+        vec![b'a'; 67],
+        b"secret-not-a-hash".to_vec(),
+        [vec![b'a'; 64], b"\n\n".to_vec()].concat(),
+        [vec![b'a'; 64], b" trailing-secret".to_vec()].concat(),
+        vec![b'g'; 64],
+        vec![0xff; 64],
+    ] {
+        let output = finish(
+            file_core(&[
+                "--config",
+                "/missing-unused-index-config",
+                "install-usage-receipt-index",
+            ])
+            .spawn()
+            .unwrap(),
+            &input,
+        );
+        assert!(!output.status.success());
+        assert!(output.stdout.is_empty());
+        let error = String::from_utf8_lossy(&output.stderr);
+        assert!(error.contains("invalid prior catalog SHA256"), "{error}");
+        assert!(!error.contains("secret"));
+        assert!(!error.contains("missing-unused-index-config"));
+    }
+    for ending in [b"".as_slice(), b"\n", b"\r\n"] {
+        let input = [vec![b'A'; 64], ending.to_vec()].concat();
+        let output = run(
+            &["install-usage-receipt-index"],
+            &input,
+            &[("LMM_CORE_DATABASE_URL", "invalid-unused-url")],
+        );
+        assert!(!output.status.success());
+        let error = String::from_utf8_lossy(&output.stderr);
+        assert!(error.contains("requires explicit installer-owner --config"));
+        assert!(!error.contains("invalid prior catalog SHA256"));
+        assert!(!error.contains("invalid-unused-url"));
+    }
+}
+
+#[cfg(unix)]
+#[sqlx::test(migrations = false)]
+async fn usage_index_owner_cli_upgrades_only_fresh_prior_fixture_and_rejects_runtime(pool: PgPool) {
+    use std::os::unix::fs::PermissionsExt;
+    lmm_core::core_schema::init(&pool).await.unwrap();
+    // Reconstruct the exact prior contract in this brand-new SQLx database.
+    // This catalog SHA is independently recomputed by core_schema::index_tests
+    // from all prior sources (with their exact approved old component SHA).
+    const PRIOR: &str = "e8fa053daca7741952caa4c60e27071652f600b4fa48f4b7631ea54ee801df7b";
+    sqlx::raw_sql("DROP INDEX core_charging.ledger_commands_request_operation; UPDATE core_meta.component_contract SET fingerprint=decode('7f84659ad2bd60268256a9f76959299a33911aaaeaf7194156a6f195ab54a734','hex') WHERE name='charging-ledger'; UPDATE core_meta.runtime_contract SET catalog_fingerprint=decode('e8fa053daca7741952caa4c60e27071652f600b4fa48f4b7631ea54ee801df7b','hex')")
+        .execute(&pool).await.unwrap();
+    let directory = std::env::temp_dir().join(format!(
+        "lmm-index-owner-cli-{}-{:x}",
+        std::process::id(),
+        rand::random::<u64>()
+    ));
+    std::fs::create_dir(&directory).unwrap();
+    std::fs::set_permissions(&directory, std::fs::Permissions::from_mode(0o700)).unwrap();
+    let configuration = directory.join("owner.toml");
+    let database = directory.join("database-url");
+    std::fs::write(
+        &configuration,
+        format!("version=1\n[database]\nurl_file='{}'\n", database.display()),
+    )
+    .unwrap();
+    std::fs::set_permissions(&configuration, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let invoke = |input: &[u8]| {
+        finish(
+            file_core(&[
+                "--config",
+                configuration.to_str().unwrap(),
+                "install-usage-receipt-index",
+            ])
+            .spawn()
+            .unwrap(),
+            input,
+        )
+    };
+    let role = runtime::RuntimeRole::create(&pool).await;
+    role.optional("core_charging").await;
+    std::fs::write(&database, role.url.as_bytes()).unwrap();
+    std::fs::set_permissions(&database, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let output = invoke(PRIOR.as_bytes());
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    assert!(!String::from_utf8_lossy(&output.stderr).contains(&role.url));
+    let absent: bool = sqlx::query_scalar(
+        "SELECT to_regclass('core_charging.ledger_commands_request_operation') IS NULL",
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert!(absent);
+    std::fs::write(&database, database_url(&pool)).unwrap();
+    let output = invoke(&[PRIOR.as_bytes(), b"\n"].concat());
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert!(output.stderr.is_empty());
+    assert!(
+        String::from_utf8_lossy(&output.stdout).contains("schema receipts verified atomically")
+    );
+    lmm_core::core_schema::check(&pool).await.unwrap();
+    let output = invoke(PRIOR.as_bytes());
+    assert!(!output.status.success());
+    assert!(output.stdout.is_empty());
+    role.cleanup().await;
+    std::fs::remove_dir_all(directory).unwrap();
+}

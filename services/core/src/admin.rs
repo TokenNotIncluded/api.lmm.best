@@ -18,9 +18,33 @@ pub enum Operation {
     InitDb,
     CompleteSetup,
     BootstrapUser(Bootstrap),
+    InstallUsageReceiptIndex([u8; 32]),
 }
 
 impl Operation {
+    pub fn usage_receipt_index(input: impl Read) -> io::Result<Self> {
+        let bad = || io::Error::new(io::ErrorKind::InvalidInput, "invalid prior catalog SHA256");
+        let mut bytes = Vec::new();
+        input.take(67).read_to_end(&mut bytes)?;
+        let hex = match bytes.as_slice() {
+            [hex @ .., b'\r', b'\n'] if hex.len() == 64 => hex,
+            [hex @ .., b'\n'] if hex.len() == 64 => hex,
+            hex if hex.len() == 64 => hex,
+            _ => return Err(bad()),
+        };
+        let mut digest = [0; 32];
+        for (byte, pair) in digest.iter_mut().zip(hex.as_chunks::<2>().0) {
+            let digit = |v: u8| match v {
+                b'0'..=b'9' => Ok(v - b'0'),
+                b'a'..=b'f' => Ok(v - b'a' + 10),
+                b'A'..=b'F' => Ok(v - b'A' + 10),
+                _ => Err(bad()),
+            };
+            *byte = digit(pair[0])? * 16 + digit(pair[1])?;
+        }
+        Ok(Self::InstallUsageReceiptIndex(digest))
+    }
+
     pub fn bootstrap(input: impl Read) -> io::Result<Self> {
         let mut bytes = Vec::new();
         input.take(4097).read_to_end(&mut bytes)?;
@@ -48,6 +72,10 @@ pub async fn run(operation: Operation) -> Result<(), Box<dyn Error>> {
     let pool = config::database_pool(&url).await?;
     let store = IdentityStore::from_pool(pool.clone());
     match operation {
+        Operation::InstallUsageReceiptIndex(prior) => {
+            lmm_core::core_schema::install_usage_receipt_index(&pool, prior).await?;
+            println!("Usage receipt index installed; schema receipts verified atomically.");
+        }
         Operation::InitDb => {
             lmm_core::core_schema::init(&pool).await?;
             lmm_core::core_schema::check(&pool).await?;

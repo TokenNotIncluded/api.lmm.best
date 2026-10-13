@@ -6,6 +6,8 @@ CREATE TABLE core_charging.ledger_commands (
     command JSONB NOT NULL CHECK (jsonb_typeof(command) = 'object'),
     created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp()
 );
+CREATE INDEX ledger_commands_request_operation
+    ON core_charging.ledger_commands USING btree (request_id, operation_id);
 CREATE TABLE core_charging.ledger_holds (
     request_id TEXT NOT NULL REFERENCES core_charging.requests(id),
     position INTEGER NOT NULL CHECK (position >= 0),

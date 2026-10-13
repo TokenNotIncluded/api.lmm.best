@@ -690,6 +690,9 @@ async fn data(
 }
 
 #[cfg(test)]
+mod index_tests;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     #[test]

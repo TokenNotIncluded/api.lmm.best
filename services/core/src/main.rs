@@ -19,25 +19,30 @@ use std::{
 
 mod admin;
 
-const USAGE: &str = "Usage: lmm-core [--config /absolute/core.toml | --legacy-env] [serve | init-db | bootstrap-user | complete-setup]\n\n\
+const USAGE: &str = "Usage: lmm-core [--config /absolute/core.toml | --legacy-env] [serve | init-db | bootstrap-user | complete-setup | install-usage-receipt-index]\n\n\
 Commands:\n\
   serve           Start the core service (the default without arguments).\n\
   init-db         Initialize a new, empty core database.\n\
   bootstrap-user  Read a user_id and platform_level JSON object from stdin.\n\n\
-  complete-setup  Record setup completion offline after creating or importing root.\n\n\
+  complete-setup  Record setup completion offline after creating or importing root.\n\
+  install-usage-receipt-index  Offline owner-only index installation; requires explicit --config.\n\n\
 Options:\n\
   --config PATH  Read one absolute TOML file (default /etc/lmm.conf.d/core.toml).\n\
   --legacy-env   Explicit temporary environment compatibility; conflicts with --config.\n\
   -h, --help      Show this help without reading database configuration.\n\
   -V, --version   Show the core version.\n\n\
 bootstrap-user accepts at most 4096 bytes and writes a one-time credential to\n\
-stdout. Redirect that output to a private file; do not put secrets in arguments.";
+stdout. Redirect that output to a private file; do not put secrets in arguments.\n\
+install-usage-receipt-index reads exactly one approved prior catalog SHA256 from\n\
+stdin (64 hex digits, optional LF/CRLF). Use separate installer-owner configuration\n\
+after independent frozen-source review; never runtime credentials or automatic detection.";
 
 enum Command {
     Serve,
     InitDb,
     BootstrapUser,
     CompleteSetup,
+    InstallUsageReceiptIndex,
     Help,
     Version,
 }
@@ -68,13 +73,18 @@ fn command(args: impl IntoIterator<Item = OsString>) -> io::Result<Arguments> {
             Some("--legacy-env") if !legacy_env && config.is_none() => legacy_env = true,
             Some("-h" | "--help") if !help && !version => help = true,
             Some("-V" | "--version") if !version && !help && operation.is_none() => version = true,
-            Some("serve" | "init-db" | "bootstrap-user" | "complete-setup")
-                if operation.is_none() && !version =>
-            {
+            Some(
+                "serve"
+                | "init-db"
+                | "bootstrap-user"
+                | "complete-setup"
+                | "install-usage-receipt-index",
+            ) if operation.is_none() && !version => {
                 operation = Some(match arg.to_str() {
                     Some("init-db") => Command::InitDb,
                     Some("bootstrap-user") => Command::BootstrapUser,
                     Some("complete-setup") => Command::CompleteSetup,
+                    Some("install-usage-receipt-index") => Command::InstallUsageReceiptIndex,
                     _ => Command::Serve,
                 });
             }
@@ -109,6 +119,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         Command::InitDb => Some(admin::Operation::InitDb),
         Command::BootstrapUser => Some(admin::Operation::bootstrap(io::stdin().lock())?),
         Command::CompleteSetup => Some(admin::Operation::CompleteSetup),
+        Command::InstallUsageReceiptIndex => {
+            let operation = admin::Operation::usage_receipt_index(io::stdin().lock())?;
+            if arguments.config.is_none() || arguments.legacy_env {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "usage receipt index installation requires explicit installer-owner --config",
+                )
+                .into());
+            }
+            Some(operation)
+        }
     };
     config::initialize(arguments.config.as_deref(), arguments.legacy_env)?;
     // One worker and a bounded blocking pool are sufficient for the 1-core
