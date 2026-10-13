@@ -23,6 +23,8 @@ use serde_json::{Value, json};
 use sqlx::PgPool;
 use std::sync::Arc;
 use tower::ServiceExt;
+#[path = "usage/receipts.rs"]
+mod receipts;
 #[path = "common/runtime.rs"]
 mod runtime;
 const WORKER: [u8; 32] = [9; 32];
