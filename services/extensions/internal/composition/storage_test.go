@@ -30,6 +30,12 @@ func TestStorageURLRejectsUnisolatedConfiguration(t *testing.T) {
 			if err := os.WriteFile(f, []byte(test.url), test.mode); err != nil {
 				t.Fatal(err)
 			}
+			// WriteFile is affected by the process umask. Set the fixture's
+			// intended mode explicitly so the public-file rejection is tested
+			// even when the caller uses a restrictive private-file umask.
+			if err := os.Chmod(f, test.mode); err != nil {
+				t.Fatal(err)
+			}
 			got, err := storageURL(StorageConfig{test.component, f, test.database})
 			if (err == nil) != test.ok {
 				t.Fatalf("accepted=%v want %v", err == nil, test.ok)
