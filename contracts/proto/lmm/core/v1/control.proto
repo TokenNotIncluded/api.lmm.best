@@ -9,6 +9,8 @@ service CoreControl {
   rpc Capabilities(CapabilitiesRequest) returns (CapabilitiesResponse);
   rpc Authorize(AuthorizeRequest) returns (AuthorizeResponse);
   rpc ListTeams(ListTeamsRequest) returns (ListTeamsResponse);
+  // Purpose-specific remote authority; not general identity or spending.
+  rpc AuthorizeRemote(AuthorizeRemoteRequest) returns (AuthorizeRemoteResponse);
 }
 message CapabilitiesRequest {}
 message CapabilitiesResponse {
@@ -45,6 +47,30 @@ enum TeamRole {
   TEAM_ROLE_OWNER = 1;
   TEAM_ROLE_ADMIN = 2;
   TEAM_ROLE_MEMBER = 3;
+}
+// Authentication is forwarded in server-owned metadata, never caller scopes/owner.
+message AuthorizeRemoteRequest {}
+message NativePersonalRemoteSource {
+  int64 credential_id = 1;
+  // Only interactive PERSONAL SESSION is currently authorized, not API_KEY.
+  CredentialKind native_kind = 2;
+}
+message OAuthGrantRemoteSource {
+  string grant_id = 1;
+  string access_id = 2;
+}
+message AuthorizeRemoteResponse {
+  oneof source {
+    NativePersonalRemoteSource native_personal = 1;
+    OAuthGrantRemoteSource oauth_grant = 2;
+  }
+  int64 user_id = 3;
+  // Stable PERSONAL storage account, not a public user/team ID.
+  int64 owner_account_id = 4;
+  int64 auth_version = 5;
+  int64 expires_at = 6;
+  // Revalidate at <=15s; expiry does not permit caching through revocation.
+  bool remote_permission = 7;
 }
 message ListTeamsRequest {
   // Exclusive cursor, nonnegative. Results are ordered by team ID, at most 100.

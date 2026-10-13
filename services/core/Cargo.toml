@@ -21,6 +21,8 @@ chrono = { version = "=0.4.45", default-features = false, features = ["std"] }
 hkdf = "=0.12.4"
 hmac = "=0.12.1"
 jsonwebtoken = { version = "=9.3.1", default-features = false }
+# Required S256 primitive, upstream MIT OR Apache-2.0; durable grants are Core-owned.
+oxide-auth = { git = "https://github.com/197g/oxide-auth", rev = "0e3ef86d924aa5546dc3275d1d7269ea63edfaf1" }
 axum = "=0.8.9"
 http-body = "=1.1.0"
 rand = "=0.8.5"

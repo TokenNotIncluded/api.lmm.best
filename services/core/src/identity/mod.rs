@@ -12,6 +12,7 @@ mod credentials;
 pub use company::CompanyBillingProfileInput;
 pub use compat::authorize_model_request_in_transaction;
 pub use compat::{DashboardKeyInput, DashboardKeyQuery, ProfileUpdate};
+pub mod grants;
 mod lifecycle;
 mod oauth;
 pub use auth::{CredentialSummary, LoginRequest};

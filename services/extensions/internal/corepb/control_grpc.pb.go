@@ -19,9 +19,10 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	CoreControl_Capabilities_FullMethodName = "/lmm.core.v1.CoreControl/Capabilities"
-	CoreControl_Authorize_FullMethodName    = "/lmm.core.v1.CoreControl/Authorize"
-	CoreControl_ListTeams_FullMethodName    = "/lmm.core.v1.CoreControl/ListTeams"
+	CoreControl_Capabilities_FullMethodName    = "/lmm.core.v1.CoreControl/Capabilities"
+	CoreControl_Authorize_FullMethodName       = "/lmm.core.v1.CoreControl/Authorize"
+	CoreControl_ListTeams_FullMethodName       = "/lmm.core.v1.CoreControl/ListTeams"
+	CoreControl_AuthorizeRemote_FullMethodName = "/lmm.core.v1.CoreControl/AuthorizeRemote"
 )
 
 // CoreControlClient is the client API for CoreControl service.
@@ -35,6 +36,8 @@ type CoreControlClient interface {
 	Capabilities(ctx context.Context, in *CapabilitiesRequest, opts ...grpc.CallOption) (*CapabilitiesResponse, error)
 	Authorize(ctx context.Context, in *AuthorizeRequest, opts ...grpc.CallOption) (*AuthorizeResponse, error)
 	ListTeams(ctx context.Context, in *ListTeamsRequest, opts ...grpc.CallOption) (*ListTeamsResponse, error)
+	// Purpose-specific remote authority; not general identity or spending.
+	AuthorizeRemote(ctx context.Context, in *AuthorizeRemoteRequest, opts ...grpc.CallOption) (*AuthorizeRemoteResponse, error)
 }
 
 type coreControlClient struct {
@@ -75,6 +78,16 @@ func (c *coreControlClient) ListTeams(ctx context.Context, in *ListTeamsRequest,
 	return out, nil
 }
 
+func (c *coreControlClient) AuthorizeRemote(ctx context.Context, in *AuthorizeRemoteRequest, opts ...grpc.CallOption) (*AuthorizeRemoteResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AuthorizeRemoteResponse)
+	err := c.cc.Invoke(ctx, CoreControl_AuthorizeRemote_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // CoreControlServer is the server API for CoreControl service.
 // All implementations must embed UnimplementedCoreControlServer
 // for forward compatibility.
@@ -86,6 +99,8 @@ type CoreControlServer interface {
 	Capabilities(context.Context, *CapabilitiesRequest) (*CapabilitiesResponse, error)
 	Authorize(context.Context, *AuthorizeRequest) (*AuthorizeResponse, error)
 	ListTeams(context.Context, *ListTeamsRequest) (*ListTeamsResponse, error)
+	// Purpose-specific remote authority; not general identity or spending.
+	AuthorizeRemote(context.Context, *AuthorizeRemoteRequest) (*AuthorizeRemoteResponse, error)
 	mustEmbedUnimplementedCoreControlServer()
 }
 
@@ -104,6 +119,9 @@ func (UnimplementedCoreControlServer) Authorize(context.Context, *AuthorizeReque
 }
 func (UnimplementedCoreControlServer) ListTeams(context.Context, *ListTeamsRequest) (*ListTeamsResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method ListTeams not implemented")
+}
+func (UnimplementedCoreControlServer) AuthorizeRemote(context.Context, *AuthorizeRemoteRequest) (*AuthorizeRemoteResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AuthorizeRemote not implemented")
 }
 func (UnimplementedCoreControlServer) mustEmbedUnimplementedCoreControlServer() {}
 func (UnimplementedCoreControlServer) testEmbeddedByValue()                     {}
@@ -180,6 +198,24 @@ func _CoreControl_ListTeams_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _CoreControl_AuthorizeRemote_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AuthorizeRemoteRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(CoreControlServer).AuthorizeRemote(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: CoreControl_AuthorizeRemote_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(CoreControlServer).AuthorizeRemote(ctx, req.(*AuthorizeRemoteRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // CoreControl_ServiceDesc is the grpc.ServiceDesc for CoreControl service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -198,6 +234,10 @@ var CoreControl_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "ListTeams",
 			Handler:    _CoreControl_ListTeams_Handler,
+		},
+		{
+			MethodName: "AuthorizeRemote",
+			Handler:    _CoreControl_AuthorizeRemote_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
