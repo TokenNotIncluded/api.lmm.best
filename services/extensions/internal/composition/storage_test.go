@@ -15,6 +15,9 @@ func TestStorageURLRejectsUnisolatedConfiguration(t *testing.T) {
 		ok                             bool
 	}{
 		{"valid", "postgres://role:synthetic@127.0.0.1:5432/lmm_store_test?sslmode=disable", "lmm_store_test", "store", 0600, true},
+		{"operations", "postgres://role:synthetic@127.0.0.1:5432/lmm_operations_test?sslmode=disable", "lmm_operations_test", "operations", 0600, true},
+		{"operations core database", "postgres://role@127.0.0.1/core_test", "core_test", "operations", 0600, false},
+		{"operations wrong component", "postgres://role@127.0.0.1/lmm_store_test", "lmm_store_test", "operations", 0600, false},
 		{"wrong database", "postgres://role:synthetic@127.0.0.1/core_test", "lmm_store_test", "store", 0600, false},
 		{"query override", "postgres://role@127.0.0.1/lmm_store_test?dbname=core_test", "lmm_store_test", "store", 0600, false},
 		{"session options", "postgres://role@127.0.0.1/lmm_store_test?options=-csearch_path%3Dcore_identity", "lmm_store_test", "store", 0600, false},

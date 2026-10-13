@@ -21,6 +21,41 @@ func TestConfigArguments(t *testing.T) {
 		t.Fatal(path, err)
 	}
 }
+func TestOperationsTypedConfig(t *testing.T) {
+	base := "version=1\n[host]\ntoken_file='/tmp/host-token'\nmodules=['operations']\nweb_compat=true\n"
+	releases := "[operations]\ndatabase_name='lmm_operations_test'\ndatabase_url_file='/tmp/operations.url'\n"
+	scripts := "[scripts]\nroot='/tmp/reviewed-scripts'\n[[scripts.manifest]]\nname='install.sh'\nsha256='" + strings.Repeat("a", 64) + "'\n"
+	write := func(raw string) string {
+		path := filepath.Join(t.TempDir(), "extensions.toml")
+		if err := os.WriteFile(path, []byte(raw), 0600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	cfg, err := LoadConfig(write(base + releases + scripts))
+	if err != nil || cfg.Operations.DatabaseName != "lmm_operations_test" || len(cfg.Scripts.Manifest) != 1 || cfg.Scripts.Manifest[0].Name != "install.sh" {
+		t.Fatal(cfg, err)
+	}
+	cfg, err = LoadConfig(write(base + "[scripts]\nroot='/tmp/reviewed-scripts'\nmanifest=[]\n"))
+	if err != nil || cfg.Scripts.Manifest == nil {
+		t.Fatal("explicitly reviewed empty catalogue was lost", cfg, err)
+	}
+	for _, raw := range []string{
+		base + "[operations]\ndatabase_name='lmm_operations_test'\n",
+		base + "[operations]\ndatabase_url_file='/tmp/operations.url'\n",
+		base + "[scripts]\nroot='/tmp/reviewed-scripts'\n",
+		base + "[scripts]\nmanifest=[]\n",
+		base + strings.Replace(scripts, "/tmp/reviewed-scripts", "relative", 1),
+		base + strings.Replace(scripts, "sha256=", "SHA256=", 1),
+		base + strings.Replace(releases, "[operations]", "[Operations]", 1),
+		base + scripts + "execute=true\n",
+	} {
+		if _, err := LoadConfig(write(raw)); err == nil {
+			t.Fatalf("accepted invalid operations contract %q", raw)
+		}
+	}
+}
+
 func TestStrictTypedConfig(t *testing.T) {
 	base := "version=1\n[host]\ntoken_file='/tmp/host-token'\nmodules=['none']\nweb_compat=false\n"
 	write := func(raw string) string {

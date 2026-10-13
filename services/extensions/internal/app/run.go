@@ -18,6 +18,7 @@ import (
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/coreclient"
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/legal"
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules"
+	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/operations"
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/webcompat"
 )
 
@@ -50,9 +51,17 @@ func Run() error {
 	if socket != "" {
 		defaults = []string{"identity"}
 	}
-	selected, err := modules.Select(strings.Join(cfg.Host.Modules, ","), defaults, []string{"identity", "store", "support", "assistant"})
+	selected, err := modules.Select(strings.Join(cfg.Host.Modules, ","), defaults, []string{"identity", "store", "support", "assistant", "operations"})
 	if err != nil {
 		return err
+	}
+	var scripts *operations.ScriptConfig
+	if cfg.Scripts.Root != "" || cfg.Scripts.Manifest != nil {
+		manifest := make([]operations.ReviewedScript, len(cfg.Scripts.Manifest))
+		for i, entry := range cfg.Scripts.Manifest {
+			manifest[i] = operations.ReviewedScript{Name: entry.Name, SHA256: entry.SHA256}
+		}
+		scripts = &operations.ScriptConfig{Root: cfg.Scripts.Root, Manifest: manifest}
 	}
 	runtime, err := composition.New(context.Background(), composition.Config{
 		Selected: selected, Socket: socket, TokenFile: tokenFile,
@@ -60,11 +69,22 @@ func Run() error {
 		Store:             composition.StorageConfig{Component: "store", URLFile: cfg.Store.DatabaseURLFile, Database: cfg.Store.DatabaseName},
 		Support:           composition.StorageConfig{Component: "support", URLFile: cfg.Support.DatabaseURLFile, Database: cfg.Support.DatabaseName},
 		Assistant:         composition.StorageConfig{Component: "assistant", URLFile: cfg.Assistant.DatabaseURLFile, Database: cfg.Assistant.DatabaseName}, AssistantCursorKeyFile: cfg.Assistant.CursorKeyFile,
+		Operations: composition.StorageConfig{Component: "operations", URLFile: cfg.Operations.DatabaseURLFile, Database: cfg.Operations.DatabaseName}, Scripts: scripts,
 	})
 	if err != nil {
 		return err
 	}
 	defer runtime.Close()
+	var auth *webcompat.Authenticator
+	if cfg.Host.WebCompat || runtime.Operations != nil {
+		auth, err = webcompat.NewAuthenticator(runtime.Client, credential)
+		if err != nil {
+			return err
+		}
+	}
+	if runtime.Operations != nil {
+		runtime.Modules = append(runtime.Modules, webcompat.NewOperationsModule(auth, runtime.Operations))
+	}
 	host, err := modules.NewHost(runtime.Modules, credential)
 	if err != nil {
 		return err
@@ -75,16 +95,12 @@ func Run() error {
 	}
 	var api http.Handler = host
 	if cfg.Host.WebCompat {
-		if runtime.Store == nil && runtime.AssistantHistory == nil {
+		if runtime.Store == nil && runtime.AssistantHistory == nil && runtime.Operations == nil {
 			return errors.New("Web compatibility requires an assembled Web module")
 		}
-		auth, err := webcompat.NewAuthenticator(runtime.Client, credential)
-		if err != nil {
-			return err
-		}
-		api = webcompat.Mount(host, auth, runtime.Store, runtime.Support, webcompat.AdditionalServices{Assistant: runtime.AssistantHistory})
+		api = webcompat.Mount(host, auth, runtime.Store, runtime.Support, webcompat.AdditionalServices{Assistant: runtime.AssistantHistory, Operations: runtime.Operations})
 	}
-	handler := policies.Mount(api)
+	handler := listenerHandler(policies, api)
 	address := cfg.Host.Listen
 	if address == "" {
 		address = "0.0.0.0:8081"
@@ -133,6 +149,12 @@ func Run() error {
 		}
 		return nil
 	}
+}
+
+// listenerHandler guards the actual listener entry before either the legal or
+// host mux can canonicalize a script path, even without Web compatibility.
+func listenerHandler(policies *legal.Handler, api http.Handler) http.Handler {
+	return webcompat.OperationsGuard(policies.Mount(api))
 }
 
 func readHostCredential(path string) ([]byte, error) {

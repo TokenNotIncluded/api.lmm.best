@@ -16,13 +16,15 @@ import (
 const defaultConfigPath = "/etc/lmm.conf.d/extensions.toml"
 
 type GoConfig struct {
-	Version   int             `toml:"version"`
-	Host      HostConfig      `toml:"host"`
-	Core      CoreConfig      `toml:"core"`
-	Store     DatabaseConfig  `toml:"store"`
-	Support   DatabaseConfig  `toml:"support"`
-	Legal     LegalConfig     `toml:"legal"`
-	Assistant AssistantConfig `toml:"assistant"`
+	Version    int             `toml:"version"`
+	Host       HostConfig      `toml:"host"`
+	Core       CoreConfig      `toml:"core"`
+	Store      DatabaseConfig  `toml:"store"`
+	Support    DatabaseConfig  `toml:"support"`
+	Legal      LegalConfig     `toml:"legal"`
+	Assistant  AssistantConfig `toml:"assistant"`
+	Operations DatabaseConfig  `toml:"operations"`
+	Scripts    ScriptConfig    `toml:"scripts"`
 }
 type HostConfig struct {
 	Listen    string   `toml:"listen"`
@@ -46,6 +48,15 @@ type AssistantConfig struct {
 	DatabaseName    string `toml:"database_name"`
 	DatabaseURLFile string `toml:"database_url_file"`
 	CursorKeyFile   string `toml:"cursor_key_file"`
+}
+
+type ScriptConfig struct {
+	Root     string           `toml:"root"`
+	Manifest []ReviewedScript `toml:"manifest"`
+}
+type ReviewedScript struct {
+	Name   string `toml:"name"`
+	SHA256 string `toml:"sha256"`
 }
 
 func configPath(args []string) (string, error) {
@@ -105,7 +116,10 @@ func LoadConfig(path string) (GoConfig, error) {
 	// names belong to this versioned operator contract.
 	allowed := map[string]bool{"version": true, "host": true, "host.listen": true, "host.token_file": true, "host.modules": true, "host.web_compat": true, "core": true, "core.socket": true, "core.identity_token_file": true, "core.commerce_token_file": true, "store": true, "store.database_name": true, "store.database_url_file": true, "support": true, "support.database_name": true, "support.database_url_file": true, "legal": true, "legal.config_file": true}
 	for _, key := range meta.Keys() {
-		if key.String() == "assistant" || key.String() == "assistant.database_name" || key.String() == "assistant.database_url_file" || key.String() == "assistant.cursor_key_file" {
+		switch key.String() {
+		case "assistant", "assistant.database_name", "assistant.database_url_file", "assistant.cursor_key_file",
+			"operations", "operations.database_name", "operations.database_url_file",
+			"scripts", "scripts.root", "scripts.manifest", "scripts.manifest.name", "scripts.manifest.sha256":
 			continue
 		}
 		if !allowed[key.String()] {
@@ -121,7 +135,7 @@ func LoadConfig(path string) (GoConfig, error) {
 	if _, _, err = net.SplitHostPort(cfg.Host.Listen); err != nil {
 		return cfg, errors.New("invalid extension host listen address")
 	}
-	for _, p := range []string{cfg.Core.Socket, cfg.Core.IdentityTokenFile, cfg.Core.CommerceTokenFile, cfg.Store.DatabaseURLFile, cfg.Support.DatabaseURLFile, cfg.Legal.ConfigFile, cfg.Assistant.DatabaseURLFile, cfg.Assistant.CursorKeyFile} {
+	for _, p := range []string{cfg.Core.Socket, cfg.Core.IdentityTokenFile, cfg.Core.CommerceTokenFile, cfg.Store.DatabaseURLFile, cfg.Support.DatabaseURLFile, cfg.Legal.ConfigFile, cfg.Assistant.DatabaseURLFile, cfg.Assistant.CursorKeyFile, cfg.Operations.DatabaseURLFile, cfg.Scripts.Root} {
 		if p != "" && !absolutePath(p) {
 			return cfg, errors.New("extension TOML file and socket paths must be absolute")
 		}
@@ -129,9 +143,14 @@ func LoadConfig(path string) (GoConfig, error) {
 	if (cfg.Core.Socket == "") != (cfg.Core.IdentityTokenFile == "") {
 		return cfg, errors.New("configure both core socket and identity_token_file")
 	}
-	for _, db := range []DatabaseConfig{cfg.Store, cfg.Support} {
+	for _, db := range []DatabaseConfig{cfg.Store, cfg.Support, cfg.Operations} {
 		if (db.DatabaseName == "") != (db.DatabaseURLFile == "") {
 			return cfg, errors.New("configure both extension database_name and database_url_file")
+		}
+	}
+	if cfg.Scripts.Root != "" || cfg.Scripts.Manifest != nil {
+		if cfg.Scripts.Root == "" || cfg.Scripts.Manifest == nil {
+			return cfg, errors.New("configure both scripts root and an explicit reviewed manifest")
 		}
 	}
 	return cfg, nil

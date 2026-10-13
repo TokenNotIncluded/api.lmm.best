@@ -14,7 +14,7 @@ import (
 	_ "github.com/lib/pq"
 )
 
-var databaseName = regexp.MustCompile(`^lmm_(store|support|assistant|payments)(_[a-z0-9]+)*$`)
+var databaseName = regexp.MustCompile(`^lmm_(store|support|assistant|payments|operations)(_[a-z0-9]+)*$`)
 
 // StorageConfig names an independently provisioned extension database. Schema
 // installation is explicit; startup never creates or migrates tables.
@@ -25,7 +25,7 @@ type StorageConfig struct {
 }
 
 func (c StorageConfig) validate() error {
-	if (c.Component != "store" && c.Component != "support" && c.Component != "assistant" && c.Component != "payments") || c.URLFile == "" ||
+	if (c.Component != "store" && c.Component != "support" && c.Component != "assistant" && c.Component != "payments" && c.Component != "operations") || c.URLFile == "" ||
 		!databaseName.MatchString(c.Database) || !strings.HasPrefix(c.Database, "lmm_"+c.Component) {
 		return errors.New("invalid dedicated extension storage configuration")
 	}

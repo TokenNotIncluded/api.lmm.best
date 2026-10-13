@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules"
+	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/operations"
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/store"
 )
 
@@ -15,13 +16,16 @@ import (
 type AdditionalServices struct {
 	Assistant  AssistantHistory
 	ToolMarket ToolMarketService
+	Operations *operations.Service
 }
 
 func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, support SupportService, optional ...AdditionalServices) http.Handler {
 	mux := http.NewServeMux()
 	RegisterStore(mux, auth, catalogue)
 	RegisterSupport(mux, auth, support)
+	var operationsService *operations.Service
 	if len(optional) == 1 {
+		operationsService = optional[0].Operations
 		if !store.Missing(optional[0].Assistant) {
 			RegisterAssistant(mux, auth, optional[0].Assistant)
 		}
@@ -29,6 +33,7 @@ func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, supp
 			RegisterToolMarket(mux, auth, optional[0].ToolMarket)
 		}
 	}
+	RegisterOperations(mux, auth, operationsService)
 	// Unassembled old routes are explicit failures, never a successful empty DTO.
 	mux.HandleFunc("/api/store/", func(w http.ResponseWriter, r *http.Request) {
 		if _, err := auth.Verify(r.Context(), r); err != nil {
@@ -37,8 +42,10 @@ func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, supp
 		}
 		Respond(w, nil, store.ErrUnavailable)
 	})
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasPrefix(r.URL.Path, "/api/store/") && !strings.HasPrefix(r.URL.Path, "/api/assistant/") && !strings.HasPrefix(r.URL.Path, "/api/tool-market/") && !strings.HasPrefix(r.URL.Path, "/api/user/auth/store-claim/") {
+	return OperationsGuard(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !strings.HasPrefix(r.URL.Path, "/api/store/") && !strings.HasPrefix(r.URL.Path, "/api/assistant/") && !strings.HasPrefix(r.URL.Path, "/api/tool-market/") && !strings.HasPrefix(r.URL.Path, "/api/user/auth/store-claim/") &&
+			!strings.HasPrefix(r.URL.Path, "/api/release-notes/") && r.URL.Path != "/api/scripts" &&
+			!strings.HasPrefix(r.URL.Path, "/api/scripts/") && !strings.HasPrefix(r.URL.Path, "/scripts/") {
 			host.ServeHTTP(w, r)
 			return
 		}
@@ -50,5 +57,5 @@ func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, supp
 		}
 		defer release()
 		mux.ServeHTTP(w, r)
-	})
+	}))
 }

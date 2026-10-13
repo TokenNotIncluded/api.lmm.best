@@ -11,6 +11,7 @@ import (
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/assistant"
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/assistant/access"
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/identity"
+	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/operations"
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/store"
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/store/rustauth"
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/store/rustfunds"
@@ -26,6 +27,8 @@ type Config struct {
 	Support                StorageConfig
 	Assistant              StorageConfig
 	AssistantCursorKeyFile string
+	Operations             StorageConfig
+	Scripts                *operations.ScriptConfig
 }
 
 type Runtime struct {
@@ -36,6 +39,7 @@ type Runtime struct {
 	Support          *support.Service
 	Assistant        *assistant.Service
 	AssistantHistory *assistant.HistoryService
+	Operations       *operations.Service
 	close            []func() error
 	workerCancel     context.CancelFunc
 	workerDone       chan struct{}
@@ -97,6 +101,9 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 		}
 	}()
 	if len(cfg.Selected) == 0 {
+		if cfg.Operations.URLFile != "" || cfg.Operations.Database != "" || cfg.Scripts != nil {
+			return nil, errors.New("operations configuration requires explicit module selection")
+		}
 		return r, nil
 	}
 	if cfg.Socket == "" || cfg.TokenFile == "" {
@@ -207,6 +214,26 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 			return nil, err
 		}
 	}
+	if selected["operations"] {
+		config := operations.Config{Scripts: cfg.Scripts}
+		if cfg.Operations.URLFile != "" || cfg.Operations.Database != "" {
+			dsn, err := storageURL(cfg.Operations)
+			if err != nil {
+				return nil, err
+			}
+			config.Releases = &operations.DatabaseConfig{DSN: dsn}
+		}
+		if config.Releases == nil && config.Scripts == nil {
+			return nil, errors.New("operations requires configured releases or reviewed scripts")
+		}
+		r.Operations, err = operations.New(ctx, config)
+		if err != nil {
+			return nil, err
+		}
+		r.close = append(r.close, r.Operations.Close)
+	} else if cfg.Operations.URLFile != "" || cfg.Operations.Database != "" || cfg.Scripts != nil {
+		return nil, errors.New("operations configuration requires explicit module selection")
+	}
 	for _, name := range cfg.Selected {
 		switch name {
 		case "identity":
@@ -217,6 +244,9 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 			r.Modules = append(r.Modules, r.Support)
 		case "assistant":
 			r.Modules = append(r.Modules, r.Assistant)
+		case "operations":
+			// The process entry mounts its authenticated adapter with the
+			// separately loaded host credential before constructing the host.
 		default:
 			return nil, errors.New("unsupported composed extension module")
 		}
