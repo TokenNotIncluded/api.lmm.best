@@ -51,6 +51,32 @@ initialize or upgrade a database. Keep installation-owner and runtime credential
 separate. Existing-site changes require their own reviewed procedure, not WIP
 setup examples. Never register production accounts for tests or rewards.
 
+## Track local writes with agcc
+
+Before editing source or docs, building, testing, installing dependencies or
+creating artifacts, load the user-level `agentgc` skill (`agcc skill` prints the
+bundled instructions). Inspect `agcc --version` and `agcc --json sessions` first.
+Wrap writing commands with `agcc run --agent NAME --root PATH -- COMMAND`.
+For direct file-tool edits, start `agcc watch --control UNIQUE --root PATH`,
+read its `ready.json` after baseline completion and confirm the session is running
+before writing. Reuse only verified live coverage; a PID or environment variable
+alone is not proof. Roots are directories; use bounded task scope, not a home scan.
+
+Parallel agents must each confirm coverage of their worktree and output roots;
+do not stop another task's watcher. Record unavailable tools, missed directories,
+expiry, polling gaps and `database is locked` failures. Inspect before retrying;
+when concurrent indexes conflict, use a dedicated local `--home` consistently.
+A later scan is a snapshot, not reconstructed edit history or writer attribution.
+Never commit or transmit private indexes, credentials or session metadata.
+
+At task completion, stop only your controlled watcher with `watch-stop` and wait
+for its final scan. Inspect session changes and pressure on the changed output
+and cache roots: preserve deliverables as `keep`, classify understood scratch as
+`temporary`, and leave uncertain files as `review`. Thresholds and these labels
+are not disposal permission. Do not manufacture completion with `end-session`,
+remove active build caches, or bypass quarantine protections. Cleanup still needs
+its authorized scope, reference checks and the existing backup/recovery rules.
+
 ## Check and finish
 
 Separate development from independent acceptance: different agents/persons own
