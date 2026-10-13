@@ -2,10 +2,12 @@
 package webcompat
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -224,6 +226,141 @@ func TestOperationsHTTPRealPostgresRestartAndUserIsolation(t *testing.T) {
 		w = operationsRequest(mux, "GET", "/api/release-notes/admin?limit=50", "", webToken)
 		if w.Code != 200 || !strings.Contains(w.Body.String(), `"published_by":701`) {
 			t.Fatal(w.Body.String())
+		}
+	}
+}
+
+func TestOperationsActualHTTPCanonicalScriptURLsAndNoFilesystemMutation(t *testing.T) {
+	root := t.TempDir()
+	data := []byte("#!/bin/sh\r\nprintf '<reviewed>'\n")
+	file := filepath.Join(root, "install.sh")
+	if err := os.WriteFile(file, data, 0600); err != nil {
+		t.Fatal(err)
+	}
+	before, err := os.Stat(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	hash := sha256.Sum256(data)
+	scripts, err := operations.LoadScripts(operations.ScriptConfig{Root: root, Manifest: []operations.ReviewedScript{{Name: "install.sh", SHA256: hex.EncodeToString(hash[:])}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	core := &authCore{}
+	auth := newAuth(t, core)
+	service := &operations.Service{Scripts: scripts}
+	mux := http.NewServeMux()
+	RegisterOperations(mux, auth, service)
+	module := NewOperationsModule(auth, service)
+	host, err := modules.New([]modules.Module{module}, []byte(hostToken))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range []struct {
+		name          string
+		handler       http.Handler
+		prefix, token string
+	}{
+		{"registered-guarded-web", OperationsGuard(mux), "", ""},
+		{"module-own-mux-guard", module.Handler(), "", ""},
+		{"shared-host-outer-guard", OperationsGuard(host), "/extensions/v1/operations", hostToken},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(tc.handler)
+			defer server.Close()
+			client := server.Client()
+			client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+			request := func(p string) (int, http.Header, []byte) {
+				t.Helper()
+				req, err := http.NewRequest("GET", server.URL+tc.prefix+p, nil)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if tc.token != "" {
+					req.Header.Set("Authorization", "Bearer "+tc.token)
+				}
+				response, err := client.Do(req)
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer response.Body.Close()
+				body, err := io.ReadAll(response.Body)
+				if err != nil {
+					t.Fatal(err)
+				}
+				return response.StatusCode, response.Header, body
+			}
+			for _, p := range []string{"/scripts/install.sh", "/api/scripts/install.sh/raw"} {
+				code, header, body := request(p)
+				if code != 200 || !bytes.Equal(body, data) || header.Get("Content-Type") != "text/plain; charset=utf-8" || header.Get("Cache-Control") != "no-store" {
+					t.Fatalf("canonical %s: %d %q", p, code, body)
+				}
+			}
+			for _, p := range []string{
+				"/scripts/install%2esh", "/scripts/install%2Esh", "/scripts/%69nstall.sh", "/scripts/i%6estall.sh", "/scripts/i%6Estall.sh",
+				"/api/scripts/install%2esh/raw", "/api/scripts/install%2Esh/raw", "/api/scripts/%69nstall.sh/raw",
+				"/scripts/%2finstall.sh", "/scripts/%2Finstall.sh", "/scripts/a%5cinstall.sh", "/scripts/a%5Cinstall.sh",
+				"/api/scripts/install.sh%2f/raw", "/api/scripts/install.sh%2F/raw", "/scripts/%2e%2e/install.sh", "/scripts/%2E%2E/install.sh",
+				"/scripts//install.sh", "/scripts/./install.sh", "/scripts/../scripts/install.sh", "/outside/../scripts/install.sh", "/api//scripts/install.sh/raw",
+				"/scripts/install.sh/", "/scripts", "/scr%69pts/install.sh", "/api/%73cripts/install.sh/raw", "/scripts/install%252Esh",
+			} {
+				code, header, body := request(p)
+				if code != 422 || header.Get("Location") != "" || header.Get("Cache-Control") != "no-store" || !bytes.Contains(body, []byte(`"success":false`)) {
+					t.Fatalf("noncanonical %s: %d location=%q body=%q", p, code, header.Get("Location"), body)
+				}
+			}
+		})
+	}
+	// Registered raw handlers reject percent-decoded aliases even without the
+	// outer guard. Dot/double-slash redirects still require that outer wrapper.
+	server := httptest.NewServer(mux)
+	for _, p := range []string{"/scripts/install%2esh", "/scripts/install%2Esh", "/scripts/%69nstall.sh", "/api/scripts/install%2esh/raw", "/api/scripts/install%2Esh/raw"} {
+		response, err := server.Client().Get(server.URL + p)
+		if err != nil {
+			server.Close()
+			t.Fatal(err)
+		}
+		response.Body.Close()
+		if response.StatusCode != 422 {
+			server.Close()
+			t.Fatalf("direct registered alias %s: %d", p, response.StatusCode)
+		}
+	}
+	server.Close()
+	if core.calls != 0 {
+		t.Fatal("canonical public serving unexpectedly contacted Core")
+	}
+	after, err := os.Stat(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	unchanged, err := os.ReadFile(file)
+	if err != nil {
+		t.Fatal(err)
+	}
+	entries, err := os.ReadDir(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !os.SameFile(before, after) || before.Mode() != after.Mode() || before.Size() != after.Size() || !before.ModTime().Equal(after.ModTime()) || !bytes.Equal(unchanged, data) || len(entries) != 1 {
+		t.Fatal("HTTP serving mutated source filesystem")
+	}
+}
+
+func TestOperationsGuardPrecedesOuterMuxAndDoesNotBroadenRouting(t *testing.T) {
+	calls := 0
+	guard := OperationsGuard(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { calls++; w.WriteHeader(204) }))
+	for _, p := range []string{"/scripts//install.sh", "/outside/../scripts/install.sh", "/extensions/v1/operations//scripts/install.sh", "/extensions/v1/operat%69ons/scripts/install.sh", "/extensions//v1/operations/scripts/install.sh"} {
+		w := operationsRequest(guard, "GET", p, "", "")
+		if w.Code != 422 || calls != 0 || w.Header().Get("Location") != "" {
+			t.Fatalf("outer guard forwarded/redirected %s: %d calls=%d", p, w.Code, calls)
+		}
+	}
+	for _, p := range []string{"/api/release-notes/latest", "/health/ready", "/extensions/v1/assistant/foo", "/unrelated/%69tem"} {
+		before := calls
+		w := operationsRequest(guard, "GET", p, "", "")
+		if w.Code != 204 || calls != before+1 {
+			t.Fatalf("guard changed unrelated route %s", p)
 		}
 	}
 }

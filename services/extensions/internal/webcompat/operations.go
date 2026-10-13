@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"path"
 	"strconv"
 	"strings"
 	"unicode/utf8"
@@ -18,7 +19,9 @@ import (
 )
 
 // RegisterOperations installs only the content routes. The parent must supply
-// admission/drain, proxy routing and the existing live Core Authenticator.
+// admission/drain, proxy routing and the existing live Core Authenticator, and
+// wrap the actual outer admission handler with OperationsGuard BEFORE any mux.
+// A registered handler cannot prevent ServeMux's pre-dispatch path redirects.
 func RegisterOperations(mux *http.ServeMux, auth *Authenticator, s *operations.Service) {
 	protected := func(admin bool, fn func(http.ResponseWriter, *http.Request, int64)) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -105,6 +108,12 @@ func RegisterOperations(mux *http.ServeMux, auth *Authenticator, s *operations.S
 	}))
 	public := func(fn http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
+			// Also reject decoded aliases when these handlers are registered on
+			// a mux directly. Pre-dispatch redirects require the outer guard.
+			if !operationsCanonicalScriptURL(r) {
+				operationsRespond(w, nil, operations.ErrInvalid)
+				return
+			}
 			for key := range r.Header {
 				if strings.EqualFold(key, "Authorization") {
 					if _, err := auth.Verify(r.Context(), r); err != nil {
@@ -159,10 +168,12 @@ func RegisterOperations(mux *http.ServeMux, auth *Authenticator, s *operations.S
 // NewOperationsModule can be registered with modules.New. Its relative routes
 // are /api/release-notes/*, /api/scripts/* and /scripts/* under the module prefix.
 // Host credentials grant admission only; X-LMM-User-Credential is verified by Core.
+// The module guards its own mux. Parent must also wrap the outer shared host with
+// OperationsGuard so that shared ServeMux redirects cannot precede rejection.
 func NewOperationsModule(auth *Authenticator, s *operations.Service) modules.Module {
 	mux := http.NewServeMux()
 	RegisterOperations(mux, auth, s)
-	return &operationsModule{http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	return &operationsModule{OperationsGuard(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		r = r.Clone(r.Context())
 		values := r.Header.Values("X-LMM-User-Credential")
 		r.Header.Del("Authorization")
@@ -173,7 +184,52 @@ func NewOperationsModule(auth *Authenticator, s *operations.Service) modules.Mod
 			}
 		}
 		mux.ServeHTTP(w, r)
-	})}
+	}))}
+}
+
+// OperationsGuard must wrap the parent's outer Web/extension admission handler,
+// before any shared ServeMux. Only script namespaces (including the operations
+// module prefix and paths which normalize into those namespaces) are guarded.
+// Canonical script basenames need no URL escapes. Reject aliases and traversal
+// rather than redirecting them to a reviewed file; leave unrelated routes alone.
+func OperationsGuard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !operationsCanonicalScriptURL(r) {
+			operationsRespond(w, nil, operations.ErrInvalid)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+func operationsScriptPath(p string) (string, bool) {
+	const prefix = "/extensions/v1/operations"
+	if strings.HasPrefix(p, prefix+"/") {
+		p = strings.TrimPrefix(p, prefix)
+	}
+	return p, p == "/api/scripts" || strings.HasPrefix(p, "/api/scripts/") || p == "/scripts" || strings.HasPrefix(p, "/scripts/")
+}
+func operationsCanonicalScriptURL(r *http.Request) bool {
+	p, relevant := operationsScriptPath(r.URL.Path)
+	_, cleanRelevant := operationsScriptPath(path.Clean(r.URL.Path))
+	if !relevant && !cleanRelevant {
+		return true
+	}
+	if !relevant || r.URL.EscapedPath() != r.URL.Path || path.Clean(r.URL.Path) != r.URL.Path {
+		return false
+	}
+	switch p {
+	case "/api/scripts", "/api/scripts/repository", "/api/scripts/repository/pull":
+		return true
+	}
+	if name, ok := strings.CutPrefix(p, "/scripts/"); ok {
+		return operations.ValidScriptName(name)
+	}
+	if name, ok := strings.CutPrefix(p, "/api/scripts/"); ok {
+		name, ok = strings.CutSuffix(name, "/raw")
+		return ok && operations.ValidScriptName(name)
+	}
+	return false
 }
 
 type operationsModule struct{ handler http.Handler }

@@ -15,8 +15,9 @@ import (
 // Run against a fresh private database. Never point these variables at a site.
 func TestPostgresRestrictedRuntimePersistenceConcurrency(t *testing.T) {
 	ownerDSN, runtimeDSN := os.Getenv("OPERATIONS_TEST_OWNER_DSN"), os.Getenv("OPERATIONS_TEST_RUNTIME_DSN")
-	if ownerDSN == "" || runtimeDSN == "" {
-		t.Skip("private PostgreSQL DSNs not configured")
+	adminDSN := os.Getenv("OPERATIONS_TEST_ADMIN_DSN")
+	if ownerDSN == "" || runtimeDSN == "" || adminDSN == "" {
+		t.Skip("private PostgreSQL owner/runtime/fixture-admin DSNs not configured")
 	}
 	ctx := context.Background()
 	owner, err := sql.Open("postgres", ownerDSN)
@@ -29,6 +30,12 @@ func TestPostgresRestrictedRuntimePersistenceConcurrency(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer raw.Close()
+	admin, err := sql.Open("postgres", adminDSN)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer admin.Close()
+	testPostgresInitializeIsolation(t, ctx, owner, admin)
 	if Check(ctx, raw) == nil {
 		t.Fatal("uninitialized database accepted")
 	}
@@ -210,6 +217,7 @@ func TestPostgresRestrictedRuntimePersistenceConcurrency(t *testing.T) {
 	if _, err = owner.ExecContext(ctx, "DROP SCHEMA lmm_core"); err != nil {
 		t.Fatal(err)
 	}
+	testPostgresInstalledIntegrity(t, ctx, owner, admin, raw, runtimeDSN, s)
 	if _, err = s.Publish(ctx, 501, "capacity", strings.Repeat("x", MaxContent)); err != nil {
 		t.Fatal(err)
 	}

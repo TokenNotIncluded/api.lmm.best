@@ -8,7 +8,7 @@ CREATE TABLE lmm_operations.publications (
  version text NOT NULL CHECK (octet_length(version) BETWEEN 1 AND 64 AND version ~ '^[A-Za-z0-9][A-Za-z0-9._+-]*$'),
  revision integer NOT NULL CHECK (revision BETWEEN 1 AND 10000),
  content text NOT NULL CHECK (octet_length(content) BETWEEN 1 AND 32768),
- published_at bigint NOT NULL CHECK (published_at>0),
+ published_at bigint NOT NULL CHECK (published_at BETWEEN 1 AND 8640000000000),
  published_by bigint NOT NULL CHECK (published_by BETWEEN 1 AND 9007199254740991),
  UNIQUE(version,revision), UNIQUE(id,revision)
 );

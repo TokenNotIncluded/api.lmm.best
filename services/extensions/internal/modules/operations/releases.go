@@ -21,6 +21,10 @@ var (
 )
 
 const MaxID int64 = 9007199254740991
+
+// MaxPublishedAt is the maximum epoch seconds whose milliseconds fit both the
+// exact JavaScript integer range and Date's inclusive 8.64e15 ms limit.
+const MaxPublishedAt int64 = 8640000000000
 const MaxPublications = 10000
 const MaxContent = 32768
 
@@ -48,8 +52,13 @@ type scanner interface{ Scan(...any) error }
 
 func scanNote(row scanner) (*ReleaseNote, error) {
 	n := new(ReleaseNote)
-	err := row.Scan(&n.ID, &n.Version, &n.Revision, &n.Content, &n.PublishedAt, &n.PublishedBy)
-	return n, err
+	if err := row.Scan(&n.ID, &n.Version, &n.Revision, &n.Content, &n.PublishedAt, &n.PublishedBy); err != nil {
+		return nil, err
+	}
+	if n.PublishedAt <= 0 || n.PublishedAt > MaxPublishedAt {
+		return nil, ErrUnavailable
+	}
+	return n, nil
 }
 func (s *Releases) Latest(ctx context.Context, user int64) (*ReleaseNote, error) {
 	if !validID(user) {

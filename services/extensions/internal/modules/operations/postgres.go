@@ -37,10 +37,15 @@ func Open(ctx context.Context, c DatabaseConfig) (*Releases, error) {
 }
 func (s *Releases) Close() error { return s.db.Close() }
 
-// Catalog fingerprint covers columns, constraints, indexes, sequence bounds and
-// schema objects. Runtime cannot write the owner-installed contract row.
+// Catalog fingerprint covers the installed schema, including ownership, ACLs,
+// RLS flags/policies, columns, constraints, indexes and sequence bounds. Runtime
+// cannot write the owner-installed contract row.
 const fingerprintSQL = `SELECT md5(string_agg(item,E'\n' ORDER BY item)) FROM (
- SELECT 'relation:'||c.relname||':'||c.relkind::text AS item FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='lmm_operations'
+ SELECT 'relation:'||c.relname||':'||c.relkind::text||':'||c.relowner||':'||c.relrowsecurity||':'||c.relforcerowsecurity AS item FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='lmm_operations'
+ UNION ALL SELECT 'schema:'||n.nspowner FROM pg_namespace n WHERE n.nspname='lmm_operations'
+ UNION ALL SELECT 'schema-acl:'||a.grantor||':'||a.grantee||':'||a.privilege_type||':'||a.is_grantable FROM pg_namespace n CROSS JOIN LATERAL aclexplode(coalesce(n.nspacl,acldefault('n',n.nspowner))) a WHERE n.nspname='lmm_operations'
+ UNION ALL SELECT 'relation-acl:'||c.relname||':'||a.grantor||':'||a.grantee||':'||a.privilege_type||':'||a.is_grantable FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace CROSS JOIN LATERAL aclexplode(coalesce(c.relacl,acldefault(CASE WHEN c.relkind='S' THEN 'S'::"char" ELSE 'r'::"char" END,c.relowner))) a WHERE n.nspname='lmm_operations'
+ UNION ALL SELECT 'policy:'||c.relname||':'||p.polname||':'||p.polcmd::text||':'||p.polpermissive||':'||p.polroles::text||':'||coalesce(pg_get_expr(p.polqual,p.polrelid),'')||':'||coalesce(pg_get_expr(p.polwithcheck,p.polrelid),'') FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='lmm_operations'
  UNION ALL SELECT 'column:'||c.relname||':'||a.attnum||':'||a.attname||':'||format_type(a.atttypid,a.atttypmod)||':'||a.attnotnull||':'||coalesce(pg_get_expr(d.adbin,d.adrelid),'') FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum WHERE n.nspname='lmm_operations' AND a.attnum>0 AND NOT a.attisdropped
  UNION ALL SELECT 'constraint:'||c.relname||':'||pg_get_constraintdef(k.oid) FROM pg_constraint k JOIN pg_class c ON c.oid=k.conrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='lmm_operations'
  UNION ALL SELECT 'index:'||indexdef FROM pg_indexes WHERE schemaname='lmm_operations'
@@ -50,7 +55,7 @@ const fingerprintSQL = `SELECT md5(string_agg(item,E'\n' ORDER BY item)) FROM (
 ) objects`
 
 const isolatedSQL = `SELECT NOT EXISTS (
- SELECT 1 FROM pg_namespace WHERE nspname NOT IN ('public','lmm_operations','information_schema') AND nspname NOT LIKE 'pg_%'
+ SELECT 1 FROM pg_namespace WHERE nspname NOT IN ('public','lmm_operations','information_schema') AND left(nspname,3)<>'pg_'
 ) AND NOT EXISTS (
  SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='public'
 ) AND NOT EXISTS (
@@ -88,13 +93,6 @@ func Initialize(ctx context.Context, owner *sql.DB, runtimeRole string) error {
 	if _, err = tx.ExecContext(ctx, schema); err != nil {
 		return err
 	}
-	var fingerprint string
-	if err = tx.QueryRowContext(ctx, fingerprintSQL).Scan(&fingerprint); err != nil {
-		return err
-	}
-	if _, err = tx.ExecContext(ctx, "UPDATE lmm_operations.contract SET fingerprint=$1", fingerprint); err != nil {
-		return err
-	}
 	var database string
 	if err = tx.QueryRowContext(ctx, "SELECT current_database()").Scan(&database); err != nil {
 		return err
@@ -107,6 +105,22 @@ func Initialize(ctx context.Context, owner *sql.DB, runtimeRole string) error {
  GRANT SELECT,INSERT ON lmm_operations.publications,lmm_operations.reads TO ` + role + `;
  GRANT USAGE,SELECT ON SEQUENCE lmm_operations.publication_id TO ` + role + `;`
 	if _, err = tx.ExecContext(ctx, grants); err != nil {
+		return err
+	}
+	// Names do not exempt CREATE authority, including actual PostgreSQL system
+	// schemas. Reject explicit pre-existing runtime grants rather than preserving
+	// DDL authority after an otherwise successful installation.
+	if err = tx.QueryRowContext(ctx, `SELECT NOT EXISTS(SELECT 1 FROM pg_namespace WHERE has_schema_privilege($1,oid,'CREATE'))`, runtimeRole).Scan(&safe); err != nil {
+		return err
+	}
+	if !safe {
+		return fmt.Errorf("operations runtime must not have CREATE on any schema")
+	}
+	var fingerprint string
+	if err = tx.QueryRowContext(ctx, fingerprintSQL).Scan(&fingerprint); err != nil {
+		return err
+	}
+	if _, err = tx.ExecContext(ctx, "UPDATE lmm_operations.contract SET fingerprint=$1", fingerprint); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -125,7 +139,9 @@ func Check(ctx context.Context, runtime *sql.DB) error {
  AND NOT EXISTS(SELECT 1 FROM pg_auth_members WHERE member=(SELECT oid FROM pg_roles WHERE rolname=current_user))
  AND NOT has_database_privilege(current_database(),'CREATE') AND NOT has_database_privilege(current_database(),'TEMP')
  AND NOT has_schema_privilege('public','CREATE') AND NOT has_schema_privilege('lmm_operations','CREATE') AND has_schema_privilege('lmm_operations','USAGE')
- AND NOT EXISTS(SELECT 1 FROM pg_namespace WHERE nspname NOT LIKE 'pg_%' AND nspname NOT IN ('lmm_operations','information_schema') AND has_schema_privilege(oid,'CREATE'))`).Scan(&safe)
+ AND NOT EXISTS(SELECT 1 FROM pg_namespace WHERE has_schema_privilege(oid,'CREATE'))
+ AND NOT EXISTS(SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='lmm_operations' AND (c.relrowsecurity OR c.relforcerowsecurity))
+ AND NOT EXISTS(SELECT 1 FROM pg_policy p JOIN pg_class c ON c.oid=p.polrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='lmm_operations')`).Scan(&safe)
 	if err != nil || !safe {
 		return ErrUnavailable
 	}

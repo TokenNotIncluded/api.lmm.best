@@ -16,11 +16,18 @@ remain unsupported (HTTP 501 after fresh administrator authorization).
   the exact Web routes: `/api/release-notes/latest`, `/api/release-notes/{id}/read`,
   `/api/release-notes/admin`, `/api/scripts`, `/api/scripts/{name}/raw`,
   `/scripts/{name}` and the explicitly unsupported repository routes.
+  **Wrap the actual outer Web admission handler in
+  `webcompat.OperationsGuard(handler)` before any shared ServeMux.** Registration
+  alone cannot reject dot/double-slash traversal before ServeMux redirects.
 - `webcompat.NewOperationsModule(existingAuthenticator, service)` implements
   `modules.Module` for explicit host registration. Its relative paths retain the
   `/api/...` and `/scripts/...` spelling, e.g.
   `/extensions/v1/operations/api/release-notes/latest`. Host admission is not user
-  authority: the separate `X-LMM-User-Credential` is verified by Core.
+  authority: the separate `X-LMM-User-Credential` is verified by Core. The module
+  guards its own mux; also wrap the outer shared module host/admission handler
+  with `OperationsGuard` so no earlier shared mux can redirect script aliases.
+  The guard accepts public and module-prefixed script paths, rejects escaped
+  aliases (including `%2e`, `%2E`, `%69`) and leaves unrelated routes unchanged.
 - The parent owns shared selection, admission/draining, configuration, offline
   installer dispatch, proxy routing (including `/scripts/*`) and capability
   advertisement. `Service.Availability()` reports assembled components, not
@@ -45,6 +52,13 @@ The helper revokes PUBLIC database/schema rights and grants runtime only:
 No runtime DDL, database CREATE/TEMP, schema CREATE, table UPDATE/DELETE/TRUNCATE,
 column grants or grant options are accepted. `Check(ctx, runtimePool)` verifies
 isolation, effective privileges and an owner-installed catalog fingerprint.
+Isolation excludes only the literal `pg_` system prefix, not lookalikes such as
+`pgx_core`. Both initialization and checks reject runtime CREATE on **every**
+schema, including `information_schema` and actual PostgreSQL schemas. The
+post-grants fingerprint includes relation/schema ownership and ACLs as well as
+RLS flags and policy definitions; any RLS flag or policy in this schema is
+explicitly rejected. These are installation/startup checks, not continuous drift
+monitoring of an already-open pool.
 `Open` calls this check before returning a dedicated pool. There are no Core or
 other-extension foreign keys/queries. Preserve installation credentials outside
 runtime configuration; no runtime connection should use the installation owner.
@@ -56,7 +70,11 @@ content appends a revision. Replaying the latest content of that version returns
 the original publication and original publisher, including concurrent retries by
 different administrators. Returning to older content after a change appends a new
 revision. A transaction-scoped PostgreSQL lock serializes publication/cap checks
-across processes. IDs are stable, positive JavaScript-safe integers.
+across processes. IDs are stable, positive JavaScript-safe integers. Publication
+epoch seconds must satisfy `0 < published_at <= 8640000000000`, matching both the
+exact JavaScript integer range and Date's inclusive `8.64e15` millisecond limit.
+The database constraint and row scanner enforce the same bounds; invalid stored
+values fail as unavailable, never get clamped or marshalled into a success DTO.
 
 Latest means the greatest unread publication ID for the verified session user.
 Acknowledgements store `(user_id, note_id, revision)` durably and idempotently;
@@ -78,7 +96,8 @@ retention deletion or financial action is part of this module.
 
 Configure a non-symlink root and an explicit `[]ReviewedScript` manifest containing
 basename and lowercase SHA-256 for every reviewed file. Names are bounded ASCII
-basenames ending in `.sh`, `.zsh` or `.ps1`; traversal, directories and symlinks
+basenames ending in `.sh`, `.zsh` or `.ps1`; URLs must use these exact unescaped
+basenames on canonical routes. Traversal, directories and symlinks
 (including configured root ancestors) are rejected. A nil manifest is unconfigured;
 a non-nil empty manifest is an explicitly reviewed empty catalogue and still
 requires a real accessible root. Missing files, mismatching hashes and unavailable
@@ -95,11 +114,16 @@ with a reviewed manifest; there is no automatic network or filesystem reload.
 ## Local self-tests
 
 Ordinary package tests cover real temporary files and HTTP/authentication rejection.
-The persistent tests additionally need `OPERATIONS_TEST_OWNER_DSN` and
-`OPERATIONS_TEST_RUNTIME_DSN` pointing to a **fresh private test database**, with
-runtime login named `operations_runtime`. The domain test explicitly initializes
-and exercises privileged test-only schema/grant drift using the owner; handlers
-use only runtime. Run the operations package first, restart the private PostgreSQL
+The persistent tests additionally need `OPERATIONS_TEST_OWNER_DSN`,
+`OPERATIONS_TEST_RUNTIME_DSN` and `OPERATIONS_TEST_ADMIN_DSN` pointing to a
+**fresh private test database**, with runtime login named `operations_runtime`
+and an additional restricted `operations_observer` role. The fixture-admin DSN
+is a private-cluster superuser used only to introduce/revoke deliberately excessive
+CREATE on actual PostgreSQL schemas and test relation ownership drift; neither
+installation owner nor runtime is elevated. The domain test explicitly initializes
+and exercises test-only schema/grant/RLS/timestamp drift; handlers use only runtime.
+HTTP canonical/escaped-path rejection tests use actual temporary-file bytes and
+local HTTP servers and verify source files are unchanged. Run the operations package first, restart the private PostgreSQL
 server, then run webcompat to verify actual persisted data after server restart.
 Without these variables, database tests are skipped, not accepted as persistence
 verification. Rust RPC identity is a boundary test double; a real Core session and
