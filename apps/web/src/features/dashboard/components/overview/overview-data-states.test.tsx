@@ -46,6 +46,7 @@ const { AdminSiteStatisticsPanel } = await import('./admin-site-statistics')
 const { DEFAULT_CURRENCY_CONFIG, useSystemConfigStore } =
   await import('@/stores/system-config-store')
 const { PerformanceHealthPanel } = await import('./performance-health-panel')
+const { UptimePanel } = await import('./uptime-panel')
 const { PanelWrapper } = await import('../ui/panel-wrapper')
 const originalGet = api.get
 const originalPut = api.put
@@ -138,6 +139,79 @@ test('performance distinguishes failed responses from empty results and retries'
   assert.equal(container.querySelector('.animate-pulse'), null)
   await act(async () => button(container, 'Refresh').click())
   await until(() => calls === 3)
+})
+
+for (const [label, response] of [
+  ['failed envelope', { success: false, data: [] }],
+  ['missing data', { success: true }],
+  ['null data', { success: true, data: null }],
+  ['non-array data', { success: true, data: {} }],
+] as const) {
+  test(`uptime rejects ${label} without claiming monitoring is unconfigured`, async () => {
+    let calls = 0
+    api.get = (async () => ({
+      data: ++calls === 1 ? response : { success: true, data: [] },
+    })) as typeof api.get
+    const container = await mount(UptimePanel)
+    await until(() => container.querySelector('[role="alert"]') !== null)
+    assert.match(container.textContent ?? '', /Failed to load/)
+    assert.doesNotMatch(
+      container.textContent ?? '',
+      /No uptime monitoring configured/
+    )
+    await act(async () => button(container, 'Retry').click())
+    await until(
+      () =>
+        container.textContent?.includes('No uptime monitoring configured') ===
+        true
+    )
+    assert.equal(container.querySelector('[role="alert"]'), null)
+    assert.equal(calls, 2)
+  })
+}
+
+test('uptime refresh failure hides stale health and permits recovery', async () => {
+  const groups = [
+    {
+      categoryName: 'Local services',
+      monitors: [{ name: 'Core API', status: 1, uptime: 1 }],
+    },
+  ]
+  let calls = 0
+  api.get = (async () => {
+    if (++calls === 2) throw new Error('503 unavailable')
+    return { data: { success: true, data: groups } }
+  }) as typeof api.get
+  const container = await mount(UptimePanel)
+  await until(() => container.textContent?.includes('Core API') === true)
+  assert.match(container.textContent ?? '', /100\.00%/)
+  const refresh = container.querySelector<HTMLButtonElement>(
+    'button[aria-label="Refresh"]'
+  )
+  assert.ok(refresh)
+  await act(async () => refresh.click())
+  await until(() => container.querySelector('[role="alert"]') !== null)
+  assert.doesNotMatch(
+    container.textContent ?? '',
+    /Core API|100\.00%|No uptime monitoring configured/
+  )
+  await act(async () => button(container, 'Retry').click())
+  await until(() => container.textContent?.includes('Core API') === true)
+  assert.equal(container.querySelector('[role="alert"]'), null)
+  assert.equal(calls, 3)
+})
+
+test('uptime initial transport failure is not a successful empty configuration', async () => {
+  api.get = (async () => {
+    throw new Error('503 unavailable')
+  }) as typeof api.get
+  const container = await mount(UptimePanel)
+  await until(() => container.querySelector('[role="alert"]') !== null)
+  assert.doesNotMatch(
+    container.textContent ?? '',
+    /No uptime monitoring configured/
+  )
+  assert.ok(button(container, 'Retry'))
 })
 
 test('traffic list orders by request count, not server array position', async () => {
@@ -636,7 +710,9 @@ test('a depleted current balance stays known when historical quota cannot be val
 test('quick-switch save failures retain the current unit and can be retried', async () => {
   configureCurrencyOverview()
   let calls = 0
-  api.put = (async () => ({ data: { success: ++calls > 1 } })) as typeof api.put
+  api.put = (async () => ({
+    data: { success: ++calls > 1 },
+  })) as typeof api.put
   const container = await mount(CurrencyOverview)
   await act(async () => currencyButton(container, 'CNY').click())
   await until(() => container.querySelector('[role="alert"]') !== null)

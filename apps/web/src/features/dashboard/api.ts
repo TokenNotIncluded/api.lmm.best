@@ -90,5 +90,8 @@ export async function getUptimeStatus() {
   const res = await api.get<{ success: boolean; data: UptimeGroupResult[] }>(
     '/api/uptime/status'
   )
+  if (res.data?.success !== true || !Array.isArray(res.data.data)) {
+    throw new Error('Uptime status unavailable')
+  }
   return res.data
 }
