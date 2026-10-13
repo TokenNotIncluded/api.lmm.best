@@ -23,8 +23,14 @@ type AssistantHistory interface {
 	PresetClick(context.Context, string) error
 }
 
-// RegisterAssistant preserves the old public presets and interactive history
-// routes. A shared host must wrap these routes in its own admission/drain gate.
+type AssistantGreeting interface {
+	Greeting(context.Context, string) (assistant.GreetingPreference, error)
+	UpdateGreeting(context.Context, string, string, string, int64) (assistant.GreetingPreference, error)
+}
+
+// RegisterAssistant preserves the old public presets, personal greeting and
+// interactive history routes. A shared host must wrap these routes in its own
+// admission/drain gate.
 // No browser may inject assistant messages or select a payer/model/owner.
 func RegisterAssistant(mux *http.ServeMux, auth *Authenticator, history AssistantHistory) {
 	protected := func(fn func(http.ResponseWriter, *http.Request, string)) http.HandlerFunc {
@@ -69,6 +75,42 @@ func RegisterAssistant(mux *http.ServeMux, auth *Authenticator, history Assistan
 	}))
 	mux.HandleFunc("POST /api/assistant/pre-conversation-presets/{id}/click", public(func(w http.ResponseWriter, r *http.Request) {
 		assistantRespond(w, nil, history.PresetClick(r.Context(), r.PathValue("id")))
+	}))
+	greeting, greetingAvailable := history.(AssistantGreeting)
+	mux.HandleFunc("GET /api/assistant/workspace/greeting", protected(func(w http.ResponseWriter, r *http.Request, token string) {
+		if !greetingAvailable || access.Missing(greeting) {
+			assistantRespond(w, nil, access.ErrUnavailable)
+			return
+		}
+		query, err := assistantQuery(r)
+		if err != nil || len(query) != 0 {
+			assistantRespond(w, nil, access.ErrInvalid)
+			return
+		}
+		value, err := greeting.Greeting(r.Context(), token)
+		assistantRespond(w, value, err)
+	}))
+	mux.HandleFunc("PUT /api/assistant/workspace/greeting", protected(func(w http.ResponseWriter, r *http.Request, token string) {
+		if !greetingAvailable || access.Missing(greeting) {
+			assistantRespond(w, nil, access.ErrUnavailable)
+			return
+		}
+		query, err := assistantQuery(r)
+		if err != nil || len(query) != 0 {
+			assistantRespond(w, nil, access.ErrInvalid)
+			return
+		}
+		var body struct {
+			Language *string `json:"language"`
+			Template *string `json:"template"`
+			Revision *int64  `json:"revision"`
+		}
+		if err = access.Body(w, r, &body); err != nil || body.Language == nil || body.Template == nil || body.Revision == nil {
+			assistantRespond(w, nil, access.ErrInvalid)
+			return
+		}
+		value, err := greeting.UpdateGreeting(r.Context(), token, *body.Language, *body.Template, *body.Revision)
+		assistantRespond(w, value, err)
 	}))
 	mux.HandleFunc("GET /api/assistant/status", protected(func(w http.ResponseWriter, r *http.Request, token string) {
 		value, err := history.Status(r.Context(), token)
