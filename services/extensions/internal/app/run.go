@@ -120,11 +120,39 @@ func Run() error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	return serveAndDrain(ctx, server, listener, host, func(work context.Context) {
+		runtime.StartWorkers(work, host)
+	}, 30*time.Second)
+}
+
+type drainingHost interface {
+	MarkReady() error
+	BeginDrain()
+	Wait(context.Context) error
+}
+
+// serveAndDrain must not return until every admitted permit is released: its
+// caller closes module storage on return. Shutdown deadlines bound graceful HTTP
+// shutdown, not the lifetime of resources still owned by admitted work.
+func serveAndDrain(ctx context.Context, server *http.Server, listener net.Listener, host drainingHost, startWorkers func(context.Context), timeout time.Duration) (runErr error) {
+	work, cancelWork := context.WithCancel(context.Background())
+	defer cancelWork()
+	server.BaseContext = func(net.Listener) context.Context { return work }
+	if err := ctx.Err(); err != nil {
+		return err
+	}
 	if err := host.MarkReady(); err != nil {
 		return err
 	}
-	runtime.StartWorkers(ctx, host)
-	defer host.BeginDrain()
+	defer func() {
+		host.BeginDrain()
+		cancelWork()
+		runErr = errors.Join(runErr, server.Close())
+		// A fresh, unbounded join is intentional. Closing connections or timing
+		// out does not join handlers; a stuck permit must not trigger pool closure.
+		runErr = errors.Join(runErr, host.Wait(context.Background()))
+	}()
+	startWorkers(work)
 	result := make(chan error, 1)
 	go func() { result <- server.Serve(listener) }()
 	select {
@@ -135,7 +163,7 @@ func Run() error {
 		return nil
 	case <-ctx.Done():
 		host.BeginDrain()
-		shutdown, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+		shutdown, cancel := context.WithTimeout(context.Background(), timeout)
 		defer cancel()
 		if err := server.Shutdown(shutdown); err != nil {
 			return errors.Join(err, server.Close())
