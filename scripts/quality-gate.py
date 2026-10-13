@@ -105,8 +105,33 @@ def cli_submodule(root: Path) -> str | None:
     return pin
 
 
+def index_entries(root: Path) -> dict[str, tuple[str, str]]:
+    entries = {}
+    for raw in git(root, 'ls-files', '--stage', '-z').split(b'\0'):
+        if not raw:
+            continue
+        metadata, name = raw.split(b'\t', 1)
+        mode, sha, stage = metadata.decode('ascii').split()
+        if stage != '0':
+            raise ValueError('resolve unmerged index entries before checking')
+        entries[name.decode('utf-8')] = (mode, sha)
+    return entries
+
+
+def index_source(root: Path, name: str, entries: dict) -> str:
+    if name not in entries:
+        return ''
+    mode, sha = entries[name]
+    if mode not in {'100644', '100755'}:
+        raise ValueError('cannot inspect non-regular index source: ' + name)
+    if int(git(root, 'cat-file', '-s', sha)) > 2_000_000:
+        raise ValueError('source exceeds inspection limit; review separately: ' + name)
+    return git(root, 'cat-file', 'blob', sha).decode('utf-8')
+
+
 def snapshot(root: Path) -> dict:
     """Bind tracked, staged, unstaged and non-ignored untracked source, plus modes."""
+    entries = index_entries(root)
     cli_pin = cli_submodule(root)
     items = {}
     for name in paths(root):
@@ -121,7 +146,7 @@ def snapshot(root: Path) -> dict:
             items[name] = ['deleted-or-submodule']
     submodules = git(root, 'submodule', 'status', '--recursive').decode('utf-8')
     status = git(root, 'status', '--porcelain=v1', '--untracked-files=all', '--ignore-submodules=none').decode()
-    return {'sha256': digest(json.dumps([items, submodules, status], sort_keys=True).encode()),
+    return {'sha256': digest(json.dumps([items, entries, submodules, status], sort_keys=True).encode()),
             'file_count': len(items), 'submodules': submodules, 'cli_submodule': cli_pin}
 
 
@@ -163,8 +188,11 @@ def signals(name: str, text: str) -> list[dict]:
 
 
 def inspect_change(root: Path, base: str) -> dict:
+    entries = index_entries(root)
     base_paths = set(x.decode() for x in git(root, 'ls-tree', '-r', '--name-only', '-z', base).split(b'\0') if x)
-    changed = set(x.decode() for x in git(root, 'diff', '--no-ext-diff', '--name-only', '-z', base, '--').split(b'\0') if x)
+    changed = set(x.decode() for x in git(root, 'diff', '--no-ext-diff', '--no-renames', '--name-only', '-z', base, '--').split(b'\0') if x)
+    changed.update(x.decode() for x in git(root, 'diff', '--cached', '--no-ext-diff', '--no-renames',
+                                            '--name-only', '-z', base, '--').split(b'\0') if x)
     changed.update(x.decode() for x in git(root, 'ls-files', '-z', '--others', '--exclude-standard').split(b'\0') if x)
     result = {'changed_files': sorted(changed), 'protected_changes': [], 'new_signals': [],
               'removed_assertion_files': [], 'high_risk_changes': [], 'existing_signals_in_changed_files': 0}
@@ -177,28 +205,38 @@ def inspect_change(root: Path, base: str) -> dict:
         if PurePosixPath(name).suffix not in SOURCE_SUFFIXES and not name.endswith('package.json'):
             continue
         before = git(root, 'show', base + ':' + name).decode('utf-8') if name in base_paths else ''
-        after = source_text(root, name)
-        old = Counter(item['id'] for item in signals(name, before))
-        result['existing_signals_in_changed_files'] += sum(old.values())
-        for item in signals(name, after):
-            if old[item['id']]:
-                old[item['id']] -= 1
-            else:
-                result['new_signals'].append(item)
-        if re.search(r'(?:test|spec)', name, re.I):
-            removed = '\n'.join(line[1:] for line in difflib.unified_diff(before.splitlines(), after.splitlines())
-                                if line.startswith('-') and not line.startswith('---'))
-            if re.search(r'\b(?:assert\w*|expect|require|Fatalf?|Errorf?)\b', removed):
-                result['removed_assertion_files'].append(name)
-        if name.endswith('package.json') and after:
-            data = read_json(after)
-            runtime = data.get('dependencies', {})
-            development = data.get('devDependencies', {})
-            previous = read_json(before) if before else {}
-            old_duplicates = set(previous.get('dependencies', {})) & set(previous.get('devDependencies', {}))
-            for dependency in sorted((set(runtime) & set(development)) - old_duplicates):
-                result['new_signals'].append({'rule': 'duplicate-direct-dependency', 'path': name,
-                                               'dependency': dependency})
+        old_signals = Counter(item['id'] for item in signals(name, before))
+        result['existing_signals_in_changed_files'] += sum(old_signals.values())
+        combined = {}
+        for layer, after in (('index', index_source(root, name, entries)),
+                             ('worktree', source_text(root, name))):
+            old = old_signals.copy()
+            occurrences = Counter()
+            for item in signals(name, after):
+                if old[item['id']]:
+                    old[item['id']] -= 1
+                else:
+                    # Merge matching occurrences, not all occurrences of the same signal.
+                    occurrences[item['id']] += 1
+                    key = (item['id'], occurrences[item['id']])
+                    combined.setdefault(key, dict(item, layers=[]))['layers'].append(layer)
+            if re.search(r'(?:test|spec)', name, re.I):
+                removed = '\n'.join(line[1:] for line in difflib.unified_diff(before.splitlines(), after.splitlines())
+                                    if line.startswith('-') and not line.startswith('---'))
+                if (re.search(r'\b(?:assert\w*|expect|require|Fatalf?|Errorf?)\b', removed)
+                        and name not in result['removed_assertion_files']):
+                    result['removed_assertion_files'].append(name)
+            if name.endswith('package.json') and after:
+                data = read_json(after)
+                runtime = data.get('dependencies', {})
+                development = data.get('devDependencies', {})
+                previous = read_json(before) if before else {}
+                old_duplicates = set(previous.get('dependencies', {})) & set(previous.get('devDependencies', {}))
+                for dependency in sorted((set(runtime) & set(development)) - old_duplicates):
+                    key = ('duplicate-direct-dependency', dependency)
+                    combined.setdefault(key, {'rule': 'duplicate-direct-dependency', 'path': name,
+                                              'dependency': dependency, 'layers': []})['layers'].append(layer)
+        result['new_signals'].extend(combined.values())
     return result
 
 

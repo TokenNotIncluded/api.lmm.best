@@ -131,6 +131,123 @@ class GateTests(unittest.TestCase):
         path.chmod(0o755)
         self.assertNotEqual(before_mode, gate.snapshot(self.root))
 
+    def test_snapshot_binds_index_blobs_with_identical_worktree_and_status(self):
+        name = 'apps/web/src/value.ts'
+        self.write(name, 'const value = 1\n')
+        self.commit()
+        self.write(name, 'const value = 2\n')
+        self.run_git('add', name)
+        self.write(name, 'const value = 3\n')
+        before = gate.snapshot(self.root)
+        status = self.run_git('status', '--porcelain')
+        self.write(name, 'const value = 4\n')
+        self.run_git('add', name)
+        self.write(name, 'const value = 3\n')
+        self.assertEqual(status, self.run_git('status', '--porcelain'))
+        self.assertNotEqual(before, gate.snapshot(self.root))
+
+    def test_scan_inspects_staged_content_when_worktree_restores_base(self):
+        name = 'apps/web/src/a.test.ts'
+        original = (self.root / name).read_text()
+        self.write(name, 'const staged: any = 2\n')
+        self.run_git('add', name)
+        self.write(name, original)
+        change = gate.inspect_change(self.root, self.base)
+        self.assertIn(name, change['changed_files'])
+        self.assertIn(name, change['removed_assertion_files'])
+        self.assertEqual([item['rule'] for item in change['new_signals']], ['broad-any'])
+        self.assertEqual(change['new_signals'][0]['layers'], ['index'])
+
+    def test_scan_combines_layers_without_duplicate_signals(self):
+        name = 'apps/web/src/value.ts'
+        self.write(name, 'const staged: any = 2\n')
+        self.run_git('add', name)
+        self.write(name, 'const staged: any = 2\nconst unstaged: any = 3\n')
+        change = gate.inspect_change(self.root, self.base)
+        self.assertEqual(len(change['new_signals']), 2)
+        self.assertEqual(change['new_signals'][0]['layers'], ['index', 'worktree'])
+        self.assertEqual(change['new_signals'][1]['layers'], ['worktree'])
+
+    def test_staged_delete_and_rename_are_inspected(self):
+        name = 'apps/web/src/a.test.ts'
+        original = (self.root / name).read_text()
+        self.run_git('rm', name)
+        self.write(name, original)
+        change = gate.inspect_change(self.root, self.base)
+        self.assertIn(name, change['removed_assertion_files'])
+        self.run_git('reset', '--hard', self.base)
+        renamed = 'apps/web/src/renamed.test.ts'
+        self.run_git('mv', name, renamed)
+        change = gate.inspect_change(self.root, self.base)
+        self.assertEqual(change['changed_files'], [name, renamed])
+        self.assertIn(name, change['removed_assertion_files'])
+
+    def test_staged_duplicate_dependency_is_inspected(self):
+        self.write('package.json', '{"dependencies": {"one": "1"}, "devDependencies": {"one": "1"}}')
+        self.run_git('add', 'package.json')
+        self.write('package.json', '{}')
+        change = gate.inspect_change(self.root, self.base)
+        self.assertEqual(change['new_signals'][0]['rule'], 'duplicate-direct-dependency')
+        self.assertEqual(change['new_signals'][0]['layers'], ['index'])
+
+    def test_index_source_rejects_symlinks_and_oversized_blobs(self):
+        name = 'apps/web/src/value.ts'
+        path = self.root / name
+        path.symlink_to('a.test.ts')
+        self.run_git('add', name)
+        path.unlink()
+        self.write(name, 'const value = 1\n')
+        with self.assertRaisesRegex(ValueError, 'non-regular index'):
+            gate.inspect_change(self.root, self.base)
+        self.write(name, 'x' * 2_000_001)
+        self.run_git('add', name)
+        self.write(name, 'const value = 1\n')
+        with self.assertRaisesRegex(ValueError, 'inspection limit'):
+            gate.inspect_change(self.root, self.base)
+
+    def test_snapshot_binds_index_executable_mode(self):
+        name = 'apps/web/src/a.test.ts'
+        before = gate.snapshot(self.root)
+        self.run_git('update-index', '--chmod=+x', name)
+        self.assertNotEqual(before, gate.snapshot(self.root))
+        self.assertIn(name, gate.inspect_change(self.root, self.base)['changed_files'])
+
+    def test_cli_rejects_index_only_changes_during_execution(self):
+        name = 'apps/web/src/value.ts'
+        self.write(name, 'const value = 1\n')
+        self.write('scripts/quality-gate.py', SOURCE.read_text())
+        self.write('scripts/test-quality-gate.py',
+                   'import subprocess; from pathlib import Path\n'
+                   f'p = Path({name!r})\n'
+                   'p.write_text("const value = 4\\n")\n'
+                   f'subprocess.run(["git", "add", {name!r}], check=True)\n'
+                   'p.write_text("const value = 3\\n")\n')
+        self.commit()
+        self.write(name, 'const value = 2\n')
+        self.run_git('add', name)
+        self.write(name, 'const value = 3\n')
+        status = self.run_git('status', '--porcelain')
+        output = self.out / 'index-changed-run'
+        result = subprocess.run([sys.executable, '-B', str(self.root / 'scripts/quality-gate.py'),
+                                 'quick', '--base', self.base, '--output', str(output)],
+                                capture_output=True, text=True)
+        self.assertEqual(status, self.run_git('status', '--porcelain'))
+        self.assertEqual(result.returncode, 1)
+        report = json.loads((output / 'report.json').read_text())
+        self.assertIn('source changed during checks; evidence is stale', report['errors'])
+
+    def test_unmerged_index_is_rejected(self):
+        name = 'apps/web/src/a.test.ts'
+        blob = self.run_git('rev-parse', ':' + name).strip()
+        self.run_git('update-index', '--force-remove', name)
+        entries = ''.join(f'100644 {blob} {stage}\t{name}\n' for stage in (1, 2, 3))
+        subprocess.run(['git', 'update-index', '--index-info'], cwd=self.root,
+                       input=entries, text=True, check=True, capture_output=True)
+        for operation in (lambda: gate.snapshot(self.root),
+                          lambda: gate.inspect_change(self.root, self.base)):
+            with self.assertRaisesRegex(ValueError, 'unmerged'):
+                operation()
+
     def test_cli_submodule_accepts_parent_pin_and_ignored_build_output(self):
         pin = self.add_cli_submodule()
         before = gate.snapshot(self.root)
