@@ -46,6 +46,22 @@ class PrivateFixtureTests(unittest.TestCase):
         self.assertIn("NOT has_schema_privilege('core_migration','USAGE,CREATE')", after)
         self.assertNotRegex(FIXTURE.RUNTIME_PRIVILEGES_SQL, r"\b(?:GRANT|REVOKE)\b")
 
+    def test_charging_audit_resolves_private_relation_before_switching_identity(self):
+        before, after = FIXTURE.RUNTIME_PRIVILEGES_SQL.split(
+            "SET SESSION AUTHORIZATION lmm_core_runtime;", 1)
+        self.assertIn("'core_charging.requests'::regclass::oid", before)
+        self.assertIn("AS charging_requests_oid \\gset", before)
+        self.assertNotIn("core_charging.requests", after)
+        for function, privileges in (
+            ("has_table_privilege", "INSERT,UPDATE,DELETE,TRUNCATE"),
+            ("has_any_column_privilege", "INSERT,UPDATE"),
+        ):
+            self.assertIn(
+                f"NOT {function}(:'charging_requests_oid'::oid,'{privileges}')", after)
+        self.assertIn("current_user=session_user", after)
+        self.assertIn("NOT has_schema_privilege('core_charging','USAGE,CREATE')", after)
+        self.assertNotRegex(FIXTURE.RUNTIME_PRIVILEGES_SQL, r"\b(?:GRANT|REVOKE)\b")
+
     def test_docker_commands_pin_local_socket_and_keep_secret_input_off_argv(self):
         with mock.patch.object(FIXTURE.subprocess, "run", return_value=SimpleNamespace(stdout="ok\n")) as run:
             self.assertEqual(FIXTURE.run("docker", "version", data="synthetic-private-input"), "ok")

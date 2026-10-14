@@ -46,9 +46,10 @@ chmod 0400 "$fixture_secret_path"
 """ + VERIFY_SECRETS
 
 
-# Resolve the private relation while still the installation user. The runtime
+# Resolve private relations while still the installation user. The runtime
 # must not receive schema USAGE merely to inspect its lack of write privileges.
 RUNTIME_PRIVILEGES_SQL = r"""SELECT 'core_migration.import_runs'::regclass::oid AS migration_import_runs_oid \gset
+SELECT 'core_charging.requests'::regclass::oid AS charging_requests_oid \gset
 SET SESSION AUTHORIZATION lmm_core_runtime;
 SELECT current_user=session_user
   AND NOT has_database_privilege(current_database(),'CREATE,TEMP')
@@ -61,8 +62,9 @@ SELECT current_user=session_user
   AND NOT has_function_privilege('core_billing.import_opening_balance(jsonb)','EXECUTE')
   AND NOT has_function_privilege('core_billing.import_account_opening_counters(jsonb)','EXECUTE')
   AND NOT has_table_privilege('core_billing.account_opening_counters','INSERT,UPDATE,DELETE,TRUNCATE')
-  AND NOT has_table_privilege('core_charging.requests','INSERT,UPDATE,DELETE,TRUNCATE')
-  AND NOT has_any_column_privilege('core_charging.requests','INSERT,UPDATE');
+  AND NOT has_schema_privilege('core_charging','USAGE,CREATE')
+  AND NOT has_table_privilege(:'charging_requests_oid'::oid,'INSERT,UPDATE,DELETE,TRUNCATE')
+  AND NOT has_any_column_privilege(:'charging_requests_oid'::oid,'INSERT,UPDATE');
 """
 
 
