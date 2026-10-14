@@ -290,6 +290,15 @@ def safe_operation(value: Any, operation_id: str) -> dict[str, Any]:
     return output
 
 
+def has_control(value: str) -> bool:
+    # Rust char::is_control uses Unicode Cc: C0, DEL and C1 controls.
+    return any(ord(char) < 32 or 0x7f <= ord(char) <= 0x9f for char in value)
+
+
+def valid_reason(value: Any) -> bool:
+    return isinstance(value, str) and 1 <= len(value) <= 1000 and bool(value.strip()) and "\0" not in value
+
+
 def policy_config(value: Any, credential_references: Any = _OFFLINE_ALIAS_VALIDATION) -> dict[str, Any]:
     require(credential_references is _OFFLINE_ALIAS_VALIDATION or isinstance(credential_references, list),
             "INVALID_RESPONSE: missing credential alias metadata")
@@ -305,11 +314,12 @@ def policy_config(value: Any, credential_references: Any = _OFFLINE_ALIAS_VALIDA
         require(isinstance(policy_id, str) and re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", policy_id) is not None
                 and policy_id not in ids, "Policy IDs must be valid and unique")
         ids.add(policy_id)
-        require(isinstance(policy["name"], str) and 1 <= len(policy["name"]) <= 128, "Invalid policy name")
+        require(isinstance(policy["name"], str) and 1 <= len(policy["name"]) <= 128
+                and not has_control(policy["name"]), "Invalid policy name")
         models = policy["public_models"]
         require(isinstance(models, list) and 1 <= len(models) <= 200
                 and all(isinstance(model, str) and 1 <= len(model.encode("utf-8")) <= 256
-                        and not any(ord(char) < 32 or ord(char) == 127 for char in model) for model in models)
+                        and not has_control(model) for model in models)
                 and len(set(models)) == len(models), "Invalid public model allowlist")
         clients = policy["clients"]
         require(isinstance(clients, dict), "Invalid policy clients")
@@ -326,7 +336,7 @@ def policy_config(value: Any, credential_references: Any = _OFFLINE_ALIAS_VALIDA
                         "Unsupported upstream protocol")
                 url = target["base_url"]
                 require(isinstance(url, str) and 1 <= len(url.encode("utf-8")) <= 2048
-                        and "\\" not in url and all(33 <= ord(c) <= 126 for c in url), "Invalid upstream URL")
+                        and not any(char in url for char in "@?#\\") and all(33 <= ord(c) <= 126 for c in url), "Invalid upstream URL")
                 try:
                     parsed = urllib.parse.urlsplit(url)
                     host = parsed.hostname
@@ -337,10 +347,10 @@ def policy_config(value: Any, credential_references: Any = _OFFLINE_ALIAS_VALIDA
                 require(parsed.scheme == "http" and loopback and not parsed.username and not parsed.password
                         and not parsed.query and not parsed.fragment and (port is None or 1 <= port <= 65535),
                         "Upstream must use literal loopback HTTP without credentials/query/fragment")
-                require(isinstance(target["model"], str) and 1 <= len(target["model"].encode("utf-8")) <= 256,
-                        "Invalid upstream model")
+                require(isinstance(target["model"], str) and 1 <= len(target["model"].encode("utf-8")) <= 256
+                        and not has_control(target["model"]), "Invalid upstream model")
                 alias = target["credential_reference"]
-                require(isinstance(alias, str) and re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", alias) is not None,
+                require(isinstance(alias, str) and re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", alias) is not None,
                         "Invalid credential alias; paths and literal secrets are forbidden")
                 if credential_references is not _OFFLINE_ALIAS_VALIDATION:
                     require(isinstance(credential_references, list) and alias in credential_references,
@@ -380,7 +390,7 @@ def policy_response(value: Any) -> dict[str, Any]:
                 and len(values) == len(expected) and set(values) == expected, message)
     aliases = caps["credential_references"]
     require(caps["numeric_loopback_only"] is True and isinstance(aliases, list)
-            and all(isinstance(alias, str) and re.fullmatch(r"[A-Za-z0-9_.:-]{1,128}", alias) is not None
+            and all(isinstance(alias, str) and re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", alias) is not None
                     for alias in aliases)
             and len(aliases) == len(set(aliases)), message)
     try:
@@ -466,7 +476,7 @@ def apply_artifact(client: Client, args: argparse.Namespace) -> dict[str, Any]:
         require(set(requested) in ({"operation_id", "reason", "action", "expected_policy_revision", "targets"},
                                   {"operation_id", "reason", "action", "expected_policy_revision", "targets", "policy_id"})
                 and requested["operation_id"] == opid and requested["action"] in ("mark", "unmark", "convert_disabled")
-                and isinstance(requested["reason"], str) and 1 <= len(requested["reason"]) <= 1000,
+                and valid_reason(requested["reason"]),
                 "Invalid preview request binding")
         integer(requested["expected_policy_revision"], "expected policy revision")
         require(isinstance(requested["targets"], list) and 1 <= len(requested["targets"]) <= 200, "Invalid requested targets")
@@ -489,7 +499,7 @@ def apply_artifact(client: Client, args: argparse.Namespace) -> dict[str, Any]:
         integer(payload["expected_revision"], "expected policy revision")
         policy_config(payload["config"])
         policy_config(payload["before_config"])
-        require(isinstance(payload["reason"], str) and 1 <= len(payload["reason"]) <= 1000, "Invalid reason")
+        require(valid_reason(payload["reason"]), "Invalid reason")
         method, path = "PUT", API + "/policies"
         body = {key: payload[key] for key in ("operation_id", "reason", "expected_revision", "config")}
     else:
@@ -654,7 +664,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             output["private_export_sha256"] = private_write(args.out, config)
         return output
     reason = bounded_stdin(4000, "Reason")
-    require(1 <= len(reason) <= 1000, "Reason must contain 1 to 1000 characters")
+    require(valid_reason(reason), "Reason must contain 1 to 1000 nonblank characters without NUL")
     operation_id = str(uuid.uuid4())
     policies = policy_response(client.request("GET", API + "/policies"))
     revision = revision_from(policies)

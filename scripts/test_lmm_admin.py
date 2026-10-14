@@ -432,6 +432,44 @@ class ContractTests(unittest.TestCase):
             with self.assertRaises(A.ClientError): A.policy_config(bad, ["sink-server"])
         with self.assertRaises(A.ClientError): A.policy_config(config, ["different-alias"])
 
+    def test_f2_policy_input_constraints_match_runtime(self):
+        custom = copy.deepcopy(CONFIG)
+        policy = custom["policies"][0]
+        policy["mode"] = "custom_upstream"; del policy["fixed_text"]
+        target = {"base_url": "http://127.0.0.1:9123/v1", "upstream_protocol": "openai_chat",
+                  "model": "valid-model", "credential_reference": "a" * 64}
+        policy["clients"] = {"openai_chat": target, "openai_responses": copy.deepcopy(target)}
+        A.policy_config(custom, ["a" * 64])
+        for alias in ("a" * 65, "host:alias"):
+            bad = copy.deepcopy(custom)
+            bad["policies"][0]["clients"]["openai_chat"]["credential_reference"] = alias
+            with self.assertRaises(A.ClientError): A.policy_config(bad, [alias, "a" * 64])
+            with self.assertRaisesRegex(A.ClientError, "INVALID_RESPONSE"):
+                A.policy_response({"version": 1, "revision": 1, "config": CONFIG,
+                                   "capabilities": {**CAPABILITIES, "credential_references": [alias]}})
+        for bad_name in ("name\x00", "name\x85"):
+            bad = copy.deepcopy(CONFIG); bad["policies"][0]["name"] = bad_name
+            with self.assertRaises(A.ClientError): A.policy_config(bad)
+        bad = copy.deepcopy(CONFIG); bad["policies"][0]["public_models"] = ["model\x85"]
+        with self.assertRaises(A.ClientError): A.policy_config(bad)
+        bad = copy.deepcopy(custom); bad["policies"][0]["clients"]["openai_chat"]["model"] = "model\x85"
+        with self.assertRaises(A.ClientError): A.policy_config(bad)
+        for url in ("http://127.0.0.1/v1@part", "http://127.0.0.1/v1?", "http://127.0.0.1/v1#"):
+            bad = copy.deepcopy(custom); bad["policies"][0]["clients"]["openai_chat"]["base_url"] = url
+            with self.assertRaises(A.ClientError): A.policy_config(bad)
+
+    def test_invalid_reason_cannot_prepare_local_policy_artifact(self):
+        self.assertTrue(A.valid_reason("Evidence\nreviewed"))
+        self.assertFalse(A.valid_reason("Evidence\0unreviewed"))
+        with tempfile.TemporaryDirectory(prefix="lmm-admin-reason-") as directory:
+            root = Path(directory); source = root / "input.json"; output = root / "preview.json"
+            A.private_write(str(source), CONFIG)
+            args = A.parser().parse_args(["--server", "https://example.invalid", "policy", "preview", "--file", str(source),
+                                          "--out", str(output), "--reason-stdin"])
+            with patch.dict(os.environ, {"LMM_ADMIN_SESSION": TOKEN}), patch.object(sys, "stdin", io.TextIOWrapper(io.BytesIO(b"Evidence\0unreviewed"))), patch.object(A.Client, "request", side_effect=AssertionError("network forbidden")):
+                with self.assertRaises(A.ClientError): A.run(args)
+            self.assertFalse(output.exists())
+
     def test_no_token_argument_or_fake_disable_reward_command(self):
         parser = A.parser()
         for tail in (["--token"], ["--token", TOKEN], ["users", "disable", "42"], ["users", "revoke-reward", "42"]):

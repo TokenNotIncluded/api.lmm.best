@@ -86,7 +86,9 @@ revision 比较。仍被用户引用的 policy 不能删除。
 `credential_reference`；上游协议支持 `openai_chat`、`openai_responses`、
 `anthropic_messages`、`gemini`，允许转换。上游 URL 只允许服务器上的数字回环
 HTTP，管理员可在服务器前置本地转发器连接其他服务。不能直接配置公网地址、
-本地文件路径或明文 token。`credential_reference` 只能引用服务器预加载的别名。
+本地文件路径或明文 token。`credential_reference` 只能引用服务器预加载的别名，名称为 1–64 位 ASCII 字母、
+数字、`_`、`.` 或 `-`。策略名、公开模型名和上游模型名拒绝 Unicode 控制字符，
+理由不得含 NUL；本地预校验与实际 Core 的这些输入限制一致。
 `public_models` 明确列出给这些用户展示的模型，不读取真实私有分组模型。
 
 这些 limits 只控制蜜罐模型请求，包括每用户/全局每分钟次数、并发、输入/输出字节、
