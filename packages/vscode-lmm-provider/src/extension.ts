@@ -2,6 +2,8 @@ import * as vscode from "vscode";
 import { Auth, jsonRequest } from "./auth";
 import { assert, ISSUER, LmmError, safeError } from "./protocol";
 import { CatalogModel, catalogModels, streamCompletion } from "./wire";
+import { isTextChatModel, modelMetadata, ModelLimitOverride, toolCallingEnabled } from "./metadata";
+import { AccountStatus } from "./account";
 interface Model extends vscode.LanguageModelChatInformation {
   entry: CatalogModel;
 }
@@ -63,12 +65,13 @@ export function messagesToWire(
   }
   return result;
 }
-class Provider implements vscode.LanguageModelChatProvider<Model> {
+export class Provider implements vscode.LanguageModelChatProvider<Model> {
   readonly changes = new vscode.EventEmitter<void>();
   readonly onDidChangeLanguageModelChatInformation = this.changes.event;
   constructor(
     private readonly auth: Auth,
     private readonly signIn: () => Promise<void>,
+    private readonly account: AccountStatus,
   ) {}
   async provideLanguageModelChatInformation(
     options: vscode.PrepareLanguageModelChatModelOptions,
@@ -90,20 +93,19 @@ class Provider implements vscode.LanguageModelChatProvider<Model> {
       );
       const config = vscode.workspace.getConfiguration("lmm");
       const toolModels = config.get<string[]>("toolModels", []);
-      return models.map((entry) => ({
+      void this.account.refresh();
+      const inputSetting = config.inspect<number>("maxInputTokens");
+      const inputCap = inputSetting?.workspaceFolderValue ?? inputSetting?.workspaceValue ?? inputSetting?.globalValue;
+      const overrides = config.get<Record<string, ModelLimitOverride>>("modelLimits", {});
+      return models.filter(entry => isTextChatModel(entry.upstream_model)).map((entry) => ({
         entry,
         id: entry.id,
-        name: entry.upstream_model,
         family: entry.upstream_model,
         version: "1",
-        detail: entry.group,
-        tooltip:
-          "LMM OAuth · Usage is billed to your LMM account. Token budgets are configurable estimates.",
-        maxInputTokens: config.get<number>("maxInputTokens", 32768),
-        maxOutputTokens: config.get<number>("maxOutputTokens", 4096),
+        ...modelMetadata(entry, overrides, inputCap, config.get<number>("maxOutputTokens", 4096)),
         capabilities: {
           imageInput: false,
-          toolCalling: toolModels.includes(entry.upstream_model),
+          toolCalling: toolCallingEnabled(entry, toolModels),
         },
       }));
     } catch (error) {
@@ -146,22 +148,29 @@ class Provider implements vscode.LanguageModelChatProvider<Model> {
         current,
         "This model is no longer in your LMM catalog. Refresh the model list.",
       );
+      const config = vscode.workspace.getConfiguration("lmm");
+      const inputSetting = config.inspect<number>("maxInputTokens");
+      const inputCap = inputSetting?.workspaceFolderValue ?? inputSetting?.workspaceValue ?? inputSetting?.globalValue;
+      const metadata = modelMetadata(current, config.get<Record<string, ModelLimitOverride>>("modelLimits", {}), inputCap, config.get<number>("maxOutputTokens", 4096));
+      const toolsEnabled = toolCallingEnabled(current, config.get<string[]>("toolModels", []));
       const wireMessages = messagesToWire(messages);
       const tools = options.tools ?? [];
+      assert(Buffer.byteLength(JSON.stringify(wireMessages), "utf8") + Buffer.byteLength(JSON.stringify(tools), "utf8") <= metadata.maxInputTokens,
+        "This request exceeds the current LMM input budget. Reduce the conversation or raise verified model limits.");
       assert(
-        !tools.length || model.capabilities.toolCalling,
+        !tools.length || toolsEnabled,
         "Enable this verified model in lmm.toolModels to use tools.",
       );
       assert(
         !wireMessages.some((m) => m.tool_calls || m.role === "tool") ||
-          model.capabilities.toolCalling,
+          toolsEnabled,
         "Tool messages require a verified model in lmm.toolModels.",
       );
       const body = {
         model: current.upstream_model,
         messages: wireMessages,
         stream: true,
-        max_tokens: model.maxOutputTokens,
+        max_tokens: metadata.maxOutputTokens,
         ...(tools.length
           ? {
               tools: tools.map((t) => ({
@@ -179,40 +188,44 @@ class Provider implements vscode.LanguageModelChatProvider<Model> {
             }
           : {}),
       };
-      const response = await fetch(`${ISSUER}/v1/chat/completions`, {
-        method: "POST",
-        redirect: "error",
-        credentials: "omit",
-        signal: cancel.signal,
-        headers: {
-          authorization: `Bearer ${credential.access}`,
-          "x-lmm-group": current.group_id,
-          "content-type": "application/json",
-          accept: "text/event-stream",
-        },
-        body: JSON.stringify(body),
-      });
-      await streamCompletion(
-        response,
-        (part) => {
-          if (part.type === "text")
-            progress.report(new vscode.LanguageModelTextPart(part.text));
-          else {
-            assert(
-              tools.some((t) => t.name === part.name),
-              "LMM returned an unknown tool.",
-            );
-            progress.report(
-              new vscode.LanguageModelToolCallPart(
-                part.id,
-                part.name,
-                part.input,
-              ),
-            );
-          }
-        },
-        cancel.signal,
-      );
+      try {
+        const response = await fetch(`${ISSUER}/v1/chat/completions`, {
+          method: "POST",
+          redirect: "error",
+          credentials: "omit",
+          signal: cancel.signal,
+          headers: {
+            authorization: `Bearer ${credential.access}`,
+            "x-lmm-group": current.group_id,
+            "content-type": "application/json",
+            accept: "text/event-stream",
+          },
+          body: JSON.stringify(body),
+        });
+        await streamCompletion(
+          response,
+          (part) => {
+            if (part.type === "text")
+              progress.report(new vscode.LanguageModelTextPart(part.text));
+            else {
+              assert(
+                tools.some((t) => t.name === part.name),
+                "LMM returned an unknown tool.",
+              );
+              progress.report(
+                new vscode.LanguageModelToolCallPart(
+                  part.id,
+                  part.name,
+                  part.input,
+                ),
+              );
+            }
+          },
+          cancel.signal,
+        );
+      } finally {
+        void this.account.refresh();
+      }
     } catch (error) {
       if (token.isCancellationRequested) throw new vscode.CancellationError();
       throw new Error(safeError(error));
@@ -227,6 +240,7 @@ export function activate(context: vscode.ExtensionContext): void {
     fetch,
     context.globalStorageUri.fsPath,
   );
+  const account = new AccountStatus(auth);
   let provider: Provider;
   let login: Promise<void> | undefined;
   const signIn = (): Promise<void> => {
@@ -248,6 +262,7 @@ export function activate(context: vscode.ExtensionContext): void {
               );
             }, cancel.signal);
             provider.changes.fire();
+            void account.refresh();
             vscode.window.showInformationMessage(
               "Signed in to LMM. Select an LMM model in Chat.",
             );
@@ -269,12 +284,18 @@ export function activate(context: vscode.ExtensionContext): void {
       .catch(() => {});
     return login;
   };
-  provider = new Provider(auth, signIn);
+  provider = new Provider(auth, signIn, account);
+  const timer = setInterval(() => { void account.refresh(); }, 300000);
+  void account.refresh();
   context.subscriptions.push(
+    account,
+    { dispose: () => clearInterval(timer) },
+    vscode.commands.registerCommand("lmm.refreshAccount", () => account.refresh()),
     provider.changes,
     vscode.lm.registerLanguageModelChatProvider("lmm", provider),
     vscode.commands.registerCommand("lmm.signIn", signIn),
     vscode.commands.registerCommand("lmm.signOut", async () => {
+      account.clear();
       try {
         await auth.logout();
         vscode.window.showInformationMessage("Signed out of LMM.");
@@ -283,12 +304,14 @@ export function activate(context: vscode.ExtensionContext): void {
           `${safeError(error)} Local login was removed.`,
         );
       } finally {
+        account.clear();
         provider.changes.fire();
       }
     }),
-    vscode.commands.registerCommand("lmm.refreshModels", () =>
-      provider.changes.fire(),
-    ),
+    vscode.commands.registerCommand("lmm.refreshModels", () => {
+      provider.changes.fire();
+      return account.refresh();
+    }),
     vscode.workspace.onDidChangeConfiguration((event) => {
       if (event.affectsConfiguration("lmm")) provider.changes.fire();
     }),

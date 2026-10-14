@@ -8,3 +8,4 @@ package-lock.json
 scripts/**
 .vscode-test/**
 .host-test/**
+.test-tmp/**

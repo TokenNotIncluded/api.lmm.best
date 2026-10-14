@@ -23,11 +23,23 @@ The extension runs on the desktop UI host, including Remote SSH workspaces. Brow
 
 ## Models and tools
 
-The OAuth catalog determines available groups and models. This version supports catalog entries advertising the OpenAI chat completions API, streams text and function-call deltas, and passes text tool results back to the model. Responses-only and Anthropic-only catalog entries are excluded. Images and non-text tool results are unsupported and produce a clear error.
+The OAuth catalog determines available groups and models. This version supports catalog entries advertising the OpenAI chat completions API, streams text and function-call deltas, and passes text tool results back to the model. Responses-only and Anthropic-only catalog entries are excluded. Known embedding, image, video, speech, reranking and non-text-output models are also excluded, including when limits or tool settings are overridden. Images and non-text tool results are unsupported and produce a clear error.
 
-The catalog does not provide verified context limits or function-calling capability. The default settings advertise a conservative **32,768 input / 4,096 output token budget**, rather than a claim about a model's full context. Set `lmm.maxInputTokens` and `lmm.maxOutputTokens` at or below the supported limits of all models you use. Token counting is a conservative UTF-8 byte estimate, not the model's exact tokenizer.
+Model names include **group / upstream model · group multiplier** so identical models in different groups remain distinguishable. Multipliers come from the authenticated LMM catalog, never from the public model directory; unavailable multipliers are labeled unknown, not zero.
 
-Tools are disabled by default. After verifying that a model supports OpenAI function calling, add its exact upstream model ID to `lmm.toolModels`. Refresh the picker; the model can then be selected for tool-based Chat/Agent workflows. The provider emits tool calls to VS Code; VS Code owns approvals and tool execution. No arbitrary model option can override the OAuth group, relay destination, or credentials. Billable requests are never retried automatically.
+The OAuth catalog does not provide verified context limits or function-calling capability. Exact upstream IDs and provider-qualified IDs (for example, `openai/gpt-5`) are matched against a bundled [models.dev](https://models.dev) reference snapshot (MIT; attribution in `assets/models.dev-LICENSE.txt`). No external metadata request occurs at runtime. These are upstream reference limits, not guarantees about an LMM gateway route. The snapshot retains nine reviewed direct-vendor sources and their exact IDs, types, modalities and independent input limits. Conflicting metadata for an unqualified ID remains unknown; group names never select a vendor. Input budgets use the smaller of the upstream input limit and the context window after reserving output. `lmm.maxOutputTokens` defaults to 4,096 and is capped by the model's output limit; an explicitly configured `lmm.maxInputTokens` caps input across all models. Unknown aliases retain the labeled **32,768 input / 4,096 output compatibility estimate**; no fuzzy name matching is used. Tooltips identify the limit source. Token counting remains a conservative UTF-8 byte estimate, not the model's exact tokenizer.
+
+For verified gateway limits, set `lmm.modelLimits` in VS Code settings. Keys are exact upstream IDs or canonical `lmm:group_id:model_id` wire IDs; a wire ID overrides the upstream ID for group-specific limits. Example:
+
+```json
+"lmm.modelLimits": {
+  "my-exact-model-id": { "contextWindow": 128000, "maxOutputTokens": 16000 }
+}
+```
+
+The status bar displays wallet balance from `/api/oauth2/balance`, after sign-in, every five minutes, and after generation requests. Click it or run **LMM: Refresh Balance** to refresh. V2 balances show verified USD and platform credits; legacy V1 balances retain their legacy wallet-unit label, not an assumed dollar conversion. The wallet is **not** an OAuth spending allowance. Missing permission and failed refreshes display an unavailable state instead of an old balance. Sign-out invalidates pending UI updates.
+
+Tools are disabled by default. After verifying that a model supports OpenAI function calling, add its canonical `lmm:group_id:model_id` wire ID to `lmm.toolModels` for one group route, or its exact upstream model ID to enable all groups for that ID. Tool permission and token budgets are checked again before each request, so removing permission or reducing a budget affects stale picker selections too. Refresh the picker; the model can then be selected for tool-based Chat/Agent workflows. The provider emits tool calls to VS Code; VS Code owns approvals and tool execution. No arbitrary model option can override the OAuth group, relay destination, or credentials. Billable requests are never retried automatically.
 
 ## Build and test
 
@@ -39,13 +51,15 @@ npm run package
 npm run test:host
 ```
 
-`npm test` compiles against the stable VS Code 1.104 API and runs OAuth rotation, cross-window replay, catalog authorization, callback security, and SSE tests. `npm run package` creates `lmm-copilot-provider-0.1.1.vsix`; the extension has no runtime npm dependencies.
+`npm test` compiles against the stable VS Code 1.104 API and runs OAuth rotation, cross-window replay, catalog authorization, callback security, SSE, model metadata, and wallet/status race tests. `npm run package` creates `lmm-copilot-provider-0.1.3.vsix`; the extension has no runtime npm dependencies.
 
-Install the local package with `code --install-extension ./lmm-copilot-provider-0.1.1.vsix`. A real OAuth/model request requires the production server to register public native client `lmm-vscode` with loopback `/oauth/lmm/callback`, the required scopes, and the OAuth relay endpoints.
+Install the local package with `code --install-extension ./lmm-copilot-provider-0.1.3.vsix`. A real OAuth/model request requires the production server to register public native client `lmm-vscode` with loopback `/oauth/lmm/callback`, the required scopes, and the OAuth relay endpoints.
+
+To update the offline reference, download and review `https://models.dev/api.json`, then run `python3 -B scripts/update-model-metadata.py /path/to/api.json --retrieved ISO_UTC_TIMESTAMP --revision REVIEWED_MODELS_DEV_SHA`. The snapshot records the raw response hash and reviewed upstream revision. Run the tests and package checks again; directory capability flags are reference information and do not enable gateway tools.
 
 ## Marketplace publishing
 
-The manifest publisher is `LIghtJUNction`. Publishing requires control of that exact Visual Studio Marketplace publisher and an Azure DevOps Personal Access Token authorized to manage extensions. Run `npx vsce publish --packagePath ./lmm-copilot-provider-0.1.1.vsix` from an authenticated publisher environment. Open VSX additionally requires an Open VSX account, a matching owned namespace, publisher agreement, and its own access token. Never put publishing tokens in repository files.
+The manifest publisher is `LIghtJUNction`. Publishing requires control of that exact Visual Studio Marketplace publisher and an Azure DevOps Personal Access Token authorized to manage extensions. Run `npx vsce publish --packagePath ./lmm-copilot-provider-0.1.3.vsix` from an authenticated publisher environment. Open VSX additionally requires an Open VSX account, a matching owned namespace, publisher agreement, and its own access token. Never put publishing tokens in repository files.
 
 Packaging and automated tests do not establish a successful browser OAuth session, paid model request, or Marketplace listing. Those must be verified separately.
 

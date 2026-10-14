@@ -3,7 +3,7 @@
   "displayName": "LMM for Copilot",
   "icon": "assets/icon.png",
   "description": "Use LMM models in VS Code Chat with secure browser OAuth sign-in.",
-  "version": "0.1.1",
+  "version": "0.1.3",
   "publisher": "LIghtJUNction",
   "license": "AGPL-3.0-only",
   "repository": {
@@ -39,6 +39,10 @@
       {
         "command": "lmm.refreshModels",
         "title": "LMM: Refresh Models"
+      },
+      {
+        "command": "lmm.refreshAccount",
+        "title": "LMM: Refresh Balance"
       }
     ],
     "languageModelChatProviders": [
@@ -56,7 +60,7 @@
           "default": 32768,
           "minimum": 1024,
           "maximum": 2000000,
-          "description": "Conservative input budget advertised to VS Code. Set at or below the limits of your selected models; LMM catalog does not advertise context limits."
+          "description": "Optional input budget cap for all models. When not explicitly set, exact models.dev reference limits or lmm.modelLimits are used, reserving the output budget. Unknown models fall back to this default estimate."
         },
         "lmm.maxOutputTokens": {
           "type": "number",
@@ -65,13 +69,27 @@
           "maximum": 131072,
           "description": "Output budget sent to each model. Set at or below your model's supported limit."
         },
+        "lmm.modelLimits": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "object",
+            "required": ["contextWindow", "maxOutputTokens"],
+            "additionalProperties": false,
+            "properties": {
+              "contextWindow": { "type": "integer", "minimum": 2, "maximum": 2000000 },
+              "maxOutputTokens": { "type": "integer", "minimum": 1, "maximum": 2000000 }
+            }
+          },
+          "description": "Verified model-specific limits keyed by exact LMM wire model ID or upstream ID. Wire IDs take priority for group-specific gateway limits. Overrides supersede the bundled models.dev reference snapshot. Output must be less than context."
+        },
         "lmm.toolModels": {
           "type": "array",
           "items": {
             "type": "string"
           },
           "default": [],
-          "description": "Exact upstream model IDs verified to support OpenAI function calling. Enables Copilot Agent tools for these models. Empty by default."
+          "description": "Exact canonical LMM wire IDs or upstream model IDs verified to support OpenAI function calling. Wire IDs enable a specific group route; upstream IDs enable every group for that ID. Empty by default."
         }
       }
     }

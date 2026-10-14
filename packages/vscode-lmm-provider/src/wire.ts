@@ -5,6 +5,7 @@ export interface CatalogModel {
   group: string;
   upstream_model: string;
   name: string;
+  groupMultiplier: number | null;
 }
 export function catalogModels(body: unknown, scope: string): CatalogModel[] {
   const b = record(body);
@@ -16,13 +17,20 @@ export function catalogModels(body: unknown, scope: string): CatalogModel[] {
   );
   const scopes = new Set(scope.split(" ")),
     seen = new Set<string>();
-  return b.models
-    .filter(
-      (m: any) =>
-        Array.isArray(m.apis) && m.apis.includes("openai-completions"),
-    )
-    .map((value: unknown) => {
+  const groups = new Map<string, number | null>();
+  if (b.groups !== undefined) {
+    assert(Array.isArray(b.groups) && b.groups.length <= 2000);
+    for (const value of b.groups) {
+      const g = record(value);
+      assert(typeof g.name === "string" && g.name.length > 0 && g.name.length <= 4096 && !/[\p{Cc}\p{Cf}]/u.test(g.name) && g.id === Buffer.from(g.name).toString("base64url") &&
+        g.scope === `group:${g.id}` && scopes.has(g.scope) && !groups.has(g.id));
+      groups.set(g.id, multiplier(g.multiplier));
+    }
+  }
+  return b.models.map((value: unknown) => {
       const m = record(value);
+      assert(Array.isArray(m.apis) && m.apis.length > 0 && m.apis.length <= 32 &&
+        m.apis.every((api: unknown) => typeof api === "string" && api.length > 0 && api.length <= 128 && !/[\p{Cc}\p{Cf}]/u.test(api)));
       assert(
         ["id", "group_id", "group", "upstream_model", "name"].every(
           (k) =>
@@ -41,15 +49,25 @@ export function catalogModels(body: unknown, scope: string): CatalogModel[] {
         scopes.has(`group:${m.group_id}`) && !seen.has(m.id),
         "LMM catalog returned a model outside the granted groups.",
       );
+      if (b.groups !== undefined) assert(groups.has(m.group_id));
+      const pricing = m.pricing === undefined ? undefined : record(m.pricing);
+      const groupMultiplier = pricing ? multiplier(pricing.group_multiplier) : (groups.get(m.group_id) ?? null);
       seen.add(m.id);
       return {
+        supported: m.apis.includes("openai-completions"),
         id: m.id,
         group_id: m.group_id,
         group: m.group,
         upstream_model: m.upstream_model,
         name: m.name,
+        groupMultiplier,
       };
-    });
+    }).filter(model => model.supported).map(({ supported: _supported, ...model }) => model);
+}
+function multiplier(value: unknown): number | null {
+  if (value === undefined || value === null) return null;
+  assert(typeof value === "number" && Number.isFinite(value) && value >= 0);
+  return value;
 }
 export type StreamPart =
   | { type: "text"; text: string }
