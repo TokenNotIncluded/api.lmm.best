@@ -12,6 +12,7 @@ import (
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/assistant/access"
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/identity"
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/operations"
+	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/payments"
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/remotecontrol"
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/store"
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/store/rustauth"
@@ -20,9 +21,13 @@ import (
 )
 
 type Config struct {
+	HostCredential         []byte
 	Selected               []string
 	Socket                 string
 	TokenFile              string
+	PaymentTokenFile       string
+	PaymentConfigFile      string
+	Payments               StorageConfig
 	CommerceTokenFile      string
 	Store                  StorageConfig
 	Support                StorageConfig
@@ -35,6 +40,8 @@ type Config struct {
 type Runtime struct {
 	Modules          []modules.Module
 	Client           *coreclient.Client
+	PaymentClient    *coreclient.Client
+	Payments         *payments.Service
 	CommerceClient   *coreclient.Client
 	Store            *store.Service
 	Support          *support.Service
@@ -78,23 +85,32 @@ func (r *Runtime) StartWorkers(parent context.Context, host *modules.Host) {
 					return
 				case <-ticker.C:
 				}
-				if r.Store == nil {
-					continue
+				var recovery []func(context.Context) error
+				if r.Payments != nil {
+					recovery = append(recovery, func(work context.Context) error { return r.Payments.Work(work, 1) })
 				}
-				release, ok := host.Acquire()
-				if !ok {
-					return
+				if r.Store != nil {
+					recovery = append(recovery, r.Store.RecoverDeliveries)
 				}
-				bounded, stop := context.WithTimeout(ctx, 20*time.Second)
-				_ = r.Store.RecoverDeliveries(bounded)
-				stop()
-				release()
+				for _, recover := range recovery {
+					release, ok := host.Acquire()
+					if !ok {
+						return
+					}
+					bounded, stop := context.WithTimeout(ctx, 20*time.Second)
+					_ = recover(bounded)
+					stop()
+					release()
+				}
 			}
 		}()
 	})
 }
 
 func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
+	if err := validatePaymentSelection(cfg); err != nil {
+		return nil, err
+	}
 	r := &Runtime{}
 	defer func() {
 		if resultErr != nil {
@@ -129,6 +145,25 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 	if cfg.CommerceTokenFile != "" && !selected["store"] {
 		return nil, errors.New("commerce RPC configuration requires store")
 	}
+	var commerceToken []byte
+	if cfg.CommerceTokenFile != "" {
+		commerceToken, err = coreclient.ReadTokenFile(cfg.CommerceTokenFile)
+		if err != nil {
+			return nil, err
+		}
+	}
+	if err := independentRuntimeCredentials(cfg.HostCredential, token, commerceToken); err != nil {
+		return nil, err
+	}
+	if selected["payments"] {
+		paymentToken, err := loadPaymentCredential(cfg, token, commerceToken)
+		if err != nil {
+			return nil, err
+		}
+		if err := r.composePayments(ctx, cfg, paymentToken); err != nil {
+			return nil, err
+		}
+	}
 	if selected["store"] {
 		db, err := openStorage(ctx, cfg.Store)
 		if err != nil {
@@ -147,13 +182,6 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 		// operations can become usable. Identity does not grant spending.
 		var funds store.Funds = store.DisabledFunds{}
 		if cfg.CommerceTokenFile != "" {
-			commerceToken, err := coreclient.ReadTokenFile(cfg.CommerceTokenFile)
-			if err != nil {
-				return nil, err
-			}
-			if string(commerceToken) == string(token) {
-				return nil, errors.New("commerce and identity RPC credentials must be distinct")
-			}
 			r.CommerceClient, err = coreclient.New(cfg.Socket, commerceToken)
 			if err != nil {
 				return nil, err
@@ -245,6 +273,8 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 				return nil, err
 			}
 			r.Modules = append(r.Modules, remote)
+		case "payments":
+			r.Modules = append(r.Modules, r.Payments)
 		case "store":
 			r.Modules = append(r.Modules, r.Store)
 		case "support":

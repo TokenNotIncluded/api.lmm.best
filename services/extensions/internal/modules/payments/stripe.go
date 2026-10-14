@@ -158,7 +158,10 @@ func (s *Stripe) Checkout(ctx context.Context, o Order, key string) (Checkout, e
 	}
 	return Checkout{ID: v.ID, URL: v.URL, PaymentID: refID(v.PaymentIntent)}, nil
 }
-func (s *Stripe) Verify(r *http.Request, _ time.Time) (Event, error) {
+
+// parseCallback reads bounded original evidence without any provider I/O. The
+// service submits it to Core's durable proof gate before observeCallback runs.
+func (s *Stripe) parseCallback(r *http.Request) (Event, error) {
 	if r.Method != "POST" || len(r.Header.Values("Stripe-Signature")) != 1 {
 		return Event{}, ErrInvalid
 	}
@@ -170,18 +173,49 @@ func (s *Stripe) Verify(r *http.Request, _ time.Time) (Event, error) {
 	if len(signature) == 0 || len(signature) > 2048 {
 		return Event{}, ErrInvalid
 	}
-	// This is only a parser and optional provider API cross-check. Rust verifies
-	// the original bytes/signature and persists acceptance before HTTP ACK.
 	e, err := s.parseEnvelope(raw)
 	if err != nil {
 		return Event{}, err
 	}
-	// Direct-account events omit account. Confirm the parsed event also exists in
-	// the API-key's configured merchant, instead of trusting metadata as identity.
-	if err = s.merchant(r.Context()); err != nil {
+	e.Evidence.Signature = []byte(signature)
+	return e, nil
+}
+
+// proofOrderID is a lookup hint from the original evidence, never authority.
+// Keep the original callback OrderID unchanged until provider observation.
+func (s *Stripe) proofOrderID(e Event) (string, error) {
+	var envelope stripeEnvelope
+	if jsonObject(e.Evidence.Payload, &envelope) != nil {
+		return "", ErrInvalid
+	}
+	var object stripeObject
+	if jsonObject(envelope.Data.Object, &object) != nil {
+		return "", ErrInvalid
+	}
+	reference := object.Metadata["lmm_core_intent_id"]
+	id, err := strconv.ParseInt(reference, 10, 64)
+	if err != nil || id <= 0 || strconv.FormatInt(id, 10) != reference {
+		return "", ErrInvalid
+	}
+	return "top_" + reference, nil
+}
+
+// Verify retains the adapter's provider observation checks. Public callbacks
+// must enter Service.Receive, which first requires Core proof admission.
+func (s *Stripe) Verify(r *http.Request, _ time.Time) (Event, error) {
+	e, err := s.parseCallback(r)
+	if err != nil {
 		return Event{}, err
 	}
-	retrieved, err := s.api(r.Context(), "GET", "events/"+url.PathEscape(e.Evidence.EventID), "", nil)
+	return s.observeCallback(r.Context(), e)
+}
+func (s *Stripe) observeCallback(ctx context.Context, e Event) (Event, error) {
+	// Direct-account events omit account. Confirm the parsed event also exists in
+	// the API-key's configured merchant, instead of trusting metadata as identity.
+	if err := s.merchant(ctx); err != nil {
+		return Event{}, err
+	}
+	retrieved, err := s.api(ctx, "GET", "events/"+url.PathEscape(e.Evidence.EventID), "", nil)
 	if err != nil {
 		return Event{}, err
 	}
@@ -192,7 +226,7 @@ func (s *Stripe) Verify(r *http.Request, _ time.Time) (Event, error) {
 	// Refund metadata cannot replace the original payment's order binding.
 	// Check it even when the refund already contains an order reference.
 	if e.RefundID != "" || e.OrderID == "" {
-		v, _, err := s.payment(r.Context(), e.Evidence.Transaction)
+		v, _, err := s.payment(ctx, e.Evidence.Transaction)
 		if err != nil {
 			return Event{}, err
 		}
@@ -206,7 +240,6 @@ func (s *Stripe) Verify(r *http.Request, _ time.Time) (Event, error) {
 	if e.OrderID == "" {
 		return Event{}, ErrConflict
 	}
-	e.Evidence.Signature = []byte(signature)
 	return e, nil
 }
 func (s *Stripe) parseEnvelope(raw []byte) (Event, error) {

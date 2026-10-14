@@ -24,6 +24,7 @@ type GoConfig struct {
 	Legal      LegalConfig     `toml:"legal"`
 	Assistant  AssistantConfig `toml:"assistant"`
 	Operations DatabaseConfig  `toml:"operations"`
+	Payments   PaymentsConfig  `toml:"payments"`
 	Scripts    ScriptConfig    `toml:"scripts"`
 }
 type HostConfig struct {
@@ -36,6 +37,7 @@ type CoreConfig struct {
 	Socket            string `toml:"socket"`
 	IdentityTokenFile string `toml:"identity_token_file"`
 	CommerceTokenFile string `toml:"commerce_token_file"`
+	PaymentTokenFile  string `toml:"payment_token_file"`
 }
 type DatabaseConfig struct {
 	DatabaseName    string `toml:"database_name"`
@@ -116,6 +118,9 @@ func LoadConfig(path string) (GoConfig, error) {
 	// names belong to this versioned operator contract.
 	allowed := map[string]bool{"version": true, "host": true, "host.listen": true, "host.token_file": true, "host.modules": true, "host.web_compat": true, "core": true, "core.socket": true, "core.identity_token_file": true, "core.commerce_token_file": true, "store": true, "store.database_name": true, "store.database_url_file": true, "support": true, "support.database_name": true, "support.database_url_file": true, "legal": true, "legal.config_file": true}
 	for _, key := range meta.Keys() {
+		if paymentConfigurationKey(key.String()) {
+			continue
+		}
 		switch key.String() {
 		case "assistant", "assistant.database_name", "assistant.database_url_file", "assistant.cursor_key_file",
 			"operations", "operations.database_name", "operations.database_url_file",
@@ -152,6 +157,9 @@ func LoadConfig(path string) (GoConfig, error) {
 		if cfg.Scripts.Root == "" || cfg.Scripts.Manifest == nil {
 			return cfg, errors.New("configure both scripts root and an explicit reviewed manifest")
 		}
+	}
+	if err := validatePaymentsConfiguration(cfg); err != nil {
+		return cfg, err
 	}
 	return cfg, nil
 }
