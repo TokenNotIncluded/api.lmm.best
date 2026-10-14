@@ -1,4 +1,5 @@
 """Offline command/ownership checks. No Docker or PostgreSQL result is simulated as PASS."""
+import base64
 import copy
 import hashlib
 import json
@@ -140,6 +141,42 @@ class FixtureContractTests(unittest.TestCase):
                 with self.assertRaises(pg.FixtureError):
                     self.fixture.cleanup()
                 docker.assert_not_called()
+
+    def test_cleanup_fences_current_database_without_disallowing_it(self):
+        self.fixture.binding = self.binding()
+        self.fixture.identity = {'system_id': '1234'}
+        removed = subprocess.CompletedProcess([], 0, b'', b'')
+        with patch.object(self.fixture, 'verify'), patch.object(self.fixture, 'inspect', return_value=self.fixture.binding):
+            with patch.object(self.fixture, 'sql') as sql, patch.object(self.fixture, 'docker', return_value=removed):
+                self.fixture.cleanup()
+        statement = sql.call_args.args[0]
+        self.assertIn('d.datname = current_database()', statement)
+        self.assertIn('CONNECTION LIMIT 0', statement)
+        self.assertIn('unexpected login superuser', statement)
+        self.assertIn('WHERE datallowconn', statement)
+        self.assertIn('live client after fence', statement)
+        self.assertIn('unfenced database', statement)
+        self.assertTrue((self.fixture.root / 'removed.json').is_file())
+
+    def test_sql_failure_preserves_exact_private_diagnostic(self):
+        statement = 'SELECT synthetic_secret;'
+        stderr = b'ERROR: 42601: invalid SQL; password=synthetic-secret\xff'
+        stdout = b'partial synthetic result\xfe'
+        result = subprocess.CompletedProcess([], 3, stdout, stderr)
+        with patch.object(subprocess, 'run', return_value=result):
+            with self.assertRaises(pg.FixtureError) as error:
+                self.fixture.sql(statement)
+        self.assertNotIn('synthetic-secret', str(error.exception))
+        diagnostics = list(self.fixture.root.glob('sql-failure-*.json'))
+        self.assertEqual(len(diagnostics), 1)
+        self.assertEqual(diagnostics[0].stat().st_mode & 0o777, 0o600)
+        diagnostic = json.loads(diagnostics[0].read_text())
+        self.assertEqual(diagnostic['exit_code'], 3)
+        self.assertEqual(diagnostic['sqlstate'], '42601')
+        self.assertEqual(diagnostic['statement_sha256'], hashlib.sha256(statement.encode()).hexdigest())
+        self.assertEqual(base64.b64decode(diagnostic['stderr_base64']), stderr)
+        self.assertEqual(base64.b64decode(diagnostic['stdout_base64']), stdout)
+        self.assertNotIn('statement', diagnostic)
 
     def test_missing_docker_is_blocked_before_create(self):
         fresh = pg.Fixture(self.root)

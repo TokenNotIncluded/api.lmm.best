@@ -6,6 +6,8 @@ ambiguous provisioning is retained, never retried or swept by a name prefix.
 """
 from __future__ import annotations
 
+import base64
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -142,7 +144,16 @@ class Fixture:
             error = re.search(rb'(ERROR|FATAL):\s+([0-9A-Z]{5}):', result.stderr)
             if result.returncode in {2, 3} and error and error[2] == b'42501':
                 raise PermissionDenied('PostgreSQL denied the operation with SQLSTATE 42501')
-            raise FixtureError('isolated SQL failed; not proof of a permission denial')
+            # Driver output may contain secrets. Preserve exact bytes privately,
+            # never include them or the SQL itself in an exception or console log.
+            diagnostic = 'sql-failure-' + secrets.token_hex(8)
+            self.record(diagnostic, {'database': database, 'exit_code': result.returncode,
+                'sqlstate': error[2].decode('ascii') if error else None,
+                'statement_sha256': hashlib.sha256(sql.encode()).hexdigest(),
+                'stderr_base64': base64.b64encode(result.stderr).decode('ascii'),
+                'stdout_base64': base64.b64encode(result.stdout).decode('ascii')})
+            raise FixtureError('isolated SQL failed; not proof of a permission denial; '
+                               f'private diagnostic {diagnostic}.json')
         return result.stdout.decode().strip()
 
     def inspect(self):
@@ -293,14 +304,22 @@ class Fixture:
         system_id = self.identity['system_id']
         if not re.fullmatch(r'[0-9]+', system_id):
             raise FixtureError('invalid physical cluster identity')
-        # Block new clients, then check again after COMMIT on this same session.
-        # A live client leaves the fixture fenced and retained, not forcibly killed.
+        # PostgreSQL refuses ALLOW_CONNECTIONS false on the current database.
+        # Fence it with CONNECTION LIMIT 0 and require our maintenance owner to
+        # be the sole login superuser (superusers bypass connection limits).
+        # All other databases are closed completely. Recheck after COMMIT; a
+        # live client leaves the fixture fenced and retained, not forcibly killed.
         self.sql("BEGIN; SET LOCAL lock_timeout='3s'; DO $$ DECLARE d RECORD; BEGIN "
             f"IF (SELECT system_identifier::text FROM pg_control_system()) <> '{system_id}' THEN RAISE EXCEPTION 'identity mismatch'; END IF; "
+            "IF EXISTS(SELECT 1 FROM pg_roles WHERE rolsuper AND rolcanlogin AND rolname<>current_user) THEN RAISE EXCEPTION 'unexpected login superuser'; END IF; "
             "IF EXISTS(SELECT 1 FROM pg_stat_activity WHERE backend_type='client backend' AND pid<>pg_backend_pid()) THEN RAISE EXCEPTION 'live client'; END IF; "
             "FOR d IN SELECT datname FROM pg_database WHERE datallowconn LOOP "
-            "EXECUTE format('ALTER DATABASE %I ALLOW_CONNECTIONS false',d.datname); END LOOP; END $$; COMMIT; "
-            "DO $$ BEGIN PERFORM pg_stat_clear_snapshot(); IF EXISTS(SELECT 1 FROM pg_stat_activity "
+            "IF d.datname = current_database() THEN "
+            "EXECUTE format('ALTER DATABASE %I CONNECTION LIMIT 0',d.datname); ELSE "
+            "EXECUTE format('ALTER DATABASE %I ALLOW_CONNECTIONS false',d.datname); END IF; END LOOP; END $$; COMMIT; "
+            "DO $$ BEGIN PERFORM pg_stat_clear_snapshot(); "
+            "IF EXISTS(SELECT 1 FROM pg_database WHERE datallowconn AND (datname<>current_database() OR datconnlimit<>0)) THEN RAISE EXCEPTION 'unfenced database'; END IF; "
+            "IF EXISTS(SELECT 1 FROM pg_stat_activity "
             "WHERE backend_type='client backend' AND pid<>pg_backend_pid()) THEN RAISE EXCEPTION 'live client after fence'; END IF; END $$;")
         if self.inspect() != self.binding:
             raise FixtureError('container generation changed before cleanup')
