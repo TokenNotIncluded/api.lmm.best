@@ -70,12 +70,17 @@ GRANT SELECT, INSERT, UPDATE ON core_identity.accounts, core_identity.users,
     core_identity.teams, core_identity.memberships, core_identity.credentials,
     core_identity.invites, core_identity.password_logins, core_identity.user_profiles,
     core_identity.company_billing_profiles, core_identity.web_sessions,
-    core_identity.api_key_settings TO :"runtime_role";
+    core_identity.api_key_settings, core_identity.mfa_factors,
+    core_identity.mfa_enrollments, core_identity.mfa_backup_codes,
+    core_identity.mfa_challenges TO :"runtime_role";
 GRANT SELECT, INSERT ON core_identity.key_funding_rules,
     core_identity.credential_grants, core_identity.oauth_identities,
-    core_identity.audit, core_identity.web_session_credentials TO :"runtime_role";
+    core_identity.audit, core_identity.web_session_credentials,
+    core_identity.session_authentication TO :"runtime_role";
 GRANT SELECT, INSERT, DELETE ON core_identity.oauth_flows TO :"runtime_role";
 GRANT SELECT, INSERT, UPDATE, DELETE ON core_identity.auth_attempts TO :"runtime_role";
+GRANT USAGE ON SEQUENCE core_identity.mfa_enrollments_id_seq,
+    core_identity.mfa_backup_codes_id_seq TO :"runtime_role";
 GRANT SELECT ON core_identity.developer_access,
     core_identity.user_routing_groups TO :"runtime_role";
 GRANT USAGE ON SEQUENCE core_identity.accounts_id_seq, core_identity.users_id_seq,

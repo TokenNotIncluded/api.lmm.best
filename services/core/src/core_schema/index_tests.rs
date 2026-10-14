@@ -1,4 +1,5 @@
-//! Only newly constructed SQLx-owned prior-schema fixtures, never an existing site.
+//! Newly constructed SQLx-owned current-schema fixtures with only the charging
+//! index removed. These do not establish historical identity-schema upgrades.
 use super::*;
 
 async fn prior(pool: &PgPool) -> [u8; 32] {
@@ -73,15 +74,17 @@ async fn unchanged(pool: &PgPool, before: &[String]) {
 }
 
 #[sqlx::test(migrations = false)]
-async fn prior_owner_upgrade_changes_only_verified_index_and_two_receipts(pool: PgPool) {
+async fn current_schema_index_predecessor_upgrade_changes_only_verified_index_and_two_receipts(
+    pool: PgPool,
+) {
     let approved = prior(&pool).await;
     let prior_hex = approved
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect::<String>();
     assert_eq!(
-        prior_hex, "e8fa053daca7741952caa4c60e27071652f600b4fa48f4b7631ea54ee801df7b",
-        "frozen CLI fixture must match the actual prior-source catalog"
+        prior_hex, "5510e0bee0e5659ff940b798c9d6d3c69aea220734d9f73577c847b6841254b7",
+        "current-schema index-predecessor fixture must match its reviewed canonical catalog"
     );
     println!("prior catalog SHA256={prior_hex}");
     let store = IdentityStore::from_pool(pool.clone());
@@ -332,11 +335,23 @@ async fn upgrade_rejects_runtime_role_and_unrelated_superuser(pool: PgPool) {
         std::process::id(),
         rand::random::<u64>()
     );
-    sqlx::query(&format!("CREATE ROLE {name} LOGIN SUPERUSER"))
-        .execute(&pool)
-        .await
-        .unwrap();
-    let options = pool.connect_options().as_ref().clone().username(&name);
+    let password = format!(
+        "{:032x}{:032x}",
+        rand::random::<u128>(),
+        rand::random::<u128>()
+    );
+    sqlx::query(&format!(
+        "CREATE ROLE {name} LOGIN SUPERUSER PASSWORD '{password}'"
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    let options = pool
+        .connect_options()
+        .as_ref()
+        .clone()
+        .username(&name)
+        .password(&password);
     let unrelated = sqlx::postgres::PgPoolOptions::new()
         .max_connections(1)
         .connect_with(options)

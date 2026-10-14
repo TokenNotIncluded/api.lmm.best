@@ -453,7 +453,8 @@ impl IdentityStore {
             return Err(IdentityError::Forbidden);
         }
         let expiry: i64 = row.try_get("expiry")?;
-        let actor = principal(&mut tx, row).await?;
+        let actor =
+            principal_with_assurance_mode(&mut tx, row, mfa::AssuranceRead::Snapshot).await?;
         if actor.owner.kind != AccountKind::Personal || actor.owner.id != actor.user_id {
             return Err(IdentityError::Forbidden);
         }

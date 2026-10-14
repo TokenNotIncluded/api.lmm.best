@@ -60,24 +60,23 @@ pub(super) async fn issue_session_with_secret(
     action: &str,
     secret: String,
 ) -> Result<IssuedCredential> {
+    let proof = mfa::primary(c, user_id).await?;
+    issue_session_with_assurance(c, user_id, action, secret, &proof).await
+}
+pub(super) async fn issue_session_with_assurance(
+    c: &mut PgConnection,
+    user_id: i64,
+    action: &str,
+    secret: String,
+    proof: &mfa::Assurance,
+) -> Result<IssuedCredential> {
     let user = sqlx::query("SELECT u.personal_account_id,u.auth_version FROM core_identity.users u JOIN core_identity.accounts a ON a.id=u.personal_account_id WHERE u.id=$1 AND u.active AND a.active FOR SHARE OF u,a")
         .bind(user_id).fetch_optional(&mut *c).await?.ok_or(IdentityError::Unauthorized)?;
-    // This helper has no completed second-factor proof. A provider identity
-    // alone must not bypass an account's local second-factor requirement.
-    // Read after the user lock with a fresh statement snapshot. Do not lock
-    // the profile: profile_policy_generation takes the user lock in turn.
-    let second_factor_required: Option<bool> = sqlx::query_scalar(
-        "SELECT second_factor_required FROM core_identity.user_profiles WHERE user_id=$1",
-    )
-    .bind(user_id)
-    .fetch_optional(&mut *c)
-    .await?;
-    if second_factor_required == Some(true) {
-        return Err(IdentityError::Unauthorized);
-    }
+    proof.validate(c, user_id).await?;
     let id = sqlx::query_scalar("INSERT INTO core_identity.credentials(digest,kind,user_id,user_version,owner_account_id,expires_at) VALUES ($1,'session',$2,$3,$4,clock_timestamp()+interval '7 days') RETURNING id")
         .bind(digest(&secret)?).bind(user_id).bind(user.try_get::<i64,_>("auth_version")?)
         .bind(user.try_get::<i64,_>("personal_account_id")?).fetch_one(&mut *c).await?;
+    proof.persist(c, id).await?;
     let actor = authenticate(c, &secret, false).await?;
     audit(
         c,
@@ -205,7 +204,7 @@ impl IdentityStore {
         .await
         .map_err(|_| IdentityError::Storage)?
     }
-    async fn verify_password(&self, password: String, hash: String) -> Result<bool> {
+    pub(super) async fn verify_password(&self, password: String, hash: String) -> Result<bool> {
         let permit = self
             .password_slots
             .clone()
@@ -299,11 +298,7 @@ impl IdentityStore {
             self.verify_password(password.to_owned(), hash.clone())
                 .await?
         };
-        if !valid
-            || row.is_none()
-            || !row.as_ref().unwrap().try_get::<bool, _>("allowed")?
-            || row.as_ref().unwrap().try_get::<bool, _>("second_factor")?
-        {
+        if !valid || row.is_none() || !row.as_ref().unwrap().try_get::<bool, _>("allowed")? {
             return Err(IdentityError::Unauthorized);
         }
         Ok((hash, legacy))
@@ -318,7 +313,7 @@ impl IdentityStore {
             .bind(name).bind(&verified.0).fetch_optional(&mut *c).await?.ok_or(IdentityError::Unauthorized)?;
         if let Some(policy) = sqlx::query("SELECT password_login_allowed,second_factor_required,legacy_bcrypt_allowed FROM core_identity.user_profiles WHERE user_id=$1 FOR UPDATE")
             .bind(user_id).fetch_optional(&mut *c).await? {
-            if !policy.try_get::<bool,_>("password_login_allowed")? || policy.try_get::<bool,_>("second_factor_required")? || (verified.1.is_some() && !policy.try_get::<bool,_>("legacy_bcrypt_allowed")?) { return Err(IdentityError::Unauthorized); }
+            if !policy.try_get::<bool,_>("password_login_allowed")? || (verified.1.is_some() && !policy.try_get::<bool,_>("legacy_bcrypt_allowed")?) { return Err(IdentityError::Unauthorized); }
         } else if verified.1.is_some() { return Err(IdentityError::Unauthorized); }
         if let Some(upgraded) = &verified.1 {
             sqlx::query(
@@ -444,12 +439,13 @@ impl IdentityStore {
         let current_hash: String = login.try_get("password_hash")?;
         if current_hash != prepared.old_hash
             || !login.try_get::<bool, _>("password_login_allowed")?
-            || login.try_get::<bool, _>("second_factor_required")?
             || (current_hash.starts_with("$2")
                 && !login.try_get::<bool, _>("legacy_bcrypt_allowed")?)
         {
             return Err(IdentityError::Unauthorized);
         }
+        let assurance =
+            mfa::from_session(c, actor.credential_id, actor.user_id, actor.user_version).await?;
         let changed = sqlx::query("UPDATE core_identity.password_logins SET password_hash=$3 WHERE user_id=$1 AND password_hash=$2")
             .bind(actor.user_id).bind(&prepared.old_hash).bind(&prepared.new_hash)
             .execute(&mut *c).await?.rows_affected();
@@ -470,6 +466,7 @@ impl IdentityStore {
         let id: i64 = sqlx::query_scalar("INSERT INTO core_identity.credentials(digest,kind,user_id,user_version,owner_account_id,expires_at,session_started_at) SELECT $1,'session',user_id,$2,owner_account_id,LEAST(expires_at,session_started_at+interval '30 days'),session_started_at FROM core_identity.credentials WHERE id=$3 AND expires_at>clock_timestamp() AND session_started_at+interval '30 days'>clock_timestamp() RETURNING id")
             .bind(digest(&replacement)?).bind(version).bind(actor.credential_id)
             .fetch_optional(&mut *c).await?.ok_or(IdentityError::Unauthorized)?;
+        assurance.rebind_version(version).persist(c, id).await?;
         sqlx::query("UPDATE core_identity.credentials SET revoked_at=clock_timestamp() WHERE id=$1 AND revoked_at IS NULL")
             .bind(actor.credential_id).execute(&mut *c).await?;
         audit(
@@ -494,6 +491,13 @@ impl IdentityStore {
         if browser {
             return Err(IdentityError::Forbidden);
         }
+        let assurance = mfa::from_session(
+            &mut tx,
+            actor.credential_id,
+            actor.user_id,
+            actor.user_version,
+        )
+        .await?;
         let changed = sqlx::query("UPDATE core_identity.credentials SET revoked_at=clock_timestamp() WHERE id=$1 AND revoked_at IS NULL AND expires_at>clock_timestamp() AND session_started_at+interval '30 days'>clock_timestamp()")
             .bind(actor.credential_id).execute(&mut *tx).await?.rows_affected();
         if changed != 1 {
@@ -502,6 +506,7 @@ impl IdentityStore {
         let issued = new_secret("lmms_")?;
         let id = sqlx::query_scalar("INSERT INTO core_identity.credentials(digest,kind,user_id,user_version,owner_account_id,expires_at,session_started_at) SELECT $1,'session',user_id,user_version,owner_account_id,LEAST(clock_timestamp()+interval '7 days',session_started_at+interval '30 days'),session_started_at FROM core_identity.credentials WHERE id=$2 RETURNING id")
             .bind(digest(&issued)?).bind(actor.credential_id).fetch_one(&mut *tx).await?;
+        assurance.persist(&mut tx, id).await?;
         // Rotation preserves pending invitations issued by this login. Explicit
         // revocation still invalidates invitations bound to that credential.
         sqlx::query("UPDATE core_identity.invites SET inviter_credential_id=$1 WHERE inviter_credential_id=$2 AND accepted_at IS NULL AND rejected_at IS NULL AND withdrawn_at IS NULL AND expires_at>clock_timestamp()")

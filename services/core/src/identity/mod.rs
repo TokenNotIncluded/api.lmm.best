@@ -14,6 +14,11 @@ pub use compat::authorize_model_request_in_transaction;
 pub use compat::{DashboardKeyInput, DashboardKeyQuery, ProfileUpdate};
 pub mod grants;
 mod lifecycle;
+mod mfa;
+pub use mfa::{
+    BrowserLoginOutcome, LoginOutcome, MfaChallenge, MfaCompletion, MfaError, MfaResult, MfaSetup,
+    MfaStatus,
+};
 mod oauth;
 pub use auth::{CredentialSummary, LoginRequest};
 pub use lifecycle::{InviteSummary, MemberSummary, MemberUpdate};
@@ -77,6 +82,7 @@ pub struct IdentityStore {
     commerce_scope_enabled: bool,
     financial_profile_enabled: bool,
     api_key_encryption_key: Option<std::sync::Arc<[u8]>>,
+    mfa_keys: Option<std::sync::Arc<mfa::MfaKeyring>>,
 }
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
@@ -185,6 +191,13 @@ async fn native_account(c: &mut PgConnection, account: Account) -> Result<i64> {
         .ok_or(IdentityError::Forbidden)
 }
 async fn principal(c: &mut PgConnection, row: PgRow) -> Result<Principal> {
+    principal_with_assurance_mode(c, row, mfa::AssuranceRead::Locked).await
+}
+async fn principal_with_assurance_mode(
+    c: &mut PgConnection,
+    row: PgRow,
+    mode: mfa::AssuranceRead,
+) -> Result<Principal> {
     let user_id: i64 = row.try_get("user_id")?;
     let id: i64 = row.try_get("id")?;
     let owner_account_id: i64 = row.try_get("owner_account_id")?;
@@ -196,6 +209,10 @@ async fn principal(c: &mut PgConnection, row: PgRow) -> Result<Principal> {
     };
     if team_id.is_none() && owner_account_id != row.try_get::<i64, _>("personal_account_id")? {
         return Err(IdentityError::Storage);
+    }
+    if kind == CredentialKind::Session {
+        mfa::require_session_assurance_in_mode(c, id, user_id, row.try_get("user_version")?, mode)
+            .await?;
     }
     let owner = team_id.map_or(
         Account {
@@ -276,7 +293,16 @@ async fn authenticate(c: &mut PgConnection, secret: &str, write: bool) -> Result
         .fetch_optional(&mut *c)
         .await?
         .ok_or(IdentityError::Unauthorized)?;
-    principal(c, row).await
+    principal_with_assurance_mode(
+        c,
+        row,
+        if write {
+            mfa::AssuranceRead::Locked
+        } else {
+            mfa::AssuranceRead::Snapshot
+        },
+    )
+    .await
 }
 /// Authenticate and hold current credential, user and account authority locks
 /// in the caller's transaction. Financial writes must use this same transaction.
@@ -325,6 +351,7 @@ impl IdentityStore {
             commerce_scope_enabled: false,
             financial_profile_enabled: false,
             api_key_encryption_key: None,
+            mfa_keys: None,
         }
     }
     pub async fn connect(url: &str) -> Result<Self> {
@@ -380,6 +407,12 @@ impl IdentityStore {
             .bind(user_id).execute(&mut *tx).await?;
         let id: i64 = sqlx::query_scalar("INSERT INTO core_identity.credentials(digest,kind,user_id,user_version,owner_account_id,expires_at) VALUES ($1,'session',$2,1,$3,clock_timestamp()+$4::bigint*interval '1 second') RETURNING id")
             .bind(digest(&secret)?).bind(user_id).bind(account_id).bind(SESSION_TTL).fetch_one(&mut *tx).await?;
+        sqlx::query("INSERT INTO core_identity.user_profiles(user_id,username,display_name,password_login_allowed) VALUES ($1,$2,$2,FALSE)")
+            .bind(user_id).bind(format!("native_{user_id}")).execute(&mut *tx).await?;
+        mfa::primary(&mut tx, user_id)
+            .await?
+            .persist(&mut tx, id)
+            .await?;
         let actor = authenticate(&mut tx, &secret, false).await?;
         audit(
             &mut tx,

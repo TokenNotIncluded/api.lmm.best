@@ -77,6 +77,7 @@ async fn fixture(pool: &PgPool) -> (Charging, Arc<RecordingLedger>) {
          INSERT INTO core_identity.accounts(id,kind) OVERRIDING SYSTEM VALUE VALUES \
          (101,'personal'),(102,'personal'),(103,'personal'),(501,'team'); \
          INSERT INTO core_identity.users(id,personal_account_id) VALUES (1,101),(2,102),(3,103); \
+         INSERT INTO core_identity.user_profiles(user_id,username,display_name) VALUES (1,'charging_1','Charging1'),(2,'charging_2','Charging2'),(3,'charging_3','Charging3'); \
          INSERT INTO core_identity.teams(id,account_id,owner_user_id,created_by_user_id) OVERRIDING SYSTEM VALUE VALUES (77,501,1,1); \
          INSERT INTO core_identity.memberships(team_id,user_id,role,can_spend) VALUES (77,2,'member',true),(77,3,'admin',true); \
          INSERT INTO core_billing.account_policies(account_id) VALUES (101),(102),(103),(501);",
@@ -96,6 +97,9 @@ async fn fixture(pool: &PgPool) -> (Charging, Arc<RecordingLedger>) {
         if kind == "api_key" {
             sqlx::query("INSERT INTO core_identity.key_funding_rules(credential_id,position,payer_account_id) VALUES ($1,0,$2)")
                 .bind(i64::from(id)).bind(i64::from(account)).execute(pool).await.unwrap();
+        } else {
+            sqlx::query("INSERT INTO core_identity.session_authentication(credential_id,user_id,user_version,factor_revision,factor_level,method,authenticated_at) VALUES ($1,$2,1,0,1,'primary',clock_timestamp())")
+                .bind(i64::from(id)).bind(i64::from(user)).execute(pool).await.unwrap();
         }
     }
     sqlx::raw_sql("INSERT INTO core_identity.credential_grants(credential_id,team_id,team_version,membership_version) VALUES (13,77,1,1),(14,77,1,1)")
@@ -163,6 +167,40 @@ async fn subscription(pool: &PgPool, account: i64, quota: i64) -> i64 {
 async fn expire(pool: &PgPool, id: &str) {
     sqlx::query("UPDATE core_charging.requests SET lease_until=floor(extract(epoch FROM clock_timestamp()))::bigint-1,revision=revision+1 WHERE id=$1")
         .bind(id).execute(pool).await.unwrap();
+}
+
+#[sqlx::test(migrations = false)]
+async fn session_without_assurance_cannot_write_budget(pool: PgPool) {
+    let (engine, _) = fixture(&pool).await;
+    let unproved = "lmms_unproved_88888888888888888888888888888888";
+    sqlx::query("INSERT INTO core_identity.credentials(id,digest,kind,user_id,user_version,owner_account_id,expires_at) OVERRIDING SYSTEM VALUE VALUES (24,$1,'session',2,1,102,clock_timestamp()+interval '1 day')")
+        .bind(Sha256::digest(unproved.as_bytes()).to_vec())
+        .execute(&pool).await.unwrap();
+    let budget = cap("self", None, Some(2), None, 50);
+    assert!(matches!(
+        engine.set_budget(unproved, &budget).await,
+        Err(Error::Unauthorized)
+    ));
+    for relation in [
+        "core_charging.budgets",
+        "core_charging.policy_events",
+        "test_ledger_commands",
+    ] {
+        let count: i64 = sqlx::query_scalar(&format!("SELECT count(*) FROM {relation}"))
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(count, 0, "unproved session changed {relation}");
+    }
+    engine.set_budget(MEMBER_SESSION, &budget).await.unwrap();
+    let count: i64 = sqlx::query_scalar("SELECT count(*) FROM core_charging.budgets")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(
+        count, 1,
+        "persisted primary assurance should preserve non-MFA budgets"
+    );
 }
 
 #[test]

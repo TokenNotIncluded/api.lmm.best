@@ -325,7 +325,7 @@ pub async fn preadmit(
             Ok(actor) => {
                 request.extensions_mut().insert(actor);
             }
-            Err(response) => return response,
+            Err((status, code)) => return failure(status, code),
         }
     }
     next.run(request).await
@@ -333,9 +333,9 @@ pub async fn preadmit(
 async fn authenticate(
     state: &RemoteProxy,
     token: Option<String>,
-) -> Result<NativeRemote, Response> {
+) -> Result<NativeRemote, (StatusCode, &'static str)> {
     let Some(token) = token else {
-        return Err(failure(StatusCode::UNAUTHORIZED, "unauthorized"));
+        return Err((StatusCode::UNAUTHORIZED, "unauthorized"));
     };
     // No OAuth translation or grant-store fallback in this native-only slice.
     let authority = match tokio::time::timeout(
@@ -346,12 +346,12 @@ async fn authenticate(
     {
         Ok(Ok(actor)) => actor,
         Ok(Err(IdentityError::Unauthorized)) => {
-            return Err(failure(StatusCode::UNAUTHORIZED, "unauthorized"));
+            return Err((StatusCode::UNAUTHORIZED, "unauthorized"));
         }
         Ok(Err(IdentityError::Forbidden)) => {
-            return Err(failure(StatusCode::FORBIDDEN, "browser_session_required"));
+            return Err((StatusCode::FORBIDDEN, "browser_session_required"));
         }
-        _ => return Err(failure(StatusCode::SERVICE_UNAVAILABLE, "core_unavailable")),
+        _ => return Err((StatusCode::SERVICE_UNAVAILABLE, "core_unavailable")),
     };
     Ok(NativeRemote {
         authority: Arc::new(authority),
@@ -363,7 +363,7 @@ async fn proxy(State(state): State<RemoteProxy>, mut request: Request) -> Respon
         Some(actor) => actor,
         None => match authenticate(&state, credential(&request)).await {
             Ok(actor) => actor,
-            Err(response) => return response,
+            Err((status, code)) => return failure(status, code),
         },
     };
     let NativeRemote { authority, token } = actor;
@@ -550,6 +550,65 @@ impl HttpBody for CancelBody {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn missing_credential_rejects_before_database_and_capacity_at_both_boundaries() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        use tower::ServiceExt;
+
+        // No PostgreSQL authorization is exercised: the lazy pool is closed
+        // before either request, so any accidental database access must fail.
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgresql://unused@127.0.0.1/unused")
+            .unwrap();
+        pool.close().await;
+        let (_stop, stopped) = watch::channel(false);
+        let state = RemoteProxy::new(
+            IdentityStore::from_pool(pool),
+            "http://127.0.0.1:1234",
+            b"test_transport_credential_1234567890123456",
+            stopped,
+        )
+        .unwrap();
+        let _held = state.slots.clone().try_acquire_many_owned(8).unwrap();
+        let downstream_calls = Arc::new(AtomicUsize::new(0));
+        let observed = downstream_calls.clone();
+        let gated = Router::new()
+            .fallback(move || {
+                let observed = observed.clone();
+                async move {
+                    observed.fetch_add(1, Ordering::SeqCst);
+                    StatusCode::OK
+                }
+            })
+            .layer(axum::middleware::from_fn_with_state(
+                state.clone(),
+                preadmit,
+            ));
+        // Direct proxy covers fallback authentication. The sentinel app proves
+        // preadmit rejects before the downstream admission/handler is entered.
+        for app in [state.clone().router(), gated] {
+            let request = Request::builder()
+                .uri(format!("{PREFIX}sessions"))
+                .body(Body::empty())
+                .unwrap();
+            let response = app.oneshot(request).await.unwrap();
+            assert_eq!(response.status(), StatusCode::UNAUTHORIZED);
+            assert_eq!(response.headers()[header::CACHE_CONTROL], "no-store");
+            assert_eq!(response.headers()[header::REFERRER_POLICY], "no-referrer");
+            assert_eq!(
+                response.headers()[header::X_CONTENT_TYPE_OPTIONS],
+                "nosniff"
+            );
+            let body = to_bytes(response.into_body(), 1024).await.unwrap();
+            assert_eq!(
+                serde_json::from_slice::<serde_json::Value>(&body).unwrap(),
+                serde_json::json!({"success":false,"error":"unauthorized"}),
+            );
+            assert_eq!(state.slots.available_permits(), 0);
+        }
+        assert_eq!(downstream_calls.load(Ordering::SeqCst), 0);
+    }
 
     #[tokio::test]
     async fn upstream_idle_and_empty_chunks_release_relay_capacity() {

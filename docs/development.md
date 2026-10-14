@@ -40,11 +40,13 @@ git submodule update --init --depth 1 -- apps/cli
 
 核心位于 `services/core`，不依赖 Go 才能运行。完整 schema 使用同一个
 `lmm-core init-db` 显式安装一次；已有应用对象时拒绝。普通启动只校验结构和权限，
-不创建角色、不安装或升级数据库。完整契约见 [schema](../services/core/schema/README.md)。
+不创建角色、不安装或升级数据库。完整契约见 [schema](../services/core/schema/README.md)。当前 identity 契约为 v4；
+已有库不因更新源码或安装程序而升级，也不能修改契约记录绕过检查。
 
 安装 owner 和受限 runtime 必须分开。原生或 Docker 安装只读所选路径，按
 [离线角色与授权](../deployment/postgres/README.md)准备；不把 owner URL 放进运行服务。
 不要因为重复初始化被拒绝就清库、删除卷或使用旧环境变量模式。
+历史期初余额的有限离线流程见 [opening 导入](legacy-financial-opening.md)；它需要独立审核材料，不能作为现有站点的通用升级或自动资金迁移。
 
 程序使用 TOML，可显式选择 `lmm-core --config /absolute/private/core.toml`。
 `database.url_file` 指向受限数据库凭据；`identity.web.origin` 和
@@ -53,7 +55,8 @@ git submodule update --init --depth 1 -- apps/cli
 
 本地 HTTP 须显式设 `identity.web.local_http=true`；`user_agreement_enabled` 和
 `privacy_policy_enabled` 与实际公开协议一致。注册使用 `identity.registration_enabled`。
-模型和支付默认关闭；就绪不代表这些功能已启用。原生路径见
+TOTP 二次验证需另行显式配置 [MFA keyring](core-identity.md#可选-totp-二次验证mfa)，
+不配置时不会绕过已有账号的 MFA 要求。模型和支付默认关闭；就绪不代表这些功能已启用。原生路径见
 [配置与文件路径](filesystem-layout.md)，容器路径见 [Docker 栈](../deployment/docker/README.md)。
 
 ## 启动扩展与前端

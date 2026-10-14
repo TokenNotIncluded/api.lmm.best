@@ -2,11 +2,12 @@
 #[path = "identity_compat.rs"]
 mod compatibility;
 use crate::identity::{
-    BrowserAuth, BrowserAuthError, BrowserBundle, BrowserRegistration, BrowserSessionMetadata,
-    IdentityError, IdentityStore,
+    BrowserAuth, BrowserAuthError, BrowserBundle, BrowserLoginOutcome, BrowserRegistration,
+    BrowserSessionMetadata, IdentityError, IdentityStore, MfaCompletion, MfaError,
 };
 use axum::{
     Json, Router,
+    body::Bytes,
     extract::{
         ConnectInfo, DefaultBodyLimit, Query, Request, State,
         rejection::{JsonRejection, QueryRejection},
@@ -102,6 +103,12 @@ pub fn router(store: IdentityStore, config: LegacyAuthConfig) -> Router {
         .merge(compatibility::routes())
         .route("/api/user/register", post(register))
         .route("/api/user/login", post(login))
+        .route("/api/user/login/2fa", post(complete_mfa_login))
+        .route("/api/user/2fa/status", get(mfa_status))
+        .route("/api/user/2fa/setup", post(mfa_setup))
+        .route("/api/user/2fa/enable", post(mfa_enable))
+        .route("/api/user/2fa/disable", post(mfa_disable))
+        .route("/api/user/2fa/backup_codes", post(mfa_regenerate))
         .route("/api/user/auth/refresh", post(refresh))
         .route("/api/user/auth/logout", post(logout))
         .route("/api/oauth/google", post(google_start))
@@ -320,13 +327,201 @@ async fn login(
             .take(512)
             .collect(),
     };
+    let mut random = [0u8; 32];
+    if rand::rngs::OsRng.try_fill_bytes(&mut random).is_err() {
+        return auth_failure(IdentityError::Storage.into());
+    }
+    let binding: String = random.iter().map(|byte| format!("{byte:02x}")).collect();
     match state
         .browser
-        .login(&body.username, &body.password, &metadata)
+        .login_with_mfa(&body.username, &body.password, &metadata, &binding)
         .await
     {
+        Ok(BrowserLoginOutcome::Session(bundle)) => bundle_response(bundle, &state.config),
+        Ok(BrowserLoginOutcome::Challenge(challenge)) => mfa_flow_cookie(
+            success(Some(json!(challenge))),
+            Some(&binding),
+            &state.config,
+        ),
+        Err(error) => mfa_failure(error),
+    }
+}
+fn mfa_cookie_name(config: &LegacyAuthConfig) -> &'static str {
+    if config.secure {
+        "__Host-lmm_mfa_flow"
+    } else {
+        "lmm_mfa_flow"
+    }
+}
+fn mfa_binding_cookie<'a>(
+    headers: &'a HeaderMap,
+    config: &LegacyAuthConfig,
+) -> Result<&'a str, MfaError> {
+    let mut found = None;
+    for raw in headers.get_all(header::COOKIE) {
+        let raw = raw.to_str().map_err(|_| MfaError::FlowExpired)?;
+        for part in raw.split(';') {
+            if part.trim() == mfa_cookie_name(config) {
+                return Err(MfaError::FlowExpired);
+            }
+            if let Some((name, value)) = part.trim().split_once('=')
+                && name == mfa_cookie_name(config)
+            {
+                if found.is_some()
+                    || value.len() != 64
+                    || !value.bytes().all(|b| b.is_ascii_hexdigit())
+                {
+                    return Err(MfaError::FlowExpired);
+                }
+                found = Some(value);
+            }
+        }
+    }
+    found.ok_or(MfaError::FlowExpired)
+}
+fn mfa_flow_cookie(
+    mut response: Response,
+    binding: Option<&str>,
+    config: &LegacyAuthConfig,
+) -> Response {
+    let secure = if config.secure { "Secure; " } else { "" };
+    let value = format!(
+        "{}={}; Path=/; {secure}HttpOnly; SameSite=Strict; Max-Age={}",
+        mfa_cookie_name(config),
+        binding.unwrap_or_default(),
+        if binding.is_some() { 300 } else { 0 }
+    );
+    if let Ok(value) = HeaderValue::from_str(&value) {
+        response.headers_mut().append(header::SET_COOKIE, value);
+    }
+    response
+}
+async fn complete_mfa_login(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    input: Result<Json<MfaCompletion>, JsonRejection>,
+) -> Response {
+    let Ok(Json(body)) = input else {
+        return auth_failure(IdentityError::Invalid.into());
+    };
+    let result = async {
+        let binding = mfa_binding_cookie(&headers, &state.config)?;
+        state.browser.complete_mfa_login(&body, binding).await
+    }
+    .await;
+    match result {
+        Ok(bundle) => mfa_flow_cookie(bundle_response(bundle, &state.config), None, &state.config),
+        // A failed older flow must not clear a newer tab's binding cookie.
+        // The short-lived binding expires itself; successful completion clears it.
+        Err(error) => mfa_failure(error),
+    }
+}
+async fn mfa_status(State(state): State<AuthState>, headers: HeaderMap) -> Response {
+    let result = async {
+        state
+            .browser
+            .mfa_status(bearer(&headers)?.ok_or(IdentityError::Unauthorized)?)
+            .await
+    }
+    .await;
+    match result {
+        Ok(status) => success(Some(json!(status))),
+        Err(error) => mfa_failure(error),
+    }
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MfaSetupRequest {}
+async fn mfa_setup(State(state): State<AuthState>, headers: HeaderMap, body: Bytes) -> Response {
+    // The existing Web client sends no body; an explicit JSON object may only
+    // be empty. Never silently ignore caller-supplied policy or factor fields.
+    if !body.is_empty() && serde_json::from_slice::<MfaSetupRequest>(&body).is_err() {
+        return auth_failure(IdentityError::Invalid.into());
+    }
+    let result = async {
+        state
+            .browser
+            .mfa_setup(bearer(&headers)?.ok_or(IdentityError::Unauthorized)?)
+            .await
+    }
+    .await;
+    match result {
+        Ok(setup) => success(Some(json!(setup))),
+        Err(error) => mfa_failure(error),
+    }
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MfaCode {
+    code: String,
+}
+async fn mfa_enable(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    input: Result<Json<MfaCode>, JsonRejection>,
+) -> Response {
+    let Ok(Json(body)) = input else {
+        return auth_failure(IdentityError::Invalid.into());
+    };
+    let result = async {
+        state
+            .browser
+            .mfa_enable(
+                bearer(&headers)?.ok_or(IdentityError::Unauthorized)?,
+                &body.code,
+            )
+            .await
+    }
+    .await;
+    match result {
         Ok(bundle) => bundle_response(bundle, &state.config),
-        Err(error) => auth_failure(error),
+        Err(error) => mfa_failure(error),
+    }
+}
+async fn mfa_disable(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    input: Result<Json<MfaCode>, JsonRejection>,
+) -> Response {
+    let Ok(Json(body)) = input else {
+        return auth_failure(IdentityError::Invalid.into());
+    };
+    let result = async {
+        state
+            .browser
+            .mfa_disable(
+                bearer(&headers)?.ok_or(IdentityError::Unauthorized)?,
+                &body.code,
+            )
+            .await
+    }
+    .await;
+    match result {
+        Ok(bundle) => bundle_response(bundle, &state.config),
+        Err(error) => mfa_failure(error),
+    }
+}
+async fn mfa_regenerate(
+    State(state): State<AuthState>,
+    headers: HeaderMap,
+    input: Result<Json<MfaCode>, JsonRejection>,
+) -> Response {
+    let Ok(Json(body)) = input else {
+        return auth_failure(IdentityError::Invalid.into());
+    };
+    let result = async {
+        state
+            .browser
+            .mfa_regenerate(
+                bearer(&headers)?.ok_or(IdentityError::Unauthorized)?,
+                &body.code,
+            )
+            .await
+    }
+    .await;
+    match result {
+        Ok(bundle) => bundle_response(bundle, &state.config),
+        Err(error) => mfa_failure(error),
     }
 }
 async fn refresh(State(state): State<AuthState>, headers: HeaderMap) -> Response {
@@ -589,6 +784,35 @@ fn auth_failure(error: BrowserAuthError) -> Response {
         },
     }
 }
+fn mfa_failure(error: MfaError) -> Response {
+    match error {
+        MfaError::Identity(error) => auth_failure(error.into()),
+        MfaError::CodeInvalid => {
+            failure(StatusCode::BAD_REQUEST, "MFA_CODE_INVALID", "Invalid code")
+        }
+        MfaError::FlowExpired => failure(
+            StatusCode::BAD_REQUEST,
+            "MFA_FLOW_EXPIRED",
+            "This login flow has expired or has already been used. Sign in again.",
+        ),
+        MfaError::Locked(seconds) => {
+            let mut response = failure(
+                StatusCode::TOO_MANY_REQUESTS,
+                "MFA_LOCKED",
+                "Too many verification attempts. Please retry later.",
+            );
+            if let Ok(value) = HeaderValue::from_str(&seconds.max(1).to_string()) {
+                response.headers_mut().insert(header::RETRY_AFTER, value);
+            }
+            response
+        }
+        MfaError::Unavailable => failure(
+            StatusCode::SERVICE_UNAVAILABLE,
+            "MFA_UNAVAILABLE",
+            "Two-factor authentication is temporarily unavailable. Try again later.",
+        ),
+    }
+}
 fn bundle_response(bundle: BrowserBundle, config: &LegacyAuthConfig) -> Response {
     set_cookie(
         success(Some(bundle.data)),
@@ -621,4 +845,148 @@ fn set_cookie(
         response.headers_mut().append(header::SET_COOKIE, value);
     }
     response
+}
+
+#[cfg(test)]
+mod mfa_http_tests {
+    use super::*;
+
+    fn config() -> LegacyAuthConfig {
+        LegacyAuthConfig::new("https://app.example", &[42; 32]).unwrap()
+    }
+
+    #[test]
+    fn mfa_binding_requires_one_bounded_hex_cookie() {
+        let config = config();
+        let name = mfa_cookie_name(&config);
+        let valid = "a".repeat(64);
+        let mut headers = HeaderMap::new();
+        assert_eq!(
+            mfa_binding_cookie(&headers, &config),
+            Err(MfaError::FlowExpired)
+        );
+        headers.insert(
+            header::COOKIE,
+            HeaderValue::from_str(&format!("other=value; {name}={valid}")).unwrap(),
+        );
+        assert_eq!(mfa_binding_cookie(&headers, &config).unwrap(), valid);
+        for invalid in [
+            "a".repeat(63),
+            "a".repeat(65),
+            "g".repeat(64),
+            String::new(),
+        ] {
+            headers.insert(
+                header::COOKIE,
+                HeaderValue::from_str(&format!("{name}={invalid}")).unwrap(),
+            );
+            assert_eq!(
+                mfa_binding_cookie(&headers, &config),
+                Err(MfaError::FlowExpired)
+            );
+        }
+        headers.insert(
+            header::COOKIE,
+            HeaderValue::from_str(&format!("{name}={valid}; {name}={valid}")).unwrap(),
+        );
+        assert_eq!(
+            mfa_binding_cookie(&headers, &config),
+            Err(MfaError::FlowExpired)
+        );
+        headers.insert(
+            header::COOKIE,
+            HeaderValue::from_str(&format!("{name}={valid}")).unwrap(),
+        );
+        headers.append(
+            header::COOKIE,
+            HeaderValue::from_str(&format!("{name}={valid}")).unwrap(),
+        );
+        assert_eq!(
+            mfa_binding_cookie(&headers, &config),
+            Err(MfaError::FlowExpired)
+        );
+        headers.remove(header::COOKIE);
+        headers.insert(
+            header::COOKIE,
+            HeaderValue::from_str(&format!("{name}={valid}; {name}")).unwrap(),
+        );
+        assert_eq!(
+            mfa_binding_cookie(&headers, &config),
+            Err(MfaError::FlowExpired)
+        );
+    }
+
+    #[test]
+    fn mfa_cookie_is_private_and_appended_beside_refresh_cookie() {
+        let config = config();
+        let mut response = success(None);
+        response.headers_mut().append(
+            header::SET_COOKIE,
+            HeaderValue::from_static("new_api_refresh=retained"),
+        );
+        let response = mfa_flow_cookie(response, Some(&"b".repeat(64)), &config);
+        let values: Vec<_> = response
+            .headers()
+            .get_all(header::SET_COOKIE)
+            .iter()
+            .map(|v| v.to_str().unwrap())
+            .collect();
+        assert_eq!(values.len(), 2);
+        assert_eq!(values[0], "new_api_refresh=retained");
+        assert!(values[1].starts_with("__Host-lmm_mfa_flow="));
+        assert!(values[1].contains("Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=300"));
+        let cleared = mfa_flow_cookie(success(None), None, &config);
+        assert_eq!(
+            cleared.headers()[header::SET_COOKIE],
+            "__Host-lmm_mfa_flow=; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=0"
+        );
+        let local = LegacyAuthConfig::new("http://127.0.0.1:8080", &[42; 32])
+            .unwrap()
+            .with_insecure_local_http()
+            .unwrap();
+        let cookie = mfa_flow_cookie(success(None), Some(&"b".repeat(64)), &local);
+        let value = cookie.headers()[header::SET_COOKIE].to_str().unwrap();
+        assert!(value.starts_with("lmm_mfa_flow="));
+        assert!(!value.contains("Secure;"));
+        let mut headers = HeaderMap::new();
+        headers.insert(
+            header::COOKIE,
+            HeaderValue::from_str(&format!("__Host-lmm_mfa_flow={}", "b".repeat(64))).unwrap(),
+        );
+        assert_eq!(
+            mfa_binding_cookie(&headers, &local),
+            Err(MfaError::FlowExpired)
+        );
+    }
+
+    #[test]
+    fn mfa_errors_distinguish_verification_from_session_failure() {
+        for error in [MfaError::CodeInvalid, MfaError::FlowExpired] {
+            assert_eq!(mfa_failure(error).status(), StatusCode::BAD_REQUEST);
+        }
+        let locked = mfa_failure(MfaError::Locked(37));
+        assert_eq!(locked.status(), StatusCode::TOO_MANY_REQUESTS);
+        assert_eq!(locked.headers()[header::RETRY_AFTER], "37");
+        assert_eq!(
+            mfa_failure(MfaError::Unavailable).status(),
+            StatusCode::SERVICE_UNAVAILABLE
+        );
+        assert_eq!(
+            mfa_failure(MfaError::Identity(IdentityError::Unauthorized)).status(),
+            StatusCode::UNAUTHORIZED
+        );
+    }
+
+    #[test]
+    fn mfa_request_bodies_reject_caller_supplied_authority() {
+        assert!(serde_json::from_value::<MfaSetupRequest>(json!({})).is_ok());
+        assert!(serde_json::from_value::<MfaSetupRequest>(json!({"enabled":true})).is_err());
+        assert!(serde_json::from_value::<MfaCode>(json!({"code":"123456","user_id":1})).is_err());
+        assert!(
+            serde_json::from_value::<MfaCompletion>(
+                json!({"code":"123456","flow_token":"flow","mfa_verified":true})
+            )
+            .is_err()
+        );
+    }
 }

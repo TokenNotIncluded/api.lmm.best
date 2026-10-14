@@ -1,6 +1,6 @@
 # Rust 原生账号与身份（全新安装 WIP）
 
-核心数据库只接受全新安装，不导入旧用户、Key 或余额，不维护旧表的升级路径。数据库定义位于 `services/core/schema/identity.sql`。Go 扩展不得连接这个数据库。
+核心数据库的安装入口只接受全新空库。旧用户、Key 或余额的迁移须走另行审核的迁移流程；本指南不提供旧库原地升级步骤。数据库定义位于 `services/core/schema/identity.sql`。Go 扩展不得连接这个数据库。
 
 先按 [Docker 指南](../deployment/docker/README.md) 创建隔离开发栈，并在当前 Bash 会话中定义其中的 `dc` 和 `de`。`lmm-core init-db` 只安装空库，第二次执行拒绝；服务启动不会执行建表、改表或修复。版本和指纹检查是安装契约检查，不是对任意人工改表的完整检测。
 
@@ -39,6 +39,58 @@ redirect_uri = "https://api.example.test/api/oauth/google/callback"
 回调校验签名、issuer/audience、nonce、一次性 state 及 HttpOnly 浏览器绑定，再签发既有浏览器 cookie 家族，并固定跳转到 `/console`。
 已有用户禁用、本地 MFA 或注册限制不绕过；当前 Google 浏览器路径对需要本地 MFA 的账号失败关闭，尚不提供该路径的第二因素续接。
 合成签名供应商及隔离 PostgreSQL 测试不等于真实 Google 账号验收，也不代表旧站点已启用。
+
+## 可选 TOTP 二次验证（MFA）
+
+当前源码提供密码登录后的 TOTP 挑战、一次性恢复码及浏览器中的启用、停用和恢复码重建。
+此节是配置合同；源码、自测或成功加载配置均不代表浏览器、CLI 和真实数据库的组合验收完成。
+
+MFA 默认不配置。启用时，在已有 Core TOML 中加入下列片段；保留受限数据库、
+`identity.web` 和其他已需配置。该片段不会替用户开启 MFA：用户仍须完成设置与验证码确认。
+
+```toml
+[identity.mfa]
+keyring_file = "/etc/lmm.conf.d/secrets/core/mfa-keyring.toml"
+```
+
+`mfa-keyring.toml` 使用独立的 TOML 文档：
+
+```toml
+version = 1
+active_key_id = "mfa-key-1"
+
+[[keys]]
+id = "mfa-key-1"
+key_file = "/etc/lmm.conf.d/secrets/core/mfa-key-1.bin"
+```
+
+这里的名称和路径仅为示例，没有可用密钥。由安装操作者另行准备 MFA 专用的随机密钥；
+每个 `key_file` 必须恰好包含 **32 个原始字节**，不能填十六进制、Base64 或带换行的文本，
+也不要复用浏览器 refresh 或 API Key 加密密钥。私密材料不进入仓库、包、URL、命令行或日志。
+
+解析要求与 [私密文件规则](filesystem-layout.md#权限与服务账户)一致：keyring 文档及每个
+key 文件都必须是服务实际可读的普通文件，使用绝对路径，不包含 `.`、`..` 或符号链接；
+Unix 权限只接受 `0400` 或 `0600`。keyring 文档上限为 16 KiB，`version` 只接受 `1`，
+`keys` 须有 1–8 项。每个 `id` 须唯一，由 1–64 个 ASCII 字母、数字、`_` 或 `-` 组成，
+`active_key_id` 必须指向其中一项；未知字段或格式错误会拒绝启动。
+容器安装还须显式只读挂载 keyring 和其中引用的每个 key 文件，容器内路径须与 TOML 一致。
+
+Core 在启动时加载 keyring。`active_key_id` 用于新秘密的加密，已保存的密文按其原 key ID
+解密；改活动 ID 不会重加密历史记录。保留数据库恢复所需的全部旧密钥及 ID 映射，
+并限制备份访问。当前没有密钥重加密或自动轮换工具，不能删掉仍被密文引用的 key。
+
+公开状态 `two_factor_enabled` 只表示本进程已加载 MFA keyring，不能表示当前用户已启用
+或已通过二次验证。对于已要求 MFA 的账号，未配置 keyring 或缺少可解密的本地因素时，
+登录继续拒绝并返回 `MFA_UNAVAILABLE`，不会降级为仅验证密码。
+
+本轮 identity schema 契约为 **v4**；主配置和 keyring 的 `version = 1` 是各自的配置格式，
+不是数据库版本。v4 随完整 schema 只用于显式初始化全新空库。普通启动只校验版本、
+指纹和运行权限，不把已有 v3 或更早数据库升级到 v4；不能修改版本记录或重跑 `init-db`
+冒充升级。现有站点需要单独审查的备份、转换与恢复流程。
+
+尚未完成的范围包括 Google 登录后的 MFA 续接、Passkey、管理员重置、旧 TOTP 秘密和
+旧恢复码迁移，以及密钥重加密。已有 `second_factor_required` 策略必须保留，不能通过
+关闭该策略、补造已验证会话或新建替代管理员来绕过这些缺项。
 
 ## 创建测试用户并验证 Key
 

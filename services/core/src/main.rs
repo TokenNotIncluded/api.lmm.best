@@ -209,6 +209,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
         if let Some(config) = legacy_config {
             public_status = lmm_core::http::PublicStatus {
                 password_login_enabled: true,
+                two_factor_enabled: store.mfa_enabled(),
                 password_register_enabled: config.registration_enabled,
                 user_agreement_enabled: config.user_agreement_enabled,
                 privacy_policy_enabled: config.privacy_policy_enabled,
@@ -238,11 +239,11 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
     #[cfg(unix)]
     let mut remote_proxy = None;
     #[cfg(unix)]
-    if let Some(store) = remote_store {
-        if let Some(remote) = config::remote_control(store, stopped.clone())? {
-            app = app.merge(remote.clone().router());
-            remote_proxy = Some(remote);
-        }
+    if let Some(store) = remote_store
+        && let Some(remote) = config::remote_control(store, stopped.clone())?
+    {
+        app = app.merge(remote.clone().router());
+        remote_proxy = Some(remote);
     }
     #[cfg(not(unix))]
     if config::remote_control_configured() {

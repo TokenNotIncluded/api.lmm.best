@@ -120,6 +120,7 @@ struct IdentityFile {
     registration_enabled: bool,
     password_slots: u32,
     api_key_encryption_key_file: Option<PathBuf>,
+    mfa: Option<MfaFile>,
     web: Option<WebFile>,
     google: Option<GoogleFile>,
 }
@@ -129,6 +130,7 @@ impl Default for IdentityFile {
             registration_enabled: false,
             password_slots: one(),
             api_key_encryption_key_file: None,
+            mfa: None,
             web: None,
             google: None,
         }
@@ -144,6 +146,24 @@ struct WebFile {
     // Publication facts must be explicit whenever Web authentication is enabled.
     user_agreement_enabled: bool,
     privacy_policy_enabled: bool,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MfaFile {
+    keyring_file: PathBuf,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MfaKeyringFile {
+    version: u32,
+    active_key_id: String,
+    keys: Vec<MfaKeyFile>,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct MfaKeyFile {
+    id: String,
+    key_file: PathBuf,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -257,6 +277,7 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
             || file.identity.web.is_some()
             || file.identity.google.is_some()
             || file.identity.api_key_encryption_key_file.is_some()
+            || file.identity.mfa.is_some()
             || file.console.enabled
             || file.model.is_some()
             || file.payments.is_some()
@@ -306,6 +327,9 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
     }
     if let Some(path) = file.identity.api_key_encryption_key_file {
         paths.push(("LMM_CORE_API_KEY_ENCRYPTION_KEY_FILE", path));
+    }
+    if let Some(mfa) = file.identity.mfa {
+        paths.push(("LMM_CORE_MFA_KEYRING_FILE", mfa.keyring_file));
     }
     if let Some(web) = file.identity.web {
         put("LMM_CORE_WEB_ORIGIN", web.origin);
@@ -472,6 +496,29 @@ pub fn identity_auth(
             .with_api_key_encryption_key(&private_file(Path::new(&path), 32)?)
             .map_err(|_| invalid_config("invalid API key encryption key"))?;
     }
+    if let Some(path) = setting_os("LMM_CORE_MFA_KEYRING_FILE") {
+        let ring: MfaKeyringFile = parse_document(&private_file(Path::new(&path), 16 * 1024)?)?;
+        if ring.version != 1 || ring.keys.is_empty() || ring.keys.len() > 8 {
+            return Err(invalid_config("invalid MFA keyring configuration"));
+        }
+        // A later file error must also wipe keys already read successfully.
+        let mut keys = Vec::new();
+        for key in ring.keys {
+            keys.push((
+                key.id,
+                zeroize::Zeroizing::new(private_file(&key.key_file, 32)?),
+            ));
+        }
+        // The keyring constructor immediately guards every transferred key
+        // before validating labels, lengths or duplicate IDs.
+        let keys = keys
+            .into_iter()
+            .map(|(id, mut key)| (id, std::mem::take(&mut *key)))
+            .collect();
+        store = store
+            .with_mfa_keys(ring.active_key_id, keys)
+            .map_err(|_| invalid_config("invalid MFA keyring configuration"))?;
+    }
     Ok(store)
 }
 
@@ -501,6 +548,7 @@ pub fn ingress() -> io::Result<Option<crate::lifecycle::ingress::IngressAcks>> {
 pub fn identity_database_required() -> io::Result<bool> {
     Ok(bool_setting("LMM_CORE_REGISTRATION_ENABLED")?
         || setting_os("LMM_CORE_API_KEY_ENCRYPTION_KEY_FILE").is_some()
+        || setting_os("LMM_CORE_MFA_KEYRING_FILE").is_some()
         || setting_os("LMM_CORE_GOOGLE_CLIENT_ID").is_some()
         || setting_os("LMM_CORE_GOOGLE_CLIENT_SECRET").is_some()
         || setting_os("LMM_CORE_GOOGLE_CLIENT_SECRET_FILE").is_some()

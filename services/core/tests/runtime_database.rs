@@ -19,7 +19,18 @@ mod runtime;
 #[sqlx::test(migrations = false)]
 async fn restricted_role_checks_without_disabled_module_grants(pool: PgPool) {
     core_schema::init(&pool).await.unwrap();
+    // Match the official isolated installer: identity-only runtime has no
+    // public USAGE. ACL provisioning must not change deparsed catalog truth.
+    sqlx::query("REVOKE USAGE ON SCHEMA public FROM PUBLIC")
+        .execute(&pool)
+        .await
+        .unwrap();
     let role = runtime::RuntimeRole::create(&pool).await;
+    let public_visible: bool = sqlx::query_scalar("SELECT has_schema_privilege('public','USAGE')")
+        .fetch_one(&role.pool)
+        .await
+        .unwrap();
+    assert!(!public_visible);
     assert_eq!(
         reqwest::Url::parse(&role.url).unwrap().username(),
         role.name

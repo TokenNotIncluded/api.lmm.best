@@ -1,5 +1,6 @@
 //! Browser-session compatibility without importing legacy sessions or funds.
 mod google;
+mod mfa;
 mod password;
 use super::*;
 use hmac::{Hmac, Mac};
@@ -119,6 +120,25 @@ impl BrowserAuth {
         password: &str,
         metadata: &BrowserSessionMetadata,
     ) -> BrowserResult<BrowserBundle> {
+        match self
+            .login_with_mfa(username, password, metadata, &new_secret("")?)
+            .await
+        {
+            Ok(super::mfa::BrowserLoginOutcome::Session(bundle)) => Ok(bundle),
+            Ok(super::mfa::BrowserLoginOutcome::Challenge(_)) => {
+                Err(IdentityError::Unauthorized.into())
+            }
+            Err(super::mfa::MfaError::Identity(error)) => Err(error.into()),
+            Err(_) => Err(IdentityError::Unauthorized.into()),
+        }
+    }
+    pub async fn login_with_mfa(
+        &self,
+        username: &str,
+        password: &str,
+        metadata: &BrowserSessionMetadata,
+        binding: &str,
+    ) -> super::mfa::MfaResult<super::mfa::BrowserLoginOutcome> {
         let username = username.trim();
         if username.is_empty()
             || username.len() > 320
@@ -143,8 +163,80 @@ impl BrowserAuth {
             .store
             .lock_password_user(&mut tx, &canonical, &verified)
             .await?;
+        let required: bool = sqlx::query_scalar(
+            "SELECT second_factor_required FROM core_identity.user_profiles WHERE user_id=$1",
+        )
+        .bind(user)
+        .fetch_one(&mut *tx)
+        .await?;
+        let outcome = if required {
+            super::mfa::BrowserLoginOutcome::Challenge(
+                super::mfa::begin_challenge(
+                    &self.store,
+                    &mut tx,
+                    user,
+                    "browser_password_login",
+                    Some(binding),
+                    Some(metadata),
+                )
+                .await?,
+            )
+        } else {
+            super::mfa::BrowserLoginOutcome::Session(
+                self.issue_browser_family(&mut tx, user, metadata, "session.web_login")
+                    .await?,
+            )
+        };
+        tx.commit().await?;
+        Ok(outcome)
+    }
+    pub async fn complete_mfa_login(
+        &self,
+        input: &super::mfa::MfaCompletion,
+        binding: &str,
+    ) -> super::mfa::MfaResult<BrowserBundle> {
+        let prepared = super::mfa::prepare_login_code(
+            &self.store,
+            input,
+            "browser_password_login",
+            Some(binding),
+        )
+        .await?;
+        let mut tx = self.store.pool.begin().await?;
+        let proof = match super::mfa::complete_challenge(
+            &self.store,
+            &mut tx,
+            input,
+            "browser_password_login",
+            Some(binding),
+            &prepared,
+        )
+        .await
+        {
+            Ok(proof) => proof,
+            Err(error @ (super::mfa::MfaError::CodeInvalid | super::mfa::MfaError::Locked(_))) => {
+                tx.commit().await?;
+                return Err(error);
+            }
+            Err(error) => return Err(error),
+        };
+        let row =
+            sqlx::query("SELECT ip,user_agent FROM core_identity.mfa_challenges WHERE digest=$1")
+                .bind(digest(&input.flow_token)?)
+                .fetch_one(&mut *tx)
+                .await?;
+        let metadata = BrowserSessionMetadata {
+            ip: row.try_get("ip")?,
+            user_agent: row.try_get("user_agent")?,
+        };
         let bundle = self
-            .issue_browser_family(&mut tx, user, metadata, "session.web_login")
+            .issue_browser_family_with_assurance(
+                &mut tx,
+                proof.user(),
+                &metadata,
+                "session.web_mfa_login",
+                &proof,
+            )
             .await?;
         tx.commit().await?;
         Ok(bundle)
@@ -158,13 +250,26 @@ impl BrowserAuth {
         metadata: &BrowserSessionMetadata,
         action: &str,
     ) -> BrowserResult<BrowserBundle> {
+        let assurance = super::mfa::primary(tx, user).await?;
+        self.issue_browser_family_with_assurance(tx, user, metadata, action, &assurance)
+            .await
+    }
+    async fn issue_browser_family_with_assurance(
+        &self,
+        tx: &mut PgConnection,
+        user: i64,
+        metadata: &BrowserSessionMetadata,
+        action: &str,
+        assurance: &super::mfa::Assurance,
+    ) -> BrowserResult<BrowserBundle> {
         if metadata.ip.len() > 128 || metadata.user_agent.len() > 1024 {
             return Err(IdentityError::Invalid.into());
         }
         let sid = new_secret("")?;
         let refresh = new_secret("lmmr_")?;
         let access = self.derived_secret(b"browser-access-v1", &sid, &refresh, "lmms_")?;
-        let credential = auth::issue_session_with_secret(tx, user, action, access.clone()).await?;
+        let credential =
+            auth::issue_session_with_assurance(tx, user, action, access.clone(), assurance).await?;
         sqlx::query("UPDATE core_identity.credentials SET expires_at=LEAST(expires_at,clock_timestamp()+interval '15 minutes') WHERE id=$1").bind(credential.id).execute(&mut *tx).await?;
         let setting: String =
             sqlx::query_scalar("SELECT setting FROM core_identity.user_profiles WHERE user_id=$1")
@@ -214,13 +319,21 @@ impl BrowserAuth {
         if constant_digest(&current, &hash) {
             let access = self.derived_secret(b"browser-access-v1", sid, &next, "lmms_")?;
             let old: i64 = row.try_get("current_credential_id")?;
+            let assurance = super::mfa::from_session(
+                &mut tx,
+                old,
+                row.try_get("user_id")?,
+                row.try_get("user_version")?,
+            )
+            .await?;
             sqlx::query("UPDATE core_identity.credentials SET revoked_at=clock_timestamp() WHERE id=$1 AND revoked_at IS NULL").bind(old).execute(&mut *tx).await?;
             let user: i64 = row.try_get("user_id")?;
-            let issued = auth::issue_session_with_secret(
+            let issued = auth::issue_session_with_assurance(
                 &mut tx,
                 user,
                 "session.web_refresh",
                 access.clone(),
+                &assurance,
             )
             .await?;
             sqlx::query("UPDATE core_identity.credentials SET expires_at=LEAST(expires_at,clock_timestamp()+interval '15 minutes',(SELECT expires_at FROM core_identity.web_sessions WHERE sid=$2)) WHERE id=$1").bind(issued.id).bind(sid).execute(&mut *tx).await?;
@@ -362,7 +475,17 @@ async fn lock_family(c: &mut PgConnection, sid: &str) -> BrowserResult<PgRow> {
         .fetch_optional(&mut *c)
         .await?
         .ok_or(IdentityError::Unauthorized)?;
-    Ok(sqlx::query("SELECT s.*,COALESCE(s.previous_valid_until>=clock_timestamp(),FALSE) AS previous_live,s.revoked_at IS NULL AND s.expires_at>clock_timestamp() AND (NOT s.weekly_logout OR s.created_at>clock_timestamp()-interval '7 days') AND u.active AND a.active AND u.auth_version=s.user_version AND c.revoked_at IS NULL AND c.user_version=u.auth_version AS live FROM core_identity.web_sessions s JOIN core_identity.users u ON u.id=s.user_id JOIN core_identity.accounts a ON a.id=u.personal_account_id JOIN core_identity.credentials c ON c.id=s.current_credential_id WHERE s.sid=$1 FOR SHARE OF u,a FOR UPDATE OF c").bind(sid).fetch_optional(c).await?.ok_or(IdentityError::Unauthorized)?)
+    let row=sqlx::query("SELECT s.*,COALESCE(s.previous_valid_until>=clock_timestamp(),FALSE) AS previous_live,s.revoked_at IS NULL AND s.expires_at>clock_timestamp() AND (NOT s.weekly_logout OR s.created_at>clock_timestamp()-interval '7 days') AND u.active AND a.active AND u.auth_version=s.user_version AND c.revoked_at IS NULL AND c.user_version=u.auth_version AS live FROM core_identity.web_sessions s JOIN core_identity.users u ON u.id=s.user_id JOIN core_identity.accounts a ON a.id=u.personal_account_id JOIN core_identity.credentials c ON c.id=s.current_credential_id WHERE s.sid=$1 FOR SHARE OF u,a FOR UPDATE OF c").bind(sid).fetch_optional(&mut *c).await?.ok_or(IdentityError::Unauthorized)?;
+    if row.try_get::<bool, _>("live")? {
+        super::mfa::require_session_assurance(
+            c,
+            row.try_get("current_credential_id")?,
+            row.try_get("user_id")?,
+            row.try_get("user_version")?,
+        )
+        .await?;
+    }
+    Ok(row)
 }
 fn require_family_live(row: &PgRow) -> BrowserResult<()> {
     if !row.try_get::<bool, _>("live")? {

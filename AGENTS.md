@@ -43,6 +43,7 @@ Read that handoff before continuing product sync or updating its submodule point
 | Setup or source paths | [Development](docs/development.md) |
 | Choose checks and reuse results | [Working guide](docs/agent-workflows.md) |
 | Core or extension ownership | [Architecture](docs/core-migration.md) |
+| Registration abuse, honeypots or ban notices | [Abuse controls](docs/abuse-controls.md) |
 | Docs, AGENTS.md or skills | [Documentation skill](.agents/skills/docs-maintenance/SKILL.md) |
 | Components or layout | [UI skill](.agents/skills/shadcn-ui/SKILL.md) |
 | Homepage particle scenes | [Sculpture skill](.agents/skills/home-sculpture/SKILL.md) |

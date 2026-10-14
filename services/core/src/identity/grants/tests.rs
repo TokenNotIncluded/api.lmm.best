@@ -472,10 +472,32 @@ async fn grants_ttl_boundaries_and_refresh_failure_retry(pool: PgPool) {
 async fn grants_restricted_runtime_permissions(pool: PgPool) {
     let (_, store, native) = fresh(&pool).await;
     let code = seed(&store, &native.secret, &["remote:control"]).await;
-    let role = "oauth_fixture_runtime".to_string();
-    // PostgreSQL SET ROLE on every new connection enforces the actual restricted
-    // role's permissions, not a mocked owner success. No production ACL changes.
-    sqlx::raw_sql(&format!("GRANT USAGE ON SCHEMA core_meta,core_identity,core_oauth TO {role}; GRANT SELECT ON core_meta.schema_contract,core_identity.users,core_identity.accounts TO {role}; GRANT UPDATE ON core_identity.users,core_identity.accounts TO {role}; GRANT SELECT ON ALL TABLES IN SCHEMA core_oauth TO {role}; GRANT INSERT,UPDATE ON core_oauth.families,core_oauth.codes,core_oauth.access_tokens,core_oauth.refresh_tokens TO {role}")).execute(&pool).await.unwrap();
+    let suffix = new_secret("").unwrap();
+    let role = format!("oauth_fixture_runtime_{}", &suffix[..16]);
+    let login = format!("oauth_fixture_login_{}", &suffix[..16]);
+    let password = new_secret("").unwrap();
+    let database = pool.connect_options().get_database().unwrap().to_owned();
+    assert!(
+        database
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_')
+    );
+    // Own both cluster roles in this isolated SQLx database. The LOGIN connector
+    // has no inherited authority; SET ROLE selects the original NOLOGIN runtime.
+    // Using owner credentials here would allow SET ROLE back to a superuser.
+    let mut setup = pool.begin().await.unwrap();
+    sqlx::raw_sql(&format!(
+        r#"CREATE ROLE {role} NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+        CREATE ROLE {login} LOGIN PASSWORD '{password}' NOINHERIT NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS;
+        GRANT CONNECT ON DATABASE "{database}" TO {login};
+        GRANT {role} TO {login} WITH INHERIT FALSE, SET TRUE;
+        GRANT USAGE ON SCHEMA core_meta,core_identity,core_oauth TO {role};
+        GRANT SELECT ON core_meta.schema_contract,core_identity.users,core_identity.accounts TO {role};
+        GRANT UPDATE ON core_identity.users,core_identity.accounts TO {role};
+        GRANT SELECT ON ALL TABLES IN SCHEMA core_oauth TO {role};
+        GRANT INSERT,UPDATE ON core_oauth.families,core_oauth.codes,core_oauth.access_tokens,core_oauth.refresh_tokens TO {role};"#
+    )).execute(&mut *setup).await.unwrap();
+    setup.commit().await.unwrap();
     let selected_role = role.clone();
     let restricted = sqlx::postgres::PgPoolOptions::new()
         .max_connections(2)
@@ -486,66 +508,103 @@ async fn grants_restricted_runtime_permissions(pool: PgPool) {
                 Ok(())
             })
         })
-        .connect_with((*pool.connect_options()).clone())
-        .await
-        .unwrap();
-    let current: String = sqlx::query_scalar("SELECT current_user::text")
-        .fetch_one(&restricted)
-        .await
-        .unwrap();
-    assert_eq!(current, role);
-    let privileged: bool = sqlx::query_scalar(
-        "SELECT rolsuper OR rolcreaterole OR rolcreatedb OR rolreplication OR rolbypassrls OR rolcanlogin FROM pg_roles WHERE rolname=current_user",
-    )
-    .fetch_one(&restricted)
-    .await
-    .unwrap();
-    assert!(!privileged);
-    let runtime = GrantStore::open(IdentityStore::from_pool(restricted.clone()), profile())
-        .await
-        .unwrap();
-    let bundle = runtime.exchange(exchange(&code), 3600).await.unwrap();
-    assert!(runtime.authorize_remote(&bundle.access_token).await.is_ok());
-    let rotated = runtime
-        .refresh(refresh(&bundle.refresh_token), 3600)
-        .await
-        .unwrap();
-    runtime
-        .revoke_access(&rotated.access_token, "lmm-pi")
-        .await
-        .unwrap();
-    for sql in [
-        "CREATE TABLE core_oauth.forbidden(id int)",
-        "UPDATE core_oauth.contract SET version=1",
-        "DELETE FROM core_oauth.refresh_tokens",
-        "ALTER TABLE core_oauth.families ADD COLUMN forbidden int",
-        "DROP TABLE core_oauth.families",
-        "INSERT INTO core_meta.schema_contract(version,fingerprint) VALUES (3,decode('00','hex'))",
-        "SELECT nextval('core_identity.users_id_seq')",
-    ] {
-        let error = sqlx::raw_sql(sql).execute(&restricted).await.unwrap_err();
-        assert_eq!(
-            error.as_database_error().unwrap().code().as_deref(),
-            Some("42501"),
-            "{sql}: {error}"
+        .connect_lazy_with(
+            (*pool.connect_options())
+                .clone()
+                .username(&login)
+                .password(&password),
         );
-    }
-    let foreign: String =
-        sqlx::query_scalar("SELECT quote_ident(rolname) FROM pg_roles WHERE rolsuper LIMIT 1")
+    let checked_pool = restricted.clone();
+    let checked_role = role.clone();
+    let checked_login = login.clone();
+    // Capture assertion panics so the owner closes connections and removes the
+    // synthetic roles before propagating the original failure to SQLx.
+    let checks = tokio::spawn(async move {
+        let restricted = checked_pool;
+        let role = checked_role;
+        let authenticated_as: String = sqlx::query_scalar("SELECT session_user::text")
             .fetch_one(&restricted)
             .await
             .unwrap();
-    let error = sqlx::query(&format!("SET ROLE {foreign}"))
-        .execute(&restricted)
+        assert_eq!(authenticated_as, checked_login);
+        let current: String = sqlx::query_scalar("SELECT current_user::text")
+            .fetch_one(&restricted)
+            .await
+            .unwrap();
+        assert_eq!(current, role);
+        let privileged: bool = sqlx::query_scalar(
+            "SELECT rolsuper OR rolcreaterole OR rolcreatedb OR rolreplication OR rolbypassrls OR rolcanlogin FROM pg_roles WHERE rolname=current_user",
+        )
+        .fetch_one(&restricted)
         .await
-        .unwrap_err();
-    assert_eq!(
-        error.as_database_error().unwrap().code().as_deref(),
-        Some("42501")
-    );
+        .unwrap();
+        assert!(!privileged);
+        let runtime = GrantStore::open(IdentityStore::from_pool(restricted.clone()), profile())
+            .await
+            .unwrap();
+        let bundle = runtime.exchange(exchange(&code), 3600).await.unwrap();
+        assert!(runtime.authorize_remote(&bundle.access_token).await.is_ok());
+        let rotated = runtime
+            .refresh(refresh(&bundle.refresh_token), 3600)
+            .await
+            .unwrap();
+        runtime
+            .revoke_access(&rotated.access_token, "lmm-pi")
+            .await
+            .unwrap();
+        for sql in [
+            "CREATE TABLE core_oauth.forbidden(id int)",
+            "UPDATE core_oauth.contract SET version=1",
+            "DELETE FROM core_oauth.refresh_tokens",
+            "ALTER TABLE core_oauth.families ADD COLUMN forbidden int",
+            "DROP TABLE core_oauth.families",
+            "INSERT INTO core_meta.schema_contract(version,fingerprint) VALUES (3,decode('00','hex'))",
+            "SELECT nextval('core_identity.users_id_seq')",
+        ] {
+            let error = sqlx::raw_sql(sql).execute(&restricted).await.unwrap_err();
+            assert_eq!(
+                error.as_database_error().unwrap().code().as_deref(),
+                Some("42501"),
+                "{sql}: {error}"
+            );
+        }
+        let foreign: String =
+            sqlx::query_scalar("SELECT quote_ident(rolname) FROM pg_roles WHERE rolsuper LIMIT 1")
+                .fetch_one(&restricted)
+                .await
+                .unwrap();
+        let error = sqlx::query(&format!("SET ROLE {foreign}"))
+            .execute(&restricted)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error.as_database_error().unwrap().code().as_deref(),
+            Some("42501")
+        );
+    })
+    .await;
     restricted.close().await;
-    // SQLx drops this isolated database and its ACLs; the offline-prepared
-    // NOLOGIN role is deliberately not owned or managed by the runtime.
+    let cleanup = sqlx::raw_sql(&format!(
+        "DROP OWNED BY {role},{login}; DROP ROLE {login}; DROP ROLE {role}"
+    ))
+    .execute(&pool)
+    .await;
+    if let Err(error) = checks {
+        cleanup.expect("synthetic role cleanup after a failed assertion");
+        if error.is_panic() {
+            std::panic::resume_unwind(error.into_panic());
+        }
+        panic!("restricted permission check task did not finish: {error}");
+    }
+    cleanup.unwrap();
+    let remaining: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM pg_roles WHERE rolname=$1 OR rolname=$2")
+            .bind(&role)
+            .bind(&login)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(remaining, 0);
 }
 
 #[sqlx::test(migrations = false)]

@@ -33,8 +33,8 @@ impl RuntimeRole {
             GRANT CONNECT ON DATABASE "{database}" TO {name};
             GRANT USAGE ON SCHEMA core_meta,core_identity,core_billing TO {name};
             GRANT SELECT ON ALL TABLES IN SCHEMA core_meta,core_billing TO {name};
-            GRANT SELECT,INSERT,UPDATE ON core_identity.accounts,core_identity.users,core_identity.teams,core_identity.memberships,core_identity.credentials,core_identity.invites,core_identity.password_logins,core_identity.user_profiles,core_identity.company_billing_profiles,core_identity.web_sessions,core_identity.api_key_settings TO {name};
-            GRANT SELECT,INSERT ON core_identity.key_funding_rules,core_identity.credential_grants,core_identity.oauth_identities,core_identity.audit,core_identity.web_session_credentials TO {name};
+            GRANT SELECT,INSERT,UPDATE ON core_identity.accounts,core_identity.users,core_identity.teams,core_identity.memberships,core_identity.credentials,core_identity.invites,core_identity.password_logins,core_identity.user_profiles,core_identity.company_billing_profiles,core_identity.web_sessions,core_identity.api_key_settings,core_identity.mfa_factors,core_identity.mfa_enrollments,core_identity.mfa_backup_codes,core_identity.mfa_challenges TO {name};
+            GRANT SELECT,INSERT ON core_identity.key_funding_rules,core_identity.credential_grants,core_identity.oauth_identities,core_identity.audit,core_identity.web_session_credentials,core_identity.session_authentication TO {name};
             GRANT SELECT,INSERT,DELETE ON core_identity.oauth_flows TO {name};
             GRANT SELECT,INSERT,UPDATE,DELETE ON core_identity.auth_attempts TO {name};
             GRANT SELECT ON core_identity.developer_access,core_identity.user_routing_groups TO {name};

@@ -82,10 +82,10 @@ async fn ready(client: &Client, endpoint: &str, process: &mut Process) -> Value 
             process.0.try_wait().unwrap().is_none(),
             "product exited before readiness; inspect private process log"
         );
-        if let Ok(response) = client.get(format!("{endpoint}/health/ready")).send().await {
-            if response.status() == StatusCode::OK {
-                return response.json().await.unwrap();
-            }
+        if let Ok(response) = client.get(format!("{endpoint}/health/ready")).send().await
+            && response.status() == StatusCode::OK
+        {
+            return response.json().await.unwrap();
         }
         assert!(Instant::now() < deadline, "product readiness timed out");
         tokio::time::sleep(Duration::from_millis(25)).await;

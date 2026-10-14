@@ -35,6 +35,8 @@ tokio = { version = "1.47.1", features = ["macros", "net", "rt-multi-thread", "s
 fs2 = "=0.4.3"
 prost = "=0.14.4"
 subtle = "=2.6.1"
+totp-rs = { version = "=6.0.0", default-features = false, features = ["std", "otpauth", "zeroize"] }
+zeroize = { version = "=1.9.1", default-features = false, features = ["alloc"] }
 tokio-stream = { version = "=0.1.17", features = ["net"] }
 toml = { version = "=1.1.6", default-features = false, features = ["std", "serde", "parse"] }
 tonic = "=0.14.6"

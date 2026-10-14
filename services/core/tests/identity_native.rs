@@ -152,6 +152,14 @@ async fn native_registration_login_rotation_and_logout_preserve_personal_identit
     assert_eq!(accounts, 3);
 }
 
+// The time-boundary fixtures inherit an actual successful registration's
+// primary proof. Missing-proof rejection must not mask the expiry assertions.
+async fn inherit_fixture_primary_proof(pool: &PgPool, source: i64, credential: i64) {
+    let copied = sqlx::query("INSERT INTO core_identity.session_authentication(credential_id,user_id,user_version,factor_revision,factor_level,method,authenticated_at,mfa_verified_at) SELECT $1,user_id,user_version,factor_revision,factor_level,method,authenticated_at,mfa_verified_at FROM core_identity.session_authentication WHERE credential_id=$2 AND factor_level=1 AND method='primary' AND mfa_verified_at IS NULL")
+        .bind(credential).bind(source).execute(pool).await.unwrap();
+    assert_eq!(copied.rows_affected(), 1);
+}
+
 #[sqlx::test(migrations = false)]
 async fn rotation_has_one_winner_and_never_extends_the_absolute_login_limit(pool: PgPool) {
     let store = fresh(pool.clone()).await;
@@ -172,15 +180,17 @@ async fn rotation_has_one_winner_and_never_extends_the_absolute_login_limit(pool
     .unwrap();
     assert_eq!(audit, 1);
     let near_limit = format!("lmms_{}", "b".repeat(64));
-    sqlx::query("INSERT INTO core_identity.credentials(digest,kind,user_id,user_version,owner_account_id,expires_at,session_started_at) VALUES ($1,'session',$2,1,$3,clock_timestamp()+interval '1 hour',clock_timestamp()-interval '29 days 23 hours')")
-        .bind(Sha256::digest(near_limit.as_bytes()).to_vec()).bind(actor.user_id).bind(actor.owner_account_id).execute(&pool).await.unwrap();
+    let near_limit_id: i64 = sqlx::query_scalar("INSERT INTO core_identity.credentials(digest,kind,user_id,user_version,owner_account_id,expires_at,session_started_at) VALUES ($1,'session',$2,1,$3,clock_timestamp()+interval '1 hour',clock_timestamp()-interval '29 days 23 hours') RETURNING id")
+        .bind(Sha256::digest(near_limit.as_bytes()).to_vec()).bind(actor.user_id).bind(actor.owner_account_id).fetch_one(&pool).await.unwrap();
+    inherit_fixture_primary_proof(&pool, first.id, near_limit_id).await;
     let bounded = store.refresh_session(&near_limit).await.unwrap();
     let duration:i64=sqlx::query_scalar("SELECT EXTRACT(EPOCH FROM expires_at-session_started_at)::bigint FROM core_identity.credentials WHERE id=$1")
         .bind(bounded.id).fetch_one(&pool).await.unwrap();
     assert_eq!(duration, 30 * 86400);
     let expired = format!("lmms_{}", "c".repeat(64));
-    sqlx::query("INSERT INTO core_identity.credentials(digest,kind,user_id,user_version,owner_account_id,expires_at,session_started_at) VALUES ($1,'session',$2,1,$3,clock_timestamp()+interval '1 hour',clock_timestamp()-interval '31 days')")
-        .bind(Sha256::digest(expired.as_bytes()).to_vec()).bind(actor.user_id).bind(actor.owner_account_id).execute(&pool).await.unwrap();
+    let expired_id: i64 = sqlx::query_scalar("INSERT INTO core_identity.credentials(digest,kind,user_id,user_version,owner_account_id,expires_at,session_started_at) VALUES ($1,'session',$2,1,$3,clock_timestamp()+interval '1 hour',clock_timestamp()-interval '31 days') RETURNING id")
+        .bind(Sha256::digest(expired.as_bytes()).to_vec()).bind(actor.user_id).bind(actor.owner_account_id).fetch_one(&pool).await.unwrap();
+    inherit_fixture_primary_proof(&pool, first.id, expired_id).await;
     assert!(matches!(
         store.refresh_session(&expired).await,
         Err(E::Unauthorized)
