@@ -24,9 +24,10 @@ import {
   getSavedLanguage,
   sanitizeAuthRedirect,
 } from '@/features/auth/lib/auth-redirect'
+import { normalizeInterfaceLanguage } from '@/i18n/languages'
 import { applyAuthBundle } from '@/lib/api'
 import { getAuthenticatedLandingRoute } from '@/lib/console-activation'
-import type { AuthBundle } from '@/stores/auth-store'
+import { useAuthStore, type AuthBundle } from '@/stores/auth-store'
 
 /**
  * Hook for handling authentication redirects and user data management
@@ -41,13 +42,41 @@ export function useAuthRedirect() {
    */
   const handleLoginSuccess = async (
     bundle: AuthBundle,
-    redirectTo?: string
+    redirectTo?: string,
+    alreadyCommitted = false,
+    signal?: AbortSignal
   ) => {
-    applyAuthBundle(bundle)
-    const savedLang = getSavedLanguage(bundle.user)
+    if (!alreadyCommitted) applyAuthBundle(bundle)
+    const epoch = useAuthStore.getState().auth.accountWriteEpoch
+    const isCurrent = () => {
+      const auth = useAuthStore.getState().auth
+      return (
+        !signal?.aborted &&
+        auth.accountWriteEpoch === epoch &&
+        auth.user?.id === bundle.user.id &&
+        auth.session?.sid === bundle.session.sid &&
+        auth.accessToken === bundle.access_token
+      )
+    }
+    if (!isCurrent()) return
+    const preference = getSavedLanguage(bundle.user)
+    const savedLang = preference
+      ? normalizeInterfaceLanguage(preference)
+      : undefined
     if (savedLang && savedLang !== i18n.language) {
+      // Loading resources must not change the global language for a login that
+      // is cancelled or superseded while its backend request is outstanding.
+      await i18n.loadLanguages(savedLang)
+      // loadLanguages can resolve early for an already-preloaded language.
+      // loadResources joins pending loads and includes the current complete
+      // namespace list, resolution hierarchy and configured fallback languages.
+      await new Promise<void>((resolve, reject) => {
+        i18n.loadResources((error) => (error ? reject(error) : resolve()))
+      })
+      if (!isCurrent()) return
       await i18n.changeLanguage(savedLang)
     }
+    if (!isCurrent()) return
 
     const requestedPath = sanitizeAuthRedirect(
       redirectTo,

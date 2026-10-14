@@ -339,7 +339,12 @@ function OAuthCallback() {
               )
             }
             if (data.require_2fa === true) {
-              setPending2FAFlowToken(data.flow_token)
+              setPending2FAFlowToken(
+                data.flow_token,
+                typeof data.expires_at === 'number'
+                  ? data.expires_at
+                  : undefined
+              )
               redirectTo2FA(search.redirect)
               return
             }

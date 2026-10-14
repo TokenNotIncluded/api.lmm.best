@@ -17,9 +17,15 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { useNavigate } from '@tanstack/react-router'
+import { useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 
+import { AuthCookieRecovery } from '@/components/auth-cookie-recovery'
 import { Button } from '@/components/ui/button'
+import {
+  getAuthCookieBlockedState,
+  subscribeAuthCookieState,
+} from '@/lib/auth-cookie'
 import { cn } from '@/lib/utils'
 
 import { ErrorPageFrame } from './error-page-frame'
@@ -46,8 +52,21 @@ export function GeneralError({
 }: GeneralErrorProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
+  const blocked = useSyncExternalStore(
+    subscribeAuthCookieState,
+    getAuthCookieBlockedState,
+    () => null
+  )
   const status = getHttpStatus(error)
   const isRateLimited = status === 429
+
+  if (blocked) {
+    return (
+      <div className={cn('min-h-svh w-full', className)}>
+        <AuthCookieRecovery />
+      </div>
+    )
+  }
 
   return (
     <div className={cn('min-h-svh w-full', className)}>

@@ -20,7 +20,7 @@ import { zodResolver } from '@hookform/resolvers/zod'
 import { Link } from '@tanstack/react-router'
 import axios from 'axios'
 import { Loader2, LogIn, KeyRound } from 'lucide-react'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -58,7 +58,6 @@ import {
 } from '@/lib/passkey'
 import { getServerErrorMessageKey } from '@/lib/server-error-message'
 import { cn } from '@/lib/utils'
-import { useAuthStore } from '@/stores/auth-store'
 
 import { AccountAppealForm } from './account-appeal-form'
 
@@ -95,9 +94,8 @@ export function UserAuthForm({
     validateTurnstile,
   } = useTurnstile()
   const { handleLoginSuccess, redirectTo2FA } = useAuthRedirect()
-  const setPending2FAFlowToken = useAuthStore(
-    (state) => state.auth.setPending2FAFlowToken
-  )
+  const pendingLogin = useRef<AbortController | null>(null)
+  useEffect(() => () => pendingLogin.current?.abort(), [])
 
   const hasUserAgreement = Boolean(status?.user_agreement_enabled)
   const hasPrivacyPolicy = Boolean(status?.privacy_policy_enabled)
@@ -155,20 +153,26 @@ export function UserAuthForm({
 
     if (!validateTurnstile()) return
 
+    if (pendingLogin.current) return
+    const controller = new AbortController()
+    pendingLogin.current = controller
     setIsLoading(true)
     try {
-      const res = await login({
-        username: data.username,
-        password: data.password,
-        turnstile: turnstileToken,
-      })
+      const res = await login(
+        {
+          username: data.username,
+          password: data.password,
+          turnstile: turnstileToken,
+        },
+        controller.signal
+      )
+      if (controller.signal.aborted) return
 
       if (res.success) {
         if (res.data && 'require_2fa' in res.data && res.data.require_2fa) {
           if (!res.data.flow_token) {
             throw new Error(t('Login flow expired. Please sign in again.'))
           }
-          setPending2FAFlowToken(res.data.flow_token)
           redirectTo2FA(redirectTo)
           return
         }
@@ -176,13 +180,16 @@ export function UserAuthForm({
         if (!isAuthBundle(res.data)) {
           throw new Error(t('Login failed'))
         }
-        await handleLoginSuccess(res.data, redirectTo)
+        await handleLoginSuccess(res.data, redirectTo, true, controller.signal)
+        if (controller.signal.aborted) return
         toast.success(t('Welcome back!'))
       }
     } catch (error: unknown) {
+      if (controller.signal.aborted || axios.isCancel(error)) return
       if (axios.isAxiosError(error)) return
       toast.error(error instanceof Error ? error.message : loginFailedMessage)
     } finally {
+      if (pendingLogin.current === controller) pendingLogin.current = null
       setIsLoading(false)
     }
   }

@@ -18,7 +18,15 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import axios from 'axios'
 
-import { api, refreshAuthentication, type RefreshOutcome } from '@/lib/api'
+import { api } from '@/lib/api'
+import { AUTH_COOKIE_TIMEOUT_MS, withAuthCookieLock } from '@/lib/auth-cookie'
+import {
+  applyAuthBundle,
+  applyPending2FAFlow,
+  capturePasswordLoginGuard,
+  clearAuthentication,
+  isAuthBundle,
+} from '@/lib/auth-session'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { getAffiliateCode } from './lib/storage'
@@ -41,17 +49,39 @@ import type {
 // ----------------------------------------------------------------------------
 
 // User login with username and password
-export async function login(payload: LoginPayload) {
+export async function login(payload: LoginPayload, signal?: AbortSignal) {
   const turnstile = payload.turnstile ?? ''
-  const res = await api.post<LoginResponse>(
-    `/api/user/login?turnstile=${turnstile}`,
-    {
-      username: payload.username,
-      password: payload.password,
-    },
-    { skipAuthRefresh: true }
-  )
-  return res.data
+  const assertCurrent = capturePasswordLoginGuard()
+  return withAuthCookieLock(async (transaction) => {
+    assertCurrent()
+    const res = await transaction.request(() =>
+      api.post<LoginResponse>(
+        `/api/user/login?turnstile=${turnstile}`,
+        {
+          username: payload.username,
+          password: payload.password,
+        },
+        { skipAuthRefresh: true, timeout: AUTH_COOKIE_TIMEOUT_MS }
+      )
+    )
+    assertCurrent()
+    if (res.data.success) {
+      const data = res.data.data
+      if (data && 'require_2fa' in data && data.require_2fa) {
+        if (!data.flow_token) {
+          throw new Error('Login flow expired. Please sign in again.')
+        }
+        applyPending2FAFlow(data.flow_token, data.expires_at)
+      } else {
+        if (!isAuthBundle(data)) throw new Error('Login failed')
+        applyAuthBundle(data)
+      }
+    }
+    if (signal?.aborted) {
+      throw new axios.CanceledError('Login view cancelled after response')
+    }
+    return res.data
+  }, signal)
 }
 
 export type AccountAppealResponse = {
@@ -82,29 +112,63 @@ export async function submitAccountAppeal(input: {
 }
 
 // Two-factor authentication login
-export async function login2fa(payload: TwoFAPayload) {
-  const res = await api.post<Login2FAResponse>('/api/user/login/2fa', payload, {
-    skipAuthRefresh: true,
-  })
-  return res.data
+export async function login2fa(payload: TwoFAPayload, signal?: AbortSignal) {
+  const epoch = useAuthStore.getState().auth.accountWriteEpoch
+  const assertCurrent = (completed = false) => {
+    const auth = useAuthStore.getState().auth
+    const cancelledFlow = completed && auth.pending2FAFlowToken === null
+    if (
+      auth.accountWriteEpoch !== epoch ||
+      (auth.pending2FAFlowToken !== payload.flow_token && !cancelledFlow)
+    ) {
+      throw new axios.CanceledError('Login superseded')
+    }
+    if (
+      !completed &&
+      auth.pending2FAFlowExpiresAt !== null &&
+      auth.pending2FAFlowExpiresAt <= Date.now() / 1000
+    ) {
+      throw Object.assign(
+        new Error('Login flow expired. Please sign in again.'),
+        { code: 'MFA_FLOW_EXPIRED' }
+      )
+    }
+  }
+  return withAuthCookieLock(async (transaction) => {
+    assertCurrent()
+    // The signal cancels waiting for the lock, not an active cookie response.
+    const res = await transaction.request(() =>
+      api.post<Login2FAResponse>('/api/user/login/2fa', payload, {
+        skipAuthRefresh: true,
+        timeout: AUTH_COOKIE_TIMEOUT_MS,
+      })
+    )
+    assertCurrent(true)
+    const cancelled =
+      signal?.aborted ||
+      useAuthStore.getState().auth.pending2FAFlowToken === null
+    if (res.data.success) {
+      if (!isAuthBundle(res.data.data)) throw new Error('Login failed')
+      applyAuthBundle(res.data.data)
+    }
+    if (cancelled) {
+      throw new axios.CanceledError('Login view cancelled after response')
+    }
+    return res.data
+  }, signal)
 }
 
 interface LogoutRuntime {
   getExpectedSID: () => string | undefined
   request: (expectedSID?: string) => Promise<ApiResponse>
-  refresh: () => Promise<RefreshOutcome>
 }
 
 export async function executeLogout(
-  runtime: LogoutRuntime,
-  allowMismatchRecovery = true
+  runtime: LogoutRuntime
 ): Promise<ApiResponse> {
   try {
     return await runtime.request(runtime.getExpectedSID())
   } catch (error: unknown) {
-    const code = axios.isAxiosError(error)
-      ? error.response?.data?.code
-      : undefined
     const status = axios.isAxiosError(error)
       ? error.response?.status
       : undefined
@@ -117,37 +181,50 @@ export async function executeLogout(
     if (axios.isAxiosError(error) && (status === 401 || status === 404)) {
       return { success: true, message: '' }
     }
-    if (
-      allowMismatchRecovery &&
-      axios.isAxiosError(error) &&
-      status === 409 &&
-      code === 'AUTH_SESSION_MISMATCH'
-    ) {
-      const outcome = await runtime.refresh()
-      if (outcome.kind === 'authenticated') {
-        return executeLogout(runtime, false)
-      }
-      if (outcome.kind === 'anonymous') {
-        return { success: true, message: '' }
-      }
-    }
     throw error
   }
 }
 
 // User logout
 export async function logout(): Promise<ApiResponse> {
-  return executeLogout({
-    getExpectedSID: () => useAuthStore.getState().auth.session?.sid,
-    request: async (sid) => {
-      const res = await api.post('/api/user/auth/logout', undefined, {
-        headers: sid ? { 'X-Auth-Session': sid } : undefined,
-        skipAuthRefresh: true,
-        skipErrorHandler: true,
-      })
-      return res.data
-    },
-    refresh: refreshAuthentication,
+  const initial = useAuthStore.getState().auth
+  return withAuthCookieLock(async (transaction) => {
+    const auth = useAuthStore.getState().auth
+    if (
+      auth.user?.id !== initial.user?.id ||
+      auth.session?.sid !== initial.session?.sid ||
+      auth.accessToken !== initial.accessToken
+    ) {
+      throw new axios.CanceledError('Logout superseded')
+    }
+    const result = await executeLogout({
+      getExpectedSID: () => initial.session?.sid,
+      request: async (sid) => {
+        const res = await transaction.request(() =>
+          api.post('/api/user/auth/logout', undefined, {
+            headers: sid ? { 'X-Auth-Session': sid } : undefined,
+            skipAuthRefresh: true,
+            timeout: AUTH_COOKIE_TIMEOUT_MS,
+            skipErrorHandler: true,
+            authScope: {
+              userId: initial.user?.id,
+              sessionId: initial.session?.sid,
+            },
+          })
+        )
+        return res.data
+      },
+    })
+    const current = useAuthStore.getState().auth
+    if (
+      current.user?.id !== initial.user?.id ||
+      current.session?.sid !== initial.session?.sid ||
+      current.accessToken !== initial.accessToken
+    ) {
+      throw new axios.CanceledError('Logout superseded')
+    }
+    if (result.success) clearAuthentication()
+    return result
   })
 }
 

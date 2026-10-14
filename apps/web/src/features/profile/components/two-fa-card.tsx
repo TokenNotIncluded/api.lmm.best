@@ -20,6 +20,7 @@ import { Shield, AlertTriangle, RefreshCw } from 'lucide-react'
 import { useTranslation } from 'react-i18next'
 
 import { StatusBadge } from '@/components/status-badge'
+import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import {
   Card,
@@ -61,6 +62,29 @@ export function TwoFACard({ loading: pageLoading }: TwoFACardProps) {
         </CardHeader>
         <CardContent className='p-3 sm:p-5'>
           <Skeleton className='h-20 w-full' />
+        </CardContent>
+      </Card>
+    )
+  }
+
+  if (!status) {
+    return (
+      <Card data-card-hover='false' className='gap-0 overflow-hidden py-0'>
+        <CardHeader className='p-3 sm:p-5'>
+          <CardTitle>{t('Two-Factor Authentication')}</CardTitle>
+          <CardDescription>{t('Unknown status')}</CardDescription>
+        </CardHeader>
+        <CardContent className='space-y-3 p-3 sm:p-5'>
+          <Alert variant='destructive' role='alert'>
+            <AlertTriangle />
+            <AlertDescription>
+              {t('Unable to load two-factor authentication status')}
+            </AlertDescription>
+          </Alert>
+          <Button variant='outline' onClick={() => void refetch()}>
+            <RefreshCw className='mr-2 h-4 w-4' />
+            {t('Retry')}
+          </Button>
         </CardContent>
       </Card>
     )

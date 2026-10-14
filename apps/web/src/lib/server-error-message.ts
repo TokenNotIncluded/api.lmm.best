@@ -20,6 +20,12 @@ import { getRequestErrorToastId } from './request-error-toast'
 import { isRateLimitedError } from './request-rate-limit'
 
 const serverErrorMessageKeys = {
+  MFA_CODE_INVALID: 'Invalid code',
+  MFA_FLOW_EXPIRED:
+    'This login flow has expired or has already been used. Sign in again.',
+  MFA_UNAVAILABLE:
+    'Two-factor authentication is temporarily unavailable. Try again later.',
+  AUTH_ROTATION_INVALID: 'Session expired!',
   service_temporarily_unavailable:
     'The service is temporarily unavailable. Please try again later.',
   'oauth.github_migration_declined':

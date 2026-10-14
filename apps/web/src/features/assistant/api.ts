@@ -23,6 +23,7 @@ import type { PricingData } from '@/features/pricing/types'
 import type { PlanRecord } from '@/features/subscriptions/types'
 import { CATALOGUE_ID_PATTERN } from '@/features/tool-market/service-link'
 import { api, getCommonHeaders, getFreshAuthHeaders } from '@/lib/api'
+import { withAuthenticatedCookieWrite } from '@/lib/auth-session'
 import { useAuthStore } from '@/stores/auth-store'
 
 import {
@@ -1807,10 +1808,12 @@ export async function executeAssistantUserAction(
   if (action.type === 'user_password_change') {
     const password = input.newPassword ?? ''
     if (action.target_is_self) {
-      const response = await api.put<AssistantAPIResponse<unknown>>(
-        '/api/user/self',
-        { original_password: input.currentPassword ?? '', password },
-        { ...skipOptions, acceptAuthRotation: true }
+      const response = await withAuthenticatedCookieWrite((config) =>
+        api.put<AssistantAPIResponse<unknown>>(
+          '/api/user/self',
+          { original_password: input.currentPassword ?? '', password },
+          { ...skipOptions, ...config, acceptAuthRotation: true }
+        )
       )
       requireAssistantData(response.data, 'Unable to change the password')
     } else {

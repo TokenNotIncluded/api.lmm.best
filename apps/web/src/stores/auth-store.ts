@@ -171,12 +171,19 @@ interface AuthState {
     accessExpiresAt: number | null
     session: LoginSession | null
     pending2FAFlowToken: string | null
+    pending2FAFlowExpiresAt: number | null
     bootstrapState: AuthBootstrapState
     setBundle: (bundle: AuthBundle) => void
     setUser: (user: AuthUser | null) => void
-    setPending2FAFlowToken: (flowToken: string | null) => void
+    setPending2FAFlowToken: (
+      flowToken: string | null,
+      expiresAt?: number
+    ) => void
     setBootstrapState: (bootstrapState: AuthBootstrapState) => void
-    reset: (bootstrapState?: AuthBootstrapState) => void
+    reset: (
+      bootstrapState?: AuthBootstrapState,
+      preserveValidPending2FA?: boolean
+    ) => void
   }
 }
 
@@ -188,6 +195,7 @@ export const useAuthStore = create<AuthState>()((set) => ({
     accessExpiresAt: null,
     session: null,
     pending2FAFlowToken: null,
+    pending2FAFlowExpiresAt: null,
     bootstrapState: 'idle',
     setBundle: (bundle) =>
       set((state) => ({
@@ -200,6 +208,7 @@ export const useAuthStore = create<AuthState>()((set) => ({
           accessExpiresAt: bundle.access_expires_at,
           session: bundle.session,
           pending2FAFlowToken: null,
+          pending2FAFlowExpiresAt: null,
           bootstrapState: 'complete',
         },
       })),
@@ -212,29 +221,50 @@ export const useAuthStore = create<AuthState>()((set) => ({
           accountWriteEpoch: state.auth.accountWriteEpoch + 1,
         },
       })),
-    setPending2FAFlowToken: (pending2FAFlowToken) =>
+    setPending2FAFlowToken: (pending2FAFlowToken, expiresAt) =>
       set((state) => ({
         ...state,
-        auth: { ...state.auth, pending2FAFlowToken },
+        auth: {
+          ...state.auth,
+          pending2FAFlowToken,
+          pending2FAFlowExpiresAt:
+            pending2FAFlowToken &&
+            typeof expiresAt === 'number' &&
+            Number.isSafeInteger(expiresAt)
+              ? expiresAt
+              : null,
+        },
       })),
     setBootstrapState: (bootstrapState) =>
       set((state) => ({
         ...state,
         auth: { ...state.auth, bootstrapState },
       })),
-    reset: (bootstrapState = 'complete') =>
-      set((state) => ({
-        ...state,
-        auth: {
-          ...state.auth,
-          user: null,
-          accountWriteEpoch: state.auth.accountWriteEpoch + 1,
-          accessToken: null,
-          accessExpiresAt: null,
-          session: null,
-          pending2FAFlowToken: null,
-          bootstrapState,
-        },
-      })),
+    reset: (bootstrapState = 'complete', preserveValidPending2FA = false) =>
+      set((state) => {
+        const preserveFlow =
+          preserveValidPending2FA &&
+          state.auth.pending2FAFlowToken &&
+          (state.auth.pending2FAFlowExpiresAt === null ||
+            state.auth.pending2FAFlowExpiresAt > Date.now() / 1000)
+        return {
+          ...state,
+          auth: {
+            ...state.auth,
+            user: null,
+            accountWriteEpoch: state.auth.accountWriteEpoch + 1,
+            accessToken: null,
+            accessExpiresAt: null,
+            session: null,
+            pending2FAFlowToken: preserveFlow
+              ? state.auth.pending2FAFlowToken
+              : null,
+            pending2FAFlowExpiresAt: preserveFlow
+              ? state.auth.pending2FAFlowExpiresAt
+              : null,
+            bootstrapState,
+          },
+        }
+      }),
   },
 }))

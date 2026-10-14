@@ -16,9 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 
 import { get2FAStatus } from '@/lib/api'
+import { useAuthStore } from '@/stores/auth-store'
 
 import type { TwoFAStatus } from '../types'
 
@@ -26,40 +27,62 @@ import type { TwoFAStatus } from '../types'
 // Two-FA Hook
 // ============================================================================
 
-const DEFAULT_STATUS: TwoFAStatus = {
-  enabled: false,
-  locked: false,
-  backup_codes_remaining: 0,
-}
-
 export function useTwoFA(enabled = true) {
   const [loading, setLoading] = useState(true)
-  const [status, setStatus] = useState<TwoFAStatus>(DEFAULT_STATUS)
+  const [status, setStatus] = useState<TwoFAStatus | null>(null)
+  const [error, setError] = useState(false)
+  const request = useRef(0)
+  const invalidate = useCallback(() => {
+    request.current++
+  }, [])
+  const userId = useAuthStore((state) => state.auth.user?.id)
+  const sessionId = useAuthStore((state) => state.auth.session?.sid)
 
   const fetchStatus = useCallback(async () => {
+    const attempt = ++request.current
     if (!enabled) return
 
     try {
       setLoading(true)
-      const response = await get2FAStatus()
-      if (response.success && response.data) {
-        setStatus(response.data)
+      setError(false)
+      setStatus(null)
+      const response = await get2FAStatus({
+        skipErrorHandler: true,
+        skipBusinessError: true,
+        authScope: { userId, sessionId },
+      })
+      if (attempt !== request.current) return
+      const data = response.data
+      if (
+        response.success !== true ||
+        !data ||
+        typeof data.enabled !== 'boolean' ||
+        typeof data.locked !== 'boolean' ||
+        !Number.isSafeInteger(data.backup_codes_remaining) ||
+        data.backup_codes_remaining < 0
+      ) {
+        throw new Error('Invalid two-factor status')
       }
-    } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error('Failed to fetch 2FA status:', error)
+      setStatus(data)
+    } catch {
+      if (attempt === request.current) {
+        setStatus(null)
+        setError(true)
+      }
     } finally {
-      setLoading(false)
+      if (attempt === request.current) setLoading(false)
     }
-  }, [enabled])
+  }, [enabled, userId, sessionId])
 
   useEffect(() => {
     fetchStatus()
-  }, [fetchStatus])
+    return invalidate
+  }, [fetchStatus, invalidate])
 
   return {
     status,
     loading,
+    error,
     refetch: fetchStatus,
   }
 }

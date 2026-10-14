@@ -20,6 +20,12 @@ import type { QueryClient } from '@tanstack/react-query'
 import axios, { type AxiosAdapter } from 'axios'
 import { t } from 'i18next'
 
+import {
+  AUTH_COOKIE_TIMEOUT_MS,
+  withAuthCookieActivity,
+  withAuthCookieLock,
+  type AuthCookieTransaction,
+} from '@/lib/auth-cookie'
 import { publishAuthSessionEvent } from '@/lib/auth-session-sync'
 import {
   isRateLimitedError,
@@ -84,8 +90,16 @@ export function setDevelopmentAuthRefreshAdapter(adapter: AxiosAdapter): void {
 }
 
 const refreshRaceDelays = [80, 200, 500] as const
-const authRefreshTimeoutMs = 10_000
 let refreshPromise: Promise<RefreshOutcome> | null = null
+type AuthenticationGeneration = {
+  authEpoch: number
+  accountWriteEpoch: number
+}
+type RefreshAccountWrite = {
+  before?: AuthenticationGeneration
+  after?: AuthenticationGeneration
+}
+let refreshAccountWrite: RefreshAccountWrite | null = null
 let refreshCooldown: {
   epoch: number
   sid: string | undefined
@@ -94,6 +108,40 @@ let refreshCooldown: {
 } | null = null
 let authEpoch = 0
 let authCache: QueryClient | null = null
+
+function authenticationGeneration(): AuthenticationGeneration {
+  return {
+    authEpoch,
+    accountWriteEpoch: useAuthStore.getState().auth.accountWriteEpoch,
+  }
+}
+
+function sameGeneration(
+  left: AuthenticationGeneration,
+  right?: AuthenticationGeneration
+): boolean {
+  return (
+    left.authEpoch === right?.authEpoch &&
+    left.accountWriteEpoch === right?.accountWriteEpoch
+  )
+}
+
+/** Only an already-running passive refresh may precede this explicit login. */
+export function capturePasswordLoginGuard(): () => void {
+  const initial = authenticationGeneration()
+  const passive = refreshPromise ? refreshAccountWrite : null
+  return () => {
+    const current = authenticationGeneration()
+    if (
+      sameGeneration(current, initial) ||
+      (sameGeneration(initial, passive?.before) &&
+        sameGeneration(current, passive?.after))
+    ) {
+      return
+    }
+    throw new axios.CanceledError('Login superseded')
+  }
+}
 
 class AuthRefreshSupersededError extends Error {
   constructor() {
@@ -178,6 +226,12 @@ export function applyAuthBundle(
   }
 }
 
+export function applyPending2FAFlow(flow: string, expiresAt?: number): void {
+  // A refresh queued before the password challenge cannot consume the ceremony.
+  authEpoch += 1
+  useAuthStore.getState().auth.setPending2FAFlowToken(flow, expiresAt)
+}
+
 export function applyAuthRotation(value: unknown): void {
   if (!isAuthTokenRotation(value)) {
     throw new AuthRotationError('Invalid authentication rotation response')
@@ -205,13 +259,14 @@ export function applyAuthRotation(value: unknown): void {
 
 export function clearAuthentication(
   synchronizeTabs = true,
-  bootstrapState: AuthBootstrapState = 'complete'
+  bootstrapState: AuthBootstrapState = 'complete',
+  preserveValidPending2FA = false
 ): void {
   const sid = useAuthStore.getState().auth.session?.sid
   authCache?.clear()
   refreshCooldown = null
   authEpoch += 1
-  useAuthStore.getState().auth.reset(bootstrapState)
+  useAuthStore.getState().auth.reset(bootstrapState, preserveValidPending2FA)
   if (synchronizeTabs && sid) {
     publishAuthSessionEvent('signed_out', sid)
   }
@@ -233,6 +288,17 @@ export function clearAuthenticatedClientState(
   clearAuthentication(synchronizeTabs)
 }
 
+/** A deleted account cannot invalidate a later login, even if logout failed. */
+export function clearAuthenticationIfCurrent(scope: {
+  userId: number | undefined
+  sessionId: string | undefined
+}): void {
+  const auth = useAuthStore.getState().auth
+  if (auth.user?.id === scope.userId && auth.session?.sid === scope.sessionId) {
+    clearAuthentication()
+  }
+}
+
 function waitForRefreshRace(delay: number): Promise<void> {
   return new Promise((resolve) => globalThis.setTimeout(resolve, delay))
 }
@@ -244,18 +310,20 @@ export function createRefreshRunner(
     kind: 'transient_error',
     error: new AuthRefreshSupersededError(),
   })
-  const run = async (
-    raceAttempt: number,
-    allowMismatchRetry: boolean
-  ): Promise<RefreshOutcome> => {
+  const run = async (raceAttempt: number): Promise<RefreshOutcome> => {
     if (runtime.isCurrent && !runtime.isCurrent()) return superseded()
-    const response = await runtime.request(runtime.getExpectedSID())
+    const expectedSID = runtime.getExpectedSID()
+    const response = await runtime.request(expectedSID)
     if (runtime.isCurrent && !runtime.isCurrent()) return superseded()
     const responseData = isRecord(response.data) ? response.data : undefined
     const code =
       typeof responseData?.code === 'string' ? responseData.code : undefined
     const bundle = runtime.parseBundle(responseData?.data)
     if (responseData?.success === true && bundle) {
+      if (expectedSID && bundle.session.sid !== expectedSID) {
+        runtime.clear(false)
+        return { kind: 'out_of_sync', code: 'AUTH_SESSION_MISMATCH' }
+      }
       runtime.acceptBundle(bundle)
       return { kind: 'authenticated', bundle }
     }
@@ -264,17 +332,15 @@ export function createRefreshRunner(
       const delay = refreshRaceDelays[raceAttempt]
       if (delay !== undefined) {
         await runtime.wait(delay)
-        return run(raceAttempt + 1, allowMismatchRetry)
+        return run(raceAttempt + 1)
       }
       runtime.clear(false)
       return { kind: 'out_of_sync', code }
     }
 
     if (response.status === 409 && code === 'AUTH_SESSION_MISMATCH') {
-      if (allowMismatchRetry) {
-        runtime.clear(false, 'idle')
-        return run(0, false)
-      }
+      // Removing expectedSID here would let a late foreign cookie family
+      // silently become this tab's signed-in account.
       runtime.clear(false)
       return { kind: 'out_of_sync', code }
     }
@@ -305,20 +371,19 @@ export function createRefreshRunner(
     }
   }
 
-  return () => run(0, true)
+  return () => run(0)
 }
 
 async function requestRefresh(
-  expectedSID?: string
+  expectedSID: string | undefined,
+  transaction: AuthCookieTransaction
 ): Promise<AuthRefreshHTTPResponse> {
   try {
-    const response = await authClient.post(
-      '/api/user/auth/refresh',
-      undefined,
-      {
+    const response = await transaction.request(() =>
+      authClient.post('/api/user/auth/refresh', undefined, {
         headers: expectedSID ? { 'X-Auth-Session': expectedSID } : undefined,
-        timeout: authRefreshTimeoutMs,
-      }
+        timeout: AUTH_COOKIE_TIMEOUT_MS,
+      })
     )
     return { status: response.status, data: response.data }
   } catch (error: unknown) {
@@ -331,12 +396,31 @@ async function requestRefresh(
   }
 }
 
-function runRefresh(refreshEpoch: number): Promise<RefreshOutcome> {
+function runRefresh(
+  refreshEpoch: number,
+  transaction: AuthCookieTransaction,
+  accountWrite?: RefreshAccountWrite
+): Promise<RefreshOutcome> {
+  const commitBundle = (bundle: AuthBundle) => {
+    const before = authenticationGeneration()
+    applyAuthBundle(bundle, false)
+    const after = authenticationGeneration()
+    if (
+      accountWrite &&
+      after.authEpoch === before.authEpoch + 1 &&
+      after.accountWriteEpoch === before.accountWriteEpoch + 1
+    ) {
+      accountWrite.before = before
+      // A synchronous store listener's additional write must not be
+      // attributed to this refresh. Both generations advance exactly once.
+      accountWrite.after = after
+    }
+  }
   return createRefreshRunner({
-    request: requestRefresh,
+    request: (sid) => requestRefresh(sid, transaction),
     getExpectedSID: () => useAuthStore.getState().auth.session?.sid,
     parseBundle: (value) => (isAuthBundle(value) ? value : null),
-    acceptBundle: (bundle) => applyAuthBundle(bundle, false),
+    acceptBundle: commitBundle,
     clear: (synchronizeTabs, bootstrapState) => {
       if (!synchronizeTabs && bootstrapState === 'idle') {
         useAuthStore.getState().auth.reset('idle')
@@ -351,16 +435,12 @@ function runRefresh(refreshEpoch: number): Promise<RefreshOutcome> {
 }
 
 async function performRefreshWithBrowserLock(
-  refreshEpoch: number
+  refreshEpoch: number,
+  accountWrite: RefreshAccountWrite
 ): Promise<RefreshOutcome> {
   try {
-    if (typeof navigator === 'undefined' || !navigator.locks) {
-      return runRefresh(refreshEpoch)
-    }
-    return navigator.locks.request(
-      'new-api:auth-refresh',
-      { mode: 'exclusive' },
-      () => runRefresh(refreshEpoch)
+    return await withAuthCookieLock((transaction) =>
+      runRefresh(refreshEpoch, transaction, accountWrite)
     )
   } catch (error: unknown) {
     useAuthStore.getState().auth.setBootstrapState('idle')
@@ -368,40 +448,186 @@ async function performRefreshWithBrowserLock(
   }
 }
 
+function currentRefreshCooldown(epoch: number, sid: string | undefined) {
+  if (
+    refreshCooldown?.epoch === epoch &&
+    refreshCooldown.sid === sid &&
+    refreshCooldown.until > Date.now()
+  ) {
+    return refreshCooldown.outcome
+  }
+  return null
+}
+
+function recordRefreshCooldown(
+  epoch: number,
+  sid: string | undefined,
+  outcome: RefreshOutcome
+): void {
+  if (
+    authEpoch === epoch &&
+    outcome.kind === 'transient_error' &&
+    isRateLimitedError(outcome.error)
+  ) {
+    const seconds = Math.max(1, rateLimitWaitSeconds(outcome.error) ?? 30)
+    refreshCooldown = {
+      epoch,
+      sid,
+      until: Date.now() + seconds * 1000,
+      outcome,
+    }
+  }
+}
+
+function hasPendingTwoFactorFlow(): boolean {
+  const auth = useAuthStore.getState().auth
+  return Boolean(
+    auth.pending2FAFlowToken &&
+    (auth.pending2FAFlowExpiresAt === null ||
+      auth.pending2FAFlowExpiresAt > Date.now() / 1000)
+  )
+}
+
+/** Keep refresh and one protected read together against other Cookie writers. */
+export function refreshAndRunAuthenticatedRead<T>(
+  scope: { userId: number; sessionId: string },
+  operation: (bundle: AuthBundle) => Promise<T>,
+  signal?: AbortSignal
+): Promise<
+  | { kind: 'response'; response: T }
+  | { kind: 'session'; outcome: RefreshOutcome }
+> {
+  return withAuthCookieLock(async (transaction) => {
+    const assertScope = () => {
+      const auth = useAuthStore.getState().auth
+      if (
+        auth.user?.id !== scope.userId ||
+        auth.session?.sid !== scope.sessionId
+      ) {
+        throw new axios.CanceledError(
+          'Authentication changed while waiting for read recovery'
+        )
+      }
+    }
+    assertScope()
+    if (hasPendingTwoFactorFlow()) {
+      return {
+        kind: 'session',
+        outcome: {
+          kind: 'transient_error',
+          error: new AuthRefreshSupersededError(),
+        },
+      }
+    }
+    const epoch = authEpoch
+    const outcome =
+      currentRefreshCooldown(epoch, scope.sessionId) ??
+      (await runRefresh(epoch, transaction))
+    recordRefreshCooldown(epoch, scope.sessionId, outcome)
+    if (outcome.kind !== 'authenticated') return { kind: 'session', outcome }
+    assertScope()
+    // The Cookie response is known and committed. The read itself cannot
+    // create Cookie uncertainty, even if it fails or its observer cancels.
+    const response = await operation(outcome.bundle)
+    assertScope()
+    return { kind: 'response', response }
+  }, signal)
+}
+
 export function refreshAuthentication(): Promise<RefreshOutcome> {
+  if (hasPendingTwoFactorFlow()) {
+    return Promise.resolve({
+      kind: 'transient_error',
+      error: new AuthRefreshSupersededError(),
+    })
+  }
   if (!refreshPromise) {
     const refreshEpoch = authEpoch
     const sid = useAuthStore.getState().auth.session?.sid
-    if (
-      refreshCooldown?.epoch === refreshEpoch &&
-      refreshCooldown.sid === sid &&
-      refreshCooldown.until > Date.now()
-    ) {
-      return Promise.resolve(refreshCooldown.outcome)
-    }
-    refreshPromise = performRefreshWithBrowserLock(refreshEpoch)
+    const cooldown = currentRefreshCooldown(refreshEpoch, sid)
+    if (cooldown) return Promise.resolve(cooldown)
+    const accountWrite: RefreshAccountWrite = {}
+    refreshAccountWrite = accountWrite
+    refreshPromise = performRefreshWithBrowserLock(refreshEpoch, accountWrite)
       .then((outcome) => {
-        if (
-          authEpoch === refreshEpoch &&
-          outcome.kind === 'transient_error' &&
-          isRateLimitedError(outcome.error)
-        ) {
-          // Missing Retry-After still needs backpressure rather than another POST.
-          const seconds = Math.max(1, rateLimitWaitSeconds(outcome.error) ?? 30)
-          refreshCooldown = {
-            epoch: refreshEpoch,
-            sid,
-            until: Date.now() + seconds * 1000,
-            outcome,
-          }
-        }
+        recordRefreshCooldown(refreshEpoch, sid, outcome)
         return outcome
       })
       .finally(() => {
         refreshPromise = null
+        refreshAccountWrite = null
       })
   }
   return refreshPromise
+}
+
+export type AuthWriteConfig = {
+  skipAuthRefresh: true
+  timeout: number
+  authScope: { userId: number | undefined; sessionId: string | undefined }
+}
+
+/** Prepare outside the cookie lock; never replay a factor/password mutation. */
+export function withAuthenticatedCookieWrite<T>(
+  operation: (config: AuthWriteConfig) => Promise<T>,
+  writesCookie = true
+): Promise<T> {
+  return withAuthCookieActivity(() =>
+    performAuthenticatedCookieWrite(operation, writesCookie)
+  )
+}
+
+async function performAuthenticatedCookieWrite<T>(
+  operation: (config: AuthWriteConfig) => Promise<T>,
+  writesCookie = true
+): Promise<T> {
+  const initial = useAuthStore.getState().auth
+  const scope = { userId: initial.user?.id, sessionId: initial.session?.sid }
+  const assertScope = () => {
+    const auth = useAuthStore.getState().auth
+    if (
+      auth.user?.id !== scope.userId ||
+      auth.session?.sid !== scope.sessionId
+    ) {
+      throw new axios.CanceledError('Authentication changed before operation')
+    }
+    return auth
+  }
+  if (
+    initial.user &&
+    initial.session &&
+    (!initial.accessToken ||
+      !initial.accessExpiresAt ||
+      initial.accessExpiresAt <= Date.now() / 1000 + 60)
+  ) {
+    const outcome = await refreshAuthentication()
+    assertScope()
+    if (outcome.kind !== 'authenticated') {
+      throw new Error(t('Session expired!'))
+    }
+  }
+  const bearer = assertScope().accessToken
+  try {
+    return await withAuthCookieLock((transaction) => {
+      if (assertScope().accessToken !== bearer) {
+        throw new axios.CanceledError('Authentication changed while waiting')
+      }
+      const dispatch = () =>
+        operation({
+          skipAuthRefresh: true,
+          timeout: AUTH_COOKIE_TIMEOUT_MS,
+          authScope: scope,
+        })
+      return writesCookie ? transaction.request(dispatch) : dispatch()
+    })
+  } catch (error) {
+    // A clearly rejected request may refresh the session only after the
+    // callback has released the lock. The user must explicitly retry input.
+    if (axios.isAxiosError(error) && error.response?.status === 401) {
+      if (assertScope().accessToken === bearer) await refreshAuthentication()
+    }
+    throw error
+  }
 }
 
 function currentValidAuthBundle(): AuthBundle | null {

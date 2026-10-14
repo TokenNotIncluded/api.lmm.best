@@ -17,8 +17,9 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
+import axios from 'axios'
 import { Loader2 } from 'lucide-react'
-import { useState } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
@@ -66,9 +67,15 @@ export function OtpForm({ className, redirectTo, ...props }: OtpFormProps) {
   const { t } = useTranslation()
   const [isLoading, setIsLoading] = useState(false)
   const [useBackupCode, setUseBackupCode] = useState(false)
-
+  const pendingRequest = useRef<AbortController | null>(null)
   const pending2FAFlowToken = useAuthStore(
     (state) => state.auth.pending2FAFlowToken
+  )
+  useEffect(
+    () => () => {
+      pendingRequest.current?.abort()
+    },
+    []
   )
   const { handleLoginSuccess, redirectToLogin } = useAuthRedirect()
 
@@ -93,22 +100,63 @@ export function OtpForm({ className, redirectTo, ...props }: OtpFormProps) {
       }
     }
 
+    if (pendingRequest.current && !pendingRequest.current.signal.aborted) return
+    const controller = new AbortController()
+    pendingRequest.current = controller
+    const authAtStart = useAuthStore.getState().auth
+    const stillCurrent = () =>
+      !controller.signal.aborted &&
+      useAuthStore.getState().auth.pending2FAFlowToken ===
+        pending2FAFlowToken &&
+      useAuthStore.getState().auth.accountWriteEpoch ===
+        authAtStart.accountWriteEpoch
+    const expireFlow = () => {
+      useAuthStore.getState().auth.setPending2FAFlowToken(null)
+      redirectToLogin(redirectTo)
+    }
     setIsLoading(true)
     try {
       // Remove all hyphens from backup code before sending to backend
       const code = useBackupCode ? cleanBackupCode(data.otp) : data.otp
-      if (!pending2FAFlowToken) {
+      if (
+        !pending2FAFlowToken ||
+        (authAtStart.pending2FAFlowExpiresAt !== null &&
+          authAtStart.pending2FAFlowExpiresAt <= Date.now() / 1000)
+      ) {
         toast.error(t('Login flow expired. Please sign in again.'))
-        redirectToLogin(redirectTo)
+        expireFlow()
         return
       }
-      const res = await login2fa({
-        code,
-        flow_token: pending2FAFlowToken,
-      })
+      const res = await login2fa(
+        {
+          code,
+          flow_token: pending2FAFlowToken,
+        },
+        controller.signal
+      )
+      if (controller.signal.aborted) return
+      if (res.success && res.data) {
+        if (
+          useAuthStore.getState().auth.accessToken !== res.data.access_token
+        ) {
+          return
+        }
+        await handleLoginSuccess(res.data, redirectTo, true, controller.signal)
+        if (controller.signal.aborted) return
+        toast.success(t('Signed in'))
+        return
+      }
+      if (!stillCurrent()) return
 
       if (!res.success) {
-        if (getServerErrorMessageKey(res)) return
+        const messageKey = getServerErrorMessageKey(res)
+        if (
+          messageKey ===
+          'This login flow has expired or has already been used. Sign in again.'
+        ) {
+          expireFlow()
+        }
+        if (messageKey) return
         toast.error(res.message || t('Invalid code'))
         return
       }
@@ -116,25 +164,35 @@ export function OtpForm({ className, redirectTo, ...props }: OtpFormProps) {
       if (!res.data) {
         throw new Error(t('Login failed'))
       }
-
-      await handleLoginSuccess(res.data, redirectTo)
-      toast.success(t('Signed in'))
     } catch (error) {
-      if (getServerErrorMessageKey(error)) return
+      if (axios.isCancel(error) || !stillCurrent()) return
+      const messageKey = getServerErrorMessageKey(error)
+      if (
+        messageKey ===
+        'This login flow has expired or has already been used. Sign in again.'
+      ) {
+        expireFlow()
+      }
+      // The API client already renders typed business errors and Retry-After.
+      if (messageKey || axios.isAxiosError(error)) return
       const errorMessage =
         error instanceof Error ? error.message : t('Verification failed')
       toast.error(errorMessage)
     } finally {
+      if (pendingRequest.current === controller) pendingRequest.current = null
       setIsLoading(false)
     }
   }
 
   function handleToggleMode() {
+    if (isLoading) return
     setUseBackupCode(!useBackupCode)
     form.setValue('otp', '')
   }
 
   function handleBackToLogin() {
+    pendingRequest.current?.abort()
+    useAuthStore.getState().auth.setPending2FAFlowToken(null)
     redirectToLogin(redirectTo)
   }
 
@@ -224,6 +282,7 @@ export function OtpForm({ className, redirectTo, ...props }: OtpFormProps) {
             size='sm'
             className='text-primary h-auto p-0'
             onClick={handleToggleMode}
+            disabled={isLoading}
           >
             {useBackupCode ? t('Use authenticator code') : t('Use backup code')}
           </Button>

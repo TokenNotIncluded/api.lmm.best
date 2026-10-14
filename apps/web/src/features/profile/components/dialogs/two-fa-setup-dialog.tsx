@@ -30,6 +30,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { setup2FA, enable2FA } from '@/lib/api'
 
+import { twoFAErrorMessage } from '../../lib/two-fa-error'
 import type { TwoFASetupData } from '../../types'
 
 // ============================================================================
@@ -72,9 +73,7 @@ export function TwoFASetupDialog({
         onOpenChange(false)
       }
     } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error('Setup 2FA error:', error)
-      toast.error(t('Failed to setup 2FA'))
+      toast.error(twoFAErrorMessage(error, t('Failed to setup 2FA')))
       onOpenChange(false)
     } finally {
       setInitializing(false)
@@ -102,8 +101,8 @@ export function TwoFASetupDialog({
       } else {
         toast.error(response.message || t('Failed to enable 2FA'))
       }
-    } catch {
-      toast.error(t('Failed to enable 2FA'))
+    } catch (error) {
+      toast.error(twoFAErrorMessage(error, t('Failed to enable 2FA')))
     } finally {
       setLoading(false)
     }

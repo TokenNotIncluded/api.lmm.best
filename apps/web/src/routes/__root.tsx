@@ -24,10 +24,13 @@ import {
   redirect,
   useNavigate,
   useRouterState,
+  type ErrorComponentProps,
 } from '@tanstack/react-router'
 import { TanStackRouterDevtools } from '@tanstack/react-router-devtools'
 import { lazy, Suspense, useEffect } from 'react'
 
+import { AuthBootstrapPending } from '@/components/auth-bootstrap-pending'
+import { AuthCookieRecovery } from '@/components/auth-cookie-recovery'
 import { FeedbackRewardButton } from '@/components/feedback-reward-button'
 import { Footer } from '@/components/layout/components/footer'
 import { NavigationProgress } from '@/components/navigation-progress'
@@ -40,9 +43,11 @@ import { NotFoundError } from '@/features/errors/not-found-error'
 import { getSetupStatus } from '@/features/setup/api'
 import { useSystemConfig } from '@/hooks/use-system-config'
 import {
-  bootstrapAuthentication,
-  clearAuthentication,
-} from '@/lib/auth-session'
+  AuthBootstrapPendingError,
+  waitForProtectedAuthentication,
+} from '@/lib/auth-bootstrap-navigation'
+import { bootstrapAuthentication } from '@/lib/auth-session'
+import { createAuthSessionReconciler } from '@/lib/auth-session-reconcile'
 import { subscribeAuthSessionEvents } from '@/lib/auth-session-sync'
 import {
   isConsoleActivated,
@@ -85,27 +90,24 @@ function RootComponent() {
 
   useEffect(() => {
     if (__LMM_PERSONA_DEBUG__) return
-    return subscribeAuthSessionEvents((event) => {
-      const currentSID = useAuthStore.getState().auth.session?.sid
-
-      if (event.kind === 'authenticated') {
-        if (event.sid === currentSID) return
-        if (currentSID) {
-          clearAuthentication(false)
-        }
-        window.location.reload()
-        return
-      }
-
-      if (currentSID && event.sid === currentSID) {
-        clearAuthentication(false)
+    const reconciler = createAuthSessionReconciler({
+      reload: () => window.location.reload(),
+      signedOut: () => {
         void navigate({ to: '/sign-in', replace: true })
-      }
+      },
     })
+    const unsubscribe = subscribeAuthSessionEvents((event) => {
+      void reconciler.handle(event)
+    })
+    return () => {
+      reconciler.dispose()
+      unsubscribe()
+    }
   }, [navigate])
 
   return (
     <ThemeCustomizationProvider>
+      <AuthCookieRecovery />
       <NavigationProgress />
       <Outlet />
       {!hasConsoleLayout && <SourceConsent />}
@@ -216,7 +218,7 @@ export const Route = createRootRouteWithContext<{
   queryClient: QueryClient
 }>()({
   // 应用初始化与路由解析前统一校验会话
-  beforeLoad: async ({ location }) => {
+  beforeLoad: async ({ location, abortController }) => {
     const legacyTarget = resolveLegacyRoute(location.href)
     if (legacyTarget) {
       throw redirect({ href: legacyTarget, replace: true })
@@ -256,7 +258,11 @@ export const Route = createRootRouteWithContext<{
     }
 
     if (authBootstrap) {
-      await resolveWithTimeout(authBootstrap, 2_500)
+      await waitForProtectedAuthentication(
+        authBootstrap,
+        location.href,
+        abortController.signal
+      )
     } else {
       // Public pages should paint even while an unavailable API is recovering.
       // The store will update the header and CTA when a session eventually
@@ -273,5 +279,10 @@ export const Route = createRootRouteWithContext<{
   },
   component: RootComponent,
   notFoundComponent: NotFoundError,
-  errorComponent: GeneralError,
+  errorComponent: ({ error }: ErrorComponentProps) =>
+    error instanceof AuthBootstrapPendingError ? (
+      <AuthBootstrapPending error={error} />
+    ) : (
+      <GeneralError error={error} />
+    ),
 })
