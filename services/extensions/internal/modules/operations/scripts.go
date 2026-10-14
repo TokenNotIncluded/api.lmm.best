@@ -4,6 +4,7 @@ package operations
 import (
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"io"
 	"os"
@@ -152,7 +153,7 @@ func (s *Scripts) Raw(name string) ([]byte, error) {
 }
 
 type Config struct {
-	Releases *DatabaseConfig
+	Releases *sql.DB
 	Scripts  *ScriptConfig
 }
 type Service struct {
@@ -161,12 +162,13 @@ type Service struct {
 }
 
 // New assembles requested content only; any configured dependency failure fails
-// construction. A missing component is unavailable, not a successful empty DTO.
+// construction. The caller retains ownership of any supplied pool, including
+// on failure. A missing component is unavailable, not a successful empty DTO.
 func New(ctx context.Context, c Config) (*Service, error) {
 	s := new(Service)
 	var err error
 	if c.Releases != nil {
-		s.Releases, err = Open(ctx, *c.Releases)
+		s.Releases, err = NewPostgres(ctx, c.Releases)
 		if err != nil {
 			return nil, err
 		}
@@ -174,17 +176,10 @@ func New(ctx context.Context, c Config) (*Service, error) {
 	if c.Scripts != nil {
 		s.Scripts, err = LoadScripts(*c.Scripts)
 		if err != nil {
-			s.Close()
 			return nil, err
 		}
 	}
 	return s, nil
-}
-func (s *Service) Close() error {
-	if s != nil && s.Releases != nil {
-		return s.Releases.Close()
-	}
-	return nil
 }
 
 type Availability struct {

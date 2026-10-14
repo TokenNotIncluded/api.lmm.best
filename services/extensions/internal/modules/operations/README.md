@@ -7,11 +7,13 @@ remain unsupported (HTTP 501 after fresh administrator authorization).
 
 ## Parent integration contract
 
-- `operations.New(ctx, operations.Config{Releases: &DatabaseConfig{DSN: ...},
-  Scripts: &ScriptConfig{Root: ..., Manifest: ...}})` opens its own restricted
-  operations pool and loads a script snapshot. Either component may be omitted;
-  a requested component failure fails construction. Call `Service.Close()` on
-  shutdown. Constructor and HTTP requests never initialize a schema.
+- `operations.New(ctx, operations.Config{Releases: runtimePool,
+  Scripts: &ScriptConfig{Root: ..., Manifest: ...}})` checks and borrows the
+  dedicated operations pool created by composition's `openStorage`, and loads a
+  script snapshot. Either component may be omitted; a requested component failure
+  fails construction. Composition owns and closes the pool on failed assembly or
+  shutdown; the module never closes a supplied pool. Constructor and HTTP requests
+  never initialize a schema.
 - `webcompat.RegisterOperations(mux, existingAuthenticator, service)` registers
   the exact Web routes: `/api/release-notes/latest`, `/api/release-notes/{id}/read`,
   `/api/release-notes/admin`, `/api/scripts`, `/api/scripts/{name}/raw`,
@@ -59,7 +61,9 @@ post-grants fingerprint includes relation/schema ownership and ACLs as well as
 RLS flags and policy definitions; any RLS flag or policy in this schema is
 explicitly rejected. These are installation/startup checks, not continuous drift
 monitoring of an already-open pool.
-`Open` calls this check before returning a dedicated pool. There are no Core or
+`NewPostgres` calls this check before borrowing the supplied pool. The parent
+first applies composition's database identity, cross-database CONNECT and role
+path guards, table allowlist and sequence grant checks. There are no Core or
 other-extension foreign keys/queries. Preserve installation credentials outside
 runtime configuration; no runtime connection should use the installation owner.
 

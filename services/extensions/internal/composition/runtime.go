@@ -246,11 +246,12 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 	if selected["operations"] {
 		config := operations.Config{Scripts: cfg.Scripts}
 		if cfg.Operations.URLFile != "" || cfg.Operations.Database != "" {
-			dsn, err := storageURL(cfg.Operations)
+			db, err := openStorage(ctx, cfg.Operations)
 			if err != nil {
 				return nil, err
 			}
-			config.Releases = &operations.DatabaseConfig{DSN: dsn}
+			r.close = append(r.close, db.Close)
+			config.Releases = db
 		}
 		if config.Releases == nil && config.Scripts == nil {
 			return nil, errors.New("operations requires configured releases or reviewed scripts")
@@ -259,7 +260,6 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 		if err != nil {
 			return nil, err
 		}
-		r.close = append(r.close, r.Operations.Close)
 	} else if cfg.Operations.URLFile != "" || cfg.Operations.Database != "" || cfg.Scripts != nil {
 		return nil, errors.New("operations configuration requires explicit module selection")
 	}

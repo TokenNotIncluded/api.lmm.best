@@ -48,11 +48,10 @@ func TestPostgresRestrictedRuntimePersistenceConcurrency(t *testing.T) {
 	if err = Check(ctx, owner); err == nil {
 		t.Fatal("owner accepted as runtime")
 	}
-	s, err := Open(ctx, DatabaseConfig{runtimeDSN})
+	s, err := NewPostgres(ctx, raw)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
 	if n, e := s.Latest(ctx, 101); e != nil || n != nil {
 		t.Fatalf("empty real query %v %v", n, e)
 	}
@@ -138,14 +137,18 @@ func TestPostgresRestrictedRuntimePersistenceConcurrency(t *testing.T) {
 	if err = s.Read(ctx, 101, MaxID); !errors.Is(err, ErrNotFound) {
 		t.Fatal(err)
 	}
-	if err = s.Close(); err != nil {
+	if err = raw.Close(); err != nil {
 		t.Fatal(err)
 	}
-	s, err = Open(ctx, DatabaseConfig{runtimeDSN})
+	raw, err = sql.Open("postgres", runtimeDSN)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer raw.Close()
+	s, err = NewPostgres(ctx, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if n, e := s.Latest(ctx, 101); e != nil || n != nil {
 		t.Fatalf("restart read persistence %v %v", n, e)
 	}
@@ -217,7 +220,7 @@ func TestPostgresRestrictedRuntimePersistenceConcurrency(t *testing.T) {
 	if _, err = owner.ExecContext(ctx, "DROP SCHEMA lmm_core"); err != nil {
 		t.Fatal(err)
 	}
-	testPostgresInstalledIntegrity(t, ctx, owner, admin, raw, runtimeDSN, s)
+	testPostgresInstalledIntegrity(t, ctx, owner, admin, raw, s)
 	if _, err = s.Publish(ctx, 501, "capacity", strings.Repeat("x", MaxContent)); err != nil {
 		t.Fatal(err)
 	}
