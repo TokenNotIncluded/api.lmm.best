@@ -71,6 +71,12 @@ async fn fixture(pool: &PgPool) -> (Charging, Arc<RecordingLedger>) {
         .execute(pool)
         .await
         .unwrap();
+
+    // New normal-reserve admission always reads the installed abuse authority.
+    sqlx::raw_sql(crate::abuse::SCHEMA)
+        .execute(pool)
+        .await
+        .unwrap();
     sqlx::raw_sql(SCHEMA).execute(pool).await.unwrap();
     sqlx::raw_sql(
         "CREATE TABLE test_ledger_commands(id TEXT PRIMARY KEY,detail JSONB NOT NULL); \

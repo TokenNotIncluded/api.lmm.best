@@ -65,6 +65,17 @@ GRANT SELECT, INSERT, UPDATE ON core_billing.account_policies TO :"runtime_role"
 GRANT EXECUTE ON FUNCTION core_billing.open_ledger_wallet(bigint),
     core_billing.post_ledger(jsonb) TO :"runtime_role";
 
+-- Abuse administration is checked against canonical superadmin Sessions in Rust.
+-- Secrets are host-private references; audit/operations/previews are append-only.
+GRANT USAGE ON SCHEMA core_abuse TO :"runtime_role";
+GRANT SELECT ON ALL TABLES IN SCHEMA core_abuse TO :"runtime_role";
+GRANT UPDATE (revision,document) ON core_abuse.settings TO :"runtime_role";
+GRANT INSERT,UPDATE (marked,policy_id,revision) ON core_abuse.user_marks TO :"runtime_role";
+GRANT INSERT ON core_abuse.previews,core_abuse.operations,core_abuse.audit TO :"runtime_role";
+GRANT INSERT,UPDATE (attempts),DELETE ON core_abuse.model_counters TO :"runtime_role";
+GRANT INSERT,UPDATE (finished_at),DELETE ON core_abuse.model_leases TO :"runtime_role";
+GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO :"runtime_role";
+
 -- Explicit identity-owner matrix; no writes to offline group/developer policy.
 GRANT SELECT, INSERT, UPDATE ON core_identity.accounts, core_identity.users,
     core_identity.teams, core_identity.memberships, core_identity.credentials,

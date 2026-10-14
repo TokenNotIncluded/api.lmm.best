@@ -373,10 +373,30 @@ async fn proxy(State(state): State<RemoteProxy>, mut request: Request) -> Respon
     if *state.stopped.borrow() {
         return failure(StatusCode::SERVICE_UNAVAILABLE, "remote_unavailable");
     }
+    let method = request.method().clone();
+    // The validated route set contains only session PUT or message POST as
+    // new actions. GET history/events and DELETE cleanup keep their authority.
+    let new_execution = method == axum::http::Method::PUT || method == axum::http::Method::POST;
+    if new_execution {
+        match tokio::time::timeout(
+            Duration::from_secs(3),
+            state.store.admit_new_remote_execution(&token),
+        )
+        .await
+        {
+            Ok(Ok(())) => {}
+            Ok(Err(IdentityError::Unauthorized)) => {
+                return failure(StatusCode::UNAUTHORIZED, "unauthorized");
+            }
+            Ok(Err(IdentityError::Forbidden)) => {
+                return failure(StatusCode::FORBIDDEN, "forbidden");
+            }
+            _ => return failure(StatusCode::SERVICE_UNAVAILABLE, "core_unavailable"),
+        }
+    }
     let Ok(permit) = state.slots.clone().try_acquire_owned() else {
         return failure(StatusCode::TOO_MANY_REQUESTS, "relay_capacity");
     };
-    let method = request.method().clone();
     let destination = format!(
         "{}/extensions/v1/remote-control/pi/{}",
         state.origin,

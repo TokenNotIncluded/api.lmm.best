@@ -613,9 +613,19 @@ impl Request {
     }
 
     pub(crate) fn upstream(&self, route: &Route) -> Result<Value, RelayError> {
+        self.upstream_to(route.protocol, &route.model)
+    }
+
+    /// Encode the existing bounded request for a server-owned protocol/model.
+    /// This carries neither routing prices nor spending authority.
+    pub(crate) fn upstream_to(
+        &self,
+        protocol: UpstreamProtocol,
+        model: &str,
+    ) -> Result<Value, RelayError> {
         for m in &self.messages {
             for b in &m.content {
-                if route.protocol == UpstreamProtocol::Anthropic
+                if protocol == UpstreamProtocol::Anthropic
                     && matches!(
                         b,
                         InputBlock::ToolCall {
@@ -633,7 +643,7 @@ impl Request {
                     | InputBlock::ToolCall { signature, .. } => signature,
                     _ => continue,
                 };
-                if sig.as_ref().is_some_and(|(p, _)| *p != route.protocol) {
+                if sig.as_ref().is_some_and(|(p, _)| *p != protocol) {
                     return Err(RelayError::Unsupported(
                         "provider signatures cannot be replayed to a different protocol",
                     ));
@@ -641,7 +651,7 @@ impl Request {
             }
         }
         if matches!(
-            route.protocol,
+            protocol,
             UpstreamProtocol::Anthropic | UpstreamProtocol::Gemini
         ) && (self.reasoning_effort.is_some()
             || self.tools.iter().any(|t| t.strict == Some(true)))
@@ -650,10 +660,10 @@ impl Request {
                 "reasoning effort or strict tools require an OpenAI protocol route",
             ));
         }
-        match route.protocol {
-            UpstreamProtocol::Chat => self.chat(route),
-            UpstreamProtocol::Responses => self.responses(route),
-            UpstreamProtocol::Anthropic => self.anthropic(route),
+        match protocol {
+            UpstreamProtocol::Chat => self.chat(model),
+            UpstreamProtocol::Responses => self.responses(model),
+            UpstreamProtocol::Anthropic => self.anthropic(model),
             UpstreamProtocol::Gemini => self.gemini(),
         }
     }
@@ -699,7 +709,7 @@ impl Request {
             v["top_p"] = json!(n);
         }
     }
-    fn chat(&self, route: &Route) -> Result<Value, RelayError> {
+    fn chat(&self, model: &str) -> Result<Value, RelayError> {
         let mut messages = Vec::new();
         for m in &self.messages {
             let mut v = json!({"role":m.role.name(),"content":Value::Null});
@@ -750,7 +760,7 @@ impl Request {
             }
             messages.push(v);
         }
-        let mut v = json!({"model":route.model,"messages":messages,"stream":self.stream,"max_completion_tokens":self.max_output_tokens,"store":false});
+        let mut v = json!({"model":model,"messages":messages,"stream":self.stream,"max_completion_tokens":self.max_output_tokens,"store":false});
         if self.stream {
             v["stream_options"] = json!({"include_usage":true});
         }
@@ -770,7 +780,7 @@ impl Request {
         self.sampling(&mut v);
         Ok(v)
     }
-    fn responses(&self, route: &Route) -> Result<Value, RelayError> {
+    fn responses(&self, model: &str) -> Result<Value, RelayError> {
         if !self.stop.is_empty() {
             return Err(RelayError::Unsupported("Responses stop sequences"));
         }
@@ -789,7 +799,7 @@ impl Request {
         }
             }
         }
-        let mut v = json!({"model":route.model,"input":input,"stream":self.stream,"max_output_tokens":self.max_output_tokens,"store":false});
+        let mut v = json!({"model":model,"input":input,"stream":self.stream,"max_output_tokens":self.max_output_tokens,"store":false});
         if !self.tools.is_empty() {
             v["tools"] = json!(self.openai_tools(false));
             v["tool_choice"] = self.openai_choice(false);
@@ -825,7 +835,7 @@ impl Request {
         }
         Ok((system, messages))
     }
-    fn anthropic(&self, route: &Route) -> Result<Value, RelayError> {
+    fn anthropic(&self, model: &str) -> Result<Value, RelayError> {
         if self.temperature.is_some_and(|t| t > 1.0) {
             return Err(RelayError::Unsupported("Anthropic temperature exceeds one"));
         }
@@ -844,7 +854,7 @@ impl Request {
             }
             messages.push(json!({"role":if m.role == Role::Assistant {"assistant"} else {"user"},"content":content}));
         }
-        let mut v = json!({"model":route.model,"system":system,"messages":messages,"stream":self.stream,"max_tokens":self.max_output_tokens});
+        let mut v = json!({"model":model,"system":system,"messages":messages,"stream":self.stream,"max_tokens":self.max_output_tokens});
         if !self.tools.is_empty() {
             v["tools"] = json!(
                 self.tools

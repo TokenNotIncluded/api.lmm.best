@@ -38,8 +38,13 @@ async fn json_body(response: Response) -> Value {
 
 #[sqlx::test(migrations = false)]
 async fn native_http_flow_keeps_model_traffic_closed(pool: PgPool) {
-    let store = IdentityStore::from_pool(pool);
+    let store = IdentityStore::from_pool(pool.clone());
     store.init_database().await.unwrap();
+    // Explicit installer-owned fixture for the key-management/user projection dependency.
+    sqlx::raw_sql(lmm_core::abuse::SCHEMA)
+        .execute(&pool)
+        .await
+        .unwrap();
     let session = store.bootstrap_user(11, 1).await.unwrap();
     let app = http::router().merge(identity_http::router(store));
     let denied = call(&app, "GET", "/core/v1/identity", None, None).await;

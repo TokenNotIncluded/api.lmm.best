@@ -193,6 +193,11 @@ struct ModelFile {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct AbuseFile {
+    credential_config_file: PathBuf,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct FinancialFile {
     config_file: PathBuf,
     token_file: PathBuf,
@@ -223,6 +228,7 @@ struct CoreFile {
     #[serde(default)]
     console: ConsoleFile,
     model: Option<ModelFile>,
+    abuse: Option<AbuseFile>,
     payments: Option<FinancialFile>,
     commerce: Option<FinancialFile>,
     ingress: Option<IngressFile>,
@@ -280,6 +286,7 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
             || file.identity.mfa.is_some()
             || file.console.enabled
             || file.model.is_some()
+            || file.abuse.is_some()
             || file.payments.is_some()
             || file.commerce.is_some()
             || file.remote_control.is_some())
@@ -367,6 +374,12 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
     if let Some(model) = file.model {
         put("LMM_CORE_MODEL_LOCAL_HTTP", model.local_http.to_string());
         paths.push(("LMM_CORE_MODEL_CONFIG_FILE", model.config_file));
+    }
+    if let Some(abuse) = file.abuse {
+        paths.push((
+            "LMM_CORE_ABUSE_CREDENTIAL_CONFIG_FILE",
+            abuse.credential_config_file,
+        ));
     }
     for (section, config_name, token_name) in [
         (
@@ -796,6 +809,13 @@ fn configuration_file(path: &Path, maximum: usize) -> io::Result<Vec<u8>> {
     read_file(path, maximum, false)
 }
 fn read_file(path: &Path, maximum: usize, private: bool) -> io::Result<Vec<u8>> {
+    read_file_with_metadata(path, maximum, private).map(|(bytes, _)| bytes)
+}
+fn read_file_with_metadata(
+    path: &Path,
+    maximum: usize,
+    private: bool,
+) -> io::Result<(Vec<u8>, fs::Metadata)> {
     absolute_path(path)?;
     let before = fs::symlink_metadata(path)
         .map_err(|_| invalid_config("core configuration file unavailable"))?;
@@ -836,7 +856,7 @@ fn read_file(path: &Path, maximum: usize, private: bool) -> io::Result<Vec<u8>> 
     if bytes.len() > maximum {
         return Err(invalid_config("core configuration file is too large"));
     }
-    Ok(bytes)
+    Ok((bytes, opened))
 }
 
 pub struct WebAuthConfig {
@@ -942,11 +962,19 @@ struct ModelConfig {
     local_streaming: bool,
 }
 
+#[cfg(test)]
 fn model_gateway(
     pool: sqlx::PgPool,
     document: &[u8],
     local_http: bool,
 ) -> io::Result<crate::model_http::ModelGateway> {
+    model_gateway_with_origins(pool, document, local_http).map(|(gateway, _)| gateway)
+}
+fn model_gateway_with_origins(
+    pool: sqlx::PgPool,
+    document: &[u8],
+    local_http: bool,
+) -> io::Result<(crate::model_http::ModelGateway, Vec<CredentialOrigin>)> {
     // The first assembled gateway is limited to isolated synthetic providers.
     // External billing needs trusted model context/usage bounds before rollout.
     if !local_http {
@@ -995,22 +1023,16 @@ fn model_gateway(
         .collect();
     let mut supplied = BTreeSet::new();
     let mut credentials = Vec::new();
+    let mut credential_origins = Vec::new();
     for credential in config.credentials {
         let reference = credential.reference;
         if !supplied.insert((reference.id, reference.revision)) {
             return Err(invalid_config("duplicate model credential reference"));
         }
-        let bytes = private_file(&credential.secret_file, 4096)?;
-        let secret = String::from_utf8(bytes)
-            .map_err(|_| invalid_config("invalid model upstream credential"))?;
-        let secret = secret.trim();
-        if secret.is_empty() || !secret.bytes().all(|b| b.is_ascii_graphic()) {
-            return Err(invalid_config("invalid model upstream credential"));
-        }
-        credentials.push(crate::model_http::UpstreamCredential {
-            reference,
-            secret: secret.to_owned(),
-        });
+        let (secret, origin) =
+            credential_file(&credential.secret_file, "invalid model upstream credential")?;
+        credential_origins.push(origin);
+        credentials.push(crate::model_http::UpstreamCredential { reference, secret });
     }
     if required.is_empty() || required != supplied {
         return Err(invalid_config(
@@ -1055,23 +1077,196 @@ fn model_gateway(
         },
     )
     .map_err(|_| invalid_config("unsafe or incomplete model gateway configuration"))?;
-    Ok(if config.local_streaming {
-        gateway.with_local_streaming()
-    } else {
-        gateway
-    })
+    Ok((
+        if config.local_streaming {
+            gateway.with_local_streaming()
+        } else {
+            gateway
+        },
+        credential_origins,
+    ))
+}
+
+// Host-only file identities and in-memory values; never expose these via HTTP,
+// Debug or serialization. File identities are taken from the opened private file.
+struct CredentialOrigin {
+    canonical_file: PathBuf,
+    #[cfg(unix)]
+    device: u64,
+    #[cfg(unix)]
+    inode: u64,
+}
+impl CredentialOrigin {
+    fn same_file(&self, other: &Self) -> bool {
+        if self.canonical_file == other.canonical_file {
+            return true;
+        }
+        #[cfg(unix)]
+        {
+            self.device == other.device && self.inode == other.inode
+        }
+        #[cfg(not(unix))]
+        {
+            false
+        }
+    }
+}
+fn credential_file(path: &Path, invalid: &'static str) -> io::Result<(String, CredentialOrigin)> {
+    let (bytes, opened) = read_file_with_metadata(path, 4096, true)?;
+    let bytes = zeroize::Zeroizing::new(bytes);
+    let secret = std::str::from_utf8(&bytes)
+        .map_err(|_| invalid_config(invalid))?
+        .trim();
+    if secret.is_empty() || !secret.bytes().all(|b| b.is_ascii_graphic()) {
+        return Err(invalid_config(invalid));
+    }
+    // Reject a replaced or newly linked path before accepting its provenance.
+    absolute_path(path)?;
+    let canonical_file = fs::canonicalize(path).map_err(|_| invalid_config(invalid))?;
+    #[cfg(unix)]
+    let (device, inode) = {
+        use std::os::unix::fs::MetadataExt;
+        let current = fs::symlink_metadata(path).map_err(|_| invalid_config(invalid))?;
+        if !current.is_file() || current.dev() != opened.dev() || current.ino() != opened.ino() {
+            return Err(invalid_config(invalid));
+        }
+        (opened.dev(), opened.ino())
+    };
+    #[cfg(not(unix))]
+    let _ = opened;
+    Ok((
+        secret.to_owned(),
+        CredentialOrigin {
+            canonical_file,
+            #[cfg(unix)]
+            device,
+            #[cfg(unix)]
+            inode,
+        },
+    ))
+}
+#[derive(Default)]
+struct AbuseCredentialRegistry {
+    secrets: BTreeMap<String, String>,
+    origins: Vec<CredentialOrigin>,
+}
+fn reject_credential_reuse(
+    isolated: &AbuseCredentialRegistry,
+    normal: Option<&crate::model_http::ModelGateway>,
+    normal_origins: &[CredentialOrigin],
+) -> io::Result<()> {
+    let same_file = isolated
+        .origins
+        .iter()
+        .any(|origin| normal_origins.iter().any(|normal| origin.same_file(normal)));
+    let same_value = normal.is_some_and(|gateway| {
+        isolated
+            .secrets
+            .values()
+            .any(|secret| gateway.contains_credential(secret))
+    });
+    if same_file || same_value {
+        return Err(invalid_config(
+            "isolated moderation credentials must be independent",
+        ));
+    }
+    Ok(())
+}
+
+// Host-only sidecar. Administration and public policies carry aliases only.
+// Intentionally no Debug/Serialize implementation for credential material.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AbuseCredentialFile {
+    alias: String,
+    secret_file: PathBuf,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AbuseCredentialsFile {
+    version: u32,
+    credentials: Vec<AbuseCredentialFile>,
+}
+
+fn abuse_credentials(document: &[u8]) -> io::Result<AbuseCredentialRegistry> {
+    let config: AbuseCredentialsFile = parse_document(document)
+        .map_err(|_| invalid_config("invalid isolated moderation credential configuration"))?;
+    if config.version != 1 || config.credentials.len() > 32 {
+        return Err(invalid_config(
+            "invalid isolated moderation credential configuration",
+        ));
+    }
+    let mut registry = AbuseCredentialRegistry::default();
+    for entry in config.credentials {
+        if entry.alias.is_empty()
+            || entry.alias.len() > 64
+            || !entry
+                .alias
+                .bytes()
+                .all(|b| b.is_ascii_alphanumeric() || b"_.-".contains(&b))
+            || registry.secrets.contains_key(&entry.alias)
+        {
+            return Err(invalid_config(
+                "invalid isolated moderation credential alias",
+            ));
+        }
+        let (secret, origin) = credential_file(
+            &entry.secret_file,
+            "invalid isolated moderation upstream credential",
+        )?;
+        registry.secrets.insert(entry.alias, secret);
+        registry.origins.push(origin);
+    }
+    Ok(registry)
+}
+
+/// Compose the installed abuse authority and a separate uncharged transport.
+/// This never enables the ordinary model gateway: the host attaches it only to
+/// the already explicitly configured gateway. With no sidecar, fixed text needs
+/// no upstream credential and administrators see an empty alias registry.
+pub fn models_and_abuse(
+    pool: sqlx::PgPool,
+) -> io::Result<(
+    crate::abuse::AbuseStore,
+    Option<crate::model_http::ModelGateway>,
+)> {
+    let (normal, normal_origins) = models_with_origins(pool.clone())?;
+    let registry = match setting_os("LMM_CORE_ABUSE_CREDENTIAL_CONFIG_FILE") {
+        Some(path) => abuse_credentials(&configuration_file(Path::new(&path), 64 * 1024)?)?,
+        None => AbuseCredentialRegistry::default(),
+    };
+    reject_credential_reuse(&registry, normal.as_ref(), &normal_origins)?;
+    let store = crate::abuse::AbuseStore::new(pool, registry.secrets.keys().cloned().collect());
+    let limits = crate::relay::Limits {
+        max_in_flight: max_inflight()?,
+        request_bytes: 1024 * 1024,
+        total_timeout: Duration::from_secs(240),
+        hook_timeout: Duration::from_secs(5),
+        ..crate::relay::Limits::default()
+    };
+    let gateway = crate::model_http::HoneypotGateway::new(store.clone(), registry.secrets, limits)
+        .map_err(|_| invalid_config("invalid isolated moderation transport configuration"))?;
+    Ok((store, normal.map(|normal| normal.with_honeypot(gateway))))
 }
 
 pub fn models(pool: sqlx::PgPool) -> io::Result<Option<crate::model_http::ModelGateway>> {
+    models_with_origins(pool).map(|(gateway, _)| gateway)
+}
+fn models_with_origins(
+    pool: sqlx::PgPool,
+) -> io::Result<(
+    Option<crate::model_http::ModelGateway>,
+    Vec<CredentialOrigin>,
+)> {
     let local_http = bool_setting("LMM_CORE_MODEL_LOCAL_HTTP")?;
     match setting_os("LMM_CORE_MODEL_CONFIG_FILE") {
-        Some(path) => model_gateway(
+        Some(path) => model_gateway_with_origins(
             pool,
             &configuration_file(Path::new(&path), 16 * 1024 * 1024)?,
             local_http,
         )
-        .map(Some),
-        None if !local_http => Ok(None),
+        .map(|(gateway, origins)| (Some(gateway), origins)),
+        None if !local_http => Ok((None, Vec::new())),
         None => Err(invalid_config(
             "local model HTTP requires a model configuration file",
         )),
@@ -1326,6 +1521,167 @@ mod tests {
         symlink(&path, &link).unwrap();
         assert!(private_file(&link, 128).is_err());
         assert!(private_file(Path::new("relative"), 128).is_err());
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn moderation_credentials_are_opt_in_and_require_database_configuration() {
+        let parsed = parse_core_file(b"version=1\n").unwrap();
+        assert!(!parsed.contains_key("LMM_CORE_ABUSE_CREDENTIAL_CONFIG_FILE"));
+        assert!(!parsed.contains_key("LMM_CORE_MODEL_CONFIG_FILE"));
+        let sidecar =
+            b"version=1\n[abuse]\ncredential_config_file='/nonexistent-lmm-test/abuse.toml'\n";
+        assert!(parse_core_file(sidecar).is_err());
+        let configured = b"version=1\n[database]\nurl_file='/nonexistent-lmm-test/db'\n[abuse]\ncredential_config_file='/nonexistent-lmm-test/abuse.toml'\n";
+        let parsed = parse_core_file(configured).unwrap();
+        assert_eq!(
+            parsed["LMM_CORE_ABUSE_CREDENTIAL_CONFIG_FILE"],
+            "/nonexistent-lmm-test/abuse.toml"
+        );
+        assert!(!parsed.contains_key("LMM_CORE_MODEL_CONFIG_FILE"));
+        assert!(
+            abuse_credentials(b"version=1\ncredentials=[]\n")
+                .unwrap()
+                .secrets
+                .is_empty()
+        );
+        assert!(abuse_credentials(b"version=2\ncredentials=[]\n").is_err());
+        let error =
+            abuse_credentials(b"version=1\ncredentials=[]\nsecret='never-return-this-marker'\n")
+                .err()
+                .unwrap();
+        assert!(!error.to_string().contains("never-return-this-marker"));
+        for alias in ["", "bad alias", "bad/alias", "..\n"] {
+            let document = format!(
+                "version=1\n[[credentials]]\nalias={alias:?}\nsecret_file='/nonexistent-lmm-test/secret'\n"
+            );
+            assert!(abuse_credentials(document.as_bytes()).is_err());
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn isolated_moderation_credentials_enforce_private_files_and_unique_aliases() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        let directory = std::env::temp_dir().join(format!(
+            "lmm-abuse-config-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        fs::create_dir(&directory).unwrap();
+        let secret = directory.join("upstream-secret");
+        fs::write(&secret, b"synthetic-moderation-secret\n").unwrap();
+        let row = format!(
+            "[[credentials]]\nalias='isolated-1'\nsecret_file={:?}\n",
+            secret.to_str().unwrap()
+        );
+        let document = format!("version=1\n{row}");
+        fs::set_permissions(&secret, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(abuse_credentials(document.as_bytes()).is_err());
+        fs::set_permissions(&secret, fs::Permissions::from_mode(0o600)).unwrap();
+        let registry = abuse_credentials(document.as_bytes()).unwrap();
+        assert_eq!(
+            registry.secrets.keys().collect::<Vec<_>>(),
+            vec!["isolated-1"]
+        );
+        assert_eq!(
+            registry.secrets["isolated-1"],
+            "synthetic-moderation-secret"
+        );
+        assert!(abuse_credentials(format!("version=1\n{row}{row}").as_bytes()).is_err());
+        let link = directory.join("linked");
+        symlink(&secret, &link).unwrap();
+        let linked = document.replace(&secret.display().to_string(), &link.display().to_string());
+        assert!(abuse_credentials(linked.as_bytes()).is_err());
+        fs::write(&secret, b"not-a-valid\ncredential").unwrap();
+        assert!(abuse_credentials(document.as_bytes()).is_err());
+        fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn isolated_registry_rejects_normal_provider_file_hardlink_and_normalized_value() {
+        use std::os::unix::fs::PermissionsExt;
+        let directory = std::env::temp_dir().join(format!(
+            "lmm-abuse-independent-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        fs::create_dir(&directory).unwrap();
+        let normal_file = directory.join("normal-provider");
+        fs::write(&normal_file, b"normal-synthetic-key\n").unwrap();
+        fs::set_permissions(&normal_file, fs::Permissions::from_mode(0o600)).unwrap();
+        // Reuse the repository's real loopback ModelConfig shape. Construction
+        // uses a lazy isolated pool and makes no model/database/network call.
+        let document = format!(
+            r#"version=1
+input_token_ceiling=100
+lease_seconds=20
+timeout_seconds=3
+max_output_tokens=20
+local_streaming=true
+credentials=[{{reference={{id=7,revision=1}},secret_file='{}'}}]
+key_groups=[{{key_id=1,group='allowed'}}]
+[routing]
+version=1
+groups=[{{name='allowed',enabled=true}}]
+upstreams=[{{id=1,endpoint='{}',protocol='openai_chat',credential={{id=7,revision=1}},enabled=true}}]
+routes=[{{id=1,model='local-model',group='allowed',enabled=true,speeds=['standard'],targets=[{{id=1,upstream_id=1,upstream_model='provider-model',enabled=true,priority=0,weight=1,speeds=['standard'],payload='adapt',timeout_ms=5000}}],failover={{max_attempts=1,retry_on=[],allow_replay_after_send=false}}}}]
+aliases=[]
+[prices]
+version=1
+rules=[{{id=1,model='local-model',group='allowed',speed='standard',rates={{input=2000000,output=4000000,cache_read=500000,cache_write=0,request=0}},group_multiplier_ppm=1000000,speed_multiplier_ppm=1000000}}]
+"#,
+            normal_file.display(),
+            "http://127.0.0.1:9/custom/v1"
+        );
+        let pool = sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://unused@127.0.0.1:1/unused")
+            .unwrap();
+        let (normal, origins) =
+            model_gateway_with_origins(pool, document.as_bytes(), true).unwrap();
+        assert!(normal.contains_credential("normal-synthetic-key"));
+        let isolated = |path: &Path| {
+            abuse_credentials(
+                format!(
+                    "version=1\n[[credentials]]\nalias='isolated'\nsecret_file={:?}\n",
+                    path.to_str().unwrap()
+                )
+                .as_bytes(),
+            )
+            .unwrap()
+        };
+        let same_file = isolated(&normal_file);
+        assert!(same_file.origins[0].same_file(&origins[0]));
+        let hardlink = directory.join("separate-name");
+        fs::hard_link(&normal_file, &hardlink).unwrap();
+        let same_inode = isolated(&hardlink);
+        assert_ne!(
+            same_inode.origins[0].canonical_file,
+            origins[0].canonical_file
+        );
+        assert!(same_inode.origins[0].same_file(&origins[0]));
+        let same_value_file = directory.join("copied-value");
+        fs::write(&same_value_file, b"  normal-synthetic-key  \n").unwrap();
+        fs::set_permissions(&same_value_file, fs::Permissions::from_mode(0o600)).unwrap();
+        let same_value = isolated(&same_value_file);
+        assert!(!same_value.origins[0].same_file(&origins[0]));
+        for registry in [same_file, same_inode, same_value] {
+            let error = reject_credential_reuse(&registry, Some(&normal), &origins).unwrap_err();
+            assert_eq!(
+                error.to_string(),
+                "isolated moderation credentials must be independent"
+            );
+        }
+        let independent_file = directory.join("independent-value");
+        fs::write(&independent_file, b"isolated-synthetic-key\n").unwrap();
+        fs::set_permissions(&independent_file, fs::Permissions::from_mode(0o600)).unwrap();
+        let independent = isolated(&independent_file);
+        assert!(!normal.contains_credential(&independent.secrets["isolated"]));
+        assert!(reject_credential_reuse(&independent, Some(&normal), &origins).is_ok());
+        let empty = AbuseCredentialRegistry::default();
+        assert!(reject_credential_reuse(&empty, Some(&normal), &origins).is_ok());
+        assert!(reject_credential_reuse(&independent, None, &[]).is_ok());
         fs::remove_dir_all(directory).unwrap();
     }
 

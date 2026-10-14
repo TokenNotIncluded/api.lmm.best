@@ -83,6 +83,12 @@ impl IngressStore {
 async fn fresh(pool: &PgPool) -> Fixture {
     let identity = IdentityStore::from_pool(pool.clone());
     identity.init_database().await.unwrap();
+    // Payment-intent admission reads the required Core abuse policy. Install it
+    // explicitly with this test's synthetic owner before exercising that path.
+    sqlx::raw_sql(lmm_core::abuse::SCHEMA)
+        .execute(pool)
+        .await
+        .unwrap();
     let mut tx = pool.begin().await.unwrap();
     sqlx::raw_sql(ledger::SCHEMA)
         .execute(&mut *tx)
@@ -1153,4 +1159,111 @@ async fn real_go_http_uds_proof_survives_expiry_and_service_restart(pool: PgPool
     assert_eq!(counts, (2, 1, 1));
     fs::write(temp.join("result.json"), serde_json::to_vec(&json!({"status":"pass","wall_expiry_seconds":302,"go_processes":4,"rust_service_instances":2,"rust_os_process_restart":false,"accepted_proofs":2,"synthetic_legacy_done_inbox_repair":true,"core_offline_ack":503,"go_inbox_failure_ack":503,"credit_receipts":1,"journals":1,"ledger_net":net})).unwrap()).unwrap();
     fs::set_permissions(temp.join("result.json"), fs::Permissions::from_mode(0o600)).unwrap();
+}
+
+#[path = "common/abuse_resources.rs"]
+mod abuse_resources;
+
+#[sqlx::test(migrations = false)]
+async fn marked_payment_intent_admission_denied_but_original_credit_and_refund_are_real(
+    pool: PgPool,
+) {
+    let f = fresh(&pool).await;
+    let intent = prepare(&f, "resource-old-prepare", 100).await;
+    let team = f.identity.create_team(&f.secret).await.unwrap();
+    let team_key = f
+        .identity
+        .issue_key(
+            &f.secret,
+            lmm_core::accounts::Account {
+                kind: lmm_core::accounts::AccountKind::Team,
+                id: team,
+            },
+            lmm_core::funding::FundingPolicy::inherit_account_settings(),
+            3600,
+        )
+        .await
+        .unwrap();
+    let team_account = f
+        .identity
+        .authorize(&team_key.secret)
+        .await
+        .unwrap()
+        .owner_account_id;
+    let marker = abuse_resources::marker(&pool, &f.identity).await;
+    marker.mark(101).await;
+    let before = abuse_resources::financial_snapshot(&pool).await;
+    for (key, account) in [
+        ("resource-new-personal", f.account),
+        ("resource-new-team", team_account),
+    ] {
+        let mut request = prepare_request(&f, key, 100);
+        request.account_id = account;
+        assert_eq!(
+            f.store.prepare(&f.secret, request).await.unwrap_err(),
+            Error::Denied
+        );
+        assert_eq!(
+            abuse_resources::financial_snapshot(&pool).await,
+            before,
+            "denied payment created intent, receipt, journal or sequence change"
+        );
+    }
+    assert_eq!(prepare(&f, "resource-old-prepare", 100).await, intent);
+    let credited = credit(&f, &intent, "resource-credit-after-mark").await;
+    assert_eq!(credited.state, 1);
+    assert!(credited.journal_id > 0);
+    balance(&f, 500_000, 0).await;
+    let held = f
+        .store
+        .hold(
+            &f.secret,
+            pb::HoldRefundRequest {
+                mutation: mutation("resource-old-refund-hold"),
+                intent_id: intent.intent_id,
+                refund_amount_minor: 20,
+            },
+        )
+        .await
+        .unwrap();
+    assert_eq!(held.state, 2);
+    let refund = f
+        .store
+        .resolve(
+            pb::ResolveRefundRequest {
+                mutation: mutation("resource-real-refund"),
+                intent_id: intent.intent_id,
+                hold_receipt_id: held.receipt_id.clone(),
+                evidence: Some(proof(event(
+                    &intent,
+                    "evt_resource_refund",
+                    Some(("re_resource", 20, "succeeded", Some(&held.receipt_id))),
+                ))),
+            },
+            true,
+        )
+        .await
+        .unwrap();
+    assert_eq!(refund.state, 3);
+    assert!(refund.journal_id > 0);
+    balance(&f, 400_000, 0).await;
+    let net: i64 =
+        sqlx::query_scalar("SELECT sum(delta_units)::bigint FROM core_billing.ledger_entries")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(net, 0);
+    assert_eq!(
+        f.store
+            .receipt(
+                Some(&f.secret),
+                pb::GetPaymentReceiptRequest {
+                    intent_id: intent.intent_id,
+                    idempotency_key: "resource-credit-after-mark".into()
+                }
+            )
+            .await
+            .unwrap(),
+        credited
+    );
 }

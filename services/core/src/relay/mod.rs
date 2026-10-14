@@ -4,6 +4,7 @@
 //! must supply real core routing and durable billing adapters before enabling it.
 mod decode;
 mod encode;
+pub(crate) mod honeypot;
 mod request;
 mod sse;
 #[cfg(test)]

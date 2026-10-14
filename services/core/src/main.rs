@@ -176,12 +176,13 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
         // Installation belongs solely to the explicit init-db command. Even a
         // valid identity-only installation cannot stand in for the whole core.
         lmm_core::core_schema::check(&pool).await?;
+        let (abuse, configured_models) = config::models_and_abuse(pool.clone())?;
         let mut store = config::identity_auth(IdentityStore::from_pool(pool.clone()))?
             .with_password_slots(config::password_slots()?)?
             .with_financial_profile_enabled(legacy_config.is_some())
             .with_commerce_scope_enabled(config::commerce_configured());
         capabilities.identity = true;
-        model_gateway = config::models(pool.clone())?;
+        model_gateway = configured_models;
         if let Some(gateway) = &model_gateway {
             store = store.with_dashboard_routing(gateway.dashboard_routing());
             // Trusted recovery keeps indeterminate upstream holds reserved.
@@ -198,7 +199,9 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
         } else {
             store.clone()
         };
-        let mut routes = lmm_core::identity_http::router(native_store);
+        let mut routes = lmm_core::identity_http::router(native_store)
+            .merge(lmm_core::abuse::admin::router(abuse));
+        capabilities.abuse_admin = true;
         if console_enabled {
             routes = routes.merge(lmm_core::console_compat::router(
                 lmm_core::console_compat::ConsoleCompat::new(pool.clone(), store.clone()),
@@ -232,6 +235,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
         || config::commerce_configured()
         || config::setting_os("LMM_CORE_MODEL_CONFIG_FILE").is_some()
         || config::setting_os("LMM_CORE_MODEL_LOCAL_HTTP").is_some()
+        || config::setting_os("LMM_CORE_ABUSE_CREDENTIAL_CONFIG_FILE").is_some()
     {
         return Err("Web authentication and model configuration require a core database".into());
     }

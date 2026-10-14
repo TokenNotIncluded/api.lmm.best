@@ -506,9 +506,12 @@ async fn user_projection(c: &mut PgConnection, user: i64, financial: bool) -> Br
         "superadmin" => 100,
         _ => return Err(IdentityError::Storage.into()),
     };
+    let api_key_management = r.try_get::<bool, _>("active")?
+        && (r.try_get::<bool, _>("developer_access_granted")?
+            || compat::marked_key_management(c, user).await?);
     let raw: String = r.try_get("setting")?;
     let settings: Value = serde_json::from_str(&raw).map_err(|_| IdentityError::Storage)?;
-    let mut result = json!({"id":r.try_get::<i64,_>("id")?,"username":r.try_get::<String,_>("username")?,"display_name":r.try_get::<String,_>("display_name")?,"email":r.try_get::<String,_>("email")?,"setting":raw,"role":role,"status":if r.try_get::<bool,_>("active")? {1}else{2},"financial_projection_available":false,"usage_projection_available":false,"developer_access_granted":r.try_get::<bool,_>("developer_access_granted")?});
+    let mut result = json!({"id":r.try_get::<i64,_>("id")?,"username":r.try_get::<String,_>("username")?,"display_name":r.try_get::<String,_>("display_name")?,"email":r.try_get::<String,_>("email")?,"setting":raw,"role":role,"status":if r.try_get::<bool,_>("active")? {1}else{2},"financial_projection_available":false,"usage_projection_available":false,"developer_access_granted":r.try_get::<bool,_>("developer_access_granted")?,"permissions":{"api_key_management":api_key_management}});
     for field in ["language", "sidebar_modules"] {
         if let Some(value) = settings.get(field).and_then(Value::as_str) {
             result[field] = json!(value);

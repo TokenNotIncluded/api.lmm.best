@@ -85,6 +85,11 @@ async fn concurrent_initialization_has_one_winner_and_startup_does_not_repair(po
 async fn funding_uses_native_account_references_and_cannot_fall_back_implicitly(pool: PgPool) {
     let store = IdentityStore::from_pool(pool.clone());
     store.init_database().await.unwrap();
+    // Explicit installer-owned fixture for the key-management/user projection dependency.
+    sqlx::raw_sql(lmm_core::abuse::SCHEMA)
+        .execute(&pool)
+        .await
+        .unwrap();
     let session = store.bootstrap_user(9001, 6).await.unwrap();
     let person = store.authorize(&session.secret).await.unwrap();
     assert_ne!(person.owner_account_id, person.user_id);

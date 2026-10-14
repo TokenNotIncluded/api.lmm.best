@@ -20,6 +20,11 @@ async fn fixture(pool: &PgPool) -> (IdentityStore, BrowserAuth, BrowserBundle) {
         .with_mfa_keys("test".into(), vec![("test".into(), vec![47; 32])])
         .unwrap();
     store.init_database().await.unwrap();
+    // Explicit installer-owned fixture: management/user projection reads abuse.
+    sqlx::raw_sql(lmm_core::abuse::SCHEMA)
+        .execute(pool)
+        .await
+        .unwrap();
     let browser = BrowserAuth::new(store.clone(), &[43; 32]).unwrap();
     browser
         .register(&BrowserRegistration {

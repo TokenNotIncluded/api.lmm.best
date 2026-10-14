@@ -334,6 +334,14 @@ impl CommerceStore {
             if order.is_some() || !cmd.payment_ref.is_empty() || !cmd.settlement_ref.is_empty() {
                 return Err(Error::Conflict);
             }
+            // A replay returned above is an already accepted operation. Only
+            // a new purchase is denied; capture/refund must remain truthful.
+            crate::identity::reject_marked_new_action(
+                &mut tx,
+                actor.user_id,
+                crate::identity::NewResourceAction::CommercePayment,
+            )
+            .await?;
             sqlx::query("SAVEPOINT commerce_pay")
                 .execute(&mut *tx)
                 .await?;

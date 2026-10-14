@@ -95,6 +95,8 @@ pub struct Capabilities {
     pub events: bool,
     pub payments: bool,
     pub commerce: bool,
+    /// Global administration availability; never a per-user moderation state.
+    pub abuse_admin: bool,
 }
 
 #[derive(Clone, Default)]

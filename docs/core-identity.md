@@ -2,6 +2,8 @@
 
 核心数据库的安装入口只接受全新空库。旧用户、Key 或余额的迁移须走另行审核的迁移流程；本指南不提供旧库原地升级步骤。数据库定义位于 `services/core/schema/identity.sql`。Go 扩展不得连接这个数据库。
 
+身份叶表由 `IdentityStore::init_database()` 显式安装，但该入口不会安装其他 Core 组件。本批新增的 Key 管理、浏览器用户投影及正常模型的新预留检查，还会读取 `services/core/schema/abuse.sql` 中的持久策略，要求完整 Core 安装。缺少该 schema、表或读取权限时必须报错，不能当作“未标记”继续授权。只安装旧身份叶表不再足以运行这些能力；隔离 PostgreSQL 测试须由安装者显式安装所需组件并授予运行时必要权限，服务启动不得自动补表。Core 仍不依赖 Go。
+
 先按 [Docker 指南](../deployment/docker/README.md) 创建隔离开发栈，并在当前 Bash 会话中定义其中的 `dc` 和 `de`。`lmm-core init-db` 只安装空库，第二次执行拒绝；服务启动不会执行建表、改表或修复。版本和指纹检查是安装契约检查，不是对任意人工改表的完整检测。
 
 ## 账号与权限分开

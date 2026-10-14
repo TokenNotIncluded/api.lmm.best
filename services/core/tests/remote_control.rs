@@ -87,6 +87,11 @@ async fn native_public_relay_actual_http_sse_and_readonly_rpc() {
     );
     let store = IdentityStore::from_pool(pool.clone());
     store.init_database().await.unwrap();
+    // Explicit installer-owned fixture for the key-management/user projection dependency.
+    sqlx::raw_sql(lmm_core::abuse::SCHEMA)
+        .execute(&pool)
+        .await
+        .unwrap();
     let alice = store.bootstrap_user(11, 6).await.unwrap();
     let bob = store.bootstrap_user(22, 1).await.unwrap();
     let short = store.bootstrap_user(33, 1).await.unwrap();
@@ -194,7 +199,9 @@ async fn native_public_relay_actual_http_sse_and_readonly_rpc() {
     .await
     .unwrap();
     let (stop, stopped) = watch::channel(false);
-    let proxy = RemoteProxy::new(runtime, &origin, host_token, stopped.clone()).unwrap();
+    // Public new-action admission requires canonical SHARE locks; the RPC
+    // service above deliberately retains its independent read-only pool.
+    let proxy = RemoteProxy::new(store.clone(), &origin, host_token, stopped.clone()).unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let public = format!("http://{}", listener.local_addr().unwrap());
     let lifecycle = lmm_core::lifecycle::Lifecycle::with_capacity(8);

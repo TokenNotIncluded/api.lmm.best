@@ -608,6 +608,11 @@ async fn google_browser_signed_routes_cookie_refresh_replay_policy_and_registrat
         .with_google_oauth(config)
         .with_registration_enabled(true);
     store.init_database().await.unwrap();
+    // Explicit installer-owned fixture for the key-management/user projection dependency.
+    sqlx::raw_sql(crate::abuse::SCHEMA)
+        .execute(&pool)
+        .await
+        .unwrap();
     let app = web_app(store.clone());
     let (cookie, state, code) = web_flow(&app, &store, &mock, "browser-subject").await;
     let path =

@@ -42,6 +42,32 @@ impl RuntimeRole {
             GRANT SELECT,INSERT,UPDATE ON core_billing.account_policies TO {name};
             GRANT EXECUTE ON FUNCTION core_billing.open_ledger_wallet(bigint),core_billing.post_ledger(jsonb) TO {name};
         "#)).execute(owner).await.unwrap();
+        // Identity/ledger-only fixtures intentionally omit optional components.
+        // Complete runtime provisioning/checking remains strict in production.
+        let abuse_installed: bool =
+            sqlx::query_scalar("SELECT to_regnamespace('core_abuse') IS NOT NULL")
+                .fetch_one(owner)
+                .await
+                .unwrap();
+        if abuse_installed {
+            sqlx::raw_sql(&format!(
+                r#"
+-- Abuse administration is checked against canonical superadmin Sessions in Rust.
+-- Secrets are host-private references; audit/operations/previews are append-only.
+GRANT USAGE ON SCHEMA core_abuse TO {name};
+GRANT SELECT ON ALL TABLES IN SCHEMA core_abuse TO {name};
+GRANT UPDATE (revision,document) ON core_abuse.settings TO {name};
+GRANT INSERT,UPDATE (marked,policy_id,revision) ON core_abuse.user_marks TO {name};
+GRANT INSERT ON core_abuse.previews,core_abuse.operations,core_abuse.audit TO {name};
+GRANT INSERT,UPDATE (attempts),DELETE ON core_abuse.model_counters TO {name};
+GRANT INSERT,UPDATE (finished_at),DELETE ON core_abuse.model_leases TO {name};
+GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
+            "#
+            ))
+            .execute(owner)
+            .await
+            .unwrap();
+        }
         let mut url = reqwest::Url::parse(&std::env::var("DATABASE_URL").unwrap()).unwrap();
         assert!(matches!(url.host_str(), Some("localhost" | "127.0.0.1")));
         url.set_path(&database);

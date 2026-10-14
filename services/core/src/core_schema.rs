@@ -19,6 +19,7 @@ const COMPONENTS: &[(&str, &str)] = &[
     ("console", include_str!("../schema/console.sql")),
     ("model-gateway", include_str!("../schema/model_gateway.sql")),
     ("commerce", include_str!("../schema/commerce.sql")),
+    ("abuse", include_str!("../schema/abuse.sql")),
 ];
 
 /// The compiled fresh-install contract, including explicitly disabled modules.

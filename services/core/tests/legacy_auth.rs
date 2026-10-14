@@ -68,8 +68,13 @@ fn config() -> LegacyAuthConfig {
         .unwrap()
 }
 async fn setup(pool: PgPool) -> (IdentityStore, Router) {
-    let store = IdentityStore::from_pool(pool).with_registration_enabled(true);
+    let store = IdentityStore::from_pool(pool.clone()).with_registration_enabled(true);
     store.init_database().await.unwrap();
+    // Explicit installer-owned fixture: management/user projection reads abuse.
+    sqlx::raw_sql(lmm_core::abuse::SCHEMA)
+        .execute(&pool)
+        .await
+        .unwrap();
     store.check_schema().await.unwrap();
     let app = legacy_auth::router(store.clone(), config());
     (store, app)

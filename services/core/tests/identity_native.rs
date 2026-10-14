@@ -41,8 +41,13 @@ fn invitation(user: i64, role: TeamRole, can_spend: bool) -> InviteRequest {
     }
 }
 async fn fresh(pool: PgPool) -> IdentityStore {
-    let store = IdentityStore::from_pool(pool).with_registration_enabled(true);
+    let store = IdentityStore::from_pool(pool.clone()).with_registration_enabled(true);
     store.init_database().await.unwrap();
+    // Explicit installer-owned fixture: management/user projection reads abuse.
+    sqlx::raw_sql(lmm_core::abuse::SCHEMA)
+        .execute(&pool)
+        .await
+        .unwrap();
     store.check_schema().await.unwrap();
     store
 }
@@ -680,6 +685,11 @@ async fn public_http_registration_session_and_team_lifecycle_need_no_go_service(
 async fn registration_is_explicit_and_forwarded_headers_cannot_bypass_auth_limits(pool: PgPool) {
     let store = IdentityStore::from_pool(pool.clone());
     store.init_database().await.unwrap();
+    // Explicit installer-owned fixture: management/user projection reads abuse.
+    sqlx::raw_sql(lmm_core::abuse::SCHEMA)
+        .execute(&pool)
+        .await
+        .unwrap();
     assert!(matches!(
         store.register(&login("alice")).await,
         Err(E::Forbidden)

@@ -83,7 +83,7 @@ async fn current_schema_index_predecessor_upgrade_changes_only_verified_index_an
         .map(|b| format!("{b:02x}"))
         .collect::<String>();
     assert_eq!(
-        prior_hex, "5510e0bee0e5659ff940b798c9d6d3c69aea220734d9f73577c847b6841254b7",
+        prior_hex, "9ce6c5120645792608d4466ef9fe4b6f91add7ec082670d276bffbd94f48c14a",
         "current-schema index-predecessor fixture must match its reviewed canonical catalog"
     );
     println!("prior catalog SHA256={prior_hex}");
@@ -118,6 +118,50 @@ async fn current_schema_index_predecessor_upgrade_changes_only_verified_index_an
         check(&pool).await.is_err(),
         "startup must not repair old schema"
     );
+    unchanged(&pool, &before).await;
+    // The retired eleven-component and earlier catalogs are not this installed
+    // twelve-component catalog, even when approval matches the saved receipt.
+    for retired_hex in [
+        "e8fa053daca7741952caa4c60e27071652f600b4fa48f4b7631ea54ee801df7b",
+        "5510e0bee0e5659ff940b798c9d6d3c69aea220734d9f73577c847b6841254b7",
+    ] {
+        let retired: [u8; 32] = std::array::from_fn(|i| {
+            u8::from_str_radix(&retired_hex[i * 2..i * 2 + 2], 16).unwrap()
+        });
+        for (saved, approval) in [(approved, retired), (retired, retired), (retired, approved)] {
+            sqlx::query(
+                "UPDATE core_meta.runtime_contract SET catalog_fingerprint=$1 WHERE singleton",
+            )
+            .bind(saved.to_vec())
+            .execute(&pool)
+            .await
+            .unwrap();
+            let before_refusal = snapshot(&pool).await;
+            let before_catalog = catalog(&mut pool.acquire().await.unwrap()).await.unwrap();
+            assert!(
+                install_usage_receipt_index(&pool, approval).await.is_err(),
+                "retired catalog receipt or approval must be rejected"
+            );
+            unchanged(&pool, &before_refusal).await;
+            assert_eq!(
+                catalog(&mut pool.acquire().await.unwrap()).await.unwrap(),
+                before_catalog,
+                "retired catalog refusal changed definitions"
+            );
+            assert_eq!(
+                permissions(&mut pool.acquire().await.unwrap())
+                    .await
+                    .unwrap(),
+                grants,
+                "retired catalog refusal changed permissions"
+            );
+        }
+    }
+    sqlx::query("UPDATE core_meta.runtime_contract SET catalog_fingerprint=$1 WHERE singleton")
+        .bind(approved.to_vec())
+        .execute(&pool)
+        .await
+        .unwrap();
     unchanged(&pool, &before).await;
     install_usage_receipt_index(&pool, approved).await.unwrap();
     check(&pool).await.unwrap();

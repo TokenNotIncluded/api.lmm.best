@@ -954,11 +954,13 @@ WITH catalog_path AS MATERIALIZED (
             .collect()
     }
     lmm_core::core_schema::init(&pool).await.unwrap();
-    // Fresh current-v4 schema with this index alone removed, not an identity upgrade.
+    // Fresh current-v4 twelve-component schema with only this index removed.
     // core_schema::index_tests independently constructs and pins this exact catalog.
-    const PRIOR: &str = "5510e0bee0e5659ff940b798c9d6d3c69aea220734d9f73577c847b6841254b7";
+    const PRIOR: &str = "9ce6c5120645792608d4466ef9fe4b6f91add7ec082670d276bffbd94f48c14a";
     const RETIRED_PRIOR: &str = "e8fa053daca7741952caa4c60e27071652f600b4fa48f4b7631ea54ee801df7b";
-    sqlx::raw_sql("DROP INDEX core_charging.ledger_commands_request_operation; UPDATE core_meta.component_contract SET fingerprint=decode('7f84659ad2bd60268256a9f76959299a33911aaaeaf7194156a6f195ab54a734','hex') WHERE name='charging-ledger'; UPDATE core_meta.runtime_contract SET catalog_fingerprint=decode('5510e0bee0e5659ff940b798c9d6d3c69aea220734d9f73577c847b6841254b7','hex')")
+    const RETIRED_ELEVEN_COMPONENT_PRIOR: &str =
+        "5510e0bee0e5659ff940b798c9d6d3c69aea220734d9f73577c847b6841254b7";
+    sqlx::raw_sql("DROP INDEX core_charging.ledger_commands_request_operation; UPDATE core_meta.component_contract SET fingerprint=decode('7f84659ad2bd60268256a9f76959299a33911aaaeaf7194156a6f195ab54a734','hex') WHERE name='charging-ledger'; UPDATE core_meta.runtime_contract SET catalog_fingerprint=decode('9ce6c5120645792608d4466ef9fe4b6f91add7ec082670d276bffbd94f48c14a','hex')")
         .execute(&pool).await.unwrap();
     // Nonempty synthetic ledger data makes refusal and upgrade conservation real.
     let store = IdentityStore::from_pool(pool.clone());
@@ -1033,13 +1035,24 @@ WITH catalog_path AS MATERIALIZED (
     );
     let owner_url = database_url(&pool);
     std::fs::write(&database, &owner_url).unwrap();
-    // The retired approval must fail both against the correct saved receipt and
-    // against a matching stale receipt; neither case may reach index creation.
-    for saved in [PRIOR, RETIRED_PRIOR] {
+    // Both retired catalogs must fail for saved=current/approval=retired,
+    // saved=retired/approval=retired, and saved=retired/approval=current.
+    // No mismatch may change financial rows, receipts, ACLs or definitions.
+    for (saved, approval) in [
+        (PRIOR, RETIRED_PRIOR),
+        (RETIRED_PRIOR, RETIRED_PRIOR),
+        (RETIRED_PRIOR, PRIOR),
+        (PRIOR, RETIRED_ELEVEN_COMPONENT_PRIOR),
+        (
+            RETIRED_ELEVEN_COMPONENT_PRIOR,
+            RETIRED_ELEVEN_COMPONENT_PRIOR,
+        ),
+        (RETIRED_ELEVEN_COMPONENT_PRIOR, PRIOR),
+    ] {
         sqlx::query("UPDATE core_meta.runtime_contract SET catalog_fingerprint=decode($1,'hex') WHERE singleton")
             .bind(saved).execute(&pool).await.unwrap();
         let before_refusal = snapshot(&pool).await;
-        let output = invoke(RETIRED_PRIOR.as_bytes());
+        let output = invoke(approval.as_bytes());
         assert!(
             !output.status.success(),
             "retired prior catalog approval was accepted"

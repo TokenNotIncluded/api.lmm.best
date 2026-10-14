@@ -20,9 +20,11 @@ pub use mfa::{
     MfaStatus,
 };
 mod oauth;
+mod resource;
 pub use auth::{CredentialSummary, LoginRequest};
 pub use lifecycle::{InviteSummary, MemberSummary, MemberUpdate};
 pub use oauth::GoogleOAuth;
+pub(crate) use resource::{NewResourceAction, reject_marked_new_action};
 mod schema;
 mod teams;
 pub use teams::{InviteRequest, TeamSummary};

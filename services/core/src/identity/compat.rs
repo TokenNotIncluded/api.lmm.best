@@ -54,6 +54,29 @@ pub(super) async fn developer(c: &mut PgConnection, actor: &Principal) -> Result
     }
     require_developer(c, actor.user_id).await
 }
+// This capability applies only to API-key management. It never supplies a
+// developer grant or authorizes model routing, commerce or account balance.
+pub(super) async fn marked_key_management(c: &mut PgConnection, user: i64) -> Result<bool> {
+    crate::abuse::is_marked_in_transaction(c, user)
+        .await
+        .map_err(|error| match error {
+            crate::abuse::AbuseError::Forbidden => IdentityError::Forbidden,
+            crate::abuse::AbuseError::Conflict => IdentityError::Conflict,
+            _ => IdentityError::Storage,
+        })
+}
+pub(super) async fn key_management(c: &mut PgConnection, actor: &Principal) -> Result<bool> {
+    if actor.credential_kind != CredentialKind::Session {
+        return Err(IdentityError::Forbidden);
+    }
+    // Check the mark even for an actual developer: marked credentials are
+    // restricted to the user's personal account and personal funding.
+    let marked = marked_key_management(c, actor.user_id).await?;
+    if !marked {
+        developer(c, actor).await?;
+    }
+    Ok(marked)
+}
 async fn require_developer(c: &mut PgConnection, user: i64) -> Result<()> {
     let role: String =
         sqlx::query_scalar("SELECT platform_role FROM core_identity.users WHERE id=$1 FOR SHARE")
@@ -185,6 +208,7 @@ async fn validate(
     user: i64,
     input: &DashboardKeyInput,
     routing: Option<&crate::routing::Router>,
+    marked: bool,
 ) -> Result<ValidInput> {
     let name = input
         .name
@@ -207,7 +231,11 @@ async fn validate(
     {
         return Err(IdentityError::Invalid);
     }
-    let models = list(input.model_limits.as_deref().unwrap_or(""), 200, 200)?;
+    let models = list(
+        input.model_limits.as_deref().unwrap_or(""),
+        200,
+        if marked { 256 } else { 200 },
+    )?;
     let models_enabled = input.model_limits_enabled.unwrap_or(false);
     if models_enabled && models.is_empty() {
         return Err(IdentityError::Invalid);
@@ -219,7 +247,22 @@ async fn validate(
         .ok_or(IdentityError::Invalid)?
         .trim()
         .to_owned();
-    let allowed = groups(c, user, routing).await?;
+    let allowed = if marked {
+        let public = crate::abuse::public_models_in_transaction(c, user)
+            .await
+            .map_err(|_| IdentityError::Storage)?
+            .ok_or(IdentityError::Storage)?;
+        if models.iter().any(|model| !public.contains(model))
+            || group != "auto"
+            || input.cross_group_retry == Some(true)
+        {
+            return Err(IdentityError::Forbidden);
+        }
+        // A neutral UI setting only. No real routing-group grant is written.
+        vec!["auto".to_owned()]
+    } else {
+        groups(c, user, routing).await?
+    };
     let mut auto = input.auto_groups.clone().unwrap_or_default();
     if group == "auto" {
         if auto.is_empty() {
@@ -283,6 +326,20 @@ async fn owned_key(c: &mut PgConnection, user: i64, id: i64, lock: bool) -> Resu
     .fetch_optional(c)
     .await?
     .ok_or(IdentityError::Forbidden)
+}
+async fn personal_key_funding(c: &mut PgConnection, actor: &Principal, id: i64) -> Result<()> {
+    let personal_only: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM core_identity.credentials k WHERE k.id=$1 AND k.user_id=$2 AND k.owner_account_id=$3) AND EXISTS(SELECT 1 FROM core_identity.key_funding_rules f WHERE f.credential_id=$1) AND NOT EXISTS(SELECT 1 FROM core_identity.key_funding_rules f WHERE f.credential_id=$1 AND f.payer_account_id<>$3)",
+    )
+    .bind(id)
+    .bind(actor.user_id)
+    .bind(actor.owner_account_id)
+    .fetch_one(c)
+    .await?;
+    if !personal_only {
+        return Err(IdentityError::Forbidden);
+    }
+    Ok(())
 }
 async fn projection(c: &mut PgConnection, row: &PgRow) -> Result<Value> {
     let id: i64 = row.try_get("id")?;
@@ -379,12 +436,13 @@ impl IdentityStore {
             .execute(&mut *tx)
             .await?;
         let actor = session(&mut tx, secret).await?;
-        developer(&mut tx, &actor).await?;
+        let marked = key_management(&mut tx, &actor).await?;
         let valid = validate(
             &mut tx,
             actor.user_id,
             input,
             self.dashboard_routing.as_deref(),
+            marked,
         )
         .await?;
         let issued = new_secret("lmmk_")?;
@@ -448,7 +506,7 @@ impl IdentityStore {
             .execute(&mut *tx)
             .await?;
         let actor = session(&mut tx, secret).await?;
-        developer(&mut tx, &actor).await?;
+        key_management(&mut tx, &actor).await?;
         let where_clause = " AND c.user_id=$1 AND c.revoked_at IS NULL AND ($2='' OR position(lower($2) in lower(s.name))>0) AND ($3::bytea IS NULL OR c.digest=$3) AND $4<>'automatic'";
         let rows = sqlx::query(&format!(
             "{KEY_SELECT}{where_clause} ORDER BY c.id DESC LIMIT $5 OFFSET $6"
@@ -480,7 +538,7 @@ impl IdentityStore {
     pub async fn dashboard_key(&self, secret: &str, id: i64) -> Result<Value> {
         let mut tx = self.pool.begin().await?;
         let actor = session(&mut tx, secret).await?;
-        developer(&mut tx, &actor).await?;
+        key_management(&mut tx, &actor).await?;
         let row = owned_key(&mut tx, actor.user_id, id, false).await?;
         let result = projection(&mut tx, &row).await?;
         tx.commit().await?;
@@ -498,8 +556,11 @@ impl IdentityStore {
             .execute(&mut *tx)
             .await?;
         let actor = session(&mut tx, secret).await?;
-        developer(&mut tx, &actor).await?;
+        let marked = key_management(&mut tx, &actor).await?;
         let old = owned_key(&mut tx, actor.user_id, id, true).await?;
+        if marked {
+            personal_key_funding(&mut tx, &actor, id).await?;
+        }
         if old.try_get::<bool, _>("revoked")? {
             return Err(IdentityError::Forbidden);
         }
@@ -525,6 +586,7 @@ impl IdentityStore {
                 actor.user_id,
                 input,
                 self.dashboard_routing.as_deref(),
+                marked,
             )
             .await?;
             sqlx::query(
@@ -559,7 +621,7 @@ impl IdentityStore {
         }
         let mut tx = self.pool.begin().await?;
         let actor = session(&mut tx, secret).await?;
-        developer(&mut tx, &actor).await?;
+        key_management(&mut tx, &actor).await?;
         // Sort locks to avoid an overlapping batch taking the opposite order.
         let mut ordered = ids.to_vec();
         ordered.sort_unstable();
@@ -586,10 +648,13 @@ impl IdentityStore {
         }
         let mut tx = self.pool.begin().await?;
         let actor = session(&mut tx, secret).await?;
-        developer(&mut tx, &actor).await?;
+        let marked = key_management(&mut tx, &actor).await?;
         let mut keys = serde_json::Map::new();
         for id in ids {
             let row = owned_key(&mut tx, actor.user_id, *id, false).await?;
+            if marked {
+                personal_key_funding(&mut tx, &actor, *id).await?;
+            }
             if row.try_get::<bool, _>("one_time_reveal")?
                 || row.try_get::<bool, _>("revoked")?
                 || row.try_get::<bool, _>("expired")?
@@ -647,15 +712,27 @@ impl IdentityStore {
     pub async fn dashboard_groups(&self, secret: &str) -> Result<Value> {
         let mut tx = self.pool.begin().await?;
         let actor = session(&mut tx, secret).await?;
-        developer(&mut tx, &actor).await?;
-        let allowed = groups(&mut tx, actor.user_id, self.dashboard_routing.as_deref()).await?;
+        let marked = key_management(&mut tx, &actor).await?;
+        let allowed = if marked {
+            vec!["auto".to_owned()]
+        } else {
+            groups(&mut tx, actor.user_id, self.dashboard_routing.as_deref()).await?
+        };
         tx.commit().await?;
         Ok(json!(allowed))
     }
     pub async fn dashboard_models(&self, secret: &str) -> Result<Vec<String>> {
         let mut tx = self.pool.begin().await?;
         let actor = session(&mut tx, secret).await?;
-        developer(&mut tx, &actor).await?;
+        let marked = key_management(&mut tx, &actor).await?;
+        if marked {
+            let public = crate::abuse::public_models_in_transaction(&mut tx, actor.user_id)
+                .await
+                .map_err(|_| IdentityError::Storage)?
+                .ok_or(IdentityError::Storage)?;
+            tx.commit().await?;
+            return Ok(public);
+        }
         if let Some(routing) = self.dashboard_routing.as_deref() {
             let allowed = groups(&mut tx, actor.user_id, Some(routing)).await?;
             let mut models = std::collections::BTreeSet::new();

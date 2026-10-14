@@ -13,6 +13,10 @@ fn profile() -> GrantProfile {
 pub(crate) async fn fresh(pool: &PgPool) -> (IdentityStore, GrantStore, IssuedCredential) {
     let identity = IdentityStore::from_pool(pool.clone());
     identity.init_database().await.unwrap();
+    sqlx::raw_sql(crate::abuse::SCHEMA)
+        .execute(pool)
+        .await
+        .unwrap();
     let session = identity.bootstrap_user(1, 1).await.unwrap();
     let mut tx = pool.begin().await.unwrap();
     sqlx::raw_sql(SCHEMA).execute(&mut *tx).await.unwrap();

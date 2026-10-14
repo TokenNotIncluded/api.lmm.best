@@ -84,6 +84,15 @@ pub(super) async fn authenticate(c: &mut PgConnection, secret: &str) -> Result<A
     Ok(actor)
 }
 
+pub(super) async fn reject_new_model(c: &mut PgConnection, user: i64) -> Result<()> {
+    crate::abuse::reject_normal_model_in_transaction(c, user)
+        .await
+        .map_err(|error| match error {
+            crate::abuse::AbuseError::Forbidden => Error::Forbidden,
+            _ => Error::Storage,
+        })
+}
+
 pub(super) async fn model_policy(
     c: &mut PgConnection,
     secret: &str,
