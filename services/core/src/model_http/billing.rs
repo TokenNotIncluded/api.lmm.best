@@ -294,7 +294,10 @@ pub(super) fn complete_usage(observed: crate::relay::Usage) -> Result<Usage, Rel
     observed
         .validate()
         .map_err(|_| RelayError::SettlementPending)?;
-    if observed.cache_creation_input_tokens.is_some_and(|value| value != 0) {
+    if observed
+        .cache_creation_input_tokens
+        .is_some_and(|value| value != 0)
+    {
         return Err(RelayError::SettlementPending);
     }
     let input = observed
@@ -362,7 +365,11 @@ mod a07_billing_tests {
             hard_deadline: 3,
             state: "settled".into(),
             reserved: 100,
-            usage: Usage { input: 10, cached: 2, output: 20 },
+            usage: Usage {
+                input: 10,
+                cached: 2,
+                output: 20,
+            },
             settled: 49,
             refunded: 0,
             revision: 4,
@@ -374,22 +381,35 @@ mod a07_billing_tests {
     fn final_receipt_rejects_unknown_or_inconsistent_usage() {
         for observed in [
             Observed::default(),
-            Observed { input_tokens: Some(1), ..Observed::default() },
-            Observed { output_tokens: Some(1), ..Observed::default() },
             Observed {
-                input_tokens: Some(2), output_tokens: Some(3),
-                cached_input_tokens: Some(3), ..Observed::default()
+                input_tokens: Some(1),
+                ..Observed::default()
             },
             Observed {
-                input_tokens: Some(2), output_tokens: Some(3),
-                reasoning_output_tokens: Some(4), ..Observed::default()
+                output_tokens: Some(1),
+                ..Observed::default()
             },
             Observed {
-                input_tokens: Some(2), output_tokens: Some(3),
-                cache_creation_input_tokens: Some(1), ..Observed::default()
+                input_tokens: Some(2),
+                output_tokens: Some(3),
+                cached_input_tokens: Some(3),
+                ..Observed::default()
             },
             Observed {
-                input_tokens: Some(i64::MAX as u64 + 1), output_tokens: Some(0),
+                input_tokens: Some(2),
+                output_tokens: Some(3),
+                reasoning_output_tokens: Some(4),
+                ..Observed::default()
+            },
+            Observed {
+                input_tokens: Some(2),
+                output_tokens: Some(3),
+                cache_creation_input_tokens: Some(1),
+                ..Observed::default()
+            },
+            Observed {
+                input_tokens: Some(i64::MAX as u64 + 1),
+                output_tokens: Some(0),
                 ..Observed::default()
             },
         ] {
@@ -401,11 +421,17 @@ mod a07_billing_tests {
     fn final_receipt_keeps_cache_as_a_subset_not_an_extra_charge() {
         assert_eq!(
             complete_usage(Observed {
-                input_tokens: Some(10), output_tokens: Some(20),
-                cached_input_tokens: Some(2), cache_creation_input_tokens: Some(0),
+                input_tokens: Some(10),
+                output_tokens: Some(20),
+                cached_input_tokens: Some(2),
+                cache_creation_input_tokens: Some(0),
                 reasoning_output_tokens: Some(5),
             }),
-            Ok(Usage { input: 10, cached: 2, output: 20 })
+            Ok(Usage {
+                input: 10,
+                cached: 2,
+                output: 20
+            })
         );
     }
 
@@ -414,7 +440,11 @@ mod a07_billing_tests {
         let expected = receipt();
         let confirms = |value: &charging::Charge| {
             confirmed_settlement(
-                value, &expected.id, &expected.price, expected.usage, Outcome::Completed,
+                value,
+                &expected.id,
+                &expected.price,
+                expected.usage,
+                Outcome::Completed,
             )
         };
         assert!(confirms(&expected));
@@ -440,7 +470,8 @@ mod a07_billing_tests {
         let result = retry(|| {
             calls += 1;
             std::future::ready(Err::<(), _>(charging::Error::CommitUnknown))
-        }).await;
+        })
+        .await;
         assert_eq!(result, Err(charging::Error::CommitUnknown));
         assert_eq!(calls, 1);
     }
@@ -451,7 +482,8 @@ mod a07_billing_tests {
         let result = retry(|| {
             calls += 1;
             std::future::ready(Err::<(), _>(charging::Error::Retry))
-        }).await;
+        })
+        .await;
         assert_eq!(result, Err(charging::Error::Retry));
         assert_eq!(calls, 3);
     }

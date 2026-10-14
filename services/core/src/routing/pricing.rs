@@ -211,7 +211,10 @@ impl PriceQuote {
     /// Round UP once, after summing all dimensions and both multipliers.
     /// Task 03 must apply this once to a logical request; retries are not new fees.
     pub fn charge(&self, usage: Usage) -> Result<MicroUsd, RoutingError> {
-        Ok(MicroUsd(rounded_amount(self.numerator(usage)?, DENOMINATOR)?))
+        Ok(MicroUsd(rounded_amount(
+            self.numerator(usage)?,
+            DENOMINATOR,
+        )?))
     }
 
     /// Capture an already validated server conversion without a new price lookup.
@@ -347,7 +350,10 @@ mod a07_tests {
         let frozen = credits(quote(rates(1)));
         for (input, expected) in [(0, 0), (1, 1), (1_000_000, 1), (2_000_000, 1)] {
             assert_eq!(
-                frozen.charge(Usage { input, ..Usage::default() }),
+                frozen.charge(Usage {
+                    input,
+                    ..Usage::default()
+                }),
                 Ok(Credits(expected))
             );
         }
@@ -377,7 +383,15 @@ mod a07_tests {
     #[test]
     fn cache_categories_are_not_double_charged_as_uncached_input() {
         let usage = Usage::from_totals(10, 2, 4, 3).unwrap();
-        assert_eq!(usage, Usage { input: 3, output: 2, cache_read: 4, cache_write: 3 });
+        assert_eq!(
+            usage,
+            Usage {
+                input: 3,
+                output: 2,
+                cache_read: 4,
+                cache_write: 3
+            }
+        );
         let price = quote(TokenRates {
             input: 2_000_000,
             output: 4_000_000,
@@ -391,7 +405,10 @@ mod a07_tests {
     #[test]
     fn invalid_total_and_cache_subsets_are_rejected() {
         for (input, read, write) in [(1, 2, 0), (1, 0, 2), (3, 2, 2), (u64::MAX, u64::MAX, 1)] {
-            assert_eq!(Usage::from_totals(input, 0, read, write), Err(RoutingError::InvalidRequest));
+            assert_eq!(
+                Usage::from_totals(input, 0, read, write),
+                Err(RoutingError::InvalidRequest)
+            );
         }
     }
 
@@ -399,7 +416,10 @@ mod a07_tests {
     fn conversion_is_applied_before_any_currency_rounding() {
         let price = quote(rates(1_100_000));
         let frozen = price.with_credit_rate(CreditRate::new(10, 700_000).unwrap());
-        let usage = Usage { input: 1, ..Usage::default() };
+        let usage = Usage {
+            input: 1,
+            ..Usage::default()
+        };
         assert_eq!(price.charge(usage), Ok(MicroUsd(2)));
         // 1.1 micro-USD * 0.7 credits/micro-USD = 0.77 credits, rounded to 1.
         // Rounding micro-USD first would incorrectly produce 2 credits.
@@ -415,7 +435,12 @@ mod a07_tests {
             cache_write: 1_000_000,
             request: 1,
         });
-        let usage = Usage { input: 1, output: 1, cache_read: 1, cache_write: 1 };
+        let usage = Usage {
+            input: 1,
+            output: 1,
+            cache_read: 1,
+            cache_write: 1,
+        };
         assert_eq!(credits(price).charge(usage), Ok(Credits(3)));
         assert_eq!(credits(price).charge(Usage::default()), Ok(Credits(1)));
     }
@@ -427,7 +452,10 @@ mod a07_tests {
         original.version = 4;
         original.rates.input = 4_000_000;
         let later = original.with_credit_rate(CreditRate::new(10, 1_000_000).unwrap());
-        let usage = Usage { input: 1, ..Usage::default() };
+        let usage = Usage {
+            input: 1,
+            ..Usage::default()
+        };
         assert_eq!(frozen.price().version(), 3);
         assert_eq!(frozen.price().rule_id(), 7);
         assert_eq!(frozen.conversion().version(), 9);
@@ -438,7 +466,10 @@ mod a07_tests {
 
     #[test]
     fn zero_price_is_zero_but_conversion_must_be_valid() {
-        assert_eq!(credits(quote(rates(0))).charge(Usage::default()), Ok(Credits(0)));
+        assert_eq!(
+            credits(quote(rates(0))).charge(Usage::default()),
+            Ok(Credits(0))
+        );
         for (version, rate) in [(0, 500_000), (1, 0), (u64::MAX, 1), (1, u64::MAX)] {
             assert!(CreditRate::new(version, rate).is_err());
         }
@@ -451,10 +482,16 @@ mod a07_tests {
         let equal = request_price.with_credit_rate(CreditRate::new(1, 1_000_000).unwrap());
         assert_eq!(equal.charge(Usage::default()), Ok(Credits(i64::MAX as u64)));
         let doubled = request_price.with_credit_rate(CreditRate::new(2, 2_000_000).unwrap());
-        assert_eq!(doubled.charge(Usage::default()), Err(RoutingError::PriceOverflow));
+        assert_eq!(
+            doubled.charge(Usage::default()),
+            Err(RoutingError::PriceOverflow)
+        );
         let huge = credits(quote(rates(i64::MAX as u64)));
         assert_eq!(
-            huge.charge(Usage { input: u64::MAX, ..Usage::default() }),
+            huge.charge(Usage {
+                input: u64::MAX,
+                ..Usage::default()
+            }),
             Err(RoutingError::PriceOverflow)
         );
     }
@@ -494,8 +531,13 @@ mod a07_tests {
             request: 1,
         }));
         assert_eq!(frozen.reservation_ceiling(0, 0), Ok(Credits(1)));
-        assert_eq!(frozen.reservation_ceiling(1_000_000, 1_000_000), Ok(Credits(2)));
-        assert_eq!(credits(quote(rates(0))).reservation_ceiling(0, 0), Ok(Credits(0)));
+        assert_eq!(
+            frozen.reservation_ceiling(1_000_000, 1_000_000),
+            Ok(Credits(2))
+        );
+        assert_eq!(
+            credits(quote(rates(0))).reservation_ceiling(0, 0),
+            Ok(Credits(0))
+        );
     }
-
 }

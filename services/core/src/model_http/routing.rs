@@ -6,7 +6,7 @@ use crate::{
         UpstreamProtocol,
     },
     routing::{
-        Attempt, CreditQuote, CreditRate, CredentialRef, PayloadPolicy, PriceQuote, Protocol,
+        Attempt, CredentialRef, CreditQuote, CreditRate, PayloadPolicy, PriceQuote, Protocol,
         ReplayPermission, RouteRequest,
     },
 };
@@ -281,14 +281,19 @@ mod tests {
             for input in 0..=12_u64 {
                 for cached in 0..=input {
                     for output in 0..=5_u64 {
-                        let exact = frozen.charge(
-                            crate::routing::Usage::from_totals(input, output, cached, 0).unwrap(),
-                        ).unwrap();
-                        let amount = legacy.cost(crate::billing::charging::Usage {
-                            input: input as i64,
-                            cached: cached as i64,
-                            output: output as i64,
-                        }).unwrap();
+                        let exact = frozen
+                            .charge(
+                                crate::routing::Usage::from_totals(input, output, cached, 0)
+                                    .unwrap(),
+                            )
+                            .unwrap();
+                        let amount = legacy
+                            .cost(crate::billing::charging::Usage {
+                                input: input as i64,
+                                cached: cached as i64,
+                                output: output as i64,
+                            })
+                            .unwrap();
                         assert_eq!(exact.0, amount as u64);
                         assert!(exact.0 <= frozen.reservation_ceiling(12, 5).unwrap().0);
                     }
@@ -296,5 +301,4 @@ mod tests {
             }
         }
     }
-
 }

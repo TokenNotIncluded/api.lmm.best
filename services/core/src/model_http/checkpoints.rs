@@ -101,13 +101,8 @@ impl Bridge {
             }
             let evidence = format!("model-stream:{id}:{sequence}");
             let result = super::billing::retry(|| {
-                self.charging.reconcile(
-                    &id,
-                    revision,
-                    usage,
-                    Outcome::Completed,
-                    &evidence,
-                )
+                self.charging
+                    .reconcile(&id, revision, usage, Outcome::Completed, &evidence)
             })
             .await;
             let confirmed = match result {
@@ -264,17 +259,35 @@ mod a07_recovery_tests {
     #[test]
     fn full_invalid_page_still_advances_by_the_last_scanned_id() {
         let rows = vec![
-            ("a".into(), 1, json!({"input_tokens":-1,"output_tokens":2}), 1),
-            ("b".into(), 1, json!({"input_tokens":1,"output_tokens":2,"cached_input_tokens":2}), 1),
+            (
+                "a".into(),
+                1,
+                json!({"input_tokens":-1,"output_tokens":2}),
+                1,
+            ),
+            (
+                "b".into(),
+                1,
+                json!({"input_tokens":1,"output_tokens":2,"cached_input_tokens":2}),
+                1,
+            ),
         ];
-        assert!(rows.iter().all(|row| recovery_usage(row.2.clone(), row.3).is_none()));
+        assert!(
+            rows.iter()
+                .all(|row| recovery_usage(row.2.clone(), row.3).is_none())
+        );
         assert_eq!(next_recovery_page(&rows, 2), Some("b".into()));
         assert_eq!(next_recovery_page(&rows[..1], 1), Some("a".into()));
     }
 
     #[test]
     fn short_or_empty_page_ends_the_sweep_not_the_recovery_service() {
-        let rows = vec![("last".into(), 1, json!({"input_tokens":0,"output_tokens":0}), 1)];
+        let rows = vec![(
+            "last".into(),
+            1,
+            json!({"input_tokens":0,"output_tokens":0}),
+            1,
+        )];
         assert_eq!(next_recovery_page(&rows, 2), None);
         assert_eq!(next_recovery_page(&[], 1), None);
         // A page exactly at the limit needs a further (possibly empty) query.
@@ -292,7 +305,14 @@ mod a07_recovery_tests {
             .into_iter()
             .filter_map(|value| recovery_usage(value, 1))
             .collect();
-        assert_eq!(valid, vec![charging::Usage { input: 4, cached: 1, output: 2 }]);
+        assert_eq!(
+            valid,
+            vec![charging::Usage {
+                input: 4,
+                cached: 1,
+                output: 2
+            }]
+        );
     }
 
     #[test]
@@ -310,7 +330,11 @@ mod a07_recovery_tests {
 
     #[test]
     fn unknown_totals_stay_held_but_explicit_zero_is_recoverable() {
-        for value in [json!({}), json!({"input_tokens":0}), json!({"output_tokens":0})] {
+        for value in [
+            json!({}),
+            json!({"input_tokens":0}),
+            json!({"output_tokens":0}),
+        ] {
             assert!(recovery_usage(value, 1).is_none());
         }
         assert_eq!(

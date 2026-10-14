@@ -41,25 +41,34 @@ async fn fixture(pool: &PgPool, install_page: bool) -> Fixture {
     let key = identity
         .issue_key(
             &session.secret,
-            Account { kind: AccountKind::Personal, id: 7 },
+            Account {
+                kind: AccountKind::Personal,
+                id: 7,
+            },
             FundingPolicy::new_personal_key(),
             3600,
         )
         .await
         .unwrap();
     let ledger = Ledger::from_pool(pool.clone());
-    ledger.open_wallet(principal.owner_account_id).await.unwrap();
-    ledger.execute(&LedgerRequest {
-        scope: "a07-recovery-page-test".into(),
-        operation_key: "synthetic-funds".into(),
-        actor_user_id: Some(7),
-        reason: "Synthetic funds in a disposable SQLx test database".into(),
-        action: Action::Credit {
-            account_id: principal.owner_account_id,
-            amount_units: Credits::try_from(1000_i64).unwrap(),
-            payment_reference: "synthetic:a07-recovery-page".into(),
-        },
-    }).await.unwrap();
+    ledger
+        .open_wallet(principal.owner_account_id)
+        .await
+        .unwrap();
+    ledger
+        .execute(&LedgerRequest {
+            scope: "a07-recovery-page-test".into(),
+            operation_key: "synthetic-funds".into(),
+            actor_user_id: Some(7),
+            reason: "Synthetic funds in a disposable SQLx test database".into(),
+            action: Action::Credit {
+                account_id: principal.owner_account_id,
+                amount_units: Credits::try_from(1000_i64).unwrap(),
+                payment_reference: "synthetic:a07-recovery-page".into(),
+            },
+        })
+        .await
+        .unwrap();
     // Recovery needs no configured supplier, credential or outgoing connection.
     let router = Router::new(
         RoutingConfig {
@@ -69,17 +78,31 @@ async fn fixture(pool: &PgPool, install_page: bool) -> Fixture {
             routes: vec![],
             aliases: vec![],
         },
-        Arc::new(PriceSnapshot::compile(PriceConfig { version: 1, rules: vec![] }).unwrap()),
-    ).unwrap();
+        Arc::new(
+            PriceSnapshot::compile(PriceConfig {
+                version: 1,
+                rules: vec![],
+            })
+            .unwrap(),
+        ),
+    )
+    .unwrap();
     let gateway = ModelGateway::new(
-        pool.clone(), Arc::new(router), vec![], BTreeMap::new(),
+        pool.clone(),
+        Arc::new(router),
+        vec![],
+        BTreeMap::new(),
         Limits {
             total_timeout: Duration::from_secs(3),
             hook_timeout: Duration::from_secs(2),
             ..Limits::default()
         },
-        ChargePolicy { input_token_ceiling: 100, lease_seconds: 30 },
-    ).unwrap();
+        ChargePolicy {
+            input_token_ceiling: 100,
+            lease_seconds: 30,
+        },
+    )
+    .unwrap();
     Fixture {
         gateway,
         charging: Charging::new(pool.clone(), Arc::new(TransactionalLedger)),
@@ -106,14 +129,26 @@ async fn seed(pool: &PgPool, fixture: &Fixture, id: &str, usage: Value, terminal
         lease_seconds: 300,
         maximum_seconds: 300,
     };
-    fixture.charging.reserve(&fixture.key, &request, &worker).await.unwrap();
+    fixture
+        .charging
+        .reserve(&fixture.key, &request, &worker)
+        .await
+        .unwrap();
     assert!(fixture.charging.start(id, &worker).await.unwrap());
     let mut tx = pool.begin().await.unwrap();
     sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-        .execute(&mut *tx).await.unwrap();
+        .execute(&mut *tx)
+        .await
+        .unwrap();
     sqlx::query("SELECT core_model.checkpoint_output($1,$2,1,$3,25,$4,$5)")
-        .bind(id).bind(worker.as_slice()).bind([9_u8; 32].as_slice())
-        .bind(usage).bind(terminal).execute(&mut *tx).await.unwrap();
+        .bind(id)
+        .bind(worker.as_slice())
+        .bind([9_u8; 32].as_slice())
+        .bind(usage)
+        .bind(terminal)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
     tx.commit().await.unwrap();
 }
 
@@ -122,7 +157,9 @@ async fn expire(pool: &PgPool, fixture: &Fixture) {
     // or public runtime path is changed. The immutable request/price is retained.
     let mut tx = pool.begin().await.unwrap();
     sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE")
-        .execute(&mut *tx).await.unwrap();
+        .execute(&mut *tx)
+        .await
+        .unwrap();
     sqlx::query("UPDATE core_charging.requests SET lease_until=0,revision=revision+1 WHERE state='streaming'")
         .execute(&mut *tx).await.unwrap();
     tx.commit().await.unwrap();
@@ -133,7 +170,10 @@ async fn balanced(pool: &PgPool) {
     let unbalanced: i64 = sqlx::query_scalar(
         "SELECT count(*) FROM (SELECT journal_id FROM core_billing.ledger_entries \
          GROUP BY journal_id HAVING sum(delta_units)<>0) entries",
-    ).fetch_one(pool).await.unwrap();
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap();
     assert_eq!(unbalanced, 0);
 }
 
@@ -144,8 +184,22 @@ fn valid_usage() -> Value {
 #[sqlx::test(migrations = false)]
 async fn invalid_first_pages_do_not_starve_later_settlement(pool: PgPool) {
     let f = fixture(&pool, true).await;
-    seed(&pool, &f, "a-bad-cache", json!({"input_tokens":10,"cached_input_tokens":11,"output_tokens":20}), true).await;
-    seed(&pool, &f, "b-bad-type", json!({"input_tokens":10,"cached_input_tokens":"bad","output_tokens":20}), true).await;
+    seed(
+        &pool,
+        &f,
+        "a-bad-cache",
+        json!({"input_tokens":10,"cached_input_tokens":11,"output_tokens":20}),
+        true,
+    )
+    .await;
+    seed(
+        &pool,
+        &f,
+        "b-bad-type",
+        json!({"input_tokens":10,"cached_input_tokens":"bad","output_tokens":20}),
+        true,
+    )
+    .await;
     seed(&pool, &f, "c-valid", valid_usage(), true).await;
     seed(&pool, &f, "d-partial", valid_usage(), false).await;
     expire(&pool, &f).await;
@@ -155,11 +209,16 @@ async fn invalid_first_pages_do_not_starve_later_settlement(pool: PgPool) {
     assert_eq!(f.gateway.reconcile_completed_streams(1).await.unwrap(), 0);
     let mut after = None;
     for (expected_count, expected_cursor) in [
-        (0, Some("a-bad-cache")), (0, Some("b-bad-type")),
-        (1, Some("c-valid")), (0, None),
+        (0, Some("a-bad-cache")),
+        (0, Some("b-bad-type")),
+        (1, Some("c-valid")),
+        (0, None),
     ] {
-        let (recovered, next) = f.gateway
-            .reconcile_completed_streams_page(1, after.as_deref()).await.unwrap();
+        let (recovered, next) = f
+            .gateway
+            .reconcile_completed_streams_page(1, after.as_deref())
+            .await
+            .unwrap();
         assert_eq!(recovered, expected_count);
         assert_eq!(next.as_deref(), expected_cursor);
         after = next;
@@ -179,10 +238,28 @@ async fn invalid_first_pages_do_not_starve_later_settlement(pool: PgPool) {
     // A later record before the previous cursor is found in the next sweep.
     seed(&pool, &f, "a-later", valid_usage(), true).await;
     expire(&pool, &f).await;
-    let (recovered, next) = f.gateway.reconcile_completed_streams_page(1000, None).await.unwrap();
+    let (recovered, next) = f
+        .gateway
+        .reconcile_completed_streams_page(1000, None)
+        .await
+        .unwrap();
     assert_eq!((recovered, next), (1, None));
-    assert_eq!(f.charging.resolve("a-later").await.unwrap().unwrap().settled, 49);
-    assert_eq!(f.gateway.reconcile_completed_streams_page(1000, None).await.unwrap(), (0, None));
+    assert_eq!(
+        f.charging
+            .resolve("a-later")
+            .await
+            .unwrap()
+            .unwrap()
+            .settled,
+        49
+    );
+    assert_eq!(
+        f.gateway
+            .reconcile_completed_streams_page(1000, None)
+            .await
+            .unwrap(),
+        (0, None)
+    );
     balanced(&pool).await;
 }
 
@@ -197,7 +274,13 @@ async fn concurrent_pages_confirm_the_same_charge_without_double_debit(pool: PgP
     );
     // Counts are confirmations, not a claim that each worker made a new debit.
     assert!(one.unwrap().0 + two.unwrap().0 >= 1);
-    assert_eq!(f.gateway.reconcile_completed_streams_page(1, None).await.unwrap(), (0, None));
+    assert_eq!(
+        f.gateway
+            .reconcile_completed_streams_page(1, None)
+            .await
+            .unwrap(),
+        (0, None)
+    );
     let charge = f.charging.resolve("single-valid").await.unwrap().unwrap();
     assert_eq!(charge.state, "settled");
     assert_eq!(charge.settled, 49);
@@ -214,30 +297,61 @@ async fn missing_contract_and_invalid_pages_never_fall_back_or_expand_access(poo
         f.gateway.reconcile_completed_streams_page(1, None).await,
         Err(RelayError::Unsupported(_))
     ));
-    for (limit, cursor) in [(0, None), (1001, None), (1, Some("")), (1, Some("bad cursor"))] {
+    for (limit, cursor) in [
+        (0, None),
+        (1001, None),
+        (1, Some("")),
+        (1, Some("bad cursor")),
+    ] {
         assert!(matches!(
-            f.gateway.reconcile_completed_streams_page(limit, cursor).await,
+            f.gateway
+                .reconcile_completed_streams_page(limit, cursor)
+                .await,
             Err(RelayError::Invalid(_))
         ));
     }
     sqlx::raw_sql(PAGE_CONTRACT).execute(&pool).await.unwrap();
-    assert_eq!(f.gateway.reconcile_completed_streams_page(1, None).await.unwrap(), (0, None));
-    for (limit, cursor) in [(0, None), (1001, None), (1, Some("")), (1, Some("bad cursor"))] {
+    assert_eq!(
+        f.gateway
+            .reconcile_completed_streams_page(1, None)
+            .await
+            .unwrap(),
+        (0, None)
+    );
+    for (limit, cursor) in [
+        (0, None),
+        (1001, None),
+        (1, Some("")),
+        (1, Some("bad cursor")),
+    ] {
         let error = sqlx::query("SELECT * FROM core_model.completed_streams_after($1,$2)")
-            .bind(limit).bind(cursor).execute(&pool).await.unwrap_err();
-        assert_eq!(error.as_database_error().unwrap().code().as_deref(), Some("23514"));
+            .bind(limit)
+            .bind(cursor)
+            .execute(&pool)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error.as_database_error().unwrap().code().as_deref(),
+            Some("23514")
+        );
     }
     let public_execute: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM pg_proc p, \
          LATERAL aclexplode(coalesce(p.proacl,acldefault('f',p.proowner))) a \
          WHERE p.oid='core_model.completed_streams_after(integer,text)'::regprocedure \
          AND a.grantee=0 AND a.privilege_type='EXECUTE')",
-    ).fetch_one(&pool).await.unwrap();
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     assert!(!public_execute);
     let hardened: bool = sqlx::query_scalar(
         "SELECT prosecdef AND proconfig @> ARRAY['search_path=pg_catalog'] FROM pg_proc \
          WHERE oid='core_model.completed_streams_after(integer,text)'::regprocedure",
-    ).fetch_one(&pool).await.unwrap();
+    )
+    .fetch_one(&pool)
+    .await
+    .unwrap();
     assert!(hardened);
     let balance = f.ledger.balance(f.account).await.unwrap();
     assert_eq!(balance.available_units, 1000);

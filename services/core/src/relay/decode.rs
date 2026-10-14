@@ -95,7 +95,10 @@ fn usage(protocol: UpstreamProtocol, v: &Value) -> Result<Usage, RelayError> {
             )?;
         }
     }
-    if matches!(protocol, UpstreamProtocol::Chat | UpstreamProtocol::Responses) {
+    if matches!(
+        protocol,
+        UpstreamProtocol::Chat | UpstreamProtocol::Responses
+    ) {
         // Preserve the extension emitted by Usage::wire. Discarding it here
         // would bypass the charging adapter's unsupported-cache-write guard.
         u.cache_creation_input_tokens = counter(v, "cache_creation_input_tokens")?;
@@ -800,7 +803,11 @@ impl Decoder {
     }
     fn response_finish(&mut self, v: &Value, out: &mut Vec<Event>) -> Result<(), RelayError> {
         // Reject a changed or malformed final ID before accepting its usage.
-        let id = v.get("id").filter(|id| !id.is_null()).map(text).transpose()?;
+        let id = v
+            .get("id")
+            .filter(|id| !id.is_null())
+            .map(text)
+            .transpose()?;
         self.start(id, out)?;
         out.push(Event::Usage(usage(self.protocol, &v["usage"])?));
         let reason = match v["status"].as_str() {
@@ -964,7 +971,10 @@ mod tests {
         };
         for (protocol, client) in [
             (UpstreamProtocol::Chat, crate::relay::ClientProtocol::Chat),
-            (UpstreamProtocol::Responses, crate::relay::ClientProtocol::Responses),
+            (
+                UpstreamProtocol::Responses,
+                crate::relay::ClientProtocol::Responses,
+            ),
         ] {
             assert_eq!(usage(protocol, &expected.wire(client)), Ok(expected));
             assert_eq!(usage(protocol, &openai_receipt(protocol)), Ok(expected));
@@ -974,8 +984,14 @@ mod tests {
     #[test]
     fn a07_present_non_object_details_are_not_missing_usage() {
         for (protocol, fields) in [
-            (UpstreamProtocol::Chat, ["prompt_tokens_details", "completion_tokens_details"]),
-            (UpstreamProtocol::Responses, ["input_tokens_details", "output_tokens_details"]),
+            (
+                UpstreamProtocol::Chat,
+                ["prompt_tokens_details", "completion_tokens_details"],
+            ),
+            (
+                UpstreamProtocol::Responses,
+                ["input_tokens_details", "output_tokens_details"],
+            ),
         ] {
             for field in fields {
                 for invalid in [
@@ -987,7 +1003,10 @@ mod tests {
                 ] {
                     let mut receipt = openai_receipt(protocol);
                     receipt[field] = invalid;
-                    assert!(matches!(usage(protocol, &receipt), Err(RelayError::Protocol(_))));
+                    assert!(matches!(
+                        usage(protocol, &receipt),
+                        Err(RelayError::Protocol(_))
+                    ));
                 }
             }
         }
@@ -996,8 +1015,14 @@ mod tests {
     #[test]
     fn a07_absent_null_and_empty_details_keep_counters_unknown() {
         for (protocol, fields) in [
-            (UpstreamProtocol::Chat, ["prompt_tokens_details", "completion_tokens_details"]),
-            (UpstreamProtocol::Responses, ["input_tokens_details", "output_tokens_details"]),
+            (
+                UpstreamProtocol::Chat,
+                ["prompt_tokens_details", "completion_tokens_details"],
+            ),
+            (
+                UpstreamProtocol::Responses,
+                ["input_tokens_details", "output_tokens_details"],
+            ),
         ] {
             for value in [Value::Null, serde_json::json!({})] {
                 let mut receipt = openai_receipt(protocol);
@@ -1009,7 +1034,10 @@ mod tests {
                 assert_eq!(observed.reasoning_output_tokens, None);
                 assert_eq!(observed.cache_creation_input_tokens, Some(2));
             }
-            assert_eq!(usage(protocol, &serde_json::json!({})), Ok(Usage::default()));
+            assert_eq!(
+                usage(protocol, &serde_json::json!({})),
+                Ok(Usage::default())
+            );
         }
     }
 
@@ -1058,7 +1086,10 @@ mod tests {
                 receipt[known_field] = serde_json::json!(10);
                 let observed = usage(protocol, &receipt).unwrap();
                 assert_eq!(observed.input_tokens, (known_field == input).then_some(10));
-                assert_eq!(observed.output_tokens, (known_field == output).then_some(10));
+                assert_eq!(
+                    observed.output_tokens,
+                    (known_field == output).then_some(10)
+                );
                 receipt["total_tokens"] = serde_json::json!(9);
                 assert!(usage(protocol, &receipt).is_err());
             }
@@ -1078,26 +1109,44 @@ mod tests {
             receipt[reasoning_details]["reasoning_tokens"] = serde_json::json!(5);
             assert!(usage(protocol, &receipt).is_err());
         }
-        assert!(usage(UpstreamProtocol::Gemini, &serde_json::json!({
-            "promptTokenCount": 3, "cachedContentTokenCount": 4
-        })).is_err());
+        assert!(
+            usage(
+                UpstreamProtocol::Gemini,
+                &serde_json::json!({
+                    "promptTokenCount": 3, "cachedContentTokenCount": 4
+                })
+            )
+            .is_err()
+        );
     }
 
     #[test]
     fn a07_total_overflow_is_rejected_before_emitting_usage() {
         for (protocol, receipt) in [
-            (UpstreamProtocol::Chat, serde_json::json!({
-                "prompt_tokens": u64::MAX, "completion_tokens": 1
-            })),
-            (UpstreamProtocol::Responses, serde_json::json!({
-                "input_tokens": u64::MAX, "output_tokens": 1
-            })),
-            (UpstreamProtocol::Anthropic, serde_json::json!({
-                "input_tokens": u64::MAX, "output_tokens": 1
-            })),
-            (UpstreamProtocol::Gemini, serde_json::json!({
-                "promptTokenCount": u64::MAX, "candidatesTokenCount": 1
-            })),
+            (
+                UpstreamProtocol::Chat,
+                serde_json::json!({
+                    "prompt_tokens": u64::MAX, "completion_tokens": 1
+                }),
+            ),
+            (
+                UpstreamProtocol::Responses,
+                serde_json::json!({
+                    "input_tokens": u64::MAX, "output_tokens": 1
+                }),
+            ),
+            (
+                UpstreamProtocol::Anthropic,
+                serde_json::json!({
+                    "input_tokens": u64::MAX, "output_tokens": 1
+                }),
+            ),
+            (
+                UpstreamProtocol::Gemini,
+                serde_json::json!({
+                    "promptTokenCount": u64::MAX, "candidatesTokenCount": 1
+                }),
+            ),
         ] {
             assert!(usage(protocol, &receipt).is_err());
         }
@@ -1108,11 +1157,29 @@ mod tests {
         for protocol in [UpstreamProtocol::Chat, UpstreamProtocol::Responses] {
             let mut receipt = openai_receipt(protocol);
             receipt["cache_creation_input_tokens"] = serde_json::json!(0);
-            assert_eq!(usage(protocol, &receipt).unwrap().cache_creation_input_tokens, Some(0));
+            assert_eq!(
+                usage(protocol, &receipt)
+                    .unwrap()
+                    .cache_creation_input_tokens,
+                Some(0)
+            );
             receipt["cache_creation_input_tokens"] = Value::Null;
-            assert_eq!(usage(protocol, &receipt).unwrap().cache_creation_input_tokens, None);
-            receipt.as_object_mut().unwrap().remove("cache_creation_input_tokens");
-            assert_eq!(usage(protocol, &receipt).unwrap().cache_creation_input_tokens, None);
+            assert_eq!(
+                usage(protocol, &receipt)
+                    .unwrap()
+                    .cache_creation_input_tokens,
+                None
+            );
+            receipt
+                .as_object_mut()
+                .unwrap()
+                .remove("cache_creation_input_tokens");
+            assert_eq!(
+                usage(protocol, &receipt)
+                    .unwrap()
+                    .cache_creation_input_tokens,
+                None
+            );
         }
     }
 
@@ -1134,9 +1201,15 @@ mod tests {
     fn a07_non_streaming_decoder_preserves_billable_evidence() {
         for protocol in [UpstreamProtocol::Chat, UpstreamProtocol::Responses] {
             let mut decoder = Decoder::new(protocol, &Limits::default());
-            let events = decoder.json(&completion(protocol, openai_receipt(protocol))).unwrap();
+            let events = decoder
+                .json(&completion(protocol, openai_receipt(protocol)))
+                .unwrap();
             assert!(events.iter().any(|event| matches!(
-                event, Event::Usage(Usage { cache_creation_input_tokens: Some(2), .. })
+                event,
+                Event::Usage(Usage {
+                    cache_creation_input_tokens: Some(2),
+                    ..
+                })
             )));
             assert!(decoder.is_done());
             let mut decoder = Decoder::new(protocol, &Limits::default());
@@ -1160,7 +1233,14 @@ mod tests {
                 }),
                 _ => unreachable!(),
             };
-            assert!(decoder.frame(Frame { event: None, data: terminal.to_string() }).is_err());
+            assert!(
+                decoder
+                    .frame(Frame {
+                        event: None,
+                        data: terminal.to_string()
+                    })
+                    .is_err()
+            );
             assert!(!decoder.is_done());
             assert_eq!(decoder.eof().unwrap_err(), RelayError::Truncated);
         }
@@ -1178,21 +1258,26 @@ mod tests {
             serde_json::json!({}),
         ] {
             let mut decoder = Decoder::new(UpstreamProtocol::Responses, &Limits::default());
-            decoder.frame(Frame {
-                event: Some("response.created".into()),
-                data: serde_json::json!({
-                    "type": "response.created", "response": {"id": "synthetic-response"}
-                }).to_string(),
-            }).unwrap();
+            decoder
+                .frame(Frame {
+                    event: Some("response.created".into()),
+                    data: serde_json::json!({
+                        "type": "response.created", "response": {"id": "synthetic-response"}
+                    })
+                    .to_string(),
+                })
+                .unwrap();
             let mut response = completion(
-                UpstreamProtocol::Responses, openai_receipt(UpstreamProtocol::Responses),
+                UpstreamProtocol::Responses,
+                openai_receipt(UpstreamProtocol::Responses),
             );
             response["id"] = wrong_id;
             let result = decoder.frame(Frame {
                 event: Some("response.completed".into()),
                 data: serde_json::json!({
                     "type": "response.completed", "response": response
-                }).to_string(),
+                })
+                .to_string(),
             });
             assert!(matches!(result, Err(RelayError::Protocol(_))));
             assert!(!decoder.is_done());
@@ -1202,22 +1287,32 @@ mod tests {
     #[test]
     fn a07_matching_responses_terminal_retains_cache_write_evidence() {
         let mut decoder = Decoder::new(UpstreamProtocol::Responses, &Limits::default());
-        decoder.frame(Frame {
-            event: Some("response.created".into()),
-            data: serde_json::json!({
-                "type": "response.created", "response": {"id": "synthetic-response"}
-            }).to_string(),
-        }).unwrap();
-        let events = decoder.frame(Frame {
-            event: Some("response.completed".into()),
-            data: serde_json::json!({
-                "type": "response.completed", "response": completion(
-                    UpstreamProtocol::Responses, openai_receipt(UpstreamProtocol::Responses)
-                )
-            }).to_string(),
-        }).unwrap();
+        decoder
+            .frame(Frame {
+                event: Some("response.created".into()),
+                data: serde_json::json!({
+                    "type": "response.created", "response": {"id": "synthetic-response"}
+                })
+                .to_string(),
+            })
+            .unwrap();
+        let events = decoder
+            .frame(Frame {
+                event: Some("response.completed".into()),
+                data: serde_json::json!({
+                    "type": "response.completed", "response": completion(
+                        UpstreamProtocol::Responses, openai_receipt(UpstreamProtocol::Responses)
+                    )
+                })
+                .to_string(),
+            })
+            .unwrap();
         assert!(events.iter().any(|event| matches!(
-            event, Event::Usage(Usage { cache_creation_input_tokens: Some(2), .. })
+            event,
+            Event::Usage(Usage {
+                cache_creation_input_tokens: Some(2),
+                ..
+            })
         )));
         assert!(events.iter().any(|event| matches!(event, Event::Done)));
         assert!(!events.iter().any(|event| matches!(event, Event::Start(_))));
