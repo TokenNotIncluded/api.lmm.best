@@ -12,6 +12,7 @@ import (
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/assistant/access"
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/identity"
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/operations"
+	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/remotecontrol"
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/store"
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/store/rustauth"
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/store/rustfunds"
@@ -238,6 +239,12 @@ func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error) {
 		switch name {
 		case "identity":
 			r.Modules = append(r.Modules, identity.New(r.Client))
+		case "remote-control":
+			remote, err := remotecontrol.New(r.Client)
+			if err != nil {
+				return nil, err
+			}
+			r.Modules = append(r.Modules, remote)
 		case "store":
 			r.Modules = append(r.Modules, r.Store)
 		case "support":

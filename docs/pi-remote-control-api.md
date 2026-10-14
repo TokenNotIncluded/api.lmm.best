@@ -1,11 +1,11 @@
 # Pi Remote Control API v1
 
 This is the v1 contract implemented by the historical site and reused by the
-WIP browser and Pi plugin. **The current WIP hosts do not yet implement these
-relay endpoints or the `lmm-pi` OAuth authorization-server contract.** Client
-and loopback-fixture checks do not establish that a WIP deployment can serve
-remote control. Do not promote the WIP site as a replacement for this feature
-until those authenticated server contracts and their acceptance checks exist.
+WIP browser and Pi plugin. **WIP source now has an opt-in native-browser public
+relay and SSE adapter; it is not deployed or independently accepted.** The
+`lmm-pi` OAuth authorization-server contract is still unavailable. This route
+alone does not make the current Pi OAuth login usable. Do not promote a WIP
+deployment as a replacement before independent end-to-end acceptance.
 
 On the historical site, `/api/remote-control/v1/pi` is an authenticated,
 ephemeral relay for a Pi plugin and its browser controller. It stores data only
@@ -39,9 +39,10 @@ view. It never sends them to the API or writes them to browser storage. Locking
 or switching sessions unmounts that view and drops its key and decrypted query
 cache.
 
-Browser requests require normal user authentication. The Pi plugin may instead use a live `lmm-pi` OAuth grant with the explicitly approved `remote:control` scope. Legacy grants are not widened; sign in again to approve this scope. No model API key, model selection or model quota is required by these endpoints. Sessions are keyed by both
-the authenticated user ID and `session_id`; one user cannot list or read
-another user's sessions even when the session ID is known.
+Browser requests require normal user authentication. The Pi plugin may instead use a live `lmm-pi` OAuth grant with the explicitly approved `remote:control` scope. Legacy grants are not widened; sign in again to approve this scope. No model API key, model selection or model quota is required by these endpoints. On WIP, sessions are keyed by the stable PERSONAL owner account ID and
+`session_id`; one owner cannot list or read another owner's sessions even when
+the session ID is known. WIP accepts only native Session credentials, not Pi
+OAuth, API keys, group credentials or transport service credentials.
 
 ## Endpoints
 
@@ -78,26 +79,27 @@ size; it does not decrypt or interpret ciphertext.
 ## WIP internal relay foundation
 
 `services/extensions/internal/modules/remotecontrol` now provides an internal
-Go module with the same opaque envelope format. It is **not registered in the
-running host**, has no public Core adapter, and does not make the browser or Pi
-plugin usable against a WIP deployment yet. Its module-relative endpoints are
+Go module with the same opaque envelope format. It is explicitly selectable
+as `remote-control` in the host composition (not enabled by default), with an
+opt-in Rust public adapter. No current running configuration has been changed. Its module-relative endpoints are
 `/pi/sessions`, `/pi/sessions/{id}[/messages]` and
 `/pi/sessions/{id}/events`; the authenticated extension
 host would mount them under `/extensions/v1/remote-control`.
 
-Every supported endpoint calls the Rust Core `Authorize` interface again using
+Every supported endpoint calls the typed Rust Core `AuthorizeRemote` interface using
 the separate `X-LMM-User-Credential`. Only native personal browser sessions are
 accepted by this foundation. A host credential, model API key, team account,
 platform level or funding-account candidate is not a remote-control grant.
-The current Core RPC does not validate `lmm-pi` OAuth grants, so this module must
-not accept or translate them. Core failure or revocation fails closed, including
-reads and deletion. The required public adapter and OAuth contract remain
-production blockers.
+The typed mapping validates permission, source, expiry, user and stable owner;
+OAuth sources remain refused by this native-only module. No general principal,
+funding account or role becomes remote authority. Core failure or revocation
+fails closed, including reads and deletion. OAuth issuance/discovery and
+independent public-route acceptance remain promotion blockers.
 
 Storage is process-local and starts no workers, database setup or network calls
 at construction. Every operation sweeps expired sessions. Idle expired records
 remain encrypted in memory until another operation or process exit; mounting
-this module later must decide whether to add host-owned periodic expiry.
+this module does not add a periodic cleanup worker.
 Restart and recreation after expiry produce a fresh random generation. An
 unexpired session cannot be overwritten with a different device ID; remove it
 or use a fresh session ID instead.
@@ -122,13 +124,61 @@ to check reauthorization, refusals, envelope validation, owner isolation,
 expiry, generation, capacity and concurrency. They are **not** acceptance against
 an actual Rust identity store, public browser authentication or plugin OAuth.
 
+## Opt-in native public adapter (source only)
+
+Core TOML accepts an optional section, alongside its existing database/identity
+and RPC settings:
+
+```toml
+[remote_control]
+origin = "http://127.0.0.1:8081"
+token_file = "/etc/lmm.secrets.d/extensions-host.token"
+```
+
+The token file is the Go host transport credential, not the Go-to-Core RPC
+credential or a user credential. Existing bounded private-file checks apply.
+Only a fixed canonical `http://127.0.0.1:<port>` origin is allowed; no DNS,
+redirects, environment proxy, URL path or caller destination. Go TOML must
+explicitly include `remote-control` in `[host].modules` and configure its Core
+socket and separate RPC token. No Go database configuration is needed for this
+in-memory module. Unconfigured Core still starts without Go; remote outage fails
+closed without becoming an identity readiness dependency.
+
+Only exact supported session/list/messages/events operations are forwarded to
+`/extensions/v1/remote-control/pi/...`. Rust rejects duplicate/malformed bearer
+and forged `X-LMM-*` internal headers, authenticates a live native PERSONAL
+Session before remote query/existence/admission, then injects server-owned host
+Authorization and user credential. Caller cookies, forwarded headers and
+service credentials are never copied or converted into user authority.
+
+SSE remains a byte stream with one bounded queued transport chunk, no JSON
+conversion, polling fallback or whole-stream timeout. Dropping the response
+aborts upstream work; a blocked queue times out after five seconds and closes
+upstream to release Go capacity. Rust also closes a stream after 20 seconds
+without nonempty upstream bytes, including when Go stops making progress;
+nonempty keepalive or data bytes reset this idle budget. Core drain and original
+credential expiry close the stream. Only safe content type/no-store/no-buffering headers are emitted;
+upstream error bodies and credentials are not exposed. Connect is bounded to two
+seconds, response headers to three, request body to 96 KiB/ten seconds, and
+non-stream response to 12 MiB/ten seconds. The production public Axum listener
+and exported test listener share a Tokio I/O adapter: pending write, vectored
+write, flush and shutdown operations time out after five seconds; successful
+progress resets the timer. Idle or progressing streams have no response-wide
+timeout. Socket failure drops the response and its request-body admission lease,
+not separately retained financial-completion leases. The adapter narrowly reuses
+`tokio-io-timeout` 1.2.1 semantics (upstream revision and MIT notice in source).
+Public relay-capacity 429 responses synthesize `Retry-After: 1`; no upstream
+header forwarding is added. Developer regression evidence shows the two unread
+public TCP sockets release Core capacity before client close and graceful drain
+completes; independent retest and production ingress verification remain required.
+
 ## Internal SSE foundation and new plugin transport
 
 The foundation adds `GET /pi/sessions/{id}/events?after=N&generation=G`.
-This is **internal-only source**, not a registered or deployed route. The new
-plugin expects the future public
-`GET /api/remote-control/v1/pi/sessions/{id}/events` adapter. That adapter is
-absent. The historical site's documented HTTP relay does **not** establish that
+The opt-in public adapter mounts
+`GET /api/remote-control/v1/pi/sessions/{id}/events` for native browser Session
+credentials. Source is not deployment; the new plugin still requires the
+unavailable OAuth contract. The historical site's documented HTTP relay does **not** establish that
 it has an SSE endpoint. Plugin transport checks must not claim public readiness
 or silently fall back to message polling.
 
@@ -169,12 +219,13 @@ use comment keepalives and an expiry timer. No worker/timer exists for an
 inactive session, and construction starts no background activity.
 
 Every outgoing batch and keepalive gets a fresh bounded Core RPC and must retain
-both the user and personal-account owner. Idle rechecks/comments have a maximum
+the source identity, user, auth version and stable personal-account owner. Idle rechecks/comments have a maximum
 15-second window (the normal wait is seven seconds, reserving three seconds for
 RPC and five for slow writes). A stream has a hard 60-second request-context
 lease. Request cancellation or a canceled host-supplied `BaseContext` stops it;
 ordinary `http.Server.Shutdown` alone does not cancel an active stream. Host
-assembly must supply and cancel the drain context. Every write/flush has a
+assembly calls the remote module's `BeginDrain` to cancel streams while ordinary
+admitted operations finish; a canceled server `BaseContext` also stops streams. Every write/flush has a
 ResponseController deadline of at most five seconds, bounded further by the
 lease; it is cleared on exit for subsequent keepalive HTTP requests.
 
@@ -193,16 +244,20 @@ eight total in-flight requests per module and can return 503 `module_busy`.
 Keeping SSE below four leaves four host slots for heartbeat, commands and
 other short requests; it does not remove that host admission bound or guarantee
 capacity under unrelated load. This foundation is intentionally small and
-process-local. Public OAuth/Core authorization, adapter implementation,
-proxy buffering/timeouts and affinity, drain wiring, server deployment and real
-end-to-end acceptance remain promotion blockers.
+process-local. Public OAuth, production ingress buffering/write deadlines and
+affinity, server deployment and independent end-to-end acceptance remain
+promotion blockers. The existing browser uses HTTP message polling; this change
+adds SSE server support without changing the browser transport or Pi repository.
 
 The module race tests use actual HTTP servers and the real extension host, with
 an explicitly controlled Core interface double. They cover push/catch-up,
 resume/rolled history, wake capture, owner isolation, live refusals and timeout,
 quotas while PUT/POST/DELETE remain available, expiry/deletion, cancellation,
 lease, actual TCP slow-reader deadlines and deadline restoration. They are not
-acceptance against a real Rust identity store or the absent public OAuth route.
+independent acceptance or public OAuth proof. A separate ignored test,
+`services/core/tests/remote_control.rs`, exercises actual native PostgreSQL, a
+SELECT-only read-only RPC role, Rust UDS gRPC, Go host HTTP/SSE and the Axum
+public proxy. Its developer self-test is not independent sign-off.
 
 ## Interactive client contract
 

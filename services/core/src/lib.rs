@@ -23,6 +23,7 @@ pub mod model_http;
 #[cfg(unix)]
 pub mod payments;
 pub mod relay;
+pub mod remote_control;
 pub mod routing;
 pub mod runtime_database;
 pub mod upstream_cost;

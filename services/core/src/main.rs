@@ -156,6 +156,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
     let mut capabilities = lmm_core::http::Capabilities::default();
     let mut public_status = lmm_core::http::PublicStatus::default();
     let mut database_pool = None;
+    let mut remote_store = None;
     let mut model_gateway = None;
     let mut app = lmm_core::http::router();
     if let Some(url) = database_url.as_deref() {
@@ -204,6 +205,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
             ));
             capabilities.console = true;
         }
+        remote_store = Some(store.clone());
         if let Some(config) = legacy_config {
             public_status = lmm_core::http::PublicStatus {
                 password_login_enabled: true,
@@ -221,7 +223,8 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
         // The final readiness router is assembled after the optional RPC checks.
         app = routes;
         database_pool = Some(pool);
-    } else if legacy_config.is_some()
+    } else if config::remote_control_configured()
+        || legacy_config.is_some()
         || config::identity_database_required()?
         || console_enabled
         || config::payments_configured()
@@ -232,6 +235,19 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
         return Err("Web authentication and model configuration require a core database".into());
     }
     let (stop, stopped) = tokio::sync::watch::channel(false);
+    #[cfg(unix)]
+    let mut remote_proxy = None;
+    #[cfg(unix)]
+    if let Some(store) = remote_store {
+        if let Some(remote) = config::remote_control(store, stopped.clone())? {
+            app = app.merge(remote.clone().router());
+            remote_proxy = Some(remote);
+        }
+    }
+    #[cfg(not(unix))]
+    if config::remote_control_configured() {
+        return Err("remote relay requires Unix Core RPC on this release".into());
+    }
     // RPC remains usable while accepted public requests and completions drain.
     #[cfg(unix)]
     let (rpc_stop, rpc_stopped) = tokio::sync::watch::channel(false);
@@ -344,6 +360,13 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
         Admission::new(lifecycle.clone(), ingress),
         lmm_core::lifecycle::admit,
     ));
+    #[cfg(unix)]
+    if let Some(remote) = remote_proxy {
+        app = app.layer(axum::middleware::from_fn_with_state(
+            remote,
+            lmm_core::remote_control::preadmit,
+        ));
+    }
     // All enabled components and listener binds have succeeded. The health body
     // lists capabilities; model readiness has its own explicit endpoint.
     assert!(lifecycle.mark_ready());
@@ -382,7 +405,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
     let mut public_stop = stopped;
     // Deliberately no total timeout on a future model/SSE stream here.
     let result = axum::serve(
-        listener,
+        lmm_core::remote_control::public_listener(listener),
         app.into_make_service_with_connect_info::<SocketAddr>(),
     )
     .with_graceful_shutdown(async move {

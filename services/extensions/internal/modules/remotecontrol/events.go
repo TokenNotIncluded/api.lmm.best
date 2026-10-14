@@ -9,6 +9,8 @@ import (
 	"net/url"
 	"strconv"
 	"time"
+
+	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/coreclient"
 )
 
 const (
@@ -100,21 +102,32 @@ func (m *Module) events(w http.ResponseWriter, r *http.Request) {
 	timing := m.streamTimings()
 	ctx, cancel := context.WithTimeout(r.Context(), timing.lease)
 	defer cancel()
-	authorize := func() (int64, int64, *authFailure) {
+	stopDrain := context.AfterFunc(m.drain, cancel)
+	defer stopDrain()
+	authorize := func() (*coreclient.RemoteAuthority, *authFailure) {
 		rpc, stop := context.WithTimeout(ctx, timing.rpc)
 		defer stop()
 		actor, denied := m.authorizePrincipal(rpc, r)
 		if denied != nil {
-			return 0, 0, denied
+			return nil, denied
 		}
-		return actor.UserId, actor.GetOwner().GetId(), nil
+		return actor, nil
 	}
 	// Authenticate before inspecting existence, query or capacity.
-	owner, account, denied := authorize()
+	authority, denied := authorize()
 	if denied != nil {
 		failure(w, denied.status, denied.code)
 		return
 	}
+	owner := authority.OwnerAccountID
+	// A stream never outlives its original credential, even while idle.
+	deadline := time.Unix(authority.ExpiresAt, 0)
+	if lease, ok := ctx.Deadline(); ok && lease.Before(deadline) {
+		deadline = lease
+	}
+	credentialCtx, stopCredential := context.WithDeadline(ctx, deadline)
+	defer stopCredential()
+	ctx = credentialCtx
 	after, generation, valid := eventQuery(r.URL.RawQuery)
 	if !valid {
 		failure(w, 400, "invalid_cursor")
@@ -129,11 +142,11 @@ func (m *Module) events(w http.ResponseWriter, r *http.Request) {
 	if !relayError(w, err) {
 		return
 	}
-	if !m.reserveStream(owner) {
+	if !m.reserveStream(authority.UserID) {
 		relayError(w, ErrCapacity)
 		return
 	}
-	defer m.releaseStream(owner)
+	defer m.releaseStream(authority.UserID)
 	controller := http.NewResponseController(w)
 	// Unsupported writers fail before SSE headers. No unbounded writes allowed.
 	if err := controller.SetWriteDeadline(time.Now().Add(timing.write)); err != nil {
@@ -202,11 +215,11 @@ func (m *Module) events(w http.ResponseWriter, r *http.Request) {
 		// Every outgoing batch/comment rechecks live authority, outside the relay lock.
 		// Wake-only metadata changes need no send or RPC until the next keepalive.
 		if send || comment {
-			freshOwner, freshAccount, freshDenied := authorize()
+			fresh, freshDenied := authorize()
 			if ctx.Err() != nil {
 				return
 			}
-			if freshDenied != nil || freshOwner != owner || freshAccount != account {
+			if freshDenied != nil || fresh.UserID != authority.UserID || fresh.OwnerAccountID != owner || fresh.Source != authority.Source || fresh.AuthVersion != authority.AuthVersion {
 				if !opened {
 					if freshDenied != nil {
 						denied = freshDenied

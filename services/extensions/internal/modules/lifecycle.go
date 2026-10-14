@@ -12,11 +12,12 @@ import (
 // Construction is not readiness. Call MarkReady only after local preparation
 // and listener binding succeed. No runtime module loading is involved.
 type Host struct {
-	handler http.Handler
-	mu      sync.Mutex
-	phase   string
-	active  int
-	idle    chan struct{}
+	handler  http.Handler
+	mu       sync.Mutex
+	phase    string
+	active   int
+	idle     chan struct{}
+	drainers []interface{ BeginDrain() }
 }
 
 func NewHost(registered []Module, credential []byte) (*Host, error) {
@@ -26,7 +27,13 @@ func NewHost(registered []Module, credential []byte) (*Host, error) {
 	}
 	idle := make(chan struct{})
 	close(idle)
-	return &Host{handler: handler, phase: "preparing", idle: idle}, nil
+	host := &Host{handler: handler, phase: "preparing", idle: idle}
+	for _, module := range registered {
+		if drainer, ok := module.(interface{ BeginDrain() }); ok {
+			host.drainers = append(host.drainers, drainer)
+		}
+	}
+	return host, nil
 }
 
 func (h *Host) MarkReady() error {
@@ -43,8 +50,14 @@ func (h *Host) MarkReady() error {
 // Stop worker polling through the same Acquire gate before closing its storage.
 func (h *Host) BeginDrain() {
 	h.mu.Lock()
+	first := h.phase != "draining"
 	h.phase = "draining"
 	h.mu.Unlock()
+	if first {
+		for _, drainer := range h.drainers {
+			drainer.BeginDrain()
+		}
+	}
 }
 
 // Acquire admits one HTTP request or one bounded worker operation. The caller

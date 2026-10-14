@@ -14,15 +14,15 @@ import (
 	"strconv"
 	"sync"
 
-	pb "github.com/TokenNotIncluded/api.lmm.best/extensions/internal/corepb"
+	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/coreclient"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 )
 
 // Core is live Rust authorization, not a host service credential or user-ID hint.
-// The current RPC understands native sessions/API keys, NOT lmm-pi OAuth grants.
+// OAuth sources remain disabled in this native-browser slice.
 type Core interface {
-	Authorize(context.Context, string) (*pb.AuthorizeResponse, error)
+	AuthorizeRemote(context.Context, string) (*coreclient.RemoteAuthority, error)
 }
 type Module struct {
 	core        Core
@@ -31,15 +31,21 @@ type Module struct {
 	streams     map[int64]int
 	streamCount int
 	timing      streamTiming
+	drain       context.Context
+	stop        context.CancelFunc
 }
 
 func New(core Core) (*Module, error) {
 	if core == nil || (reflect.ValueOf(core).Kind() == reflect.Pointer && reflect.ValueOf(core).IsNil()) {
 		return nil, errors.New("remote control requires a core client")
 	}
-	return &Module{core: core, relay: newRelay(), streams: make(map[int64]int)}, nil
+	drain, stop := context.WithCancel(context.Background())
+	return &Module{core: core, relay: newRelay(), streams: make(map[int64]int), drain: drain, stop: stop}, nil
 }
 func (*Module) Name() string { return "remote-control" }
+
+// BeginDrain cancels streams only; ordinary admitted operations finish normally.
+func (m *Module) BeginDrain() { m.stop() }
 
 var identifier = regexp.MustCompile(`^[A-Za-z0-9_-]{8,64}$`)
 var credentialSyntax = regexp.MustCompile(`^[A-Za-z0-9_-]{32,256}$`)
@@ -48,8 +54,7 @@ const requestLimit = 96 << 10
 
 // Handler is an INTERNAL module route. The extension host must authenticate its
 // service credential first. No browser cookie/OAuth token is translated here.
-// It is deliberately not registered by the production host until the Rust
-// public adapter and plugin OAuth scope/consent/revocation contract exist.
+// Registration is explicit; the public Rust adapter only admits native sessions.
 func (m *Module) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /pi/sessions/{id}/events", m.events)
@@ -173,7 +178,7 @@ func (m *Module) authorize(w http.ResponseWriter, r *http.Request) (int64, bool)
 		failure(w, denied.status, denied.code)
 		return 0, false
 	}
-	return actor.UserId, true
+	return actor.OwnerAccountID, true
 }
 
 type authFailure struct {
@@ -181,12 +186,12 @@ type authFailure struct {
 	code   string
 }
 
-func (m *Module) authorizePrincipal(ctx context.Context, r *http.Request) (*pb.AuthorizeResponse, *authFailure) {
+func (m *Module) authorizePrincipal(ctx context.Context, r *http.Request) (*coreclient.RemoteAuthority, *authFailure) {
 	credentials := r.Header.Values("X-LMM-User-Credential")
 	if len(credentials) != 1 || !credentialSyntax.MatchString(credentials[0]) {
 		return nil, &authFailure{401, "unauthorized"}
 	}
-	actor, err := m.core.Authorize(ctx, credentials[0])
+	actor, err := m.core.AuthorizeRemote(ctx, credentials[0])
 	if err != nil {
 		code, label := 503, "core_unavailable"
 		switch status.Code(err) {
@@ -204,7 +209,7 @@ func (m *Module) authorizePrincipal(ctx context.Context, r *http.Request) (*pb.A
 		return nil, &authFailure{code, label}
 	}
 	// Native personal browser sessions only; funding accounts are not grants.
-	if actor == nil || actor.CredentialId <= 0 || actor.UserId <= 0 || actor.CredentialKind != pb.CredentialKind_CREDENTIAL_KIND_SESSION || actor.GetOwner().GetKind() != pb.AccountKind_ACCOUNT_KIND_PERSONAL || actor.GetOwner().GetId() <= 0 {
+	if !actor.Valid() || !actor.Native() {
 		return nil, &authFailure{403, "browser_session_required"}
 	}
 	return actor, nil

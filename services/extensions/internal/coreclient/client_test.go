@@ -21,8 +21,9 @@ const testToken = "0123456789abcdef0123456789abcdef"
 
 type testCore struct {
 	pb.UnimplementedCoreControlServer
-	caps func(context.Context) (*pb.CapabilitiesResponse, error)
-	auth func(context.Context) (*pb.AuthorizeResponse, error)
+	caps   func(context.Context) (*pb.CapabilitiesResponse, error)
+	auth   func(context.Context) (*pb.AuthorizeResponse, error)
+	remote func(context.Context) (*pb.AuthorizeRemoteResponse, error)
 }
 
 func (s *testCore) Capabilities(ctx context.Context, _ *pb.CapabilitiesRequest) (*pb.CapabilitiesResponse, error) {
@@ -36,6 +37,9 @@ func (s *testCore) Authorize(ctx context.Context, _ *pb.AuthorizeRequest) (*pb.A
 		return s.auth(ctx)
 	}
 	return &pb.AuthorizeResponse{UserId: 1}, nil
+}
+func (s *testCore) AuthorizeRemote(ctx context.Context, _ *pb.AuthorizeRemoteRequest) (*pb.AuthorizeRemoteResponse, error) {
+	return s.remote(ctx)
 }
 func testClient(t *testing.T, service *testCore) *Client {
 	t.Helper()

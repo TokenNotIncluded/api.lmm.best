@@ -186,6 +186,12 @@ struct IngressFile {
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
+struct RemoteControlFile {
+    origin: String,
+    token_file: PathBuf,
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
 struct CoreFile {
     version: u32,
     #[serde(default)]
@@ -200,6 +206,7 @@ struct CoreFile {
     payments: Option<FinancialFile>,
     commerce: Option<FinancialFile>,
     ingress: Option<IngressFile>,
+    remote_control: Option<RemoteControlFile>,
 }
 
 fn parse_document<T: serde::de::DeserializeOwned>(document: &[u8]) -> io::Result<T> {
@@ -253,7 +260,8 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
             || file.console.enabled
             || file.model.is_some()
             || file.payments.is_some()
-            || file.commerce.is_some())
+            || file.commerce.is_some()
+            || file.remote_control.is_some())
     {
         return Err(invalid_config(
             "configured identity and business capabilities require a core database",
@@ -355,6 +363,10 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
             ]);
         }
     }
+    if let Some(remote) = file.remote_control {
+        put("LMM_CORE_REMOTE_CONTROL_ORIGIN", remote.origin);
+        paths.push(("LMM_CORE_REMOTE_CONTROL_TOKEN_FILE", remote.token_file));
+    }
     if let Some(ingress) = file.ingress {
         put("LMM_CORE_INGRESS_ACK_URL", ingress.ack_url);
         put("LMM_CORE_INSTANCE", ingress.instance);
@@ -365,6 +377,30 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
         values.insert(name, path.into_os_string());
     }
     Ok(values)
+}
+
+pub fn remote_control_configured() -> bool {
+    setting_os("LMM_CORE_REMOTE_CONTROL_ORIGIN").is_some()
+        || setting_os("LMM_CORE_REMOTE_CONTROL_TOKEN_FILE").is_some()
+}
+#[cfg(unix)]
+pub fn remote_control(
+    store: crate::identity::IdentityStore,
+    stopped: tokio::sync::watch::Receiver<bool>,
+) -> io::Result<Option<crate::remote_control::RemoteProxy>> {
+    match (
+        setting("LMM_CORE_REMOTE_CONTROL_ORIGIN"),
+        setting_os("LMM_CORE_REMOTE_CONTROL_TOKEN_FILE"),
+    ) {
+        (Err(env::VarError::NotPresent), None) => Ok(None),
+        (Ok(origin), Some(path)) => {
+            let token = service_token(Path::new(&path))?;
+            crate::remote_control::RemoteProxy::new(store, &origin, &token, stopped).map(Some)
+        }
+        _ => Err(invalid_config(
+            "configure both remote relay origin and service token file",
+        )),
+    }
 }
 
 pub fn listen_address() -> io::Result<std::net::SocketAddr> {

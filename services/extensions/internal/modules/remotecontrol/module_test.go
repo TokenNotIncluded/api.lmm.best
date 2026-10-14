@@ -10,6 +10,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/coreclient"
 	pb "github.com/TokenNotIncluded/api.lmm.best/extensions/internal/corepb"
@@ -32,7 +33,7 @@ type fakeCore struct {
 	kind    pb.CredentialKind
 }
 
-func (c *fakeCore) Authorize(_ context.Context, token string) (*pb.AuthorizeResponse, error) {
+func (c *fakeCore) AuthorizeRemote(_ context.Context, token string) (*coreclient.RemoteAuthority, error) {
 	c.calls++
 	if c.offline {
 		return nil, status.Error(codes.Unavailable, "private core error must not leak")
@@ -44,7 +45,10 @@ func (c *fakeCore) Authorize(_ context.Context, token string) (*pb.AuthorizeResp
 	if token == bobToken {
 		id = 2
 	}
-	return &pb.AuthorizeResponse{CredentialId: 1, CredentialKind: c.kind, UserId: id, Owner: &pb.Account{Kind: pb.AccountKind_ACCOUNT_KIND_PERSONAL, Id: id + 100}}, nil
+	if c.kind != pb.CredentialKind_CREDENTIAL_KIND_SESSION {
+		return nil, status.Error(codes.PermissionDenied, "session required")
+	}
+	return remoteAuthority(id, id), nil
 }
 func setup(t *testing.T) (*Module, *fakeCore, http.Handler) {
 	t.Helper()
@@ -260,32 +264,28 @@ func TestHTTPRejectsAmbiguousCredentials(t *testing.T) {
 	}
 }
 
-type principalCore struct{ principal *pb.AuthorizeResponse }
+func remoteAuthority(user, owner int64) *coreclient.RemoteAuthority {
+	return &coreclient.RemoteAuthority{Source: coreclient.RemoteSource{NativeCredentialID: 1}, UserID: user, OwnerAccountID: owner, AuthVersion: 1, ExpiresAt: time.Now().Add(time.Hour).Unix()}
+}
 
-func (c principalCore) Authorize(context.Context, string) (*pb.AuthorizeResponse, error) {
+type principalCore struct{ principal *coreclient.RemoteAuthority }
+
+func (c principalCore) AuthorizeRemote(context.Context, string) (*coreclient.RemoteAuthority, error) {
 	return c.principal, nil
 }
 func TestHTTPRejectsIncompleteAndNonSessionPrincipals(t *testing.T) {
-	valid := func() *pb.AuthorizeResponse {
-		return &pb.AuthorizeResponse{
-			CredentialId: 1, CredentialKind: pb.CredentialKind_CREDENTIAL_KIND_SESSION, UserId: 1,
-			Owner: &pb.Account{Kind: pb.AccountKind_ACCOUNT_KIND_PERSONAL, Id: 101},
-		}
-	}
-	principals := []*pb.AuthorizeResponse{nil, {}}
-	for _, change := range []func(*pb.AuthorizeResponse){
-		func(p *pb.AuthorizeResponse) { p.CredentialId = 0 },
-		func(p *pb.AuthorizeResponse) { p.UserId = -1 },
-		func(p *pb.AuthorizeResponse) { p.Owner = nil },
-		func(p *pb.AuthorizeResponse) { p.Owner.Id = 0 },
-		func(p *pb.AuthorizeResponse) { p.Owner.Kind = pb.AccountKind_ACCOUNT_KIND_TEAM },
-		func(p *pb.AuthorizeResponse) {
-			p.CredentialKind = pb.CredentialKind_CREDENTIAL_KIND_API_KEY
-			p.PlatformLevel = 100
-			p.FundingAccounts = []*pb.Account{{Kind: pb.AccountKind_ACCOUNT_KIND_PERSONAL, Id: 101}}
+	principals := []*coreclient.RemoteAuthority{nil, {}}
+	for _, change := range []func(*coreclient.RemoteAuthority){
+		func(p *coreclient.RemoteAuthority) { p.Source.NativeCredentialID = 0 },
+		func(p *coreclient.RemoteAuthority) { p.UserID = -1 },
+		func(p *coreclient.RemoteAuthority) { p.OwnerAccountID = 0 },
+		func(p *coreclient.RemoteAuthority) { p.AuthVersion = 0 },
+		func(p *coreclient.RemoteAuthority) { p.ExpiresAt = time.Now().Unix() },
+		func(p *coreclient.RemoteAuthority) {
+			p.Source = coreclient.RemoteSource{GrantID: "lmm_gr_" + strings.Repeat("a", 43), AccessID: "lmm_ac_" + strings.Repeat("a", 43)}
 		},
 	} {
-		p := valid()
+		p := remoteAuthority(1, 101)
 		change(p)
 		principals = append(principals, p)
 	}
@@ -302,6 +302,14 @@ func TestHTTPRejectsIncompleteAndNonSessionPrincipals(t *testing.T) {
 		if len(module.relay.owners) != 0 {
 			t.Fatal("unusable principal created records")
 		}
+	}
+}
+func TestHTTPStableOwnerNotUserIDNamespace(t *testing.T) {
+	module, _ := New(principalCore{remoteAuthority(1, 101)})
+	handler, _ := modules.New([]modules.Module{module}, []byte(hostToken))
+	requireStatus(t, request(t, handler, "PUT", "/pi/sessions/session_abcdefgh", aliceToken, putInput()), 200)
+	if len(module.relay.list(1)) != 0 || len(module.relay.list(101)) != 1 {
+		t.Fatal("relay keyed by user instead of stable owner")
 	}
 }
 

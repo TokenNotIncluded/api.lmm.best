@@ -16,6 +16,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/coreclient"
 	pb "github.com/TokenNotIncluded/api.lmm.best/extensions/internal/corepb"
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules"
 	"google.golang.org/grpc/codes"
@@ -25,18 +26,19 @@ import (
 // Controlled live Core interface double, NOT Rust/OAuth acceptance. State changes
 // are synchronized because actual HTTP streams and requests execute concurrently.
 type streamCore struct {
-	mu      sync.Mutex
-	err     error
-	kind    pb.CredentialKind
-	account int64
-	block   bool
-	calls   int
+	mu         sync.Mutex
+	err        error
+	kind       pb.CredentialKind
+	account    int64
+	block      bool
+	calls      int
+	credential int64
 }
 
-func (c *streamCore) Authorize(ctx context.Context, token string) (*pb.AuthorizeResponse, error) {
+func (c *streamCore) AuthorizeRemote(ctx context.Context, token string) (*coreclient.RemoteAuthority, error) {
 	c.mu.Lock()
 	c.calls++
-	err, kind, account, block := c.err, c.kind, c.account, c.block
+	err, kind, account, block, credential := c.err, c.kind, c.account, c.block, c.credential
 	c.mu.Unlock()
 	if block {
 		<-ctx.Done()
@@ -52,9 +54,16 @@ func (c *streamCore) Authorize(ctx context.Context, token string) (*pb.Authorize
 		return nil, status.Error(codes.Unauthenticated, "private token")
 	}
 	if account == 0 {
-		account = id + 100
+		account = id
 	}
-	return &pb.AuthorizeResponse{UserId: id, CredentialId: 1, CredentialKind: kind, Owner: &pb.Account{Kind: pb.AccountKind_ACCOUNT_KIND_PERSONAL, Id: account}}, nil
+	if kind != pb.CredentialKind_CREDENTIAL_KIND_SESSION {
+		return nil, status.Error(codes.PermissionDenied, "session required")
+	}
+	actor := remoteAuthority(id, account)
+	if credential != 0 {
+		actor.Source.NativeCredentialID = credential
+	}
+	return actor, nil
 }
 func (c *streamCore) change(err error, account int64, kind pb.CredentialKind, block bool) {
 	c.mu.Lock()
@@ -654,4 +663,37 @@ func TestSSEInitialRPCDeadlineAndCredentialGuards(t *testing.T) {
 		t.Fatal("host bypassed")
 	}
 	waitQuota(t, m, 0)
+}
+
+func TestSSESourceIdentityCannotMigrateAndHostDrainReleasesStreams(t *testing.T) {
+	for _, trigger := range []string{"source changed", "host drain"} {
+		t.Run(trigger, func(t *testing.T) {
+			m, core, server, _ := streamSetup(t, streamTiming{reauthorize: 30 * time.Millisecond})
+			heartbeat(t, m.relay, 1, "session_abcdefgh")
+			response := streamRequest(t, server, context.Background(), streamPath, aliceToken)
+			reader := readEvents(response.Body)
+			batchEvent(t, reader, "ready")
+			if trigger == "source changed" {
+				core.mu.Lock()
+				core.credential = 99
+				core.mu.Unlock()
+				appendStream(t, m, 1)
+				e := nextEvent(t, reader, "error")
+				if e.data != `{"code":"unauthorized"}` {
+					t.Fatal("source migrated", e)
+				}
+			} else {
+				host, err := modules.NewHost([]modules.Module{m}, []byte(hostToken))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if err := host.MarkReady(); err != nil {
+					t.Fatal(err)
+				}
+				host.BeginDrain()
+			}
+			waitDone(t, reader)
+			waitQuota(t, m, 0)
+		})
+	}
 }
