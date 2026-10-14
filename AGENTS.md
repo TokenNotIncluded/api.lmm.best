@@ -3,6 +3,19 @@
 Complete the requested change with a short read → edit → check → deliver loop.
 This file is a map, not a checklist to run in full.
 
+## Project importance and completion
+
+The owner explicitly states that this project is worth more than USD 10,000.
+Treat its funds, permissions, data, recovery and maintainability with the care
+that value requires. Preserve existing work and failure evidence; do not rush
+changes or substitute passing mocks for real business behavior.
+
+When asked to complete the project, keep implementing and independently verifying
+the repository's [full acceptance scope](docs/architecture-completion-prompts.md).
+Use parallel owners for independent work and freeze inputs for acceptance.
+Required failures, unrun checks and blocked capabilities remain incomplete;
+never claim 100% from source presence, test counts, a build or a deployment alone.
+
 ## Start once
 
 Use `wip/rust-core-go-extensions`, now the GitHub default development branch, for
