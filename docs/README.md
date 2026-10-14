@@ -15,6 +15,7 @@
 | --- | --- |
 | 架构、模块状态与剩余工作 | [架构与状态](core-migration.md) |
 | 注册滥用、蜜罐、独立限频与封禁通知 | [行为与接线范围](abuse-controls.md) |
+| 低频用户管理与批量预览 | [Python 管理客户端](admin-cli.md) |
 | 架构收尾的并行分工与串行验收 | [10 个并行任务与 1 个串行收尾提示词](architecture-completion-prompts.md) |
 | 新安装、服务隔离与日常启停 | [Docker 开发栈](../deployment/docker/README.md) |
 | 环境、命令与测试 | [开发指南](development.md)、[本地质量门禁](quality.md) |
