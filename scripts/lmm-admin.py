@@ -299,13 +299,121 @@ def valid_reason(value: Any) -> bool:
     return isinstance(value, str) and 1 <= len(value) <= 1000 and bool(value.strip()) and "\0" not in value
 
 
-def policy_config(value: Any, credential_references: Any = _OFFLINE_ALIAS_VALIDATION) -> dict[str, Any]:
+_CURRENT_POLICY_STRUCTURE = object()
+
+
+def current_upstream_url(value: Any) -> None:
+    """A before snapshot is not a new route grant or a network destination."""
+    require(isinstance(value, str), "Invalid current upstream URL")
+    try:
+        size = len(value.encode("utf-8"))
+    except UnicodeError:
+        raise ClientError("Invalid current upstream URL") from None
+    require(1 <= size <= 2048
+            and not has_control(value) and not any(char in value for char in "?#\\"), "Invalid current upstream URL")
+    try:
+        parsed = urllib.parse.urlsplit(value)
+        host, port = parsed.hostname, parsed.port
+    except ValueError:
+        raise ClientError("Invalid current upstream URL") from None
+    require(parsed.scheme in ("http", "https") and host is not None and parsed.netloc
+            and not parsed.username and not parsed.password and not any(char.isspace() for char in host)
+            and (port is None or 1 <= port <= 65535), "Invalid current upstream URL")
+
+
+def upstream_origin(value: Any, local_http: bool) -> str:
+    """Parse an ASCII URL only; Core still owns DNS/IP filtering and dispatch."""
+    require(isinstance(value, str) and 1 <= len(value) <= 2048
+            and not any(char in value for char in "@?#\\")
+            and all(33 <= ord(char) <= 126 for char in value), "Invalid upstream URL")
+    try:
+        parsed = urllib.parse.urlsplit(value)
+        host, port = parsed.hostname, parsed.port
+    except ValueError:
+        raise ClientError("Invalid upstream URL") from None
+    require(parsed.scheme in ("http", "https") and host is not None and parsed.netloc
+            and not parsed.netloc.endswith(":") and "%" not in host
+            and not parsed.username and not parsed.password and not parsed.query and not parsed.fragment
+            and (port is None or 1 <= port <= 65535), "Invalid upstream URL")
+    try:
+        address = ipaddress.ip_address(host)
+    except ValueError:
+        address = None
+        labels = host.split(".")
+        require(len(host) <= 253 and all(re.fullmatch(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?", label)
+                for label in labels)
+                and re.fullmatch(r"(?:[0-9]+|0[xX][0-9a-fA-F]+)", labels[-1]) is None,
+                "Upstream host must use an ASCII DNS name or standard numeric IP")
+    loopback = address is not None and address.is_loopback
+    require((parsed.scheme == "https" and (not loopback or local_http))
+            or (parsed.scheme == "http" and loopback and local_http),
+            "HTTP or loopback upstream requires the server's explicit numeric-loopback capability")
+    canonical_host = address.compressed if address is not None else host.lower()
+    authority = f"[{canonical_host}]" if address is not None and address.version == 6 else canonical_host
+    if port is not None and port != (443 if parsed.scheme == "https" else 80):
+        authority += f":{port}"
+    return f"{parsed.scheme}://{authority}"
+
+
+def policy_capabilities(value: Any) -> dict[str, Any]:
+    """Accept only the old five-key contract or the complete eight-key contract."""
+    message = "INVALID_RESPONSE: incompatible admin policy capabilities"
+    old_keys = {"modes", "client_protocols", "upstream_protocols", "numeric_loopback_only", "credential_references"}
+    new_keys = old_keys | {"external_https", "local_http", "allowed_origins"}
+    require(isinstance(value, dict) and set(value) in (old_keys, new_keys), message)
+    supported = {"modes": {"fixed_text", "custom_upstream"},
+                 "client_protocols": {"openai_chat", "openai_responses"},
+                 "upstream_protocols": {"openai_chat", "openai_responses", "anthropic_messages", "gemini"}}
+    for key, expected in supported.items():
+        entries = value[key]
+        require(isinstance(entries, list) and all(isinstance(item, str) for item in entries)
+                and len(entries) == len(expected) and set(entries) == expected, message)
+    aliases = value["credential_references"]
+    require(isinstance(aliases, list)
+            and all(isinstance(alias, str) and re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", alias) is not None for alias in aliases)
+            and len(aliases) == len(set(aliases)), message)
+    if set(value) == old_keys:
+        require(value["numeric_loopback_only"] is True, message)
+        return value
+    require(type(value["numeric_loopback_only"]) is bool and type(value["external_https"]) is bool
+            and type(value["local_http"]) is bool and len(aliases) <= 32 and aliases == sorted(aliases), message)
+    if value["numeric_loopback_only"]:
+        require(value["external_https"] is False and value["local_http"] is True
+                and value["allowed_origins"] is None, message)
+        return value
+    origins = value["allowed_origins"]
+    require(value["external_https"] is True and isinstance(origins, dict) and set(origins) == set(aliases), message)
+    for entries in origins.values():
+        require(isinstance(entries, list) and 1 <= len(entries) <= 16
+                and all(isinstance(item, str) for item in entries)
+                and entries == sorted(set(entries)), message)
+        for entry in entries:
+            try:
+                canonical = upstream_origin(entry, value["local_http"])
+            except ClientError:
+                raise ClientError(message) from None
+            require(entry == canonical, message)
+    return value
+
+
+def policy_config(value: Any, credential_references: Any = _OFFLINE_ALIAS_VALIDATION,
+                  *, capabilities: Any = None) -> dict[str, Any]:
+    structure_only = capabilities is _CURRENT_POLICY_STRUCTURE
+    if capabilities is not None and not structure_only:
+        capabilities = policy_capabilities(capabilities)
+        require(credential_references is _OFFLINE_ALIAS_VALIDATION
+                or credential_references == capabilities["credential_references"], "Credential capability mismatch")
+        credential_references = capabilities["credential_references"]
     require(credential_references is _OFFLINE_ALIAS_VALIDATION or isinstance(credential_references, list),
             "INVALID_RESPONSE: missing credential alias metadata")
     require(isinstance(value, dict) and set(value) == {"version", "policies"}
             and type(value["version"]) is int and value["version"] == 1 and isinstance(value["policies"], list),
             "Policy config must contain only version:1 and policies:[...]")
-    require(len(canonical_bytes_no_newline(value)) <= 65536 and len(value["policies"]) <= 32, "Policy config is too large")
+    try:
+        config_size = len(canonical_bytes_no_newline(value))
+    except UnicodeError:
+        raise ClientError("Policy config must contain valid UTF-8") from None
+    require(config_size <= 65536 and len(value["policies"]) <= 32, "Policy config is too large")
     ids = set()
     for policy in value["policies"]:
         require(isinstance(policy, dict) and set(policy).issubset({"id", "name", "mode", "fixed_text", "clients", "limits", "public_models"})
@@ -335,26 +443,36 @@ def policy_config(value: Any, credential_references: Any = _OFFLINE_ALIAS_VALIDA
                 require(target["upstream_protocol"] in ("openai_chat", "openai_responses", "anthropic_messages", "gemini"),
                         "Unsupported upstream protocol")
                 url = target["base_url"]
-                require(isinstance(url, str) and 1 <= len(url.encode("utf-8")) <= 2048
-                        and not any(char in url for char in "@?#\\") and all(33 <= ord(c) <= 126 for c in url), "Invalid upstream URL")
-                try:
-                    parsed = urllib.parse.urlsplit(url)
-                    host = parsed.hostname
-                    loopback = host is not None and ipaddress.ip_address(host).is_loopback
-                    port = parsed.port
-                except ValueError:
-                    raise ClientError("Upstream must use literal loopback HTTP") from None
-                require(parsed.scheme == "http" and loopback and not parsed.username and not parsed.password
-                        and not parsed.query and not parsed.fragment and (port is None or 1 <= port <= 65535),
-                        "Upstream must use literal loopback HTTP without credentials/query/fragment")
+                external = isinstance(capabilities, dict) and capabilities.get("external_https") is True
+                if structure_only:
+                    current_upstream_url(url)
+                else:
+                    require(isinstance(url, str) and 1 <= len(url) <= 2048
+                            and not any(char in url for char in "@?#\\") and all(33 <= ord(c) <= 126 for c in url), "Invalid upstream URL")
+                    if external:
+                        origin = upstream_origin(url, capabilities["local_http"])
+                    else:
+                        try:
+                            parsed = urllib.parse.urlsplit(url)
+                            host = parsed.hostname
+                            loopback = host is not None and ipaddress.ip_address(host).is_loopback
+                            port = parsed.port
+                        except ValueError:
+                            raise ClientError("Upstream must use literal loopback HTTP") from None
+                        require(parsed.scheme == "http" and loopback and not parsed.username and not parsed.password
+                                and not parsed.query and not parsed.fragment and (port is None or 1 <= port <= 65535),
+                                "Upstream must use literal loopback HTTP without credentials/query/fragment")
                 require(isinstance(target["model"], str) and 1 <= len(target["model"].encode("utf-8")) <= 256
                         and not has_control(target["model"]), "Invalid upstream model")
                 alias = target["credential_reference"]
                 require(isinstance(alias, str) and re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", alias) is not None,
                         "Invalid credential alias; paths and literal secrets are forbidden")
-                if credential_references is not _OFFLINE_ALIAS_VALIDATION:
+                if not structure_only and credential_references is not _OFFLINE_ALIAS_VALIDATION:
                     require(isinstance(credential_references, list) and alias in credential_references,
                             "Credential alias is not available on this server")
+                if external:
+                    require(origin in capabilities["allowed_origins"].get(alias, []),
+                            "Upstream origin is not allowed for this credential alias")
         limits = policy["limits"]
         bounds = {"requests_per_minute_per_user": (1,100000), "requests_per_minute_global": (1,100000),
                   "max_concurrent_per_user": (1,256), "max_concurrent_global": (1,256),
@@ -378,23 +496,13 @@ def policy_response(value: Any) -> dict[str, Any]:
     require(isinstance(value, dict) and {"version", "revision", "config", "capabilities"}.issubset(value)
             and type(value["version"]) is int and value["version"] == 1
             and type(value["revision"]) is int and value["revision"] >= 0, message)
-    caps = value["capabilities"]
-    require(isinstance(caps, dict) and set(caps) == {"modes", "client_protocols", "upstream_protocols",
-                                                   "numeric_loopback_only", "credential_references"}, message)
-    supported = {"modes": {"fixed_text", "custom_upstream"},
-                 "client_protocols": {"openai_chat", "openai_responses"},
-                 "upstream_protocols": {"openai_chat", "openai_responses", "anthropic_messages", "gemini"}}
-    for key, expected in supported.items():
-        values = caps[key]
-        require(isinstance(values, list) and all(isinstance(item, str) for item in values)
-                and len(values) == len(expected) and set(values) == expected, message)
-    aliases = caps["credential_references"]
-    require(caps["numeric_loopback_only"] is True and isinstance(aliases, list)
-            and all(isinstance(alias, str) and re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", alias) is not None
-                    for alias in aliases)
-            and len(aliases) == len(set(aliases)), message)
+    caps = policy_capabilities(value["capabilities"])
+    if "external_https" in caps:
+        require(set(value) == {"version", "revision", "config", "capabilities"}, message)
     try:
-        policy_config(value["config"])
+        # Current routes may predate a tightened host registry. Keep a repair
+        # path: validate their structure, never authorize them as a new config.
+        policy_config(value["config"], capabilities=_CURRENT_POLICY_STRUCTURE if "external_https" in caps else None)
     except ClientError:
         raise ClientError("INVALID_RESPONSE: invalid current policy config") from None
     return value
@@ -469,6 +577,7 @@ def apply_artifact(client: Client, args: argparse.Namespace) -> dict[str, Any]:
     opid = valid_operation_id(saved["operation_id"])
     payload = saved["payload"]
     require(isinstance(payload, dict), "Invalid artifact payload")
+    policy_caps = None
     if saved["kind"] == "users":
         require(set(payload) == {"request", "preview"} and isinstance(payload["request"], dict)
                 and isinstance(payload["preview"], dict), "Invalid user artifact")
@@ -494,11 +603,15 @@ def apply_artifact(client: Client, args: argparse.Namespace) -> dict[str, Any]:
         method, path = "POST", API + "/users/commit"
         body = {key: preview[key] for key in ("operation_id", "preview_id", "preview_hash")}
     elif saved["kind"] == "policy-local-diff":
-        require(set(payload) == {"operation_id", "reason", "expected_revision", "config", "before_config"} and payload["operation_id"] == opid,
+        keys = {"operation_id", "reason", "expected_revision", "config", "before_config"}
+        require(set(payload) in (keys, keys | {"capabilities"}) and payload["operation_id"] == opid,
                 "Invalid policy artifact")
         integer(payload["expected_revision"], "expected policy revision")
-        policy_config(payload["config"])
-        policy_config(payload["before_config"])
+        if "capabilities" in payload:
+            policy_caps = policy_capabilities(payload["capabilities"])
+            require("external_https" in policy_caps, "Invalid bound policy capabilities")
+        policy_config(payload["config"], capabilities=policy_caps)
+        policy_config(payload["before_config"], capabilities=_CURRENT_POLICY_STRUCTURE if policy_caps is not None else None)
         require(valid_reason(payload["reason"]), "Invalid reason")
         method, path = "PUT", API + "/policies"
         body = {key: payload[key] for key in ("operation_id", "reason", "expected_revision", "config")}
@@ -509,6 +622,12 @@ def apply_artifact(client: Client, args: argparse.Namespace) -> dict[str, Any]:
     existing = client.operation(opid)
     if existing is not None:
         return {**checked_operation(existing, saved), "submitted": False, "reused": True, "exact_request_match_verified": False}
+    if policy_caps is not None:
+        current = policy_response(client.request("GET", API + "/policies"))
+        require(canonical_bytes_no_newline(current["capabilities"]) == canonical_bytes_no_newline(policy_caps)
+                and current["revision"] == payload["expected_revision"]
+                and hmac.compare_digest(policy_config_hash(current["config"]), policy_config_hash(payload["before_config"])),
+                "Reviewed policy capabilities or state changed; prepare a fresh preview")
     try:
         result = client.request(method, path, body)
         require(isinstance(result, dict), "Invalid mutation response")
@@ -660,7 +779,6 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         config = value.get("config", {})
         output = {"revision": revision_from(value), "policies_count": len(config.get("policies", [])) if isinstance(config, dict) else None}
         if args.out:
-            policy_config(config)
             output["private_export_sha256"] = private_write(args.out, config)
         return output
     reason = bounded_stdin(4000, "Reason")
@@ -669,9 +787,11 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     policies = policy_response(client.request("GET", API + "/policies"))
     revision = revision_from(policies)
     if args.command == "policy":
-        config = policy_config(decode_json(private_read(args.file)), policies["capabilities"]["credential_references"])
-        policy_config(policies["config"])
+        caps = policies["capabilities"]
+        config = policy_config(decode_json(private_read(args.file)), capabilities=caps)
         payload = {"operation_id": operation_id, "reason": reason, "expected_revision": revision, "config": config, "before_config": policies["config"]}
+        if "external_https" in caps:
+            payload["capabilities"] = caps
         saved = artifact(server, "policy-local-diff", operation_id, payload)
         digest = private_write(args.out, saved)
         return {"preview_kind": "LOCAL_POLICY_DIFF", "artifact_sha256": digest,
