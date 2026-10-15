@@ -62,6 +62,7 @@ type callbackAdmission interface{ Acquire() (func(), bool) }
 // Callback-only ingress: the private payment API remains behind host auth.
 // No goroutine or per-client state is created. Limits apply across all channels
 // and rejected/unknown callbacks never receive a successful acknowledgement.
+// @mark extensions.admission role=consumer
 func mountPaymentCallbacks(host callbackAdmission, callbacks http.Handler, next http.Handler) http.Handler {
 	active := make(chan struct{}, modules.MaxInFlightPerModule)
 	var mu sync.Mutex

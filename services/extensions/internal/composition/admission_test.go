@@ -31,6 +31,8 @@ func (s *admissionStore) DueOrders(ctx context.Context, now time.Time, limit int
 	<-s.finish
 	return nil, ctx.Err()
 }
+
+// @mark extensions.recovery role=test
 func TestRealPaymentWorkerRetriesSaturationAndJoinsOwner(t *testing.T) {
 	s := &admissionStore{entered: make(chan struct{}), finish: make(chan struct{}), canceled: make(chan struct{})}
 	svc, e := payments.New(s, structCore{})

@@ -131,6 +131,7 @@ func Run() error {
 // admitted permit indefinitely. Streaming handlers must maintain their own
 // per-write deadlines through ResponseController (as remote-control SSE does).
 // This is a socket deadline, not cancellation of business work or a rollback.
+// @mark extensions.http-write-deadline role=implementation
 func newHTTPServer(address string, handler http.Handler) *http.Server {
 	return &http.Server{
 		Addr: address, Handler: handler,

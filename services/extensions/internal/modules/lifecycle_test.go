@@ -138,6 +138,7 @@ func TestRolloutWorkerPermitAndDrainRace(t *testing.T) {
 	}
 }
 
+// @mark extensions.admission role=test
 func TestGlobalAdmissionStrictBoundAndRelease(t *testing.T) {
 	for _, n := range []int{0, -1, MaximumMaxInFlight + 1} {
 		if _, err := NewHostWithLimit(nil, []byte(strings.Repeat("x", 32)), n); err == nil {

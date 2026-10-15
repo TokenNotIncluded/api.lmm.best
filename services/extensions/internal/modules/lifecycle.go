@@ -99,6 +99,7 @@ func (h *Host) Acquire() (release func(), ok bool) {
 
 // TryAcquire rejects immediately without creating a waiter. Saturation is
 // temporary; callers must not confuse it with permanent lifecycle shutdown.
+// @mark extensions.admission role=implementation
 func (h *Host) TryAcquire() (func(), error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()

@@ -129,6 +129,7 @@ type deliveryIndex interface {
 
 // RecoverDeliveries never retries the original pay operation with a service
 // token. It only finishes previously attested paid fixed-content deliveries.
+// @mark extensions.recovery role=handler
 func (s *Service) RecoverDeliveries(ctx context.Context) error {
 	// Callers of this worker also recover lost refund and settlement ACKs.
 	// Legacy test/third-party repositories may provide only the delivery index.

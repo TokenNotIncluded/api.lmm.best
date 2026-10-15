@@ -11,6 +11,7 @@ import (
 
 // Work performs at most limit bounded calls. Scheduling belongs to the host;
 // construction and HTTP requests do not spawn unbounded background goroutines.
+// @mark extensions.recovery role=handler
 func (s *Service) Work(ctx context.Context, limit int) error {
 	if limit < 1 || limit > 100 {
 		return ErrInvalid

@@ -41,6 +41,7 @@ where
 /// Retry only an explicitly rolled-back reservation, preserving its ID/spec/worker.
 /// The monotonic window limits when another attempt may START; it does not
 /// interrupt an in-flight transaction or change the enclosing hook timeout.
+// @mark model.reservation-retry role=implementation
 async fn retry_reserve<T, F, Fut>(mut operation: F) -> charging::Result<T>
 where
     F: FnMut() -> Fut,
@@ -448,6 +449,7 @@ mod reserve_retry_tests {
     }
 
     #[tokio::test]
+    // @mark model.reservation-retry role=test
     async fn permanent_retry_has_a_finite_attempt_limit() {
         let calls = Cell::new(0);
         let result = retry_reserve(|| {

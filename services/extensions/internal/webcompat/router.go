@@ -19,6 +19,7 @@ type AdditionalServices struct {
 	Operations *operations.Service
 }
 
+// @mark extensions.admission role=consumer
 func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, support SupportService, optional ...AdditionalServices) http.Handler {
 	mux := http.NewServeMux()
 	RegisterStore(mux, auth, catalogue)

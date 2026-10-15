@@ -37,6 +37,8 @@ func boundedDuration(value, limit time.Duration) time.Duration {
 func (m *Module) streamTimings() streamTiming {
 	return streamTiming{boundedDuration(m.timing.lease, StreamLease), boundedDuration(m.timing.reauthorize, StreamReauthorize-StreamRPCDeadline-StreamWriteDeadline), boundedDuration(m.timing.rpc, StreamRPCDeadline), boundedDuration(m.timing.write, StreamWriteDeadline)}
 }
+
+// @mark remote-control.events role=admission
 func (m *Module) reserveStream(owner int64, capacity int) bool {
 	m.streamsMu.Lock()
 	defer m.streamsMu.Unlock()
@@ -101,6 +103,7 @@ func eventQuery(raw string) (int64, string, bool) {
 	return after, generation, true
 }
 
+// @mark remote-control.events role=handler
 func (m *Module) events(w http.ResponseWriter, r *http.Request) {
 	timing := m.streamTimings()
 	ctx, cancel := context.WithTimeout(r.Context(), timing.lease)

@@ -70,6 +70,8 @@ func (r *Runtime) Close() error {
 
 // StartWorkers is explicit and runs after listener readiness. One bounded
 // recovery batch shares host admission and is joined before closing resources.
+// @mark extensions.admission role=consumer
+// @mark extensions.recovery role=scheduler
 func (r *Runtime) StartWorkers(parent context.Context, host *modules.Host) {
 	r.workerOnce.Do(func() {
 		ctx, cancel := context.WithCancel(parent)

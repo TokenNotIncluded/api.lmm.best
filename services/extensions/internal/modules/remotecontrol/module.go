@@ -55,6 +55,7 @@ const requestLimit = 96 << 10
 // Handler is an INTERNAL module route. The extension host must authenticate its
 // service credential first. No browser cookie/OAuth token is translated here.
 // Registration is explicit; the public Rust adapter only admits native sessions.
+// @mark remote-control.commands role=handler
 func (m *Module) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /pi/sessions/{id}/events", m.events)

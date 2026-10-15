@@ -700,6 +700,7 @@ func TestSSESourceIdentityCannotMigrateAndHostDrainReleasesStreams(t *testing.T)
 
 // Real Host, module router and TCP streams; only Core authorization is a
 // controlled interface double, not Rust or financial acceptance.
+// @mark remote-control.events role=test
 func TestSSEPreservesHostCapacity(t *testing.T) {
 	for _, capacity := range []int{1, 2, 3, 4, 5, 16, 64} {
 		t.Run(fmt.Sprint(capacity), func(t *testing.T) {

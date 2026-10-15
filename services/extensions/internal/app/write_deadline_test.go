@@ -36,6 +36,7 @@ func (l smallSendBufferListener) Accept() (net.Conn, error) {
 	return conn, nil
 }
 
+// @mark extensions.http-write-deadline role=test
 func TestSlowResponseWriteReleasesHostAdmission(t *testing.T) {
 	credential := []byte("isolated-write-deadline-credential-000001")
 	outcome := make(chan error, 1)
@@ -121,6 +122,7 @@ func TestSlowResponseWriteReleasesHostAdmission(t *testing.T) {
 	}
 }
 
+// @mark extensions.http-write-deadline role=test
 func TestStreamingWriteDeadlineOverridesServerDefault(t *testing.T) {
 	next := make(chan struct{})
 	failure := make(chan error, 1)

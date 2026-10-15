@@ -14,6 +14,7 @@ type Pending = {
   abort: AbortController
 }
 
+// @mark remote-control.commands role=caller
 export function useRemoteCommands(
   sessionId: string,
   key: CryptoKey,
