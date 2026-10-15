@@ -279,6 +279,8 @@ impl IdentityStore {
                     return Err(IdentityError::Forbidden);
                 }
                 let id = auth::create_user(tx).await?;
+                sqlx::query("INSERT INTO core_identity.user_profiles(user_id,username,display_name,password_login_allowed) VALUES ($1,$2,$2,FALSE)")
+                    .bind(id).bind(format!("g_{}",&new_secret("")?[..18])).execute(&mut *tx).await?;
                 sqlx::query("INSERT INTO core_identity.oauth_identities(issuer,subject,user_id) VALUES ($1,$2,$3)")
                     .bind(ISSUER).bind(subject).bind(id).execute(&mut *tx).await?;
                 id

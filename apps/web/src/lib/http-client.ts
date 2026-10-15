@@ -21,17 +21,19 @@ import { t } from 'i18next'
 import { toast } from 'sonner'
 
 import { signInHref } from '@/features/auth/lib/auth-redirect'
+import { AUTH_COOKIE_TIMEOUT_MS } from '@/lib/auth-cookie'
 import {
   applyAuthRotation,
   clearAuthentication,
   refreshAuthentication,
+  refreshAndRunAuthenticatedRead,
 } from '@/lib/auth-session'
 import { rateLimitMessage } from '@/lib/request-rate-limit'
 import {
   getServerErrorMessageKey,
   getServerErrorToastId,
 } from '@/lib/server-error-message'
-import { useAuthStore } from '@/stores/auth-store'
+import { useAuthStore, type AuthBundle } from '@/stores/auth-store'
 
 declare module 'axios' {
   export interface AxiosRequestConfig {
@@ -40,8 +42,10 @@ declare module 'axios' {
     disableDuplicate?: boolean
     skipAuthRefresh?: boolean
     authRetry?: boolean
+    authReadRetryInLock?: boolean
     acceptAuthRotation?: boolean
     authScope?: { userId: number | undefined; sessionId: string | undefined }
+    authDispatchEpoch?: number
   }
 }
 
@@ -98,6 +102,65 @@ function requestAuthentication(config: ApiRequestConfig) {
   return auth
 }
 
+function dispatchedAuthentication(config: ApiRequestConfig) {
+  const auth = requestAuthentication(config)
+  // A same-SID credential rotation supersedes an already-dispatched request.
+  // Profile-only writes can advance the store epoch without changing its bearer.
+  const sentAuthorization =
+    config.headers instanceof axios.AxiosHeaders
+      ? config.headers.get('Authorization')
+      : (config.headers?.Authorization ?? config.headers?.authorization)
+  const currentAuthorization = auth.accessToken
+    ? `Bearer ${auth.accessToken}`
+    : undefined
+  if (
+    config.authDispatchEpoch !== undefined &&
+    config.authDispatchEpoch !== auth.accountWriteEpoch &&
+    sentAuthorization !== currentAuthorization
+  ) {
+    throw Object.assign(
+      new axios.CanceledError('Authentication changed after request was sent'),
+      {
+        config,
+      }
+    )
+  }
+  return auth
+}
+
+function isProtectedAPIRead(config: ApiRequestConfig): boolean {
+  if (
+    !['get', 'head'].includes(config.method?.toLowerCase() ?? '') ||
+    config.acceptAuthRotation ||
+    (config.responseType && config.responseType !== 'json') ||
+    typeof window === 'undefined'
+  ) {
+    return false
+  }
+  const accept =
+    config.headers instanceof axios.AxiosHeaders
+      ? config.headers.get('Accept')
+      : (config.headers?.Accept ?? config.headers?.accept)
+  if (
+    String(accept ?? '')
+      .toLowerCase()
+      .includes('text/event-stream')
+  )
+    {return false}
+  try {
+    const url = new URL(api.getUri(config), window.location.origin)
+    return (
+      url.origin === window.location.origin &&
+      url.pathname.startsWith('/api/') &&
+      !/^\/api\/(?:oauth|reset_password|verification)(?:\/|$)/.test(
+        url.pathname
+      )
+    )
+  } catch {
+    return false
+  }
+}
+
 function redirectToSignIn(): void {
   if (
     typeof window !== 'undefined' &&
@@ -119,12 +182,25 @@ function createConfiguredRequestError(
 
 api.interceptors.response.use(
   (response) => {
+    if (response.config.authScope) requestAuthentication(response.config)
+    delete response.config.authReadRetryInLock
     if (response.config.acceptAuthRotation && response.data?.success === true) {
+      dispatchedAuthentication(response.config)
       try {
         applyAuthRotation(response.data.data)
-      } catch {
+      } catch (cause) {
         clearAuthentication(true)
-        toast.error(t('Session expired!'))
+        if (!response.config.skipErrorHandler) {
+          toast.error(t('Session expired!'))
+        }
+        throw Object.assign(
+          createConfiguredRequestError(
+            'Invalid authentication rotation response',
+            response.config,
+            cause
+          ),
+          { code: 'AUTH_ROTATION_INVALID' }
+        )
       }
     }
 
@@ -151,20 +227,78 @@ api.interceptors.response.use(
     const status = error?.response?.status
 
     if (status === 401) {
-      if (config) requestAuthentication(config)
+      if (config) dispatchedAuthentication(config)
+      // The outer recovery must release its Cookie lock before a hard redirect.
+      if (config?.authReadRetryInLock) throw error
       if (config && !config.skipAuthRefresh && !config.authRetry) {
         config.authRetry = true
-        const outcome = await refreshAuthentication()
-        const auth = requestAuthentication(config)
-        if (outcome.kind === 'authenticated') {
-          const token = auth.accessToken
-          if (token) {
-            config.headers = {
-              ...config.headers,
-              Authorization: `Bearer ${token}`,
-            }
+        const retry = (bundle: AuthBundle) => {
+          const auth = requestAuthentication(config)
+          if (auth.accessToken !== bundle.access_token) {
+            throw Object.assign(
+              new axios.CanceledError('Authentication changed after refresh'),
+              {
+                config,
+              }
+            )
+          }
+          config.headers = {
+            ...config.headers,
+            Authorization: `Bearer ${bundle.access_token}`,
           }
           return api.request(config)
+        }
+        const auth = requestAuthentication(config)
+        // Provider ceremonies can write Cookies even through legacy GET.
+        const protectedRead =
+          isProtectedAPIRead(config) && auth.user && auth.session
+        let outcome
+        if (protectedRead && auth.user && auth.session) {
+          const scope = { userId: auth.user.id, sessionId: auth.session.sid }
+          config.skipAuthRefresh = true
+          config.timeout =
+            config.timeout && config.timeout > 0
+              ? Math.min(config.timeout, AUTH_COOKIE_TIMEOUT_MS)
+              : AUTH_COOKIE_TIMEOUT_MS
+          try {
+            const recovery = await refreshAndRunAuthenticatedRead(
+              scope,
+              (bundle) => {
+                config.authScope ??= scope
+                config.authReadRetryInLock = true
+                return retry(bundle)
+              },
+              config.signal as AbortSignal | undefined
+            )
+            if (recovery.kind === 'response') return recovery.response
+            requestAuthentication(config)
+            outcome = recovery.outcome
+          } catch (failure) {
+            if (axios.isAxiosError(failure)) {
+              const failedConfig = failure.config as
+                | ApiRequestConfig
+                | undefined
+              const lockedRetry = failedConfig?.authReadRetryInLock
+              if (failedConfig) delete failedConfig.authReadRetryInLock
+              if (
+                lockedRetry &&
+                failure.response?.status === 401 &&
+                failedConfig
+              ) {
+                // The lock and its known-result marker are now released. A
+                // newer account/token may have committed while we resumed.
+                dispatchedAuthentication(failedConfig)
+                clearAuthentication(false)
+                if (!skipErrorHandler) toast.error(t('Session expired!'))
+                redirectToSignIn()
+              }
+            }
+            throw failure
+          }
+        } else {
+          outcome = await refreshAuthentication()
+          requestAuthentication(config)
+          if (outcome.kind === 'authenticated') return retry(outcome.bundle)
         }
 
         if (outcome.kind === 'anonymous' || outcome.kind === 'out_of_sync') {
@@ -226,6 +360,7 @@ api.interceptors.request.use(async (config) => {
   }
 
   const accessToken = auth.accessToken
+  config.authDispatchEpoch = auth.accountWriteEpoch
   if (accessToken) {
     config.headers.Authorization = `Bearer ${accessToken}`
   }

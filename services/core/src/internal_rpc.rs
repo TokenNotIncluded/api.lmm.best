@@ -123,6 +123,8 @@ fn account(value: accounts::Account) -> pb::Account {
 struct Control {
     token_digest: [u8; 32],
     store: Option<IdentityStore>,
+    // Unconfigured until reviewed OAuth component/runtime/purpose wiring exists.
+    grants: Option<crate::identity::grants::GrantStore>,
     events: Option<crate::events::EventStore>,
     service_id: String,
     commerce_features: Vec<String>,
@@ -136,6 +138,7 @@ impl Control {
         Ok(Self {
             token_digest: Sha256::digest(token).into(),
             store,
+            grants: None,
             events: None,
             service_id: "extensions".into(),
             commerce_features: Vec::new(),
@@ -239,6 +242,57 @@ impl CoreControl for Control {
                 platform_level: i32::from(actor.platform_level),
                 owner: Some(account(actor.owner)),
                 funding_accounts: actor.funding_accounts.into_iter().map(account).collect(),
+            })
+        })
+        .await
+    }
+    async fn authorize_remote(
+        &self,
+        request: Request<pb::AuthorizeRemoteRequest>,
+    ) -> Result<Response<pb::AuthorizeRemoteResponse>, Status> {
+        use crate::identity::grants::RemoteSource;
+        self.check(request.metadata())?;
+        let credential = Self::user(request.metadata())?;
+        self.bounded(async {
+            let authority = if credential.starts_with("lmm_at_") {
+                self.grants
+                    .as_ref()
+                    .ok_or_else(|| Status::unavailable("OAuth remote authority is not configured"))?
+                    .authorize_remote(credential)
+                    .await
+                    .map_err(identity_status)?
+            } else {
+                self.store()?
+                    .authorize_remote_native(credential)
+                    .await
+                    .map_err(identity_status)?
+            };
+            let source = match authority.source {
+                RemoteSource::NativePersonal { credential_id } => {
+                    pb::authorize_remote_response::Source::NativePersonal(
+                        pb::NativePersonalRemoteSource {
+                            credential_id,
+                            native_kind: pb::CredentialKind::Session as i32,
+                        },
+                    )
+                }
+                RemoteSource::OAuthGrant {
+                    grant_id,
+                    access_id,
+                } => {
+                    pb::authorize_remote_response::Source::OauthGrant(pb::OAuthGrantRemoteSource {
+                        grant_id,
+                        access_id,
+                    })
+                }
+            };
+            Ok(pb::AuthorizeRemoteResponse {
+                source: Some(source),
+                user_id: authority.user_id,
+                owner_account_id: authority.owner_account_id,
+                auth_version: authority.auth_version,
+                expires_at: authority.expires_at,
+                remote_permission: true,
             })
         })
         .await
@@ -701,5 +755,168 @@ mod tests {
             assert!(RpcServer::bind_with_group(&path, TOKEN, None, Some(gid)).is_err());
         }
         fs::remove_dir_all(dir).unwrap();
+    }
+    #[sqlx::test(migrations = false)]
+    async fn oauth_remote_real_grpc_typed_sources_and_denials(pool: sqlx::PgPool) {
+        use crate::identity::grants::tests::{fresh, tokens};
+        use pb::authorize_remote_response::Source;
+        let (identity, grants, native) = fresh(&pool).await;
+        let bundle = tokens(&grants, &native.secret).await;
+        use sqlx::ConnectOptions;
+        // Exercise the same read-only connection setup used by actual RPC startup.
+        let readonly = readonly_store(pool.connect_options().to_url_lossy().as_str())
+            .await
+            .unwrap();
+        let mut control = Control::new(TOKEN, Some(readonly)).unwrap();
+        assert!(control.grants.is_none());
+        control.grants = Some(grants.clone()); // Fixture-only wiring; startup stays None.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
+        let server = tokio::spawn(async move {
+            Server::builder()
+                .add_service(CoreControlServer::new(control))
+                .serve_with_incoming_shutdown(
+                    tokio_stream::wrappers::TcpListenerStream::new(listener),
+                    async {
+                        let _ = stopped.await;
+                    },
+                )
+                .await
+                .unwrap();
+        });
+        let channel = tonic::transport::Endpoint::from_shared(format!("http://{addr}"))
+            .unwrap()
+            .connect()
+            .await
+            .unwrap();
+        let mut client = tonic::client::Grpc::new(channel);
+        async fn remote(
+            client: &mut tonic::client::Grpc<tonic::transport::Channel>,
+            request: Request<pb::AuthorizeRemoteRequest>,
+        ) -> Result<Response<pb::AuthorizeRemoteResponse>, Status> {
+            client
+                .ready()
+                .await
+                .map_err(|_| Status::unavailable("transport"))?;
+            client
+                .unary(
+                    request,
+                    "/lmm.core.v1.CoreControl/AuthorizeRemote".parse().unwrap(),
+                    tonic_prost::ProstCodec::default(),
+                )
+                .await
+        }
+        let remote_request = |secret: &str| {
+            let mut r = request(pb::AuthorizeRemoteRequest {});
+            r.metadata_mut()
+                .insert("x-lmm-user-credential", secret.parse().unwrap());
+            r
+        };
+        let a = remote(&mut client, remote_request(&native.secret))
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(
+            matches!(a.source, Some(Source::NativePersonal(ref s)) if s.native_kind == pb::CredentialKind::Session as i32)
+        );
+        let b = remote(&mut client, remote_request(&bundle.access_token))
+            .await
+            .unwrap()
+            .into_inner();
+        assert!(matches!(b.source, Some(Source::OauthGrant(_))));
+        assert_eq!(
+            (a.user_id, a.owner_account_id, a.auth_version),
+            (b.user_id, b.owner_account_id, b.auth_version)
+        );
+        assert!(b.remote_permission && b.expires_at > 0);
+        let mut general = request(pb::AuthorizeRequest {});
+        general.metadata_mut().insert(
+            "x-lmm-user-credential",
+            bundle.access_token.parse().unwrap(),
+        );
+        client.ready().await.unwrap();
+        assert_eq!(
+            client
+                .unary::<pb::AuthorizeRequest, pb::AuthorizeResponse, _>(
+                    general,
+                    "/lmm.core.v1.CoreControl/Authorize".parse().unwrap(),
+                    tonic_prost::ProstCodec::default()
+                )
+                .await
+                .unwrap_err()
+                .code(),
+            tonic::Code::Unauthenticated
+        );
+        for key in ["authorization", "x-lmm-protocol", "x-lmm-user-credential"] {
+            let mut missing = remote_request(&native.secret);
+            missing.metadata_mut().remove(key);
+            assert_eq!(
+                remote(&mut client, missing).await.unwrap_err().code(),
+                tonic::Code::Unauthenticated
+            );
+            let mut duplicate = remote_request(&native.secret);
+            let value = duplicate.metadata().get(key).unwrap().clone();
+            duplicate.metadata_mut().append(key, value);
+            assert_eq!(
+                remote(&mut client, duplicate).await.unwrap_err().code(),
+                tonic::Code::Unauthenticated
+            );
+        }
+        let key = identity
+            .issue_key(
+                &native.secret,
+                accounts::Account {
+                    kind: accounts::AccountKind::Personal,
+                    id: 1,
+                },
+                crate::funding::FundingPolicy::new_personal_key(),
+                3600,
+            )
+            .await
+            .unwrap();
+        assert_eq!(
+            remote(&mut client, remote_request(&key.secret))
+                .await
+                .unwrap_err()
+                .code(),
+            tonic::Code::PermissionDenied
+        );
+        for bad in [
+            "lmm_host_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        ] {
+            assert_eq!(
+                remote(&mut client, remote_request(bad))
+                    .await
+                    .unwrap_err()
+                    .code(),
+                tonic::Code::Unauthenticated
+            );
+        }
+        grants
+            .revoke_access(&bundle.access_token, "lmm-pi")
+            .await
+            .unwrap();
+        assert_eq!(
+            remote(&mut client, remote_request(&bundle.access_token))
+                .await
+                .unwrap_err()
+                .code(),
+            tonic::Code::Unauthenticated
+        );
+        sqlx::query("UPDATE core_identity.users SET auth_version=auth_version+1 WHERE id=1")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            remote(&mut client, remote_request(&native.secret))
+                .await
+                .unwrap_err()
+                .code(),
+            tonic::Code::Unauthenticated
+        );
+        stop.send(()).unwrap();
+        server.await.unwrap();
     }
 }

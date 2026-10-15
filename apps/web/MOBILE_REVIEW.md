@@ -61,7 +61,7 @@ keyboard resizing or platform-specific zoom gestures.
 
 The final source review uses commit
 `bca2a2ca7cc82810792173050d3bfd2dab4dc40a` in GitHub Actions run
-[37972929250](https://github.com/TokenNotIncluded/api.lmm.best/actions/runs/37972929250).
+[37972929250](https://github.com/TokenNotIncluded/lmm-api/actions/runs/37972929250).
 This includes main at `5d7fab5d432025d59d69490501f2a1d57e47fb1c`. The
 authenticated-layout conflict was resolved by preserving its scroll chrome and
 adding the settings state, compact service details and quick navigation dock.

@@ -195,6 +195,8 @@ export function ApiKeysMutateDrawer({
     () => groups.filter((group) => group.value !== 'auto').map((g) => g.value),
     [groups]
   )
+  const onlyAutoGroupAvailable =
+    backendHasAuto && availableAutoGroupNames.length === 0
   const globalAutoGroups = useMemo(() => {
     const available = new Set(availableAutoGroupNames)
     return (autoGroupsData?.data?.groups || []).filter((group) =>
@@ -244,13 +246,20 @@ export function ApiKeysMutateDrawer({
     if (initializedTarget === target) return
     if (isUpdate && currentRow) {
       if (apiKeyData?.success && apiKeyData.data) {
-        form.reset(
-          transformApiKeyToFormDefaults(
+        form.reset({
+          ...transformApiKeyToFormDefaults(
             apiKeyData.data,
             availableAutoGroupNames,
             maxAutoGroups
-          )
-        )
+          ),
+          ...(onlyAutoGroupAvailable ? { cross_group_retry: false } : {}),
+          ...(onlyAutoGroupAvailable &&
+          apiKeyData.data.group === 'auto' &&
+          apiKeyData.data.auto_groups?.length === 1 &&
+          apiKeyData.data.auto_groups[0] === 'auto'
+            ? { auto_groups_mode: 'inherit' as const, auto_groups: [] }
+            : {}),
+        })
         setInitializedTarget(target)
       }
     } else {
@@ -272,6 +281,7 @@ export function ApiKeysMutateDrawer({
     statusLoading,
     statusReady,
     backendHasAuto,
+    onlyAutoGroupAvailable,
     groupsFetched,
     groupsFetching,
     autoGroupsFetched,
@@ -337,7 +347,12 @@ export function ApiKeysMutateDrawer({
     }
     setIsSubmitting(true)
     try {
-      const basePayload = transformFormDataToPayload(data)
+      const basePayload = transformFormDataToPayload({
+        ...data,
+        cross_group_retry: onlyAutoGroupAvailable
+          ? false
+          : data.cross_group_retry,
+      })
 
       if (isUpdate && currentRow) {
         const result = await updateApiKey({
@@ -585,7 +600,7 @@ export function ApiKeysMutateDrawer({
                               field.onChange(group)
                               form.setValue(
                                 'cross_group_retry',
-                                group === 'auto',
+                                group === 'auto' && !onlyAutoGroupAvailable,
                                 {
                                   shouldDirty: true,
                                 }
@@ -697,7 +712,8 @@ export function ApiKeysMutateDrawer({
                           </div>
                           <FormControl>
                             <Switch
-                              checked={!!field.value}
+                              checked={!onlyAutoGroupAvailable && !!field.value}
+                              disabled={onlyAutoGroupAvailable}
                               onCheckedChange={field.onChange}
                             />
                           </FormControl>

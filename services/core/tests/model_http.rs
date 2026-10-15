@@ -2,8 +2,7 @@
 //! provider. These are protocol/ledger tests, not live supplier compatibility.
 use axum::{
     Json, Router,
-    body::{Body, Bytes, to_bytes},
-    extract::State,
+    body::{Body, to_bytes},
     http::{Request, StatusCode},
     response::{IntoResponse, Response},
     routing::post,
@@ -19,7 +18,6 @@ use lmm_core::{
         ledger::{Action, Ledger, Request as LedgerRequest},
         transactional_ledger::TransactionalLedger,
     },
-    core_schema,
     funding::FundingPolicy,
     identity::{DashboardKeyInput, IdentityStore},
     model_http::{ChargePolicy, ModelGateway, UpstreamCredential},
@@ -31,148 +29,19 @@ use sha2::{Digest, Sha256};
 use sqlx::PgPool;
 use std::{
     collections::BTreeMap,
-    sync::{
-        Arc, Mutex,
-        atomic::{AtomicUsize, Ordering},
-    },
+    sync::{Arc, atomic::Ordering},
     time::Duration,
 };
-use tokio::{
-    net::TcpListener,
-    sync::{Semaphore, mpsc},
-    task::JoinHandle,
-};
-use tokio_stream::{StreamExt, wrappers::ReceiverStream};
+use tokio::{net::TcpListener, task::JoinHandle};
+use tokio_stream::StreamExt;
 use tower::ServiceExt;
+
+#[path = "common/model_fixture.rs"]
+mod model_fixture;
+use model_fixture::{Provider, fixture};
 
 #[path = "model_http_runtime/mod.rs"]
 mod runtime_models;
-
-struct Provider {
-    endpoint: String,
-    hits: Arc<AtomicUsize>,
-    auth: Arc<Mutex<Vec<String>>>,
-    task: JoinHandle<()>,
-    stream_gate: Arc<Semaphore>,
-}
-impl Drop for Provider {
-    fn drop(&mut self) {
-        self.task.abort();
-    }
-}
-
-#[derive(Clone)]
-struct ProviderState {
-    hits: Arc<AtomicUsize>,
-    auth: Arc<Mutex<Vec<String>>>,
-    usage: bool,
-    stream_gate: Arc<Semaphore>,
-}
-async fn provider(
-    State(state): State<ProviderState>,
-    headers: axum::http::HeaderMap,
-    Json(request): Json<Value>,
-) -> Response {
-    state.hits.fetch_add(1, Ordering::SeqCst);
-    state
-        .auth
-        .lock()
-        .unwrap()
-        .push(headers["authorization"].to_str().unwrap().to_owned());
-    assert_eq!(request["model"], "provider-model");
-    if request["messages"][0]["content"] == "pause" {
-        tokio::time::sleep(Duration::from_secs(30)).await;
-    }
-    if request["messages"][0]["content"] == "rate-limit" {
-        return (StatusCode::TOO_MANY_REQUESTS, "synthetic supplier refusal").into_response();
-    }
-    if request["stream"] == true {
-        let malformed_tool = request["messages"][0]["content"] == "malformed-tool";
-        let content = if malformed_tool {
-            format!(
-                "data: {}\n\n",
-                json!({"id":"synthetic-stream","choices":[{"index":0,"delta":{"role":"assistant","tool_calls":[{"index":0,"id":"call_1","type":"function","function":{"name":"weather","arguments":"{"}}]},"finish_reason":null}]})
-            )
-        } else {
-            format!(
-                "data: {}\n\n",
-                json!({"id":"synthetic-stream","choices":[{"index":0,"delta":{"role":"assistant","content":"local stream answer"},"finish_reason":null}]})
-            )
-        };
-        let finish = format!(
-            "data: {}\n\n",
-            json!({"id":"synthetic-stream","choices":[{"index":0,"delta":{},"finish_reason":if malformed_tool {"tool_calls"} else {"stop"}}]})
-        );
-        let usage = format!(
-            "data: {}\n\n",
-            json!({"id":"synthetic-stream","choices":[],"usage":{"prompt_tokens":10,"completion_tokens":20,"prompt_tokens_details":{"cached_tokens":2}}})
-        );
-        let prompt = request["messages"][0]["content"]
-            .as_str()
-            .unwrap()
-            .to_owned();
-        let (tx, rx) = mpsc::channel::<Result<Bytes, std::io::Error>>(8);
-        tokio::spawn(async move {
-            if tx.send(Ok(Bytes::from(content))).await.is_err() {
-                return;
-            }
-            if prompt == "stream-pause" {
-                state.stream_gate.acquire().await.unwrap().forget();
-            }
-            if prompt == "malformed" {
-                let _ = tx
-                    .send(Ok(Bytes::from_static(b"data: {invalid json\n\n")))
-                    .await;
-                return;
-            }
-            let _ = tx.send(Ok(Bytes::from(finish))).await;
-            if state.usage {
-                let _ = tx.send(Ok(Bytes::from(usage))).await;
-            }
-            if prompt != "truncate" {
-                let _ = tx.send(Ok(Bytes::from_static(b"data: [DONE]\n\n"))).await;
-            }
-        });
-        return (
-            [("content-type", "text/event-stream")],
-            Body::from_stream(ReceiverStream::new(rx)),
-        )
-            .into_response();
-    }
-    let mut value = json!({"id":"synthetic-completion","object":"chat.completion","created":0,"model":"provider-model",
-        "choices":[{"index":0,"message":{"role":"assistant","content":"local synthetic answer"},"finish_reason":"stop"}]});
-    if state.usage {
-        value["usage"] = json!({"prompt_tokens":10,"completion_tokens":20,"prompt_tokens_details":{"cached_tokens":2}});
-    }
-    Json(value).into_response()
-}
-impl Provider {
-    async fn start(usage: bool) -> Self {
-        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let endpoint = format!("http://{}/custom/v1", listener.local_addr().unwrap());
-        let hits = Arc::new(AtomicUsize::new(0));
-        let auth = Arc::new(Mutex::new(Vec::new()));
-        let stream_gate = Arc::new(Semaphore::new(0));
-        let app = Router::new()
-            .route("/custom/v1/chat/completions", post(provider))
-            .with_state(ProviderState {
-                hits: hits.clone(),
-                auth: auth.clone(),
-                usage,
-                stream_gate: stream_gate.clone(),
-            });
-        let task = tokio::spawn(async move {
-            axum::serve(listener, app).await.unwrap();
-        });
-        Self {
-            endpoint,
-            hits,
-            auth,
-            task,
-            stream_gate,
-        }
-    }
-}
 
 fn routes(
     endpoint: &str,
@@ -288,54 +157,6 @@ fn gateway_with_routes(
         },
     )
     .unwrap()
-}
-async fn fixture(pool: &PgPool, amount: i64) -> (IdentityStore, Ledger, String, String, i64, i64) {
-    core_schema::init(pool).await.unwrap();
-    core_schema::check(pool).await.unwrap();
-    let identity = IdentityStore::from_pool(pool.clone());
-    let session = identity.bootstrap_user(7, 1).await.unwrap();
-    let principal = identity.authorize(&session.secret).await.unwrap();
-    let key = identity
-        .issue_key(
-            &session.secret,
-            Account {
-                kind: AccountKind::Personal,
-                id: 7,
-            },
-            FundingPolicy::new_personal_key(),
-            3600,
-        )
-        .await
-        .unwrap();
-    let ledger = Ledger::from_pool(pool.clone());
-    ledger
-        .open_wallet(principal.owner_account_id)
-        .await
-        .unwrap();
-    if amount > 0 {
-        ledger
-            .execute(&LedgerRequest {
-                scope: "model-http-local-test".into(),
-                operation_key: "synthetic-funds".into(),
-                actor_user_id: Some(7),
-                reason: "Synthetic funds in a disposable local database".into(),
-                action: Action::Credit {
-                    account_id: principal.owner_account_id,
-                    amount_units: Credits::try_from(amount).unwrap(),
-                    payment_reference: "synthetic:model-http-test".into(),
-                },
-            })
-            .await
-            .unwrap();
-    }
-    (
-        identity,
-        ledger,
-        session.secret,
-        key.secret,
-        key.id,
-        principal.owner_account_id,
-    )
 }
 fn chat() -> Value {
     json!({"model":"local-model","messages":[{"role":"user","content":"hello"}],"max_tokens":20})
@@ -469,6 +290,16 @@ async fn streaming_chat_and_responses_commit_real_evidence_then_settle_once(pool
         assert_eq!(duplicate.status(), StatusCode::CONFLICT);
     }
     assert_eq!(provider.hits.load(Ordering::SeqCst), 2);
+    // Both successful HTTP/SSE bodies were fully consumed above. Their
+    // upstream body resources must be released without stopping the provider.
+    tokio::time::timeout(Duration::from_secs(2), async {
+        while provider.stream_closed.load(Ordering::SeqCst) < 2 {
+            tokio::time::sleep(Duration::from_millis(5)).await;
+        }
+    })
+    .await
+    .expect("completed upstream stream bodies were not released");
+    assert_eq!(provider.stream_closed.load(Ordering::SeqCst), 2);
     let balance = ledger.balance(account).await.unwrap();
     assert_eq!((balance.available_units, balance.reserved_units), (902, 0));
     balanced(&pool).await;

@@ -1,0 +1,4948 @@
+{
+  "schemaVersion": 2,
+  "source": "https://models.dev/api.json",
+  "sourceSha256": "f1309c07b87dca0380c04a25be131536dbbbd5cbfa072acbd07e1c0f67fc7477",
+  "revision": "ed048b653e6ef84645a0cd22fc5e46f82aea06e7",
+  "retrieved": "2026-10-14T15:23:58.846885+00:00",
+  "providers": [
+    "openai",
+    "anthropic",
+    "google",
+    "deepseek",
+    "mistral",
+    "alibaba",
+    "minimax",
+    "zai",
+    "xai"
+  ],
+  "nonChatIds": [
+    "dall-e-2",
+    "dall-e-3",
+    "whisper-1",
+    "tts-1",
+    "tts-1-hd",
+    "gpt-4o-mini-tts",
+    "gpt-4o-transcribe",
+    "gpt-4o-mini-transcribe",
+    "gpt-4o-transcribe-diarize",
+    "gemini-embedding-001",
+    "gemini-embedding-2",
+    "rerank-v3.5",
+    "rerank-english-v3.0",
+    "rerank-multilingual-v3.0"
+  ],
+  "models": {
+    "chatgpt-image-latest": [
+      {
+        "source": "openai/chatgpt-image-latest",
+        "type": "non-chat",
+        "family": "gpt-image",
+        "context": 0,
+        "input": 0,
+        "output": 0,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text",
+          "image"
+        ],
+        "reasoning": false,
+        "toolCalling": false
+      }
+    ],
+    "gpt-3.5-turbo": [
+      {
+        "source": "openai/gpt-3.5-turbo",
+        "type": "chat",
+        "family": "gpt",
+        "context": 16385,
+        "input": null,
+        "output": 4096,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": false
+      }
+    ],
+    "gpt-4": [
+      {
+        "source": "openai/gpt-4",
+        "type": "chat",
+        "family": "gpt",
+        "context": 8192,
+        "input": null,
+        "output": 8192,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "gpt-4-turbo": [
+      {
+        "source": "openai/gpt-4-turbo",
+        "type": "chat",
+        "family": "gpt",
+        "context": 128000,
+        "input": null,
+        "output": 4096,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "gpt-4.1": [
+      {
+        "source": "openai/gpt-4.1",
+        "type": "chat",
+        "family": "gpt",
+        "context": 1047576,
+        "input": null,
+        "output": 32768,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "gpt-4.1-mini": [
+      {
+        "source": "openai/gpt-4.1-mini",
+        "type": "chat",
+        "family": "gpt-mini",
+        "context": 1047576,
+        "input": null,
+        "output": 32768,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "gpt-4.1-nano": [
+      {
+        "source": "openai/gpt-4.1-nano",
+        "type": "chat",
+        "family": "gpt-nano",
+        "context": 1047576,
+        "input": null,
+        "output": 32768,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "gpt-4o": [
+      {
+        "source": "openai/gpt-4o",
+        "type": "chat",
+        "family": "gpt",
+        "context": 128000,
+        "input": null,
+        "output": 16384,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "gpt-4o-2024-05-13": [
+      {
+        "source": "openai/gpt-4o-2024-05-13",
+        "type": "chat",
+        "family": "gpt",
+        "context": 128000,
+        "input": null,
+        "output": 4096,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "gpt-4o-2024-08-06": [
+      {
+        "source": "openai/gpt-4o-2024-08-06",
+        "type": "chat",
+        "family": "gpt",
+        "context": 128000,
+        "input": null,
+        "output": 16384,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "gpt-4o-2024-11-20": [
+      {
+        "source": "openai/gpt-4o-2024-11-20",
+        "type": "chat",
+        "family": "gpt",
+        "context": 128000,
+        "input": null,
+        "output": 16384,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "gpt-4o-mini": [
+      {
+        "source": "openai/gpt-4o-mini",
+        "type": "chat",
+        "family": "gpt-mini",
+        "context": 128000,
+        "input": null,
+        "output": 16384,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "gpt-5": [
+      {
+        "source": "openai/gpt-5",
+        "type": "chat",
+        "family": "gpt",
+        "context": 400000,
+        "input": 272000,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gpt-5-mini": [
+      {
+        "source": "openai/gpt-5-mini",
+        "type": "chat",
+        "family": "gpt-mini",
+        "context": 400000,
+        "input": 272000,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gpt-5-nano": [
+      {
+        "source": "openai/gpt-5-nano",
+        "type": "chat",
+        "family": "gpt-nano",
+        "context": 400000,
+        "input": 272000,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gpt-5-pro": [
+      {
+        "source": "openai/gpt-5-pro",
+        "type": "chat",
+        "family": "gpt-pro",
+        "context": 400000,
+        "input": 272000,
+        "output": 272000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gpt-5.1": [
+      {
+        "source": "openai/gpt-5.1",
+        "type": "chat",
+        "family": "gpt",
+        "context": 400000,
+        "input": 272000,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gpt-5.2": [
+      {
+        "source": "openai/gpt-5.2",
+        "type": "chat",
+        "family": "gpt",
+        "context": 400000,
+        "input": 272000,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gpt-5.2-chat-latest": [
+      {
+        "source": "openai/gpt-5.2-chat-latest",
+        "type": "chat",
+        "family": "gpt-codex",
+        "context": 128000,
+        "input": null,
+        "output": 16384,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gpt-5.2-pro": [
+      {
+        "source": "openai/gpt-5.2-pro",
+        "type": "chat",
+        "family": "gpt-pro",
+        "context": 400000,
+        "input": 272000,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gpt-5.3-chat-latest": [
+      {
+        "source": "openai/gpt-5.3-chat-latest",
+        "type": "chat",
+        "family": "gpt",
+        "context": 128000,
+        "input": null,
+        "output": 16384,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "gpt-5.3-codex": [
+      {
+        "source": "openai/gpt-5.3-codex",
+        "type": "chat",
+        "family": "gpt-codex",
+        "context": 400000,
+        "input": 272000,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gpt-5.3-codex-spark": [
+      {
+        "source": "openai/gpt-5.3-codex-spark",
+        "type": "chat",
+        "family": "gpt-codex-spark",
+        "context": 128000,
+        "input": 100000,
+        "output": 32000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gpt-5.4": [
+      {
+        "source": "openai/gpt-5.4",
+        "type": "chat",
+        "family": "gpt",
+        "context": 1050000,
+        "input": 922000,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gpt-5.4-mini": [
+      {
+        "source": "openai/gpt-5.4-mini",
+        "type": "chat",
+        "family": "gpt-mini",
+        "context": 400000,
+        "input": 272000,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gpt-5.4-nano": [
+      {
+        "source": "openai/gpt-5.4-nano",
+        "type": "chat",
+        "family": "gpt-nano",
+        "context": 400000,
+        "input": 272000,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gpt-5.4-pro": [
+      {
+        "source": "openai/gpt-5.4-pro",
+        "type": "chat",
+        "family": "gpt-pro",
+        "context": 1050000,
+        "input": 922000,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gpt-5.5": [
+      {
+        "source": "openai/gpt-5.5",
+        "type": "chat",
+        "family": "gpt",
+        "context": 1050000,
+        "input": 922000,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gpt-5.5-pro": [
+      {
+        "source": "openai/gpt-5.5-pro",
+        "type": "chat",
+        "family": "gpt-pro",
+        "context": 1050000,
+        "input": 922000,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gpt-5.6": [
+      {
+        "source": "openai/gpt-5.6",
+        "type": "chat",
+        "family": "gpt-sol",
+        "context": 1050000,
+        "input": 922000,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gpt-5.6-luna": [
+      {
+        "source": "openai/gpt-5.6-luna",
+        "type": "chat",
+        "family": "gpt-luna",
+        "context": 1050000,
+        "input": 922000,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gpt-5.6-sol": [
+      {
+        "source": "openai/gpt-5.6-sol",
+        "type": "chat",
+        "family": "gpt-sol",
+        "context": 1050000,
+        "input": 922000,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gpt-5.6-terra": [
+      {
+        "source": "openai/gpt-5.6-terra",
+        "type": "chat",
+        "family": "gpt-terra",
+        "context": 1050000,
+        "input": 922000,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gpt-6-astra": [
+      {
+        "source": "openai/gpt-6-astra",
+        "type": "chat",
+        "family": "gpt-astra",
+        "context": 1050000,
+        "input": 922000,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gpt-6-luna": [
+      {
+        "source": "openai/gpt-6-luna",
+        "type": "chat",
+        "family": "gpt-luna",
+        "context": 1050000,
+        "input": 922000,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gpt-6-sol": [
+      {
+        "source": "openai/gpt-6-sol",
+        "type": "chat",
+        "family": "gpt-sol",
+        "context": 1050000,
+        "input": 922000,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gpt-6.1-sol": [
+      {
+        "source": "openai/gpt-6.1-sol",
+        "type": "chat",
+        "family": "gpt-sol",
+        "context": 1050000,
+        "input": 922000,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gpt-daybreak-blue-latest": [
+      {
+        "source": "openai/gpt-daybreak-blue-latest",
+        "type": "chat",
+        "family": "gpt-sol",
+        "context": 1050000,
+        "input": 922000,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gpt-daybreak-red-latest": [
+      {
+        "source": "openai/gpt-daybreak-red-latest",
+        "type": "chat",
+        "family": "gpt",
+        "context": 400000,
+        "input": 272000,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gpt-image-1": [
+      {
+        "source": "openai/gpt-image-1",
+        "type": "non-chat",
+        "family": "gpt-image",
+        "context": 0,
+        "input": 0,
+        "output": 0,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "image"
+        ],
+        "reasoning": false,
+        "toolCalling": false
+      }
+    ],
+    "gpt-image-1-mini": [
+      {
+        "source": "openai/gpt-image-1-mini",
+        "type": "non-chat",
+        "family": "gpt-image",
+        "context": 0,
+        "input": 0,
+        "output": 0,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text",
+          "image"
+        ],
+        "reasoning": false,
+        "toolCalling": false
+      }
+    ],
+    "gpt-image-1.5": [
+      {
+        "source": "openai/gpt-image-1.5",
+        "type": "non-chat",
+        "family": "gpt-image",
+        "context": 0,
+        "input": 0,
+        "output": 0,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text",
+          "image"
+        ],
+        "reasoning": false,
+        "toolCalling": false
+      }
+    ],
+    "gpt-image-2": [
+      {
+        "source": "openai/gpt-image-2",
+        "type": "non-chat",
+        "family": "gpt-image",
+        "context": 0,
+        "input": 0,
+        "output": 0,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "image"
+        ],
+        "reasoning": false,
+        "toolCalling": false
+      }
+    ],
+    "gpt-realtime-2.1": [
+      {
+        "source": "openai/gpt-realtime-2.1",
+        "type": "chat",
+        "family": "gpt",
+        "context": 128000,
+        "input": 96000,
+        "output": 32000,
+        "inputModalities": [
+          "text",
+          "audio",
+          "image"
+        ],
+        "outputModalities": [
+          "text",
+          "audio"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "o1": [
+      {
+        "source": "openai/o1",
+        "type": "chat",
+        "family": "o",
+        "context": 200000,
+        "input": null,
+        "output": 100000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "o1-pro": [
+      {
+        "source": "openai/o1-pro",
+        "type": "chat",
+        "family": "o-pro",
+        "context": 200000,
+        "input": null,
+        "output": 100000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "o3": [
+      {
+        "source": "openai/o3",
+        "type": "chat",
+        "family": "o",
+        "context": 200000,
+        "input": null,
+        "output": 100000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "o3-mini": [
+      {
+        "source": "openai/o3-mini",
+        "type": "chat",
+        "family": "o-mini",
+        "context": 200000,
+        "input": null,
+        "output": 100000,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "o3-pro": [
+      {
+        "source": "openai/o3-pro",
+        "type": "chat",
+        "family": "o-pro",
+        "context": 200000,
+        "input": null,
+        "output": 100000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "o4-mini": [
+      {
+        "source": "openai/o4-mini",
+        "type": "chat",
+        "family": "o-mini",
+        "context": 200000,
+        "input": null,
+        "output": 100000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "text-embedding-3-large": [
+      {
+        "source": "openai/text-embedding-3-large",
+        "type": "non-chat",
+        "family": "text-embedding",
+        "context": 8191,
+        "input": null,
+        "output": 3072,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": false
+      }
+    ],
+    "text-embedding-3-small": [
+      {
+        "source": "openai/text-embedding-3-small",
+        "type": "non-chat",
+        "family": "text-embedding",
+        "context": 8191,
+        "input": null,
+        "output": 1536,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": false
+      }
+    ],
+    "text-embedding-ada-002": [
+      {
+        "source": "openai/text-embedding-ada-002",
+        "type": "non-chat",
+        "family": "text-embedding",
+        "context": 8192,
+        "input": null,
+        "output": 1536,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": false
+      }
+    ],
+    "claude-fable-5": [
+      {
+        "source": "anthropic/claude-fable-5",
+        "type": "chat",
+        "family": "claude-fable",
+        "context": 1000000,
+        "input": null,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "claude-fable-5-1": [
+      {
+        "source": "anthropic/claude-fable-5-1",
+        "type": "chat",
+        "family": "claude-fable",
+        "context": 1000000,
+        "input": null,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "claude-haiku-4-5": [
+      {
+        "source": "anthropic/claude-haiku-4-5",
+        "type": "chat",
+        "family": "claude-haiku",
+        "context": 200000,
+        "input": null,
+        "output": 64000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "claude-haiku-4-5-20251001": [
+      {
+        "source": "anthropic/claude-haiku-4-5-20251001",
+        "type": "chat",
+        "family": "claude-haiku",
+        "context": 200000,
+        "input": null,
+        "output": 64000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "claude-haiku-5-5": [
+      {
+        "source": "anthropic/claude-haiku-5-5",
+        "type": "chat",
+        "family": "claude-haiku",
+        "context": 1000000,
+        "input": null,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "claude-opus-4-5": [
+      {
+        "source": "anthropic/claude-opus-4-5",
+        "type": "chat",
+        "family": "claude-opus",
+        "context": 200000,
+        "input": null,
+        "output": 64000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "claude-opus-4-5-20251101": [
+      {
+        "source": "anthropic/claude-opus-4-5-20251101",
+        "type": "chat",
+        "family": "claude-opus",
+        "context": 200000,
+        "input": null,
+        "output": 64000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "claude-opus-4-6": [
+      {
+        "source": "anthropic/claude-opus-4-6",
+        "type": "chat",
+        "family": "claude-opus",
+        "context": 1000000,
+        "input": null,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "claude-opus-4-7": [
+      {
+        "source": "anthropic/claude-opus-4-7",
+        "type": "chat",
+        "family": "claude-opus",
+        "context": 1000000,
+        "input": null,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "claude-opus-4-8": [
+      {
+        "source": "anthropic/claude-opus-4-8",
+        "type": "chat",
+        "family": "claude-opus",
+        "context": 1000000,
+        "input": null,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "claude-opus-5": [
+      {
+        "source": "anthropic/claude-opus-5",
+        "type": "chat",
+        "family": "claude-opus",
+        "context": 1000000,
+        "input": null,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "claude-opus-5-5": [
+      {
+        "source": "anthropic/claude-opus-5-5",
+        "type": "chat",
+        "family": "claude-opus",
+        "context": 1000000,
+        "input": null,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "claude-sonnet-4-5": [
+      {
+        "source": "anthropic/claude-sonnet-4-5",
+        "type": "chat",
+        "family": "claude-sonnet",
+        "context": 200000,
+        "input": null,
+        "output": 64000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "claude-sonnet-4-5-20250929": [
+      {
+        "source": "anthropic/claude-sonnet-4-5-20250929",
+        "type": "chat",
+        "family": "claude-sonnet",
+        "context": 200000,
+        "input": null,
+        "output": 64000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "claude-sonnet-4-6": [
+      {
+        "source": "anthropic/claude-sonnet-4-6",
+        "type": "chat",
+        "family": "claude-sonnet",
+        "context": 1000000,
+        "input": null,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "claude-sonnet-5": [
+      {
+        "source": "anthropic/claude-sonnet-5",
+        "type": "chat",
+        "family": "claude-sonnet",
+        "context": 1000000,
+        "input": null,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "claude-sonnet-5-5": [
+      {
+        "source": "anthropic/claude-sonnet-5-5",
+        "type": "chat",
+        "family": "claude-sonnet",
+        "context": 1000000,
+        "input": null,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "deep-research-max-preview-04-2026": [
+      {
+        "source": "google/deep-research-max-preview-04-2026",
+        "type": "chat",
+        "family": "gemini-pro",
+        "context": 131072,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text",
+          "image",
+          "video",
+          "audio",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text",
+          "image"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "deep-research-preview-04-2026": [
+      {
+        "source": "google/deep-research-preview-04-2026",
+        "type": "chat",
+        "family": "gemini-pro",
+        "context": 131072,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text",
+          "image",
+          "video",
+          "audio",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text",
+          "image"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gemini-2.5-computer-use-preview-10-2025": [
+      {
+        "source": "google/gemini-2.5-computer-use-preview-10-2025",
+        "type": "chat",
+        "family": "gemini-pro",
+        "context": 128000,
+        "input": null,
+        "output": 64000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gemini-2.5-flash": [
+      {
+        "source": "google/gemini-2.5-flash",
+        "type": "chat",
+        "family": "gemini-flash",
+        "context": 1048576,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text",
+          "image",
+          "audio",
+          "video",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gemini-2.5-flash-image": [
+      {
+        "source": "google/gemini-2.5-flash-image",
+        "type": "chat",
+        "family": "gemini-flash",
+        "context": 32768,
+        "input": null,
+        "output": 32768,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text",
+          "image"
+        ],
+        "reasoning": true,
+        "toolCalling": false
+      }
+    ],
+    "gemini-2.5-flash-lite": [
+      {
+        "source": "google/gemini-2.5-flash-lite",
+        "type": "chat",
+        "family": "gemini-flash-lite",
+        "context": 1048576,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text",
+          "image",
+          "audio",
+          "video",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gemini-2.5-flash-preview-tts": [
+      {
+        "source": "google/gemini-2.5-flash-preview-tts",
+        "type": "chat",
+        "family": "gemini-flash",
+        "context": 8192,
+        "input": null,
+        "output": 16384,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "audio"
+        ],
+        "reasoning": false,
+        "toolCalling": false
+      }
+    ],
+    "gemini-2.5-pro": [
+      {
+        "source": "google/gemini-2.5-pro",
+        "type": "chat",
+        "family": "gemini-pro",
+        "context": 1048576,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text",
+          "image",
+          "audio",
+          "video",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gemini-2.5-pro-preview-tts": [
+      {
+        "source": "google/gemini-2.5-pro-preview-tts",
+        "type": "chat",
+        "family": "gemini-flash",
+        "context": 8192,
+        "input": null,
+        "output": 16384,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "audio"
+        ],
+        "reasoning": false,
+        "toolCalling": false
+      }
+    ],
+    "gemini-3-flash-preview": [
+      {
+        "source": "google/gemini-3-flash-preview",
+        "type": "chat",
+        "family": "gemini-flash",
+        "context": 1048576,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text",
+          "image",
+          "video",
+          "audio",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gemini-3-pro-image": [
+      {
+        "source": "google/gemini-3-pro-image",
+        "type": "chat",
+        "family": "gemini-pro",
+        "context": 65536,
+        "input": null,
+        "output": 32768,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text",
+          "image"
+        ],
+        "reasoning": true,
+        "toolCalling": false
+      }
+    ],
+    "gemini-3-pro-image-preview": [
+      {
+        "source": "google/gemini-3-pro-image-preview",
+        "type": "chat",
+        "family": "gemini-pro",
+        "context": 131072,
+        "input": null,
+        "output": 32768,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text",
+          "image"
+        ],
+        "reasoning": true,
+        "toolCalling": false
+      }
+    ],
+    "gemini-3.1-flash-image": [
+      {
+        "source": "google/gemini-3.1-flash-image",
+        "type": "chat",
+        "family": "gemini-flash",
+        "context": 131072,
+        "input": null,
+        "output": 32768,
+        "inputModalities": [
+          "text",
+          "image",
+          "video",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text",
+          "image"
+        ],
+        "reasoning": true,
+        "toolCalling": false
+      }
+    ],
+    "gemini-3.1-flash-image-preview": [
+      {
+        "source": "google/gemini-3.1-flash-image-preview",
+        "type": "chat",
+        "family": "gemini-flash",
+        "context": 65536,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text",
+          "image"
+        ],
+        "reasoning": true,
+        "toolCalling": false
+      }
+    ],
+    "gemini-3.1-flash-lite": [
+      {
+        "source": "google/gemini-3.1-flash-lite",
+        "type": "chat",
+        "family": "gemini-flash-lite",
+        "context": 1048576,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text",
+          "image",
+          "video",
+          "audio",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gemini-3.1-flash-lite-image": [
+      {
+        "source": "google/gemini-3.1-flash-lite-image",
+        "type": "chat",
+        "family": "gemini-flash-lite",
+        "context": 65536,
+        "input": null,
+        "output": 4096,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text",
+          "image"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gemini-3.1-flash-lite-preview": [
+      {
+        "source": "google/gemini-3.1-flash-lite-preview",
+        "type": "chat",
+        "family": "gemini-flash-lite",
+        "context": 1048576,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text",
+          "image",
+          "video",
+          "audio",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gemini-3.1-flash-live-preview": [
+      {
+        "source": "google/gemini-3.1-flash-live-preview",
+        "type": "chat",
+        "family": "gemini-flash",
+        "context": 131072,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text",
+          "image",
+          "video",
+          "audio"
+        ],
+        "outputModalities": [
+          "text",
+          "audio"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gemini-3.1-flash-tts-preview": [
+      {
+        "source": "google/gemini-3.1-flash-tts-preview",
+        "type": "chat",
+        "family": "gemini-flash",
+        "context": 8192,
+        "input": null,
+        "output": 16384,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "audio"
+        ],
+        "reasoning": true,
+        "toolCalling": false
+      }
+    ],
+    "gemini-3.1-pro-preview": [
+      {
+        "source": "google/gemini-3.1-pro-preview",
+        "type": "chat",
+        "family": "gemini-pro",
+        "context": 1048576,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text",
+          "image",
+          "video",
+          "audio",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gemini-3.1-pro-preview-customtools": [
+      {
+        "source": "google/gemini-3.1-pro-preview-customtools",
+        "type": "chat",
+        "family": "gemini-pro",
+        "context": 1048576,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text",
+          "image",
+          "video",
+          "audio",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gemini-3.5-flash": [
+      {
+        "source": "google/gemini-3.5-flash",
+        "type": "chat",
+        "family": "gemini-flash",
+        "context": 1048576,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text",
+          "image",
+          "video",
+          "audio",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gemini-3.5-flash-lite": [
+      {
+        "source": "google/gemini-3.5-flash-lite",
+        "type": "chat",
+        "family": "gemini-flash-lite",
+        "context": 1048576,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text",
+          "image",
+          "video",
+          "audio",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gemini-3.5-live-translate-preview": [
+      {
+        "source": "google/gemini-3.5-live-translate-preview",
+        "type": "chat",
+        "family": "gemini-pro",
+        "context": 16384,
+        "input": null,
+        "output": 32768,
+        "inputModalities": [
+          "audio"
+        ],
+        "outputModalities": [
+          "audio",
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": false
+      }
+    ],
+    "gemini-3.6-flash": [
+      {
+        "source": "google/gemini-3.6-flash",
+        "type": "chat",
+        "family": "gemini-flash",
+        "context": 1048576,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text",
+          "image",
+          "video",
+          "audio",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gemini-3.7-flash": [
+      {
+        "source": "google/gemini-3.7-flash",
+        "type": "chat",
+        "family": "gemini-flash",
+        "context": 1048576,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text",
+          "image",
+          "video",
+          "audio",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gemini-3.8-flash": [
+      {
+        "source": "google/gemini-3.8-flash",
+        "type": "chat",
+        "family": "gemini-flash",
+        "context": 1048576,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text",
+          "image",
+          "video",
+          "audio",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gemini-4-argon": [
+      {
+        "source": "google/gemini-4-argon",
+        "type": "chat",
+        "family": "gemini",
+        "context": 1048576,
+        "input": null,
+        "output": 32768,
+        "inputModalities": [
+          "text",
+          "image",
+          "video",
+          "audio",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gemini-embedding-001": [
+      {
+        "source": "google/gemini-embedding-001",
+        "type": "non-chat",
+        "family": "gemini",
+        "context": 2048,
+        "input": null,
+        "output": 1,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": false
+      }
+    ],
+    "gemini-embedding-2": [
+      {
+        "source": "google/gemini-embedding-2",
+        "type": "non-chat",
+        "family": "gemini",
+        "context": 8192,
+        "input": null,
+        "output": 1,
+        "inputModalities": [
+          "text",
+          "image",
+          "audio",
+          "video",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": false
+      }
+    ],
+    "gemini-flash-latest": [
+      {
+        "source": "google/gemini-flash-latest",
+        "type": "chat",
+        "family": "gemini-flash",
+        "context": 1048576,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text",
+          "image",
+          "video",
+          "audio",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gemini-flash-lite-latest": [
+      {
+        "source": "google/gemini-flash-lite-latest",
+        "type": "chat",
+        "family": "gemini-flash-lite",
+        "context": 1048576,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text",
+          "image",
+          "video",
+          "audio",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gemini-omni-flash-preview": [
+      {
+        "source": "google/gemini-omni-flash-preview",
+        "type": "chat",
+        "family": "gemini",
+        "context": 131072,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "video"
+        ],
+        "reasoning": true,
+        "toolCalling": false
+      }
+    ],
+    "gemma-4-26b-a4b-it": [
+      {
+        "source": "google/gemma-4-26b-a4b-it",
+        "type": "chat",
+        "family": "gemma",
+        "context": 262144,
+        "input": null,
+        "output": 32768,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "gemma-4-31b-it": [
+      {
+        "source": "google/gemma-4-31b-it",
+        "type": "chat",
+        "family": "gemma",
+        "context": 262144,
+        "input": null,
+        "output": 32768,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "lyria-3-clip-preview": [
+      {
+        "source": "google/lyria-3-clip-preview",
+        "type": "chat",
+        "family": "lyria",
+        "context": 1048576,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text",
+          "audio"
+        ],
+        "reasoning": false,
+        "toolCalling": false
+      }
+    ],
+    "lyria-3-pro-preview": [
+      {
+        "source": "google/lyria-3-pro-preview",
+        "type": "chat",
+        "family": "lyria",
+        "context": 1048576,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text",
+          "audio"
+        ],
+        "reasoning": false,
+        "toolCalling": false
+      }
+    ],
+    "veo-3.1-fast-generate-preview": [
+      {
+        "source": "google/veo-3.1-fast-generate-preview",
+        "type": "chat",
+        "family": "veo",
+        "context": 480,
+        "input": null,
+        "output": 8192,
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "video"
+        ],
+        "reasoning": false,
+        "toolCalling": false
+      }
+    ],
+    "veo-3.1-generate-preview": [
+      {
+        "source": "google/veo-3.1-generate-preview",
+        "type": "chat",
+        "family": "veo",
+        "context": 480,
+        "input": null,
+        "output": 8192,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "video"
+        ],
+        "reasoning": false,
+        "toolCalling": false
+      }
+    ],
+    "veo-3.1-lite-generate-preview": [
+      {
+        "source": "google/veo-3.1-lite-generate-preview",
+        "type": "chat",
+        "family": "veo",
+        "context": 480,
+        "input": null,
+        "output": 8192,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "video"
+        ],
+        "reasoning": false,
+        "toolCalling": false
+      }
+    ],
+    "deepseek-flash": [
+      {
+        "source": "deepseek/deepseek-flash",
+        "type": "chat",
+        "family": "deepseek-flash",
+        "context": 1000000,
+        "input": null,
+        "output": 393216,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "deepseek-v4-flash": [
+      {
+        "source": "deepseek/deepseek-v4-flash",
+        "type": "chat",
+        "family": "deepseek-flash",
+        "context": 1000000,
+        "input": null,
+        "output": 393216,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "deepseek-v4-flash-vision-exp": [
+      {
+        "source": "deepseek/deepseek-v4-flash-vision-exp",
+        "type": "chat",
+        "family": "deepseek-flash",
+        "context": 1000000,
+        "input": null,
+        "output": 393216,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "deepseek-v4-pro": [
+      {
+        "source": "deepseek/deepseek-v4-pro",
+        "type": "chat",
+        "family": "deepseek-thinking",
+        "context": 1000000,
+        "input": null,
+        "output": 393216,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "codestral-2508": [
+      {
+        "source": "mistral/codestral-2508",
+        "type": "chat",
+        "family": "codestral",
+        "context": 256000,
+        "input": null,
+        "output": 8192,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "codestral-latest": [
+      {
+        "source": "mistral/codestral-latest",
+        "type": "chat",
+        "family": "codestral",
+        "context": 256000,
+        "input": null,
+        "output": 4096,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "devstral-2512": [
+      {
+        "source": "mistral/devstral-2512",
+        "type": "chat",
+        "family": "devstral",
+        "context": 262144,
+        "input": null,
+        "output": 262144,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "devstral-latest": [
+      {
+        "source": "mistral/devstral-latest",
+        "type": "chat",
+        "family": "devstral",
+        "context": 262144,
+        "input": null,
+        "output": 262144,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "devstral-medium-2507": [
+      {
+        "source": "mistral/devstral-medium-2507",
+        "type": "chat",
+        "family": "devstral",
+        "context": 128000,
+        "input": null,
+        "output": 128000,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "devstral-medium-latest": [
+      {
+        "source": "mistral/devstral-medium-latest",
+        "type": "chat",
+        "family": "devstral",
+        "context": 262144,
+        "input": null,
+        "output": 262144,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "devstral-small-2505": [
+      {
+        "source": "mistral/devstral-small-2505",
+        "type": "chat",
+        "family": "devstral",
+        "context": 128000,
+        "input": null,
+        "output": 128000,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "devstral-small-2507": [
+      {
+        "source": "mistral/devstral-small-2507",
+        "type": "chat",
+        "family": "devstral",
+        "context": 128000,
+        "input": null,
+        "output": 128000,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "glm-5-2": [
+      {
+        "source": "mistral/glm-5-2",
+        "type": "chat",
+        "family": "glm",
+        "context": 1048576,
+        "input": null,
+        "output": 131072,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "labs-devstral-small-2512": [
+      {
+        "source": "mistral/labs-devstral-small-2512",
+        "type": "chat",
+        "family": "devstral",
+        "context": 256000,
+        "input": null,
+        "output": 256000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "labs-leanstral-1-5-1": [
+      {
+        "source": "mistral/labs-leanstral-1-5-1",
+        "type": "chat",
+        "family": "leanstral",
+        "context": 262144,
+        "input": null,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "magistral-medium-latest": [
+      {
+        "source": "mistral/magistral-medium-latest",
+        "type": "chat",
+        "family": "magistral-medium",
+        "context": 262144,
+        "input": null,
+        "output": 16384,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "ministral-14b-2512": [
+      {
+        "source": "mistral/ministral-14b-2512",
+        "type": "chat",
+        "family": "ministral",
+        "context": 262144,
+        "input": null,
+        "output": 262144,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "ministral-3b-2512": [
+      {
+        "source": "mistral/ministral-3b-2512",
+        "type": "chat",
+        "family": "ministral",
+        "context": 131072,
+        "input": null,
+        "output": 262144,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "ministral-3b-latest": [
+      {
+        "source": "mistral/ministral-3b-latest",
+        "type": "chat",
+        "family": "ministral",
+        "context": 131072,
+        "input": null,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "ministral-8b-2512": [
+      {
+        "source": "mistral/ministral-8b-2512",
+        "type": "chat",
+        "family": "ministral",
+        "context": 262144,
+        "input": null,
+        "output": 262144,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "ministral-8b-latest": [
+      {
+        "source": "mistral/ministral-8b-latest",
+        "type": "chat",
+        "family": "ministral",
+        "context": 262144,
+        "input": null,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "mistral-embed": [
+      {
+        "source": "mistral/mistral-embed",
+        "type": "non-chat",
+        "family": "mistral-embed",
+        "context": 8000,
+        "input": null,
+        "output": 3072,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": false
+      }
+    ],
+    "mistral-large-2411": [
+      {
+        "source": "mistral/mistral-large-2411",
+        "type": "chat",
+        "family": "mistral-large",
+        "context": 131072,
+        "input": null,
+        "output": 16384,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "mistral-large-2512": [
+      {
+        "source": "mistral/mistral-large-2512",
+        "type": "chat",
+        "family": "mistral-large",
+        "context": 262144,
+        "input": null,
+        "output": 262144,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "mistral-large-4": [
+      {
+        "source": "mistral/mistral-large-4",
+        "type": "chat",
+        "family": "mistral-large",
+        "context": 1048576,
+        "input": null,
+        "output": 262144,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "mistral-large-latest": [
+      {
+        "source": "mistral/mistral-large-latest",
+        "type": "chat",
+        "family": "mistral-large",
+        "context": 262144,
+        "input": null,
+        "output": 262144,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "mistral-medium-2505": [
+      {
+        "source": "mistral/mistral-medium-2505",
+        "type": "chat",
+        "family": "mistral-medium",
+        "context": 131072,
+        "input": null,
+        "output": 131072,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "mistral-medium-2508": [
+      {
+        "source": "mistral/mistral-medium-2508",
+        "type": "chat",
+        "family": "mistral-medium",
+        "context": 262144,
+        "input": null,
+        "output": 262144,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "mistral-medium-2604": [
+      {
+        "source": "mistral/mistral-medium-2604",
+        "type": "chat",
+        "family": "mistral-medium",
+        "context": 262144,
+        "input": null,
+        "output": 262144,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "mistral-medium-latest": [
+      {
+        "source": "mistral/mistral-medium-latest",
+        "type": "chat",
+        "family": "mistral-medium",
+        "context": 262144,
+        "input": null,
+        "output": 262144,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "mistral-nemo": [
+      {
+        "source": "mistral/mistral-nemo",
+        "type": "chat",
+        "family": "mistral-nemo",
+        "context": 128000,
+        "input": null,
+        "output": 128000,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "mistral-small-2506": [
+      {
+        "source": "mistral/mistral-small-2506",
+        "type": "chat",
+        "family": "mistral-small",
+        "context": 128000,
+        "input": null,
+        "output": 16384,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "mistral-small-2603": [
+      {
+        "source": "mistral/mistral-small-2603",
+        "type": "chat",
+        "family": "mistral-small",
+        "context": 262144,
+        "input": null,
+        "output": 256000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "mistral-small-latest": [
+      {
+        "source": "mistral/mistral-small-latest",
+        "type": "chat",
+        "family": "mistral-small",
+        "context": 262144,
+        "input": null,
+        "output": 256000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "open-mistral-7b": [
+      {
+        "source": "mistral/open-mistral-7b",
+        "type": "chat",
+        "family": "mistral",
+        "context": 8000,
+        "input": null,
+        "output": 8000,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "open-mistral-nemo": [
+      {
+        "source": "mistral/open-mistral-nemo",
+        "type": "chat",
+        "family": "mistral-nemo",
+        "context": 128000,
+        "input": null,
+        "output": 128000,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "open-mixtral-8x22b": [
+      {
+        "source": "mistral/open-mixtral-8x22b",
+        "type": "chat",
+        "family": "mixtral",
+        "context": 64000,
+        "input": null,
+        "output": 64000,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "open-mixtral-8x7b": [
+      {
+        "source": "mistral/open-mixtral-8x7b",
+        "type": "chat",
+        "family": "mixtral",
+        "context": 32000,
+        "input": null,
+        "output": 32000,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "pixtral-12b": [
+      {
+        "source": "mistral/pixtral-12b",
+        "type": "chat",
+        "family": "pixtral",
+        "context": 128000,
+        "input": null,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "pixtral-large-latest": [
+      {
+        "source": "mistral/pixtral-large-latest",
+        "type": "chat",
+        "family": "pixtral",
+        "context": 128000,
+        "input": null,
+        "output": 128000,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "voxtral-mini-latest": [
+      {
+        "source": "mistral/voxtral-mini-latest",
+        "type": "chat",
+        "family": "voxtral",
+        "context": 0,
+        "input": null,
+        "output": 0,
+        "inputModalities": [
+          "audio"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": false
+      }
+    ],
+    "voxtral-mini-tts-latest": [
+      {
+        "source": "mistral/voxtral-mini-tts-latest",
+        "type": "chat",
+        "family": "voxtral",
+        "context": 0,
+        "input": null,
+        "output": 0,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "audio"
+        ],
+        "reasoning": false,
+        "toolCalling": false
+      }
+    ],
+    "voxtral-small-2507": [
+      {
+        "source": "mistral/voxtral-small-2507",
+        "type": "chat",
+        "family": "voxtral",
+        "context": 32768,
+        "input": null,
+        "output": 32000,
+        "inputModalities": [
+          "text",
+          "audio"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "voxtral-small-latest": [
+      {
+        "source": "mistral/voxtral-small-latest",
+        "type": "chat",
+        "family": "voxtral",
+        "context": 32768,
+        "input": null,
+        "output": 32000,
+        "inputModalities": [
+          "text",
+          "audio"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "zai-glm-5-2": [
+      {
+        "source": "mistral/zai-glm-5-2",
+        "type": "chat",
+        "family": "glm",
+        "context": 1048576,
+        "input": null,
+        "output": 131072,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "zai-glm-5-3": [
+      {
+        "source": "mistral/zai-glm-5-3",
+        "type": "chat",
+        "family": "glm",
+        "context": 1048576,
+        "input": null,
+        "output": 131072,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "deepseek-v4-flash-0731": [
+      {
+        "source": "alibaba/deepseek-v4-flash-0731",
+        "type": "chat",
+        "family": "deepseek-flash",
+        "context": 1000000,
+        "input": null,
+        "output": 384000,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "glm-5.2": [
+      {
+        "source": "alibaba/glm-5.2",
+        "type": "chat",
+        "family": "glm",
+        "context": 1000000,
+        "input": null,
+        "output": 131072,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      },
+      {
+        "source": "zai/glm-5.2",
+        "type": "chat",
+        "family": "glm",
+        "context": 1000000,
+        "input": null,
+        "output": 131072,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "kimi-k3": [
+      {
+        "source": "alibaba/kimi-k3",
+        "type": "chat",
+        "family": "kimi-k3",
+        "context": 1048576,
+        "input": null,
+        "output": 1048576,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "qvq-max": [
+      {
+        "source": "alibaba/qvq-max",
+        "type": "chat",
+        "family": "qvq",
+        "context": 131072,
+        "input": null,
+        "output": 8192,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "qwen-flash": [
+      {
+        "source": "alibaba/qwen-flash",
+        "type": "chat",
+        "family": "qwen",
+        "context": 1000000,
+        "input": null,
+        "output": 32768,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "qwen-max": [
+      {
+        "source": "alibaba/qwen-max",
+        "type": "chat",
+        "family": "qwen",
+        "context": 32768,
+        "input": null,
+        "output": 8192,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "qwen-mt-plus": [
+      {
+        "source": "alibaba/qwen-mt-plus",
+        "type": "chat",
+        "family": "qwen",
+        "context": 16384,
+        "input": null,
+        "output": 8192,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": false
+      }
+    ],
+    "qwen-mt-turbo": [
+      {
+        "source": "alibaba/qwen-mt-turbo",
+        "type": "chat",
+        "family": "qwen",
+        "context": 16384,
+        "input": null,
+        "output": 8192,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": false
+      }
+    ],
+    "qwen-omni-turbo": [
+      {
+        "source": "alibaba/qwen-omni-turbo",
+        "type": "chat",
+        "family": "qwen",
+        "context": 32768,
+        "input": null,
+        "output": 2048,
+        "inputModalities": [
+          "text",
+          "image",
+          "audio",
+          "video"
+        ],
+        "outputModalities": [
+          "text",
+          "audio"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "qwen-omni-turbo-realtime": [
+      {
+        "source": "alibaba/qwen-omni-turbo-realtime",
+        "type": "chat",
+        "family": "qwen",
+        "context": 32768,
+        "input": null,
+        "output": 2048,
+        "inputModalities": [
+          "text",
+          "image",
+          "audio"
+        ],
+        "outputModalities": [
+          "text",
+          "audio"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "qwen-plus": [
+      {
+        "source": "alibaba/qwen-plus",
+        "type": "chat",
+        "family": "qwen",
+        "context": 1000000,
+        "input": null,
+        "output": 32768,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "qwen-plus-character-ja": [
+      {
+        "source": "alibaba/qwen-plus-character-ja",
+        "type": "chat",
+        "family": "qwen",
+        "context": 8192,
+        "input": null,
+        "output": 512,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "qwen-turbo": [
+      {
+        "source": "alibaba/qwen-turbo",
+        "type": "chat",
+        "family": "qwen",
+        "context": 1000000,
+        "input": null,
+        "output": 16384,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "qwen-vl-max": [
+      {
+        "source": "alibaba/qwen-vl-max",
+        "type": "chat",
+        "family": "qwen",
+        "context": 131072,
+        "input": null,
+        "output": 8192,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "qwen-vl-ocr": [
+      {
+        "source": "alibaba/qwen-vl-ocr",
+        "type": "chat",
+        "family": "qwen",
+        "context": 34096,
+        "input": null,
+        "output": 4096,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": false
+      }
+    ],
+    "qwen-vl-plus": [
+      {
+        "source": "alibaba/qwen-vl-plus",
+        "type": "chat",
+        "family": "qwen",
+        "context": 131072,
+        "input": null,
+        "output": 8192,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "qwen2-5-14b-instruct": [
+      {
+        "source": "alibaba/qwen2-5-14b-instruct",
+        "type": "chat",
+        "family": "qwen",
+        "context": 131072,
+        "input": null,
+        "output": 8192,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "qwen2-5-32b-instruct": [
+      {
+        "source": "alibaba/qwen2-5-32b-instruct",
+        "type": "chat",
+        "family": "qwen",
+        "context": 131072,
+        "input": null,
+        "output": 8192,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "qwen2-5-72b-instruct": [
+      {
+        "source": "alibaba/qwen2-5-72b-instruct",
+        "type": "chat",
+        "family": "qwen",
+        "context": 131072,
+        "input": null,
+        "output": 8192,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "qwen2-5-7b-instruct": [
+      {
+        "source": "alibaba/qwen2-5-7b-instruct",
+        "type": "chat",
+        "family": "qwen",
+        "context": 131072,
+        "input": null,
+        "output": 8192,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "qwen2-5-omni-7b": [
+      {
+        "source": "alibaba/qwen2-5-omni-7b",
+        "type": "chat",
+        "family": "qwen",
+        "context": 32768,
+        "input": null,
+        "output": 2048,
+        "inputModalities": [
+          "text",
+          "image",
+          "audio",
+          "video"
+        ],
+        "outputModalities": [
+          "text",
+          "audio"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "qwen2-5-vl-72b-instruct": [
+      {
+        "source": "alibaba/qwen2-5-vl-72b-instruct",
+        "type": "chat",
+        "family": "qwen",
+        "context": 131072,
+        "input": null,
+        "output": 8192,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "qwen2-5-vl-7b-instruct": [
+      {
+        "source": "alibaba/qwen2-5-vl-7b-instruct",
+        "type": "chat",
+        "family": "qwen",
+        "context": 131072,
+        "input": null,
+        "output": 8192,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "qwen3-14b": [
+      {
+        "source": "alibaba/qwen3-14b",
+        "type": "chat",
+        "family": "qwen",
+        "context": 131072,
+        "input": null,
+        "output": 8192,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "qwen3-235b-a22b": [
+      {
+        "source": "alibaba/qwen3-235b-a22b",
+        "type": "chat",
+        "family": "qwen",
+        "context": 131072,
+        "input": null,
+        "output": 16384,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "qwen3-32b": [
+      {
+        "source": "alibaba/qwen3-32b",
+        "type": "chat",
+        "family": "qwen",
+        "context": 131072,
+        "input": null,
+        "output": 16384,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "qwen3-8b": [
+      {
+        "source": "alibaba/qwen3-8b",
+        "type": "chat",
+        "family": "qwen",
+        "context": 131072,
+        "input": null,
+        "output": 8192,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "qwen3-asr-flash": [
+      {
+        "source": "alibaba/qwen3-asr-flash",
+        "type": "chat",
+        "family": "qwen",
+        "context": 53248,
+        "input": null,
+        "output": 4096,
+        "inputModalities": [
+          "audio"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": false
+      }
+    ],
+    "qwen3-coder-30b-a3b-instruct": [
+      {
+        "source": "alibaba/qwen3-coder-30b-a3b-instruct",
+        "type": "chat",
+        "family": "qwen",
+        "context": 262144,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "qwen3-coder-480b-a35b-instruct": [
+      {
+        "source": "alibaba/qwen3-coder-480b-a35b-instruct",
+        "type": "chat",
+        "family": "qwen",
+        "context": 262144,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "qwen3-coder-flash": [
+      {
+        "source": "alibaba/qwen3-coder-flash",
+        "type": "chat",
+        "family": "qwen",
+        "context": 1000000,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "qwen3-coder-plus": [
+      {
+        "source": "alibaba/qwen3-coder-plus",
+        "type": "chat",
+        "family": "qwen",
+        "context": 1048576,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "qwen3-livetranslate-flash-realtime": [
+      {
+        "source": "alibaba/qwen3-livetranslate-flash-realtime",
+        "type": "chat",
+        "family": "qwen",
+        "context": 53248,
+        "input": null,
+        "output": 4096,
+        "inputModalities": [
+          "text",
+          "image",
+          "audio",
+          "video"
+        ],
+        "outputModalities": [
+          "text",
+          "audio"
+        ],
+        "reasoning": false,
+        "toolCalling": false
+      }
+    ],
+    "qwen3-max": [
+      {
+        "source": "alibaba/qwen3-max",
+        "type": "chat",
+        "family": "qwen",
+        "context": 262144,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "qwen3-next-80b-a3b-instruct": [
+      {
+        "source": "alibaba/qwen3-next-80b-a3b-instruct",
+        "type": "chat",
+        "family": "qwen",
+        "context": 131072,
+        "input": null,
+        "output": 32768,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "qwen3-next-80b-a3b-thinking": [
+      {
+        "source": "alibaba/qwen3-next-80b-a3b-thinking",
+        "type": "chat",
+        "family": "qwen",
+        "context": 131072,
+        "input": null,
+        "output": 32768,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "qwen3-omni-flash": [
+      {
+        "source": "alibaba/qwen3-omni-flash",
+        "type": "chat",
+        "family": "qwen",
+        "context": 65536,
+        "input": null,
+        "output": 16384,
+        "inputModalities": [
+          "text",
+          "image",
+          "audio",
+          "video"
+        ],
+        "outputModalities": [
+          "text",
+          "audio"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "qwen3-omni-flash-realtime": [
+      {
+        "source": "alibaba/qwen3-omni-flash-realtime",
+        "type": "chat",
+        "family": "qwen",
+        "context": 65536,
+        "input": null,
+        "output": 16384,
+        "inputModalities": [
+          "text",
+          "image",
+          "audio",
+          "video"
+        ],
+        "outputModalities": [
+          "text",
+          "audio"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "qwen3-vl-235b-a22b": [
+      {
+        "source": "alibaba/qwen3-vl-235b-a22b",
+        "type": "chat",
+        "family": "qwen",
+        "context": 131072,
+        "input": null,
+        "output": 32768,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "qwen3-vl-30b-a3b": [
+      {
+        "source": "alibaba/qwen3-vl-30b-a3b",
+        "type": "chat",
+        "family": "qwen",
+        "context": 131072,
+        "input": null,
+        "output": 32768,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "qwen3-vl-plus": [
+      {
+        "source": "alibaba/qwen3-vl-plus",
+        "type": "chat",
+        "family": "qwen",
+        "context": 262144,
+        "input": null,
+        "output": 32768,
+        "inputModalities": [
+          "text",
+          "image"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "qwen3.5-122b-a10b": [
+      {
+        "source": "alibaba/qwen3.5-122b-a10b",
+        "type": "chat",
+        "family": "qwen",
+        "context": 262144,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text",
+          "image",
+          "video",
+          "audio"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "qwen3.5-27b": [
+      {
+        "source": "alibaba/qwen3.5-27b",
+        "type": "chat",
+        "family": "qwen",
+        "context": 262144,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text",
+          "image",
+          "video",
+          "audio"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "qwen3.5-35b-a3b": [
+      {
+        "source": "alibaba/qwen3.5-35b-a3b",
+        "type": "chat",
+        "family": "qwen",
+        "context": 262144,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text",
+          "image",
+          "video",
+          "audio"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "qwen3.5-397b-a17b": [
+      {
+        "source": "alibaba/qwen3.5-397b-a17b",
+        "type": "chat",
+        "family": "qwen",
+        "context": 262144,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text",
+          "image",
+          "video",
+          "audio"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "qwen3.5-flash": [
+      {
+        "source": "alibaba/qwen3.5-flash",
+        "type": "chat",
+        "family": "qwen",
+        "context": 1000000,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "qwen3.5-plus": [
+      {
+        "source": "alibaba/qwen3.5-plus",
+        "type": "chat",
+        "family": "qwen",
+        "context": 1000000,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "qwen3.6-27b": [
+      {
+        "source": "alibaba/qwen3.6-27b",
+        "type": "chat",
+        "family": "qwen",
+        "context": 262144,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text",
+          "image",
+          "video",
+          "audio"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "qwen3.6-35b-a3b": [
+      {
+        "source": "alibaba/qwen3.6-35b-a3b",
+        "type": "chat",
+        "family": "qwen",
+        "context": 262144,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text",
+          "image",
+          "video",
+          "audio"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "qwen3.6-flash": [
+      {
+        "source": "alibaba/qwen3.6-flash",
+        "type": "chat",
+        "family": "qwen3.6",
+        "context": 1000000,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "qwen3.6-max-preview": [
+      {
+        "source": "alibaba/qwen3.6-max-preview",
+        "type": "chat",
+        "family": "qwen",
+        "context": 262144,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "qwen3.6-plus": [
+      {
+        "source": "alibaba/qwen3.6-plus",
+        "type": "chat",
+        "family": "qwen",
+        "context": 1000000,
+        "input": null,
+        "output": 65536,
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "qwen3.7-flash": [
+      {
+        "source": "alibaba/qwen3.7-flash",
+        "type": "chat",
+        "family": "qwen",
+        "context": 1000000,
+        "input": 991808,
+        "output": 131072,
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "qwen3.7-max": [
+      {
+        "source": "alibaba/qwen3.7-max",
+        "type": "chat",
+        "family": "qwen",
+        "context": 1000000,
+        "input": null,
+        "output": 131072,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "qwen3.7-plus": [
+      {
+        "source": "alibaba/qwen3.7-plus",
+        "type": "chat",
+        "family": "qwen",
+        "context": 1000000,
+        "input": null,
+        "output": 131072,
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "qwen3.8-flash": [
+      {
+        "source": "alibaba/qwen3.8-flash",
+        "type": "chat",
+        "family": "qwen",
+        "context": 1000000,
+        "input": null,
+        "output": 131072,
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "qwen3.8-max": [
+      {
+        "source": "alibaba/qwen3.8-max",
+        "type": "chat",
+        "family": "qwen",
+        "context": 1000000,
+        "input": null,
+        "output": 131072,
+        "inputModalities": [
+          "text",
+          "image",
+          "video",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "qwen3.8-omni-flash": [
+      {
+        "source": "alibaba/qwen3.8-omni-flash",
+        "type": "chat",
+        "family": "qwen",
+        "context": 1000000,
+        "input": null,
+        "output": 131072,
+        "inputModalities": [
+          "text",
+          "image",
+          "audio",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "qwq-plus": [
+      {
+        "source": "alibaba/qwq-plus",
+        "type": "chat",
+        "family": "qwen",
+        "context": 131072,
+        "input": null,
+        "output": 8192,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "MiniMax-M2": [
+      {
+        "source": "minimax/MiniMax-M2",
+        "type": "chat",
+        "family": "minimax",
+        "context": 204800,
+        "input": null,
+        "output": 131072,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "MiniMax-M2.1": [
+      {
+        "source": "minimax/MiniMax-M2.1",
+        "type": "chat",
+        "family": "minimax",
+        "context": 204800,
+        "input": null,
+        "output": 131072,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "MiniMax-M2.5": [
+      {
+        "source": "minimax/MiniMax-M2.5",
+        "type": "chat",
+        "family": "minimax",
+        "context": 204800,
+        "input": null,
+        "output": 131072,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "MiniMax-M2.5-highspeed": [
+      {
+        "source": "minimax/MiniMax-M2.5-highspeed",
+        "type": "chat",
+        "family": "minimax",
+        "context": 204800,
+        "input": null,
+        "output": 131072,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "MiniMax-M2.7": [
+      {
+        "source": "minimax/MiniMax-M2.7",
+        "type": "chat",
+        "family": "minimax",
+        "context": 204800,
+        "input": null,
+        "output": 131072,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "MiniMax-M2.7-highspeed": [
+      {
+        "source": "minimax/MiniMax-M2.7-highspeed",
+        "type": "chat",
+        "family": "minimax",
+        "context": 204800,
+        "input": null,
+        "output": 131072,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "MiniMax-M3": [
+      {
+        "source": "minimax/MiniMax-M3",
+        "type": "chat",
+        "family": "minimax",
+        "context": 1000000,
+        "input": null,
+        "output": 512000,
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "glm-4.5": [
+      {
+        "source": "zai/glm-4.5",
+        "type": "chat",
+        "family": "glm",
+        "context": 131072,
+        "input": null,
+        "output": 98304,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "glm-4.5-air": [
+      {
+        "source": "zai/glm-4.5-air",
+        "type": "chat",
+        "family": "glm-air",
+        "context": 131072,
+        "input": null,
+        "output": 98304,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "glm-4.5-flash": [
+      {
+        "source": "zai/glm-4.5-flash",
+        "type": "chat",
+        "family": "glm-flash",
+        "context": 131072,
+        "input": null,
+        "output": 98304,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "glm-4.5v": [
+      {
+        "source": "zai/glm-4.5v",
+        "type": "chat",
+        "family": "glm",
+        "context": 64000,
+        "input": null,
+        "output": 16384,
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "glm-4.6": [
+      {
+        "source": "zai/glm-4.6",
+        "type": "chat",
+        "family": "glm",
+        "context": 204800,
+        "input": null,
+        "output": 131072,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "glm-4.6v": [
+      {
+        "source": "zai/glm-4.6v",
+        "type": "chat",
+        "family": "glm",
+        "context": 128000,
+        "input": null,
+        "output": 32768,
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "glm-4.6v-flash": [
+      {
+        "source": "zai/glm-4.6v-flash",
+        "type": "chat",
+        "family": "glm-flash",
+        "context": 128000,
+        "input": null,
+        "output": 32768,
+        "inputModalities": [
+          "text",
+          "image",
+          "video"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "glm-4.7": [
+      {
+        "source": "zai/glm-4.7",
+        "type": "chat",
+        "family": "glm",
+        "context": 204800,
+        "input": null,
+        "output": 131072,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "glm-4.7-flash": [
+      {
+        "source": "zai/glm-4.7-flash",
+        "type": "chat",
+        "family": "glm-flash",
+        "context": 200000,
+        "input": null,
+        "output": 131072,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "glm-4.7-flashx": [
+      {
+        "source": "zai/glm-4.7-flashx",
+        "type": "chat",
+        "family": "glm-flash",
+        "context": 200000,
+        "input": null,
+        "output": 131072,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "glm-5": [
+      {
+        "source": "zai/glm-5",
+        "type": "chat",
+        "family": "glm",
+        "context": 204800,
+        "input": null,
+        "output": 131072,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "glm-5-turbo": [
+      {
+        "source": "zai/glm-5-turbo",
+        "type": "chat",
+        "family": "glm",
+        "context": 200000,
+        "input": null,
+        "output": 131072,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "glm-5.1": [
+      {
+        "source": "zai/glm-5.1",
+        "type": "chat",
+        "family": "glm",
+        "context": 200000,
+        "input": null,
+        "output": 131072,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "glm-5.3": [
+      {
+        "source": "zai/glm-5.3",
+        "type": "chat",
+        "family": "glm",
+        "context": 1000000,
+        "input": null,
+        "output": 131072,
+        "inputModalities": [
+          "text"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "glm-5.3-flash": [
+      {
+        "source": "zai/glm-5.3-flash",
+        "type": "chat",
+        "family": "glm-flash",
+        "context": 1000000,
+        "input": null,
+        "output": 131072,
+        "inputModalities": [
+          "text",
+          "image",
+          "video",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "glm-5.3-flashx": [
+      {
+        "source": "zai/glm-5.3-flashx",
+        "type": "chat",
+        "family": "glm-flash",
+        "context": 1000000,
+        "input": null,
+        "output": 131072,
+        "inputModalities": [
+          "text",
+          "image",
+          "video",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "glm-5v-turbo": [
+      {
+        "source": "zai/glm-5v-turbo",
+        "type": "chat",
+        "family": "glm",
+        "context": 200000,
+        "input": null,
+        "output": 131072,
+        "inputModalities": [
+          "text",
+          "image",
+          "video",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "grok-4.20-0309-non-reasoning": [
+      {
+        "source": "xai/grok-4.20-0309-non-reasoning",
+        "type": "chat",
+        "family": "grok",
+        "context": 1000000,
+        "input": null,
+        "output": 30000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": false,
+        "toolCalling": true
+      }
+    ],
+    "grok-4.20-0309-reasoning": [
+      {
+        "source": "xai/grok-4.20-0309-reasoning",
+        "type": "chat",
+        "family": "grok",
+        "context": 1000000,
+        "input": null,
+        "output": 30000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "grok-4.20-multi-agent-0309": [
+      {
+        "source": "xai/grok-4.20-multi-agent-0309",
+        "type": "chat",
+        "family": "grok",
+        "context": 1000000,
+        "input": null,
+        "output": 30000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": false
+      }
+    ],
+    "grok-4.3": [
+      {
+        "source": "xai/grok-4.3",
+        "type": "chat",
+        "family": "grok",
+        "context": 1000000,
+        "input": null,
+        "output": 30000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "grok-4.5": [
+      {
+        "source": "xai/grok-4.5",
+        "type": "chat",
+        "family": "grok",
+        "context": 500000,
+        "input": null,
+        "output": 500000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "grok-4.6": [
+      {
+        "source": "xai/grok-4.6",
+        "type": "chat",
+        "family": "grok",
+        "context": 500000,
+        "input": null,
+        "output": 500000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "grok-4.7": [
+      {
+        "source": "xai/grok-4.7",
+        "type": "chat",
+        "family": "grok",
+        "context": 500000,
+        "input": null,
+        "output": 500000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "grok-build-0.1": [
+      {
+        "source": "xai/grok-build-0.1",
+        "type": "chat",
+        "family": "grok-build",
+        "context": 256000,
+        "input": null,
+        "output": 256000,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "text"
+        ],
+        "reasoning": true,
+        "toolCalling": true
+      }
+    ],
+    "grok-imagine-image": [
+      {
+        "source": "xai/grok-imagine-image",
+        "type": "chat",
+        "family": "grok",
+        "context": 16000,
+        "input": null,
+        "output": 0,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "image",
+          "pdf"
+        ],
+        "reasoning": false,
+        "toolCalling": false
+      }
+    ],
+    "grok-imagine-image-quality": [
+      {
+        "source": "xai/grok-imagine-image-quality",
+        "type": "chat",
+        "family": "grok",
+        "context": 16000,
+        "input": null,
+        "output": 0,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "image",
+          "pdf"
+        ],
+        "reasoning": false,
+        "toolCalling": false
+      }
+    ],
+    "grok-imagine-video": [
+      {
+        "source": "xai/grok-imagine-video",
+        "type": "chat",
+        "family": "grok",
+        "context": 1024,
+        "input": null,
+        "output": 0,
+        "inputModalities": [
+          "text",
+          "image",
+          "video",
+          "pdf"
+        ],
+        "outputModalities": [
+          "video"
+        ],
+        "reasoning": false,
+        "toolCalling": false
+      }
+    ],
+    "grok-imagine-video-1.5": [
+      {
+        "source": "xai/grok-imagine-video-1.5",
+        "type": "chat",
+        "family": "grok",
+        "context": 1024,
+        "input": null,
+        "output": 0,
+        "inputModalities": [
+          "text",
+          "image",
+          "audio",
+          "pdf"
+        ],
+        "outputModalities": [
+          "video"
+        ],
+        "reasoning": false,
+        "toolCalling": false
+      }
+    ],
+    "grok-imagine-video-1.5-lite": [
+      {
+        "source": "xai/grok-imagine-video-1.5-lite",
+        "type": "chat",
+        "family": "grok",
+        "context": 1024,
+        "input": null,
+        "output": 0,
+        "inputModalities": [
+          "text",
+          "image",
+          "pdf"
+        ],
+        "outputModalities": [
+          "video"
+        ],
+        "reasoning": false,
+        "toolCalling": false
+      }
+    ]
+  }
+}

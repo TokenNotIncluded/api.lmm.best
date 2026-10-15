@@ -20,7 +20,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
-import { api, clearAuthentication, isAuthBundle } from '@/lib/api'
+import { api, isAuthBundle } from '@/lib/api'
 
 import {
   createOAuthFlow,
@@ -126,7 +126,6 @@ export function useOAuthLogin(
     if (!response.success) {
       throw new Error(response.message || t('Failed to sign out session'))
     }
-    clearAuthentication()
   }
 
   const handleGoogleLogin = async () => {

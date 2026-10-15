@@ -62,6 +62,7 @@ import {
   isUserDeleted,
 } from '../constants'
 import { currentTopupCredits, topupPaymentAmounts } from '../lib/topup-display'
+import { readableTopupMethods } from '../lib/user-data-display'
 import type { User } from '../types'
 import { DataTableRowActions } from './data-table-row-actions'
 import { TopupCreditsValue, TopupPaymentValue } from './topup-values'
@@ -310,7 +311,7 @@ export function useUsersColumns(): ColumnDef<User>[] {
       header: t('Top-up credits'),
       cell: ({ row }) => {
         const summary = row.original.topup_summary
-        const methods = summary?.methods ?? []
+        const methods = readableTopupMethods(summary?.methods)
         return (
           <Tooltip>
             <TooltipTrigger
@@ -324,7 +325,9 @@ export function useUsersColumns(): ColumnDef<User>[] {
               </span>
             </TooltipTrigger>
             <TooltipContent className='max-w-[320px]'>
-              {methods.length === 0 ? (
+              {methods === null ? (
+                <p className='text-xs'>{t('Unavailable')}</p>
+              ) : methods.length === 0 ? (
                 <p className='text-xs'>
                   <TopupCreditsValue record={summary} />
                 </p>
@@ -361,7 +364,7 @@ export function useUsersColumns(): ColumnDef<User>[] {
       header: t('Actual payment'),
       cell: ({ row }) => {
         const summary = row.original.topup_summary
-        const methods = summary?.methods ?? []
+        const methods = readableTopupMethods(summary?.methods)
         return (
           <Tooltip>
             <TooltipTrigger
@@ -372,7 +375,9 @@ export function useUsersColumns(): ColumnDef<User>[] {
               <TopupPaymentValue record={summary} />
             </TooltipTrigger>
             <TooltipContent className='max-w-[320px]'>
-              {methods.length === 0 ? (
+              {methods === null ? (
+                <p className='text-xs'>{t('Unavailable')}</p>
+              ) : methods.length === 0 ? (
                 <p className='text-xs'>
                   <TopupPaymentValue record={summary} />
                 </p>

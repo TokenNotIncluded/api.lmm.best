@@ -176,10 +176,7 @@ describe('console activation boundary', () => {
       ),
       '/dashboard'
     )
-    assert.equal(
-      getAuthenticatedLandingRoute(user({ role: 10 })),
-      '/wallet'
-    )
+    assert.equal(getAuthenticatedLandingRoute(user({ role: 10 })), '/wallet')
     assert.equal(
       getAuthenticatedLandingRoute(
         user({
@@ -227,10 +224,7 @@ describe('console activation boundary', () => {
     })
 
     assert.equal(isConsoleActivated(contradictory), false)
-    assert.equal(
-      getAuthenticatedLandingRoute(contradictory),
-      '/wallet'
-    )
+    assert.equal(getAuthenticatedLandingRoute(contradictory), '/wallet')
     assert.equal(isConsoleActivated(malformed), false)
     assert.equal(getAuthenticatedLandingRoute(malformed), '/wallet')
   })
@@ -272,6 +266,10 @@ describe('console activation boundary', () => {
     assert.equal(isContributorRoute('/workspace'), false)
     assert.equal(isContributorRoute('/challenges/42'), false)
     assert.equal(isContributorRoute('/models'), false)
+    assert.equal(isContributorRoute('/remote-control'), true)
+    assert.equal(isContributorRoute('/remote-control/'), true)
+    assert.equal(isContributorRoute('/remote-control/admin'), false)
+    assert.equal(isContributorRoute('/remote-control-extra'), false)
   })
 
   test('hides legacy public discovery surfaces before activation', () => {

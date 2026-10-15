@@ -348,6 +348,7 @@ test('a directly opened OTP URL also rejects a malicious return target', async (
 
 for (const action of ['Back to login', 'Re-login']) {
   test(`${action} preserves the safe product return target`, async () => {
+    useAuthStore.getState().auth.setPending2FAFlowToken('leaving-current-flow')
     const { host, router } = await mount(
       `/otp?redirect=${encodeURIComponent(target)}`
     )
@@ -366,6 +367,7 @@ for (const action of ['Back to login', 'Re-login']) {
     )
     assert.equal(router.state.location.pathname, '/sign-in')
     assert.equal(router.state.location.search.redirect, target)
+    assert.equal(useAuthStore.getState().auth.pending2FAFlowToken, null)
   })
 }
 
@@ -377,6 +379,123 @@ test('an expired OTP flow keeps its safe target when restarting sign-in', async 
   assert.equal(router.state.location.pathname, '/sign-in')
   assert.equal(router.state.location.search.redirect, target)
   assert.equal(calls.length, 0)
+})
+
+test('server-expired OTP flow is discarded before returning to sign-in', async () => {
+  useAuthStore.getState().auth.setPending2FAFlowToken('expired-server-flow')
+  const { host, router } = await mount(
+    `/otp?redirect=${encodeURIComponent(target)}`
+  )
+  api.post = (async () => ({
+    data: { success: false, code: 'MFA_FLOW_EXPIRED' },
+  })) as typeof api.post
+  await otpLogin(host)
+  assert.equal(useAuthStore.getState().auth.pending2FAFlowToken, null)
+  assert.equal(router.state.location.pathname, '/sign-in')
+  assert.equal(router.state.location.search.redirect, target)
+})
+
+test('a known expired challenge is not submitted', async () => {
+  useAuthStore.getState().auth.setPending2FAFlowToken('expired-local-flow', 1)
+  const { host, router } = await mount('/otp')
+  await otpLogin(host)
+  assert.equal(calls.length, 0)
+  assert.equal(useAuthStore.getState().auth.pending2FAFlowToken, null)
+  assert.equal(router.state.location.pathname, '/sign-in')
+})
+
+test('a late OTP success cannot replace a later login', async () => {
+  useAuthStore.getState().auth.setPending2FAFlowToken('old-flow')
+  const { host } = await mount('/otp')
+  let release!: (value: {
+    data: { success: boolean; data: AuthBundle }
+  }) => void
+  const pending = new Promise<{ data: { success: boolean; data: AuthBundle } }>(
+    (resolve) => {
+      release = resolve
+    }
+  )
+  api.post = (() => pending) as typeof api.post
+  await otpLogin(host)
+  const back = [...host.querySelectorAll('button')].find(
+    (button) => button.textContent === 'Back to login'
+  )
+  assert.ok(back)
+  await act(async () => {
+    back.click()
+  })
+  const newer = {
+    ...bundle,
+    access_token: 'newer-login',
+    user: { ...bundle.user, id: 99 },
+    session: { ...bundle.session, sid: 'newer-session' },
+  }
+  await act(async () => {
+    useAuthStore.getState().auth.setBundle(newer)
+    release({ data: { success: true, data: bundle } })
+    await Promise.resolve()
+  })
+  assert.equal(useAuthStore.getState().auth.accessToken, 'newer-login')
+  assert.equal(useAuthStore.getState().auth.user?.id, 99)
+})
+
+test('leaving during post-login language loading suppresses the late redirect but retains the committed session', async () => {
+  useAuthStore.getState().auth.setPending2FAFlowToken('language-delay-flow')
+  const { host, router } = await mount('/otp')
+  const clientI18n = (await import('i18next')).default
+  if (!clientI18n.isInitialized) {
+    await clientI18n.init({
+      lng: 'en',
+      fallbackLng: false,
+      resources: {
+        en: { translation: {} },
+        fr: { translation: {} },
+      },
+    })
+  }
+  const originalChangeLanguage = clientI18n.changeLanguage
+  let release!: () => void, entered!: () => void
+  const wait = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const started = new Promise<void>((resolve) => {
+    entered = resolve
+  })
+  clientI18n.changeLanguage = (async () => {
+    entered()
+    await wait
+    return clientI18n.t
+  }) as typeof clientI18n.changeLanguage
+  api.post = (async () => ({
+    data: {
+      success: true,
+      data: {
+        ...bundle,
+        user: { ...bundle.user, language: 'fr' },
+      },
+    },
+  })) as typeof api.post
+  try {
+    await otpLogin(host)
+    await started
+    assert.equal(useAuthStore.getState().auth.accessToken, bundle.access_token)
+    const back = [...host.querySelectorAll('button')].find(
+      (button) => button.textContent === 'Back to login'
+    )
+    assert.ok(back)
+    await act(async () => {
+      back.click()
+    })
+    await act(async () => {
+      release()
+      await Promise.resolve()
+    })
+    assert.equal(router.state.location.pathname, '/sign-in')
+    assert.equal(useAuthStore.getState().auth.accessToken, bundle.access_token)
+  } finally {
+    release()
+    clientI18n.changeLanguage = originalChangeLanguage
+  }
 })
 
 test('sign-up links and registration success keep the original product through sign-in and OTP', async () => {

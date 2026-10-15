@@ -1,6 +1,6 @@
 /* Copyright (C) 2026 LIghtJUNction. AGPL-3.0-or-later. */
 export const REPOSITORIES = {
-  project: 'TokenNotIncluded/api.lmm.best',
+  project: 'TokenNotIncluded/lmm-api',
   scripts: 'TokenNotIncluded/lmm-scripts',
 } as const
 export type RepositoryKind = keyof typeof REPOSITORIES

@@ -1200,3 +1200,164 @@ async fn spent_seller_proceeds_cannot_create_more_debt_than_original_capture_rep
     );
     balanced(&pool).await;
 }
+
+#[path = "common/abuse_resources.rs"]
+mod abuse_resources;
+
+#[sqlx::test(migrations = false)]
+async fn marked_new_personal_team_and_key_commerce_denied_but_existing_money_finishes(
+    pool: PgPool,
+) {
+    let f = fixture(&pool, 500_000).await;
+    let personal_key = f
+        .identity
+        .issue_key(
+            &f.buyer,
+            Account {
+                kind: AccountKind::Personal,
+                id: 7,
+            },
+            FundingPolicy::new_personal_key(),
+            3600,
+        )
+        .await
+        .unwrap();
+    let team = f.identity.create_team(&f.buyer).await.unwrap();
+    let team_key = f
+        .identity
+        .issue_key(
+            &f.buyer,
+            Account {
+                kind: AccountKind::Team,
+                id: team,
+            },
+            FundingPolicy::inherit_account_settings(),
+            3600,
+        )
+        .await
+        .unwrap();
+    let team_account = f
+        .identity
+        .authorize(&team_key.secret)
+        .await
+        .unwrap()
+        .owner_account_id;
+    f.ledger.open_wallet(team_account).await.unwrap();
+    fund(&f.ledger, team_account, 500_000, "marked-team-fixture").await;
+    sqlx::query(
+        "INSERT INTO core_commerce.key_scopes(credential_id,can_spend) VALUES($1,TRUE),($2,TRUE)",
+    )
+    .bind(personal_key.id)
+    .bind(team_key.id)
+    .execute(&pool)
+    .await
+    .unwrap();
+    let first = command(91_001, credit_price(100));
+    let second = command(91_002, credit_price(100));
+    let first_receipt = f.store.execute(&f.buyer, &bytes(&first)).await.unwrap();
+    let second_receipt = f.store.execute(&f.buyer, &bytes(&second)).await.unwrap();
+    assert_eq!(first_receipt.outcome, "succeeded");
+    assert_eq!(second_receipt.outcome, "succeeded");
+    let marker = abuse_resources::marker(&pool, &f.identity).await;
+    marker.mark(7).await;
+    marker.mark(9).await;
+    let before = abuse_resources::financial_snapshot(&pool).await;
+    for (offset, credential, buyer) in [
+        (
+            0,
+            &f.buyer,
+            Account {
+                kind: AccountKind::Personal,
+                id: 7,
+            },
+        ),
+        (
+            1,
+            &personal_key.secret,
+            Account {
+                kind: AccountKind::Personal,
+                id: 7,
+            },
+        ),
+        (
+            2,
+            &f.buyer,
+            Account {
+                kind: AccountKind::Team,
+                id: team,
+            },
+        ),
+        (
+            3,
+            &team_key.secret,
+            Account {
+                kind: AccountKind::Team,
+                id: team,
+            },
+        ),
+    ] {
+        let mut new = command(92_000 + offset, credit_price(100));
+        new.buyer = buyer;
+        assert_eq!(
+            f.store.execute(credential, &bytes(&new)).await.unwrap_err(),
+            Error::Forbidden
+        );
+        assert_eq!(
+            abuse_resources::financial_snapshot(&pool).await,
+            before,
+            "denied new commerce changed funds, metadata or sequences"
+        );
+    }
+    assert_eq!(
+        f.store.execute(&f.buyer, &bytes(&first)).await.unwrap(),
+        first_receipt
+    );
+    let settle = action(&first, "settle", &first_receipt.reference, "");
+    let settled = f.store.execute(&f.seller, &bytes(&settle)).await.unwrap();
+    assert_eq!(settled.outcome, "succeeded");
+    let refund_settled = action(
+        &first,
+        "refund",
+        &first_receipt.reference,
+        &settled.reference,
+    );
+    assert_eq!(
+        f.store
+            .execute(&f.seller, &bytes(&refund_settled))
+            .await
+            .unwrap()
+            .outcome,
+        "succeeded"
+    );
+    let refund_held = action(&second, "refund", &second_receipt.reference, "");
+    assert_eq!(
+        f.store
+            .execute(&f.seller, &bytes(&refund_held))
+            .await
+            .unwrap()
+            .outcome,
+        "succeeded"
+    );
+    let wallet = f.ledger.balance(f.buyer_id).await.unwrap();
+    assert_eq!(
+        (wallet.available_units, wallet.reserved_units),
+        (500_000, 0)
+    );
+    balanced(&pool).await;
+    // Authentication and own key management continue; no fake ledger entries.
+    assert_eq!(f.identity.authorize(&f.buyer).await.unwrap().user_id, 7);
+    assert!(
+        f.identity
+            .issue_key(
+                &f.buyer,
+                Account {
+                    kind: AccountKind::Personal,
+                    id: 7
+                },
+                FundingPolicy::new_personal_key(),
+                3600
+            )
+            .await
+            .is_ok()
+    );
+}

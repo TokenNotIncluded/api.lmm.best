@@ -117,6 +117,14 @@ func openStorage(ctx context.Context, c StorageConfig) (*sql.DB, error) {
 			return nil, errors.New("assistant preset grants unavailable")
 		}
 	}
+	if c.Component == "operations" {
+		for _, privilege := range []string{"USAGE", "SELECT"} {
+			var allowed bool
+			if err := db.QueryRowContext(bounded, `SELECT COALESCE(has_sequence_privilege(current_user,to_regclass('lmm_operations.publication_id'),$1),false)`, privilege).Scan(&allowed); err != nil || !allowed {
+				return nil, errors.New("operations sequence grants unavailable")
+			}
+		}
+	}
 	failed = false
 	return db, nil
 }
@@ -145,6 +153,10 @@ func storageTables(component string) []storageTable {
 		add("lmm_assistant.history_messages", "SELECT", "INSERT", "DELETE")
 		add("lmm_assistant.turn_receipts", "SELECT", "INSERT")
 		add("lmm_assistant.preset_stats", "SELECT")
+	case "operations":
+		add("lmm_operations.contract", "SELECT")
+		add("lmm_operations.publications", "SELECT", "INSERT")
+		add("lmm_operations.reads", "SELECT", "INSERT")
 	case "payments":
 		add("public.payment_storage_guard", "SELECT")
 		add("public.payment_orders", "SELECT", "INSERT", "UPDATE")

@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"io"
@@ -175,11 +176,15 @@ func TestOperationsHTTPRealPostgresRestartAndUserIsolation(t *testing.T) {
 	if dsn == "" {
 		t.Skip("private PostgreSQL runtime DSN not configured")
 	}
-	service, err := operations.New(context.Background(), operations.Config{Releases: &operations.DatabaseConfig{DSN: dsn}})
+	runtime, err := sql.Open("postgres", dsn)
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer service.Close()
+	defer runtime.Close()
+	service, err := operations.New(context.Background(), operations.Config{Releases: runtime})
+	if err != nil {
+		t.Fatal(err)
+	}
 	actor := sessionSelf()
 	actor.UserId = 701
 	actor.Owner.Id = 701

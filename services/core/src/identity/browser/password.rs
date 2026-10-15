@@ -92,6 +92,13 @@ impl BrowserAuth {
         if user != current.user_id || current.user_version != actor.user_version {
             return Err(IdentityError::Unauthorized.into());
         }
+        let assurance = super::super::mfa::from_session(
+            &mut tx,
+            current.credential_id,
+            user,
+            current.user_version,
+        )
+        .await?;
         let version: i64 = sqlx::query_scalar(
             "UPDATE core_identity.users SET auth_version=auth_version+1
              WHERE id=$1 AND auth_version=$2 RETURNING auth_version",
@@ -117,9 +124,14 @@ impl BrowserAuth {
         .await?;
         let refresh = new_secret("lmmr_")?;
         let next = self.derived_secret(b"browser-access-v1", &sid, &refresh, "lmms_")?;
-        let issued =
-            auth::issue_session_with_secret(&mut tx, user, "session.password_change", next.clone())
-                .await?;
+        let issued = auth::issue_session_with_assurance(
+            &mut tx,
+            user,
+            "session.password_change",
+            next.clone(),
+            &assurance.rebind_version(version),
+        )
+        .await?;
         sqlx::query(
             "UPDATE core_identity.credentials
              SET expires_at=LEAST(expires_at,clock_timestamp()+interval '15 minutes',

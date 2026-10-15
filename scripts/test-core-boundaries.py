@@ -10,10 +10,15 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPOSITION_STORAGE = "services/extensions/internal/composition/storage.go"
+COMPOSITION_PAYMENTS = "services/extensions/internal/composition/payments.go"
+OPERATIONS_POSTGRES = "services/extensions/internal/modules/operations/postgres.go"
+OPERATIONS_RELEASES = "services/extensions/internal/modules/operations/releases.go"
+OPERATIONS_INJECTION = "services/extensions/internal/modules/operations/scripts.go"
 # Source guards are an offline contract only. The PostgreSQL role/schema/grant
 # mutations in composition/guards_integration_test.go require a real test DB.
 COMPOSITION_STORAGE_GUARDS = (
-    '(c.Component != "store" && c.Component != "support" && c.Component != "assistant" && c.Component != "payments")',
+    'regexp.MustCompile(`^lmm_(store|support|assistant|payments|operations)(_[a-z0-9]+)*$`)',
+    '(c.Component != "store" && c.Component != "support" && c.Component != "assistant" && c.Component != "payments" && c.Component != "operations")',
     '!databaseName.MatchString(c.Database)',
     'strings.HasPrefix(c.Database, "lmm_"+c.Component)',
     'if err := c.validate(); err != nil',
@@ -41,6 +46,12 @@ COMPOSITION_STORAGE_GUARDS = (
     "has_table_privilege(current_user,to_regclass($1),$2)",
     'err != nil || !allowed',
     'return nil, errors.New("extension storage schema or runtime grants unavailable")',
+    'case "operations":',
+    'add("lmm_operations.contract", "SELECT")',
+    'add("lmm_operations.publications", "SELECT", "INSERT")',
+    'add("lmm_operations.reads", "SELECT", "INSERT")',
+    "has_sequence_privilege(current_user,to_regclass('lmm_operations.publication_id'),$1)",
+    'return nil, errors.New("operations sequence grants unavailable")',
     'if failed {',
     '_ = db.Close()',
 )
@@ -48,14 +59,121 @@ COMPOSITION_RUNTIME_GUARDS = (
     'openStorage(ctx, cfg.Store)',
     'openStorage(ctx, cfg.Support)',
     'openStorage(ctx, cfg.Assistant)',
+    'openStorage(ctx, cfg.Operations)',
     'store.NewPostgres(db)',
     'support.NewPostgres(db)',
     'var funds store.Funds = store.DisabledFunds{}',
     'if cfg.CommerceTokenFile != ""',
-    'commerce and identity RPC credentials must be distinct',
+    'if err := independentRuntimeCredentials(cfg.HostCredential, token, commerceToken); err != nil',
     'rustfunds.New(r.CommerceClient, caps.GetFeatures())',
     'store.New(repo, auth, funds)',
 )
+
+# This remains an offline source contract, not an execution of Go. Tokenize
+# literals/comments so a commented-out guard cannot satisfy a call/body check.
+# Require the complete small pairwise helper, not an error-message substring.
+GO_TOKEN = re.compile(
+    r'//[^\n]*|/\*[\s\S]*?\*/|"(?:\\.|[^"\\])*"|`[^`]*`|'
+    r"'(?:\\.|[^'\\])*'|[A-Za-z_]\w*|\d+|\.\.\.|:=|==|!=|&&|\|\||[^\s]"
+)
+RUNTIME_CREDENTIAL_BODY = """
+for i, token := range credentials {
+    if len(token) == 0 {
+        continue
+    }
+    for _, other := range credentials[i+1:] {
+        if len(other) != 0 && bytes.Equal(token, other) {
+            return errors.New("host and core RPC credentials must be independent")
+        }
+    }
+}
+return nil
+"""
+PAYMENT_CREDENTIAL_BODY = """
+paymentToken, err := coreclient.ReadTokenFile(cfg.PaymentTokenFile)
+if err != nil {
+    return nil, errors.New("private payment RPC credential unavailable")
+}
+if len(cfg.HostCredential) < 32 {
+    return nil, errors.New("payment RPC requires an independent loaded host credential")
+}
+if err := independentRuntimeCredentials(cfg.HostCredential, identityToken, commerceToken, paymentToken); err != nil {
+    return nil, err
+}
+return paymentToken, nil
+"""
+OPERATIONS_RUNTIME_BLOCK = """
+if selected["operations"] {
+    config := operations.Config{Scripts: cfg.Scripts}
+    if cfg.Operations.URLFile != "" || cfg.Operations.Database != "" {
+        db, err := openStorage(ctx, cfg.Operations)
+        if err != nil { return nil, err }
+        r.close = append(r.close, db.Close)
+        config.Releases = db
+    }
+    if config.Releases == nil && config.Scripts == nil {
+        return nil, errors.New("operations requires configured releases or reviewed scripts")
+    }
+    r.Operations, err = operations.New(ctx, config)
+    if err != nil { return nil, err }
+} else if cfg.Operations.URLFile != "" || cfg.Operations.Database != "" || cfg.Scripts != nil {
+    return nil, errors.New("operations configuration requires explicit module selection")
+}
+"""
+OPERATIONS_NEW_BODY = """
+s := new(Service)
+var err error
+if c.Releases != nil {
+    s.Releases, err = NewPostgres(ctx, c.Releases)
+    if err != nil { return nil, err }
+}
+if c.Scripts != nil {
+    s.Scripts, err = LoadScripts(*c.Scripts)
+    if err != nil { return nil, err }
+}
+return s, nil
+"""
+OPERATIONS_LIST_BODY = """
+if limit < 1 || limit > 50 { return nil, ErrInvalid }
+ctx, cancel := context.WithTimeout(ctx, 3*time.Second)
+defer cancel()
+rows, err := s.db.QueryContext(ctx, "SELECT "+noteColumns+" FROM lmm_operations.publications ORDER BY id DESC LIMIT $1", limit)
+if err != nil { return nil, ErrUnavailable }
+defer rows.Close()
+out := []ReleaseNote{}
+for rows.Next() {
+    n, e := scanNote(rows)
+    if e != nil { return nil, ErrUnavailable }
+    out = append(out, *n)
+}
+if rows.Err() != nil { return nil, ErrUnavailable }
+return out, nil
+"""
+OPERATIONS_SEQUENCE_BLOCK = """
+if c.Component == "operations" {
+    for _, privilege := range []string{"USAGE", "SELECT"} {
+        var allowed bool
+        if err := db.QueryRowContext(bounded, `SELECT COALESCE(has_sequence_privilege(current_user,to_regclass('lmm_operations.publication_id'),$1),false)`, privilege).Scan(&allowed); err != nil || !allowed {
+            return nil, errors.New("operations sequence grants unavailable")
+        }
+    }
+}
+"""
+OPERATIONS_CHECK_GUARDS = (
+    "rolsuper OR rolcreaterole OR rolcreatedb OR rolreplication OR rolbypassrls",
+    "FROM pg_auth_members", "has_database_privilege(current_database(),'CREATE')",
+    "has_database_privilege(current_database(),'TEMP')", "has_schema_privilege(oid,'CREATE')",
+    "c.relrowsecurity OR c.relforcerowsecurity", "FROM pg_policy",
+    "'UPDATE,DELETE,TRUNCATE,REFERENCES,TRIGGER'", "a.is_grantable OR a.privilege_type NOT IN",
+    "aclexplode(a.attacl)", "has_sequence_privilege('lmm_operations.publication_id','USAGE')",
+    "has_sequence_privilege('lmm_operations.publication_id','SELECT')",
+    "NOT has_sequence_privilege('lmm_operations.publication_id','UPDATE')",
+)
+
+
+def go_tokens(source):
+    return [token for token in GO_TOKEN.findall(source)
+            if not token.startswith(("//", "/*"))]
 
 
 class CoreBoundaryTests(unittest.TestCase):
@@ -128,14 +246,28 @@ class CoreBoundaryTests(unittest.TestCase):
             "services/extensions/internal/modules/assistant/history_postgres.go": "lmm_assistant.",
             "services/extensions/internal/modules/promotions/postgres.go": "lmm_promotions.",
             "services/extensions/internal/modules/payments/postgres.go": "payment_",
+            OPERATIONS_POSTGRES: "lmm_operations.",
+            OPERATIONS_RELEASES: "lmm_operations.",
         }
-        # Exactly one production file owns the driver and opens bounded pools.
-        # Adapters still receive only injected pools for their own schema.
+        # Exactly one production file opens bounded pools. The operations owner
+        # initializer imports pq only for reviewed identifier quoting; its
+        # runtime constructor and adapters still borrow their own injected pool.
         for forbidden in ("gorm.io", "go-sql-driver", "jackc/pgx", "sqlite"):
             self.assertNotIn(forbidden, text, path)
         if path != COMPOSITION_STORAGE:
-            self.assertNotIn("github.com/lib/pq", text, path)
+            if path == OPERATIONS_POSTGRES:
+                self.assert_operations_postgres(text)
+            else:
+                self.assertNotIn("github.com/lib/pq", text, path)
+                if path == OPERATIONS_RELEASES:
+                    self.assert_operations_releases(text)
             self.assertNotRegex(text, r"\bsql\s*\.\s*(?:Open|OpenDB)\s*\(", path)
+        if path == OPERATIONS_INJECTION:
+            self.assert_operations_injection(text)
+            for schema in ("core_meta.", "core_identity.", "core_billing.",
+                           "core_events.", "core_runtime.") + tuple(stores.values()):
+                self.assertNotIn(schema, text, path)
+            return
         if path not in stores and path != COMPOSITION_STORAGE:
             self.assertNotIn('"database/sql"', text, path)
             return
@@ -144,6 +276,7 @@ class CoreBoundaryTests(unittest.TestCase):
             self.assertEqual(len(re.findall(r"\bsql\s*\.\s*(?:Open|OpenDB)\s*\(", text)), 1)
             for required in COMPOSITION_STORAGE_GUARDS:
                 self.assertIn(required, text, path)
+            self.assert_operations_storage(text)
         else:
             self.assertIn(stores[path], text, path)
         schemas = ("core_meta.", "core_identity.", "core_billing.",
@@ -187,8 +320,186 @@ class CoreBoundaryTests(unittest.TestCase):
     def assert_composition_runtime(self, text):
         for required in COMPOSITION_RUNTIME_GUARDS:
             self.assertIn(required, text)
-        self.assertEqual(text.count("openStorage("), 3)
-        self.assertEqual(text.count("r.close = append(r.close, db.Close)"), 3)
+        self.assertEqual(text.count("openStorage("), 4)
+        self.assertEqual(text.count("r.close = append(r.close, db.Close)"), 4)
+        body = self.go_function_body(
+            text, "func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error)")
+        self.token_index(body, OPERATIONS_RUNTIME_BLOCK)
+        self.token_index(body, "defer func() { if resultErr != nil { _ = r.Close() } }()")
+        close = self.go_function_body(text, "func (r *Runtime) Close() error")
+        self.token_index(close, """
+            for i := len(r.close) - 1; i >= 0; i-- {
+                err = errors.Join(err, r.close[i]())
+            }
+            r.close = nil
+        """)
+
+    def token_index(self, tokens, source):
+        expected = go_tokens(source)
+        positions = [i for i in range(len(tokens) - len(expected) + 1)
+                     if tokens[i:i + len(expected)] == expected]
+        self.assertEqual(len(positions), 1, source)
+        return positions[0]
+
+    def go_function_body(self, source, signature):
+        tokens = go_tokens(source)
+        header = go_tokens(signature + " {")
+        start = self.token_index(tokens, signature + " {") + len(header)
+        depth = 1
+        for end in range(start, len(tokens)):
+            if tokens[end] == "{":
+                depth += 1
+            elif tokens[end] == "}":
+                depth -= 1
+                if depth == 0:
+                    return tokens[start:end]
+        self.fail("unterminated Go guard function: " + signature)
+
+    def assert_named_go_import(self, text, package):
+        tokens = go_tokens(text)
+        imports = self.token_index(tokens, "import (") + 2
+        end = tokens.index(")", imports)
+        imported = self.token_index(tokens[imports:end], json.dumps(package)) + imports
+        self.assertTrue(tokens[imported - 1] == "(" or tokens[imported - 1].startswith('"'))
+        return tokens
+
+    def assert_no_close_declaration(self, tokens):
+        for index, token in enumerate(tokens[:-1]):
+            if token != "func":
+                continue
+            name = index + 1
+            if tokens[name] == "(":
+                name = tokens.index(")", name) + 1
+            self.assertNotEqual(tokens[name], "Close")
+
+    def assert_sql_selectors(self, tokens, expected):
+        selectors = [tokens[i + 2] for i in range(len(tokens) - 2)
+                     if tokens[i:i + 2] == ["sql", "."]]
+        self.assertEqual(selectors, expected)
+
+    def assert_operations_postgres(self, text):
+        tokens = self.assert_named_go_import(text, "github.com/lib/pq")
+        self.assert_named_go_import(text, "database/sql")
+        self.assert_sql_selectors(tokens, ["DB", "DB", "DB"])
+        # The existing default named pq import is allowed for the owner-only
+        # quoting API. Blank/aliased imports and every connector API stay barred.
+        owner = self.go_function_body(
+            text, "func Initialize(ctx context.Context, owner *sql.DB, runtimeRole string) error")
+        expected = [go_tokens("pq.QuoteIdentifier(runtimeRole)"),
+                    go_tokens("pq.QuoteIdentifier(database)"),
+                    go_tokens("pq.QuoteIdentifier(database)")]
+        for scope in (tokens, owner):
+            calls = [scope[i:i + 6] for i in range(len(scope) - 1)
+                     if scope[i:i + 2] == ["pq", "."]]
+            self.assertEqual(calls, expected)
+        constructor = self.go_function_body(
+            text, "func NewPostgres(ctx context.Context, db *sql.DB) (*Releases, error)")
+        self.assertEqual(constructor, go_tokens("""
+            if err := Check(ctx, db); err != nil { return nil, err }
+            return &Releases{db}, nil
+        """))
+        self.assertFalse(any(tokens[i:i + 2] == [".", "Close"] for i in range(len(tokens) - 1)))
+        self.assert_no_close_declaration(tokens)
+        check = self.go_function_body(text, "func Check(ctx context.Context, runtime *sql.DB) error")
+        self.token_index(check, "runtime.QueryRowContext(ctx, isolatedSQL+")
+        self.token_index(check, "runtime.QueryRowContext(ctx, fingerprintSQL).Scan(&actual)")
+        self.token_index(check, "installed != actual || len(actual) != 32")
+        literals = [token[1:-1] for token in check if token.startswith(('"', '`'))]
+        for required in OPERATIONS_CHECK_GUARDS:
+            self.assertTrue(any(required in literal for literal in literals), required)
+
+    def assert_operations_releases(self, text):
+        tokens = self.assert_named_go_import(text, "database/sql")
+        self.assert_sql_selectors(tokens, ["DB", "ErrNoRows", "ErrNoRows"])
+        closes = [tokens[i - 1:i + 2] for i in range(1, len(tokens) - 1)
+                  if tokens[i:i + 2] == [".", "Close"]]
+        self.assertEqual(closes, [["rows", ".", "Close"]])
+        listing = self.go_function_body(text, "func (s *Releases) List(ctx context.Context, limit int) ([]ReleaseNote, error)")
+        self.token_index(listing, "defer rows.Close()")
+        # Pin the complete reviewed query/scan lifetime. A token named rows can
+        # otherwise shadow the query result with the caller's sql.DB and close
+        # that pool while satisfying the same Close selector/name checks.
+        self.assertEqual(listing, go_tokens(OPERATIONS_LIST_BODY))
+        self.assert_no_close_declaration(tokens)
+
+    def assert_operations_injection(self, text):
+        tokens = self.assert_named_go_import(text, "database/sql")
+        self.assert_sql_selectors(tokens, ["DB"])
+        self.token_index(tokens, "type Config struct { Releases *sql.DB Scripts *ScriptConfig }")
+        body = self.go_function_body(text, "func New(ctx context.Context, c Config) (*Service, error)")
+        self.assertEqual(body, go_tokens(OPERATIONS_NEW_BODY))
+        availability = self.go_function_body(text, "func (s *Service) Availability() Availability")
+        self.assertEqual(availability, go_tokens("""
+            if s == nil { return Availability{} }
+            return Availability{s.Releases != nil, s.Scripts != nil, false}
+        """))
+        # Every pool-field access is in those two complete reviewed bodies;
+        # another function cannot query, close, alias or export the injected pool.
+        accesses = lambda scope: sum(scope[i:i + 2] == [".", "Releases"]
+                                     for i in range(len(scope) - 1))
+        self.assertEqual(accesses(tokens), 4)
+        self.assertEqual(accesses(body) + accesses(availability), 4)
+        self.assert_no_close_declaration(tokens)
+
+    def assert_operations_storage(self, text):
+        body = self.go_function_body(
+            text, "func openStorage(ctx context.Context, c StorageConfig) (*sql.DB, error)")
+        self.token_index(body, OPERATIONS_SEQUENCE_BLOCK)
+        tables = self.go_function_body(text, "func storageTables(component string) []storageTable")
+        self.token_index(tables, """
+            case "operations":
+                add("lmm_operations.contract", "SELECT")
+                add("lmm_operations.publications", "SELECT", "INSERT")
+                add("lmm_operations.reads", "SELECT", "INSERT")
+            case "payments":
+        """)
+
+    def assert_runtime_credentials(self, runtime, payments, startup):
+        pairwise = self.go_function_body(
+            payments, "func independentRuntimeCredentials(credentials ...[]byte) error")
+        self.assertEqual(pairwise, go_tokens(RUNTIME_CREDENTIAL_BODY))
+        loader = self.go_function_body(
+            payments, "func loadPaymentCredential(cfg Config, identityToken, commerceToken []byte) ([]byte, error)")
+        self.assertEqual(loader, go_tokens(PAYMENT_CREDENTIAL_BODY))
+        body = self.go_function_body(
+            runtime, "func New(ctx context.Context, cfg Config) (_ *Runtime, resultErr error)")
+        guard = self.token_index(body, """
+            if err := independentRuntimeCredentials(cfg.HostCredential, token, commerceToken); err != nil {
+                return nil, err
+            }
+        """)
+        payment = self.token_index(body, """
+            if selected["payments"] {
+                paymentToken, err := loadPaymentCredential(cfg, token, commerceToken)
+                if err != nil { return nil, err }
+                if err := r.composePayments(ctx, cfg, paymentToken); err != nil {
+                    return nil, err
+                }
+            }
+        """)
+        self.assertLess(guard, payment)
+        self.assertLess(guard, self.token_index(body, "openStorage(ctx, cfg.Store)"))
+        self.assertLess(guard, self.token_index(
+            body, "r.CommerceClient, err = coreclient.New(cfg.Socket, commerceToken)"))
+        compose = self.go_function_body(
+            payments, "func (r *Runtime) composePayments(ctx context.Context, cfg Config, paymentToken []byte) error")
+        self.token_index(compose, """
+            r.PaymentClient, err = coreclient.New(cfg.Socket, paymentToken)
+            if err != nil { return err }
+        """)
+        host_loader = self.go_function_body(
+            startup, "func readHostCredential(path string) ([]byte, error)")
+        self.assertEqual(host_loader, go_tokens("return coreclient.ReadTokenFile(path)"))
+        run = self.go_function_body(startup, "func Run() error")
+        loaded = self.token_index(run, """
+            credential, err := readHostCredential(cfg.Host.TokenFile)
+            if err != nil { return err }
+        """)
+        composition = self.token_index(run, """
+            runtime, err := composition.New(context.Background(), composition.Config{
+                Selected: selected, Socket: socket, TokenFile: tokenFile, HostCredential: credential,
+        """)
+        self.assertLess(loaded, composition)
 
     def test_composition_keeps_distinct_module_pools_and_disabled_funds(self):
         source = (ROOT / "services/extensions/internal/composition/runtime.go").read_text()
@@ -196,6 +507,176 @@ class CoreBoundaryTests(unittest.TestCase):
         for required in COMPOSITION_RUNTIME_GUARDS:
             with self.subTest(required=required), self.assertRaises(AssertionError):
                 self.assert_composition_runtime(source.replace(required, ""))
+
+    def test_central_credentials_guard_keeps_all_loaded_roles_pairwise_distinct(self):
+        runtime = (ROOT / "services/extensions/internal/composition/runtime.go").read_text()
+        payments = (ROOT / COMPOSITION_PAYMENTS).read_text()
+        startup = (ROOT / "services/extensions/internal/app/run.go").read_text()
+        self.assert_runtime_credentials(runtime, payments, startup)
+        for required in ("credentials ...[]byte", "for i, token := range credentials",
+                         "len(token) == 0", "credentials[i+1:]", "len(other) != 0",
+                         "bytes.Equal(token, other)",
+                         'errors.New("host and core RPC credentials must be independent")'):
+            with self.subTest(removed=required), self.assertRaises(AssertionError):
+                self.assert_runtime_credentials(runtime, payments.replace(required, ""), startup)
+        # Each of the six possible role aliases must invalidate the exact
+        # loaded-byte call. Empty optional roles are handled by the real helper.
+        roles = ["cfg.HostCredential", "identityToken", "commerceToken", "paymentToken"]
+        original = "independentRuntimeCredentials(" + ", ".join(roles) + ")"
+        for i in range(len(roles)):
+            for j in range(i + 1, len(roles)):
+                aliased = list(roles)
+                aliased[j] = aliased[i]
+                changed = "independentRuntimeCredentials(" + ", ".join(aliased) + ")"
+                with self.subTest(pair=(roles[i], roles[j])), self.assertRaises(AssertionError):
+                    self.assert_runtime_credentials(runtime, payments.replace(original, changed), startup)
+
+    def test_actual_startup_uses_checked_credentials_before_financial_dependencies(self):
+        runtime = (ROOT / "services/extensions/internal/composition/runtime.go").read_text()
+        payments = (ROOT / COMPOSITION_PAYMENTS).read_text()
+        startup = (ROOT / "services/extensions/internal/app/run.go").read_text()
+        self.assert_runtime_credentials(runtime, payments, startup)
+        guard = "independentRuntimeCredentials(cfg.HostCredential, token, commerceToken)"
+        for changed in (runtime.replace(guard, "independentRuntimeCredentials(nil, token, commerceToken)"),
+                        runtime.replace(guard, "nil /* " + guard + " */"),
+                        runtime.replace(guard, guard + "; false"),
+                        runtime.replace("loadPaymentCredential(cfg, token, commerceToken)",
+                                        "loadPaymentCredential(cfg, token, token)"),
+                        runtime.replace("r.composePayments(ctx, cfg, paymentToken)",
+                                        "r.composePayments(ctx, cfg, token)")):
+            with self.subTest(runtime=changed), self.assertRaises(AssertionError):
+                self.assert_runtime_credentials(changed, payments, startup)
+        for required in ("coreclient.ReadTokenFile(cfg.PaymentTokenFile)",
+                         "len(cfg.HostCredential) < 32", "return paymentToken, nil"):
+            with self.subTest(removed=required), self.assertRaises(AssertionError):
+                self.assert_runtime_credentials(runtime, payments.replace(required, ""), startup)
+        with self.assertRaises(AssertionError):
+            self.assert_runtime_credentials(runtime, payments.replace(
+                "coreclient.New(cfg.Socket, paymentToken)", "coreclient.New(cfg.Socket, identityToken)"), startup)
+        for old, new in (("HostCredential: credential", "HostCredential: nil"),
+                         ("credential, err := readHostCredential(cfg.Host.TokenFile)",
+                          "credential, err := []byte(nil), error(nil)"),
+                         ("return coreclient.ReadTokenFile(path)", "return nil, nil")):
+            with self.subTest(startup=old), self.assertRaises(AssertionError):
+                self.assert_runtime_credentials(runtime, payments, startup.replace(old, new))
+
+    def test_operations_adapters_borrow_and_keep_schema_boundaries(self):
+        paths = (OPERATIONS_POSTGRES, OPERATIONS_RELEASES, OPERATIONS_INJECTION)
+        for path in paths:
+            source = (ROOT / path).read_text()
+            self.assert_extension_storage(path, source)
+            for forbidden in ("core_identity.users", "core_billing.balance_state", "core_events.outbox",
+                              "lmm_store.orders", "lmm_support.messages", "lmm_assistant.records",
+                              "lmm_promotions.records", "payment_orders"):
+                with self.subTest(path=path, table=forbidden), self.assertRaises(AssertionError):
+                    self.assert_extension_storage(path, source + "\nSELECT * FROM " + forbidden)
+            for opener in ('sql.Open("postgres", dsn)', 'sql.OpenDB(connector)',
+                           'sql . Open ("postgres", dsn)'):
+                with self.subTest(path=path, opener=opener), self.assertRaises(AssertionError):
+                    self.assert_extension_storage(path, source + "\n" + opener)
+            aliased = source.replace('"database/sql"', 'dbsql "database/sql"').replace("sql.", "dbsql.")
+            aliased += '\nfunc unapproved() { _, _ = dbsql.Open("postgres", "synthetic") }'
+            with self.subTest(path=path, alias=True), self.assertRaises(AssertionError):
+                self.assert_extension_storage(path, aliased)
+            for method in ("Open", "OpenDB"):
+                with self.subTest(path=path, method_value=method), self.assertRaises(AssertionError):
+                    self.assert_extension_storage(path, source + "\nvar unapproved = sql." + method)
+        releases = (ROOT / OPERATIONS_RELEASES).read_text()
+        for added in ("func (s *Releases) Close() error { return s.db.Close() }",
+                      "func (s *Releases) closeBorrowed() error { borrowed := s.db; return borrowed.Close() }"):
+            with self.subTest(releases=added), self.assertRaises(AssertionError):
+                self.assert_extension_storage(OPERATIONS_RELEASES, releases + "\n" + added)
+        injection = (ROOT / OPERATIONS_INJECTION).read_text()
+        for forbidden in ("lmm_operations.publications", "lmm_operations.reads"):
+            with self.subTest(injection=forbidden), self.assertRaises(AssertionError):
+                self.assert_extension_storage(OPERATIONS_INJECTION,
+                                              injection + "\nSELECT * FROM " + forbidden)
+        for old, new in (("Releases *sql.DB", "Releases *DatabaseConfig"),
+                         ("NewPostgres(ctx, c.Releases)", "Open(ctx, *c.Releases)"),
+                         ("return s, nil", "c.Releases.Close(); return s, nil")):
+            with self.subTest(injection=old), self.assertRaises(AssertionError):
+                self.assert_extension_storage(OPERATIONS_INJECTION, injection.replace(old, new))
+        for added in ("func extra(c Config) error { return c.Releases.Close() }",
+                      'func extra(c Config) { c.Releases.QueryContext(context.Background(), "SELECT 1") }',
+                      "func extra(c Config) { borrowed := c.Releases; borrowed.Close() }",
+                      "func (s *Service) Close() error { return nil }"):
+            with self.subTest(injection_extra=added), self.assertRaises(AssertionError):
+                self.assert_extension_storage(OPERATIONS_INJECTION, injection + "\n" + added)
+        for path in ("services/extensions/internal/modules/store/postgres.go",
+                     "services/extensions/internal/modules/support/postgres.go",
+                     "services/extensions/internal/modules/assistant/postgres.go",
+                     "services/extensions/internal/modules/promotions/postgres.go",
+                     "services/extensions/internal/modules/payments/postgres.go"):
+            source = (ROOT / path).read_text()
+            with self.subTest(other_module=path), self.assertRaises(AssertionError):
+                self.assert_extension_storage(path, source + "\nSELECT * FROM lmm_operations.publications")
+
+    def test_operations_pool_is_guarded_and_owned_by_composition(self):
+        runtime = (ROOT / "services/extensions/internal/composition/runtime.go").read_text()
+        storage = (ROOT / COMPOSITION_STORAGE).read_text()
+        self.assert_composition_runtime(runtime)
+        self.assert_extension_storage(COMPOSITION_STORAGE, storage)
+        for old, new in (("openStorage(ctx, cfg.Operations)", "storageURL(cfg.Operations)"),
+                         ("if resultErr != nil", "if false"),
+                         ("i := len(r.close) - 1", "i := 0"),
+                         ("config.Releases = db", "config.Releases = nil"),
+                         ("config.Releases = db", "db.Close(); config.Releases = db"),
+                         ("r.Operations, err = operations.New(ctx, config)",
+                          "r.Operations, err = operations.New(ctx, operations.Config{})")):
+            with self.subTest(runtime=old), self.assertRaises(AssertionError):
+                self.assert_composition_runtime(runtime.replace(old, new))
+        for required in ('add("lmm_operations.contract", "SELECT")',
+                         'add("lmm_operations.publications", "SELECT", "INSERT")',
+                         'add("lmm_operations.reads", "SELECT", "INSERT")',
+                         "has_sequence_privilege(current_user,to_regclass('lmm_operations.publication_id'),$1)",
+                         "has_database_privilege(current_user,oid,'CONNECT')",
+                         "pg_has_role(current_user,oid,'SET')"):
+            with self.subTest(storage=required), self.assertRaises(AssertionError):
+                self.assert_extension_storage(COMPOSITION_STORAGE, storage.replace(required, ""))
+        for old, new in (('[]string{"USAGE", "SELECT"}', '[]string{"SELECT"}'),
+                         ('add("lmm_operations.reads", "SELECT", "INSERT")',
+                          'add("lmm_operations.reads", "SELECT", "INSERT", "UPDATE")')):
+            with self.subTest(storage=old), self.assertRaises(AssertionError):
+                self.assert_extension_storage(COMPOSITION_STORAGE, storage.replace(old, new))
+
+    def test_operations_pq_is_only_offline_identifier_quoting(self):
+        source = (ROOT / OPERATIONS_POSTGRES).read_text()
+        self.assert_extension_storage(OPERATIONS_POSTGRES, source)
+        changes = (
+            source + "\nvar unapproved = pq.NewConnector(dsn)",
+            source + '\nvar unapproved = pq.QuoteIdentifier("runtime")',
+            source.replace('"github.com/lib/pq"', '_ "github.com/lib/pq"'),
+            source.replace('"github.com/lib/pq"', '. "github.com/lib/pq"'),
+            source.replace('"github.com/lib/pq"', 'custom "github.com/lib/pq"'),
+            source.replace("pq.QuoteIdentifier(runtimeRole)", "runtimeRole"),
+            source.replace("pq.QuoteIdentifier(database)", "database"),
+            source.replace("if err := Check(ctx, db); err != nil {", "if err := error(nil); err != nil {"),
+            source.replace("return &Releases{db}, nil", "db.Close(); return &Releases{db}, nil"),
+            source.replace("return &Releases{db}, nil", "Initialize(ctx, db, role); return &Releases{db}, nil"),
+        )
+        for index, changed in enumerate(changes):
+            with self.subTest(change=index), self.assertRaises(AssertionError):
+                self.assert_extension_storage(OPERATIONS_POSTGRES, changed)
+        for required in OPERATIONS_CHECK_GUARDS:
+            with self.subTest(check=required), self.assertRaises(AssertionError):
+                self.assert_extension_storage(OPERATIONS_POSTGRES, source.replace(required, ""))
+
+    def test_operations_rows_close_cannot_alias_the_borrowed_pool(self):
+        source = (ROOT / OPERATIONS_RELEASES).read_text()
+        self.assert_extension_storage(OPERATIONS_RELEASES, source)
+        signature = "func (s *Releases) List(ctx context.Context, limit int) ([]ReleaseNote, error)"
+        start = source.index(signature)
+        end = source.index("\n}\n", start) + len("\n}")
+        original = source[start:end]
+        mutants = {
+            "direct_alias": signature + " {\nrows := s.db\ndefer rows.Close()\nreturn []ReleaseNote{}, nil\n}",
+            "nested_shadow": original.replace("defer rows.Close()",
+                "{ rows := s.db; defer rows.Close() }"),
+            "method_value": signature + " {\nrows := s.db\ncloseBorrowed := rows.Close\ndefer closeBorrowed()\nreturn []ReleaseNote{}, nil\n}",
+        }
+        for name, mutant in mutants.items():
+            with self.subTest(alias=name), self.assertRaises(AssertionError):
+                self.assert_extension_storage(OPERATIONS_RELEASES, source[:start] + mutant + source[end:])
 
     def test_extension_storage_guard_rejects_core_and_cross_module_access(self):
         path = "services/extensions/internal/modules/store/postgres.go"

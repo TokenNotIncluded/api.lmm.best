@@ -7,6 +7,7 @@
 //! Unknown provider usage retains its durable hold.
 mod billing;
 mod checkpoints;
+mod honeypot;
 mod routing;
 
 use crate::{
@@ -32,7 +33,9 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
+use subtle::ConstantTimeEq;
 
+pub use honeypot::HoneypotGateway;
 pub use routing::UpstreamCredential;
 pub const SCHEMA: &str = include_str!("../schema/model_gateway.sql");
 
@@ -72,9 +75,20 @@ pub struct ModelGateway {
     relay: Relay,
     limits: Limits,
     local_streaming: bool,
+    honeypot: Option<HoneypotGateway>,
 }
 
 impl ModelGateway {
+    /// Host-only equality check for isolated moderation credential loading.
+    /// Returns no credential material and never stops at the first match.
+    pub(crate) fn contains_credential(&self, secret: &str) -> bool {
+        let mut matched = subtle::Choice::from(0);
+        for credential in self.bridge.credentials.values() {
+            matched |= credential.as_bytes().ct_eq(secret.as_bytes());
+        }
+        bool::from(matched)
+    }
+
     /// All credentials, group grants and routing snapshots are supplied by the
     /// Rust host. No client field can choose a URL, upstream key, payer or price.
     /// The real charging and ledger adapters share this exact PostgreSQL pool.
@@ -122,6 +136,7 @@ impl ModelGateway {
             relay,
             limits,
             local_streaming: false,
+            honeypot: None,
         })
     }
 
@@ -129,6 +144,13 @@ impl ModelGateway {
     /// This does not enable external suppliers or certify their token bounds.
     pub fn with_local_streaming(mut self) -> Self {
         self.local_streaming = true;
+        self
+    }
+
+    /// Enable Core-owned moderation policy. This cannot supply or modify the
+    /// ordinary provider router, charging adapter or upstream credentials.
+    pub fn with_honeypot(mut self, honeypot: HoneypotGateway) -> Self {
+        self.honeypot = Some(honeypot);
         self
     }
 
@@ -152,7 +174,15 @@ impl ModelGateway {
     }
 
     pub async fn drain(&self, grace: Duration) -> relay::DrainReport {
-        self.relay.drain(grace).await
+        if let Some(honeypot) = &self.honeypot {
+            let (normal, marked) = tokio::join!(self.relay.drain(grace), honeypot.drain(grace));
+            relay::DrainReport {
+                cancelled: normal.cancelled.saturating_add(marked.cancelled),
+                remaining: normal.remaining.saturating_add(marked.remaining),
+            }
+        } else {
+            self.relay.drain(grace).await
+        }
     }
 
     /// Trusted host recovery only; never an HTTP/client/Go action. Expired
@@ -253,6 +283,16 @@ async fn models(
     headers: HeaderMap,
     peer: Result<ConnectInfo<SocketAddr>, ExtensionRejection>,
 ) -> Response {
+    if let Some(honeypot) = &gateway.honeypot {
+        match honeypot
+            .models(&headers, peer.as_ref().ok().map(|p| p.0.ip()))
+            .await
+        {
+            Ok(Some(response)) => return response,
+            Ok(None) => (),
+            Err(error) => return public_error(error),
+        }
+    }
     let (_, secret, groups) = match gateway.authenticate(&headers).await {
         Ok(v) => v,
         Err(e) => return public_error(e),
@@ -350,6 +390,13 @@ async fn dispatch(
     client: ClientProtocol,
     peer: Option<IpAddr>,
 ) -> Response {
+    if let Some(honeypot) = &gateway.honeypot {
+        match honeypot.dispatch(&headers, &body, client, peer).await {
+            Ok(Some(response)) => return response,
+            Ok(None) => (),
+            Err(error) => return public_error(error),
+        }
+    }
     let (principal, secret, groups) = match gateway.authenticate(&headers).await {
         Ok(v) => v,
         Err(e) => return public_error(e),

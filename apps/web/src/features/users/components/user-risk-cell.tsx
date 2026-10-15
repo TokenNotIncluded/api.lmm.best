@@ -50,6 +50,7 @@ For commercial licensing, please contact support@quantumnous.com
 */
 import { getCurrencyFormattingLocale } from '@/lib/currency'
 
+import { readableWalletRisk } from '../lib/user-data-display'
 import type { User } from '../types'
 
 const reasonLabels: Record<string, string> = {
@@ -69,6 +70,13 @@ export function UserRiskCell({ user }: { user: User }) {
   )
   const risk = user.wallet_risk
   if (!risk) return <span className='text-muted-foreground'>—</span>
+  if (!readableWalletRisk(risk)) {
+    return (
+      <span className='text-muted-foreground' title={t('Unavailable')}>
+        —
+      </span>
+    )
+  }
   const label = risk.high_risk
     ? 'High risk'
     : risk.score >= 0.4

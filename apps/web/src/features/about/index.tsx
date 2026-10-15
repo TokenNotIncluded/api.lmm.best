@@ -78,9 +78,7 @@ function EmptyAboutState() {
       <div className='mt-10 flex flex-wrap items-center gap-x-6 gap-y-4'>
         <Button
           size='lg'
-          render={
-            <Link to='/sign-in' search={{ redirect: '/dashboard' }} />
-          }
+          render={<Link to='/sign-in' search={{ redirect: '/dashboard' }} />}
         >
           {t('Sign in to get started')}
           <ArrowRight data-icon='inline-end' />
@@ -103,7 +101,7 @@ function EmptyAboutState() {
         <CodeXml className='mt-0.5 size-5 shrink-0' aria-hidden='true' />
         <div className='text-muted-foreground flex flex-wrap items-center gap-x-6 gap-y-2'>
           <a
-            href='https://github.com/TokenNotIncluded/api.lmm.best/blob/main/LICENSE'
+            href='https://github.com/TokenNotIncluded/lmm-api/blob/main/LICENSE'
             target='_blank'
             rel='noopener noreferrer'
             className='border-foreground text-foreground border-b hover:opacity-70'

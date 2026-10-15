@@ -36,7 +36,7 @@ pub(super) fn worker_digest(worker: &[u8; 32]) -> Result<Vec<u8>> {
 
 pub(super) async fn authenticate(c: &mut PgConnection, secret: &str) -> Result<Actor> {
     let row = sqlx::query(
-        "SELECT c.id,c.kind,c.user_id,c.owner_account_id,c.personal_billing_preference,u.personal_account_id \
+        "SELECT c.id,c.kind,c.user_id,c.user_version,c.owner_account_id,c.personal_billing_preference,u.personal_account_id \
          FROM core_identity.credentials c JOIN core_identity.users u ON u.id=c.user_id \
          JOIN core_identity.accounts a ON a.id=c.owner_account_id \
          JOIN core_identity.accounts p ON p.id=u.personal_account_id \
@@ -56,6 +56,20 @@ pub(super) async fn authenticate(c: &mut PgConnection, secret: &str) -> Result<A
         kind: row.try_get("kind")?,
         preference: row.try_get("personal_billing_preference")?,
     };
+    if actor.kind == "session" {
+        // Reuse the canonical identity authority on this same transaction:
+        // browser-family expiry/revocation and persisted MFA assurance must
+        // reject financial writes exactly as they reject identity operations.
+        crate::identity::authorize_in_transaction(c, secret)
+            .await
+            .map_err(|error| match error {
+                crate::identity::IdentityError::Unauthorized => Error::Unauthorized,
+                crate::identity::IdentityError::Forbidden => Error::Forbidden,
+                crate::identity::IdentityError::Invalid => Error::Invalid,
+                crate::identity::IdentityError::Conflict => Error::Retry,
+                crate::identity::IdentityError::Storage => Error::Storage,
+            })?;
+    }
     // Optional metadata is absent for original native keys. A managed Web key
     // must be locked and rechecked in this same admission transaction.
     let enabled: Option<bool> = sqlx::query_scalar(
@@ -68,6 +82,15 @@ pub(super) async fn authenticate(c: &mut PgConnection, secret: &str) -> Result<A
         return Err(Error::Unauthorized);
     }
     Ok(actor)
+}
+
+pub(super) async fn reject_new_model(c: &mut PgConnection, user: i64) -> Result<()> {
+    crate::abuse::reject_normal_model_in_transaction(c, user)
+        .await
+        .map_err(|error| match error {
+            crate::abuse::AbuseError::Forbidden => Error::Forbidden,
+            _ => Error::Storage,
+        })
 }
 
 pub(super) async fn model_policy(

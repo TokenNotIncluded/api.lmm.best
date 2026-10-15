@@ -117,7 +117,7 @@ def publish():
     if text('rev-parse', 'HEAD^{tree}') != TREE:
         raise RuntimeError('publish tree mismatch')
     token = os.environ['GH_TOKEN']
-    api = 'https://api.github.com/repos/TokenNotIncluded/api.lmm.best/git/'
+    api = 'https://api.github.com/repos/TokenNotIncluded/lmm-api/git/'
     def post(kind, payload):
         if kind not in ('blobs', 'trees', 'commits'):
             raise RuntimeError('remote ref writes are not supported')

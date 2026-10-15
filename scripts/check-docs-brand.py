@@ -161,7 +161,7 @@ def badge_urls(text: str) -> list[str]:
 
 
 def check_badges(root: Path) -> list[str]:
-    repo = "TokenNotIncluded/api.lmm.best"
+    repo = "TokenNotIncluded/lmm-api"
     expected = [
         f"https://github.com/{repo}/actions/workflows/core-protocol.yml/badge.svg?branch=wip%2Frust-core-go-extensions",
         "https://img.shields.io/badge/license-AGPL--3.0-blue",

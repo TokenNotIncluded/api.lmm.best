@@ -648,6 +648,14 @@ impl PaymentsStore {
             tx.commit().await?;
             return Ok(intent);
         }
+        // Preserve original intent reconciliation and provider transitions.
+        // Only creation of a new externally payable order is denied.
+        identity::reject_marked_new_action(
+            &mut tx,
+            actor,
+            identity::NewResourceAction::PaymentIntent,
+        )
+        .await?;
         let id: i64 = sqlx::query_scalar("INSERT INTO core_payments.intents(account_id,created_by_user_id,channel_id,provider,merchant,environment,currency,amount_minor,credit_units,credits_per_minor,prepare_key,prepare_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12) RETURNING id")
             .bind(request.account_id).bind(actor).bind(channel.id).bind(&channel.provider).bind(&channel.merchant).bind(&channel.environment).bind(&channel.currency).bind(request.amount_minor).bind(credit_units).bind(channel.credits_per_minor).bind(key).bind(&request_hash).fetch_one(&mut *tx).await?;
         let intent = pb::PaymentIntent {

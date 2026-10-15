@@ -51,7 +51,7 @@ func Run() error {
 	if socket != "" {
 		defaults = []string{"identity"}
 	}
-	selected, err := modules.Select(strings.Join(cfg.Host.Modules, ","), defaults, []string{"identity", "store", "support", "assistant", "operations"})
+	selected, err := modules.Select(strings.Join(cfg.Host.Modules, ","), defaults, []string{"identity", "store", "support", "assistant", "operations", "remote-control", "payments"})
 	if err != nil {
 		return err
 	}
@@ -64,8 +64,11 @@ func Run() error {
 		scripts = &operations.ScriptConfig{Root: cfg.Scripts.Root, Manifest: manifest}
 	}
 	runtime, err := composition.New(context.Background(), composition.Config{
-		Selected: selected, Socket: socket, TokenFile: tokenFile,
+		Selected: selected, Socket: socket, TokenFile: tokenFile, HostCredential: credential,
 		CommerceTokenFile: cfg.Core.CommerceTokenFile,
+		PaymentTokenFile:  cfg.Core.PaymentTokenFile,
+		PaymentConfigFile: cfg.Payments.ConfigFile,
+		Payments:          composition.StorageConfig{Component: "payments", URLFile: cfg.Payments.DatabaseURLFile, Database: cfg.Payments.DatabaseName},
 		Store:             composition.StorageConfig{Component: "store", URLFile: cfg.Store.DatabaseURLFile, Database: cfg.Store.DatabaseName},
 		Support:           composition.StorageConfig{Component: "support", URLFile: cfg.Support.DatabaseURLFile, Database: cfg.Support.DatabaseName},
 		Assistant:         composition.StorageConfig{Component: "assistant", URLFile: cfg.Assistant.DatabaseURLFile, Database: cfg.Assistant.DatabaseName}, AssistantCursorKeyFile: cfg.Assistant.CursorKeyFile,
@@ -101,6 +104,9 @@ func Run() error {
 		api = webcompat.Mount(host, auth, runtime.Store, runtime.Support, webcompat.AdditionalServices{Assistant: runtime.AssistantHistory, Operations: runtime.Operations})
 	}
 	handler := listenerHandler(policies, api)
+	if cfg.Payments.CallbacksEnabled {
+		handler = mountPaymentCallbacks(host, runtime.Payments.WebhookHandler(), handler)
+	}
 	address := cfg.Host.Listen
 	if address == "" {
 		address = "0.0.0.0:8081"

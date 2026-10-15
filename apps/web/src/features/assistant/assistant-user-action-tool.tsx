@@ -35,7 +35,8 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { logout } from '@/features/auth/api'
-import { clearAuthentication } from '@/lib/api'
+import { clearAuthenticationIfCurrent } from '@/lib/auth-session'
+import { useAuthStore } from '@/stores/auth-store'
 
 import {
   executeAssistantUserAction,
@@ -107,6 +108,8 @@ export function AssistantUserActionTool(props: {
 
     try {
       setLoading(true)
+      const auth = useAuthStore.getState().auth
+      const scope = { userId: auth.user?.id, sessionId: auth.session?.sid }
       const result = await executeAssistantUserAction(props.action, {
         currentPassword,
         newPassword,
@@ -119,7 +122,7 @@ export function AssistantUserActionTool(props: {
         } catch {
           // The account has already been deleted; local auth is still cleared.
         }
-        clearAuthentication()
+        clearAuthenticationIfCurrent(scope)
         navigate({ to: '/sign-in' })
         return
       }

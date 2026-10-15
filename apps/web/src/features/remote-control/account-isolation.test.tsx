@@ -52,6 +52,8 @@ mock.module('@/components/ui/markdown', () => ({
 let sessions: unknown[] = [],
   messages: unknown[] = []
 let reads = 0
+let malformedSessions = false
+let malformedMessages = false
 let postedSignal: AbortSignal | undefined
 mock.module('@/lib/api', () => ({
   api: {
@@ -60,7 +62,13 @@ mock.module('@/lib/api', () => ({
       return {
         data: {
           success: true,
-          data: path.includes('/messages') ? { messages } : { sessions },
+          data: path.includes('/messages')
+            ? malformedMessages
+              ? { unexpected: [] }
+              : { messages }
+            : malformedSessions
+              ? { unexpected: [] }
+              : { sessions },
         },
       }
     },
@@ -233,4 +241,89 @@ test('account switch/logout drop keys, plaintext query data and in-flight comman
     useAuthStore.getState().auth.reset()
   }
 })
+test('malformed successful session responses show failure instead of no active sessions', async () => {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  malformedSessions = true
+  try {
+    useAuthStore.getState().auth.setUser(user(31))
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={client}>
+          <RemoteControl />
+        </QueryClientProvider>
+      )
+    )
+    await settle(() => host.textContent?.includes('Failed to load') === true)
+    assert.equal(host.textContent?.includes('No active sessions'), false)
+    assert.equal(host.querySelector('input[type=password]'), null)
+  } finally {
+    await act(async () => root.unmount())
+    client.clear()
+    useAuthStore.getState().auth.reset()
+    malformedSessions = false
+    host.remove()
+  }
+})
+
+test('malformed successful message responses reject stale cached control state', async () => {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  })
+  const host = document.createElement('div')
+  document.body.append(host)
+  const root = createRoot(host)
+  const now = Date.now()
+  sessions = [
+    {
+      session_id: id,
+      device_id: device,
+      generation: 'generation-malformed-response',
+      expires_at: Math.floor(now / 1000) + 120,
+      updated_at: Math.floor(now / 1000),
+      metadata: await envelope(
+        {
+          version: 1,
+          summary: 'PRIVATE-FIRST-ACCOUNT',
+          capabilities: ['prompt'],
+          // Fresh cached state must not authorize commands when a new read fails.
+          messages: [{ type: 'state', busy: false, created_at: now }],
+        },
+        `lmm-pi-remote:v1:metadata:${id}:${device}`
+      ),
+    },
+  ]
+  malformedMessages = true
+  postedSignal = undefined
+  try {
+    useAuthStore.getState().auth.setUser(user(32))
+    await act(async () =>
+      root.render(
+        <QueryClientProvider client={client}>
+          <RemoteControl />
+        </QueryClientProvider>
+      )
+    )
+    await settle(() => !!host.querySelector('input[type=password]'))
+    await unlock(host)
+    await settle(
+      () => host.textContent?.includes('Unable to decrypt messages') === true
+    )
+    const textarea = host.querySelector<HTMLTextAreaElement>('textarea')
+    assert.ok(textarea)
+    assert.equal(textarea.disabled, true)
+    assert.equal(postedSignal, undefined)
+  } finally {
+    await act(async () => root.unmount())
+    client.clear()
+    useAuthStore.getState().auth.reset()
+    malformedMessages = false
+    host.remove()
+  }
+})
+
 after(() => dom.happyDOM.abort())

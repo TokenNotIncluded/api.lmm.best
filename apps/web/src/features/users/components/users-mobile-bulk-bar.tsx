@@ -18,6 +18,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { HoneypotBulkActionButton } from '@/features/honeypot/bulk-mark-dialog'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
 import { cn } from '@/lib/utils'
 
@@ -183,6 +184,10 @@ export function UsersMobileBulkBar({ table }: UsersMobileBulkBarProps) {
 
           <Separator className='my-2' aria-hidden='true' />
 
+          <HoneypotBulkActionButton
+            ids={selectedUsers.map((user) => user.id)}
+            className='mb-2 h-11 w-full'
+          />
           <div className='grid grid-cols-2 gap-2'>
             <Tooltip>
               <TooltipTrigger

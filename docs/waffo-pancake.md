@@ -175,7 +175,7 @@ go test ./model ./service ./controller -run 'WaffoPancake|PaymentWebhook|Merchan
 
 数据库新增可空 text 列 `subscription_plans.waffo_pancake_products`。
 Go 自动迁移可创建该列；使用独立 PostgreSQL 迁移的环境，必须在启动新版本之前
-执行 [SQL](https://github.com/TokenNotIncluded/api.lmm.best/blob/c33503f212cbcfab0695d554f57b5153cd4f3bfd/docs/sql/waffo-plan-products.sql) 并验证该列。此变更未修改 Rust 预览版的
+执行 [SQL](https://github.com/TokenNotIncluded/lmm-api/blob/c33503f212cbcfab0695d554f57b5153cd4f3bfd/docs/sql/waffo-plan-products.sql) 并验证该列。此变更未修改 Rust 预览版的
 支付实现或其迁移合同；不得据此宣称 Rust 支持本功能。
 数据库 NULL/JSON null 保留旧单商品设置，JSON [] 表示明确关闭两种方式。
 旧订单快照不回填、不重写。必须先更新全部 Go API 节点和前端，再启用双模式。

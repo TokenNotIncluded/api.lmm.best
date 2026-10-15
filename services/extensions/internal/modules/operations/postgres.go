@@ -14,28 +14,15 @@ import (
 //go:embed schema.sql
 var schema string
 
-// DatabaseConfig opens a new operations-owned pool. Never pass an existing core
-// or another extension pool. Initialize is deliberately separate from Open.
-type DatabaseConfig struct{ DSN string }
-
-func Open(ctx context.Context, c DatabaseConfig) (*Releases, error) {
-	if c.DSN == "" {
-		return nil, ErrInvalid
-	}
-	db, err := sql.Open("postgres", c.DSN)
-	if err != nil {
-		return nil, ErrUnavailable
-	}
-	db.SetMaxOpenConns(8)
-	db.SetMaxIdleConns(2)
-	db.SetConnMaxLifetime(5 * time.Minute)
-	if err = Check(ctx, db); err != nil {
-		db.Close()
+// NewPostgres checks and borrows the dedicated runtime pool supplied by the
+// composition boundary. The caller owns its lifetime, including on failure.
+// Initialize is an explicit offline owner operation and is never called here.
+func NewPostgres(ctx context.Context, db *sql.DB) (*Releases, error) {
+	if err := Check(ctx, db); err != nil {
 		return nil, err
 	}
 	return &Releases{db}, nil
 }
-func (s *Releases) Close() error { return s.db.Close() }
 
 // Catalog fingerprint covers the installed schema, including ownership, ACLs,
 // RLS flags/policies, columns, constraints, indexes and sequence bounds. Runtime
@@ -64,7 +51,7 @@ const isolatedSQL = `SELECT NOT EXISTS (
 
 // Initialize installs ONLY into an empty, isolated database. It grants the exact
 // runtime allowlist to an existing non-owner role. This is an offline owner call,
-// not a migration and never called by Open or request handlers.
+// not a migration and never called by NewPostgres or request handlers.
 func Initialize(ctx context.Context, owner *sql.DB, runtimeRole string) error {
 	if owner == nil || runtimeRole == "" {
 		return ErrInvalid

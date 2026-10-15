@@ -2,6 +2,7 @@
 //!
 //! PostgreSQL identity is usable in isolation. Public paid model endpoints stay
 //! disabled until durable billing and routing adapters are integrated.
+pub mod abuse;
 pub mod accounts;
 pub mod billing;
 #[cfg(unix)]
@@ -23,6 +24,7 @@ pub mod model_http;
 #[cfg(unix)]
 pub mod payments;
 pub mod relay;
+pub mod remote_control;
 pub mod routing;
 pub mod runtime_database;
 pub mod upstream_cost;

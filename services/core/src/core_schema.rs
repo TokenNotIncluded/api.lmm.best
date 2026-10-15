@@ -19,6 +19,7 @@ const COMPONENTS: &[(&str, &str)] = &[
     ("console", include_str!("../schema/console.sql")),
     ("model-gateway", include_str!("../schema/model_gateway.sql")),
     ("commerce", include_str!("../schema/commerce.sql")),
+    ("abuse", include_str!("../schema/abuse.sql")),
 ];
 
 /// The compiled fresh-install contract, including explicitly disabled modules.
@@ -32,10 +33,17 @@ const CONTRACT: &str = "CREATE TABLE core_meta.component_contract (name TEXT PRI
 // Include application relations, columns/defaults, constraints, indexes,
 // functions, and triggers. Rows, owner names and grants are deliberately absent:
 // normal application writes and provisioning a restricted role cannot alter it.
+// Deparsers qualify identifiers according to the caller's effective search
+// path. Normalize it inside the query so owner, restricted runtime and offline
+// import callers hash the same definitions. Every branch depends on the
+// materialized namespace scan, which first evaluates the local path setting.
+// No stored fingerprint is changed by startup; this defines fresh installs.
 const CATALOG: &str = r#"
-WITH ns AS (
- SELECT oid,nspname FROM pg_namespace
- WHERE nspname NOT IN ('pg_catalog','information_schema') AND left(nspname,3)<>'pg_'
+WITH catalog_path AS MATERIALIZED (
+ SELECT pg_catalog.set_config('search_path','pg_catalog',true)
+), ns AS MATERIALIZED (
+ SELECT n.oid,n.nspname FROM pg_namespace n CROSS JOIN catalog_path
+ WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND left(n.nspname,3)<>'pg_'
 ), definitions AS (
  SELECT json_build_array('relation',n.nspname,c.relname,c.relkind)::text AS definition
  FROM pg_class c JOIN ns n ON n.oid=c.relnamespace

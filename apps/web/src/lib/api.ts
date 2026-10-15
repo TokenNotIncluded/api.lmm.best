@@ -16,6 +16,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { withAuthenticatedCookieWrite } from '@/lib/auth-session'
 import { api, type ApiRequestConfig } from '@/lib/http-client'
 
 export {
@@ -29,6 +30,7 @@ export {
   getFreshAuthHeaders,
   isAuthBundle,
   refreshAuthentication,
+  withAuthenticatedCookieWrite,
   AuthRotationError,
 } from '@/lib/auth-session'
 export type { AuthTokenRotation, RefreshOutcome } from '@/lib/auth-session'
@@ -129,40 +131,64 @@ export async function getNotice(): Promise<{
 // ============================================================================
 
 export async function get2FAStatus(
-  config: Pick<ApiRequestConfig, 'skipErrorHandler'> = {}
+  config: Pick<
+    ApiRequestConfig,
+    'skipErrorHandler' | 'skipBusinessError' | 'authScope'
+  > = {}
 ) {
   const res = await api.get('/api/user/2fa/status', config)
   return res.data
 }
 
+function twoFAWriteConfig(acceptAuthRotation = true): ApiRequestConfig {
+  return {
+    acceptAuthRotation,
+    skipBusinessError: true,
+    skipErrorHandler: true,
+  }
+}
+
 export async function setup2FA() {
-  const res = await api.post('/api/user/2fa/setup')
+  const res = await withAuthenticatedCookieWrite(
+    (config) =>
+      api.post('/api/user/2fa/setup', undefined, {
+        ...twoFAWriteConfig(false),
+        ...config,
+      }),
+    false
+  )
   return res.data
 }
 
 export async function enable2FA(code: string) {
-  const res = await api.post(
-    '/api/user/2fa/enable',
-    { code },
-    { acceptAuthRotation: true }
+  const res = await withAuthenticatedCookieWrite((config) =>
+    api.post(
+      '/api/user/2fa/enable',
+      { code },
+      { ...twoFAWriteConfig(), ...config }
+    )
   )
   return res.data
 }
 
 export async function disable2FA(code: string) {
-  const res = await api.post(
-    '/api/user/2fa/disable',
-    { code },
-    { acceptAuthRotation: true }
+  const res = await withAuthenticatedCookieWrite((config) =>
+    api.post(
+      '/api/user/2fa/disable',
+      { code },
+      { ...twoFAWriteConfig(), ...config }
+    )
   )
   return res.data
 }
 
 export async function regenerate2FABackupCodes(code: string) {
-  const res = await api.post(
-    '/api/user/2fa/backup_codes',
-    { code },
-    { acceptAuthRotation: true }
+  const res = await withAuthenticatedCookieWrite((config) =>
+    api.post(
+      '/api/user/2fa/backup_codes',
+      { code },
+      { ...twoFAWriteConfig(), ...config }
+    )
   )
   return res.data
 }

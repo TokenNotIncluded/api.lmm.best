@@ -2,6 +2,10 @@
 
 [文档目录](README.md) · [贡献指南](contributing.md)
 
+GitHub 仓库名称为 [`TokenNotIncluded/lmm-api`](https://github.com/TokenNotIncluded/lmm-api)。
+重命名只改变仓库地址；长期工作区路径、开发分支、网站域名和现有 Go 模块命名空间
+保持各自原有身份，避免打断进行中的开发或改变客户端协议。
+
 ## 2026-10-12 主线交接
 
 GitHub 默认开发分支为 `wip/rust-core-go-extensions`。保留这个长期共享分支名，

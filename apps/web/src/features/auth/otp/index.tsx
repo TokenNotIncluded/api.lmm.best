@@ -20,6 +20,7 @@ import { Link, useSearch } from '@tanstack/react-router'
 import { useTranslation } from 'react-i18next'
 
 import { sanitizeAuthRedirect } from '@/features/auth/lib/auth-redirect'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { AuthLayout } from '../auth-layout'
 import { OtpForm } from './components/otp-form'
@@ -43,6 +44,9 @@ export function Otp() {
             <Link
               to='/sign-in'
               search={requestedPath ? { redirect: requestedPath } : {}}
+              onClick={() =>
+                useAuthStore.getState().auth.setPending2FAFlowToken(null)
+              }
               className='hover:text-primary font-medium underline underline-offset-4'
             >
               {t('Re-login')}

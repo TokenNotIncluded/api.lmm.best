@@ -24,6 +24,11 @@ async fn setup(pool: &PgPool) -> (IdentityStore, BrowserAuth, Router) {
         .with_password_slots(2)
         .unwrap();
     store.init_database().await.unwrap();
+    // Explicit installer-owned fixture for the key-management/user projection dependency.
+    sqlx::raw_sql(lmm_core::abuse::SCHEMA)
+        .execute(pool)
+        .await
+        .unwrap();
     let browser = BrowserAuth::new(store.clone(), &[43; 32]).unwrap();
     let config = LegacyAuthConfig::new(ORIGIN, &[43; 32])
         .unwrap()

@@ -800,3 +800,81 @@ test('a legacy summary without a currency never presents a cross-currency record
     }
   }
 })
+
+test('touch payment-method details open and close while keeping their settled currency and amounts', async () => {
+  const user = makeUser()
+  const before = JSON.stringify(user)
+  const view = await renderList([user])
+  try {
+    const { button, region } = disclosure(firstArticle(view.host))
+    assert.equal(region.hidden, true)
+    await view.click(button)
+    assert.equal(region.hidden, false)
+    const payment = region.querySelector('details')
+    assert.ok(
+      payment,
+      'Method details need a native disclosure on touch devices'
+    )
+    const trigger = payment.querySelector('summary')
+    assert.ok(trigger)
+    assert.equal(trigger.closest('[hidden]'), null)
+    assert.ok(
+      trigger.classList.contains('min-h-11'),
+      'Keep the 44px minimum touch height'
+    )
+    assert.equal(payment.open, false)
+    await view.click(trigger)
+    assert.equal(payment.open, true)
+    assert.match(payment.textContent ?? '', /Card · Fixture provider/)
+    assert.match(payment.textContent ?? '', /98\.76 CNY/)
+    assert.match(payment.textContent ?? '', /49,380,000 Credits/)
+    await view.click(trigger)
+    assert.equal(payment.open, false)
+    assert.equal(JSON.stringify(user), before)
+    assert.deepEqual(view.requests, [])
+  } finally {
+    await view.dispose()
+  }
+})
+
+test('malformed touch method metadata remains local and keeps valid nonzero summary money', async () => {
+  const summary = makeUser().topup_summary
+  assert.ok(summary)
+  for (const methods of [
+    'bad',
+    { length: 1 },
+    [null],
+    [{ method: null, quota: 0, money_micros: 0, orders: 0 }],
+  ]) {
+    const user = makeUser({
+      topup_summary: {
+        ...summary,
+        quota: 500000,
+        normalized_quota: 500000,
+        money_micros: 1000000,
+        settled_money_micros: 1000000,
+        settled_orders: 1,
+        currency: 'USD',
+        orders: 1,
+        // Deliberately malformed input from the independent defensive red cases.
+        methods: methods as unknown as typeof summary.methods,
+      },
+    })
+    const before = JSON.stringify(user)
+    const view = await renderList([user])
+    try {
+      const { button, region } = disclosure(firstArticle(view.host))
+      assert.match(summaryText(firstArticle(view.host), region), /1 USD/)
+      await view.click(button)
+      assert.equal(region.hidden, false)
+      assert.match(region.textContent ?? '', /Payment method: Unavailable/)
+      assert.match(region.textContent ?? '', /500,000 Credits/)
+      assert.match(region.textContent ?? '', /1 USD/)
+      assert.equal(region.querySelector('details'), null)
+      assert.equal(JSON.stringify(user), before)
+      assert.deepEqual(view.requests, [])
+    } finally {
+      await view.dispose()
+    }
+  }
+})

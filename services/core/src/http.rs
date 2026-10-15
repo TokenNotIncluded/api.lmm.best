@@ -95,11 +95,14 @@ pub struct Capabilities {
     pub events: bool,
     pub payments: bool,
     pub commerce: bool,
+    /// Global administration availability; never a per-user moderation state.
+    pub abuse_admin: bool,
 }
 
 #[derive(Clone, Default)]
 pub struct PublicStatus {
     pub password_login_enabled: bool,
+    pub two_factor_enabled: bool,
     pub password_register_enabled: bool,
     pub user_agreement_enabled: bool,
     pub privacy_policy_enabled: bool,
@@ -184,7 +187,7 @@ async fn public_status_response(
             "github_oauth":false,"discord_oauth":false,
             "oidc_enabled":false,"linuxdo_oauth":false,"telegram_oauth":false,
             "wechat_login":false,"passkey_login":false,"email_verification":false,
-            "turnstile_check":false,"two_factor_enabled":false,"payments_enabled":false,
+            "turnstile_check":false,"two_factor_enabled":status.two_factor_enabled,"payments_enabled":false,
             "payments_test_rpc_enabled":state.capabilities.payments,
             "commerce_rpc_enabled":state.capabilities.commerce,
             "assistant":{"enabled":false},"custom_oauth_providers":[],

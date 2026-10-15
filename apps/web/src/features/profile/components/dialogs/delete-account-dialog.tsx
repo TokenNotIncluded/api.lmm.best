@@ -28,7 +28,8 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { logout } from '@/features/auth/api'
-import { clearAuthentication } from '@/lib/api'
+import { clearAuthenticationIfCurrent } from '@/lib/auth-session'
+import { useAuthStore } from '@/stores/auth-store'
 
 import { deleteUserAccount } from '../../api'
 
@@ -53,6 +54,8 @@ export function DeleteAccountDialog({
   const [confirmation, setConfirmation] = useState('')
 
   const handleDelete = async () => {
+    const auth = useAuthStore.getState().auth
+    const scope = { userId: auth.user?.id, sessionId: auth.session?.sid }
     if (confirmation !== username) {
       toast.error(t('Username confirmation does not match'))
       return
@@ -72,7 +75,7 @@ export function DeleteAccountDialog({
           // Ignore logout errors
         }
 
-        clearAuthentication()
+        clearAuthenticationIfCurrent(scope)
         navigate({ to: '/sign-in' })
       } else {
         toast.error(response.message || t('Failed to delete account'))

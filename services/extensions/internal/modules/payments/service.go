@@ -1,6 +1,7 @@
 package payments
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"net/http"
@@ -202,10 +203,49 @@ func strongerProof(old, next Evidence) bool {
 
 // Receive acknowledges only after Rust durably accepts the provider proof and
 // Go persists the inbox event. It does not claim credit.
+// proofGatedCallback separates parsing from credentialed provider observation.
+// No Go flag authenticates evidence: Core returns the durable proof receipt.
+// Adapters without credentialed callback I/O keep their existing Verify path.
+type proofGatedCallback interface {
+	parseCallback(*http.Request) (Event, error)
+	proofOrderID(Event) (string, error)
+	observeCallback(context.Context, Event) (Event, error)
+}
+
 func (s *Service) Receive(ctx context.Context, channelID int64, req *http.Request) error {
 	a := s.adapters[channelID]
 	if a == nil {
 		return ErrNotFound
+	}
+	if gated, ok := a.(proofGatedCallback); ok {
+		e, err := gated.parseCallback(req)
+		if err != nil {
+			return err
+		}
+		e, err = s.admitWebhookProof(ctx, a, e)
+		if err != nil {
+			return err
+		}
+		observed, err := gated.observeCallback(ctx, e)
+		if err != nil {
+			return err
+		}
+		// Provider observation may resolve a missing order reference, but must
+		// not replace the Core-accepted event, payload or payment identity.
+		expected := e
+		if expected.OrderID == "" {
+			expected.OrderID, err = gated.proofOrderID(e)
+			if err != nil {
+				return err
+			}
+		}
+		if eventDigest(expected) != eventDigest(observed) || !samePayment(e.Evidence, observed.Evidence) ||
+			e.Evidence.EventID != observed.Evidence.EventID || e.Evidence.Source != observed.Evidence.Source ||
+			e.Evidence.AcceptedProofID != observed.Evidence.AcceptedProofID ||
+			!bytes.Equal(e.Evidence.Payload, observed.Evidence.Payload) || !bytes.Equal(e.Evidence.Signature, observed.Evidence.Signature) {
+			return ErrConflict
+		}
+		return s.receiveEvent(ctx, a, observed)
 	}
 	e, err := a.Verify(req, s.now())
 	if err != nil {
@@ -213,7 +253,7 @@ func (s *Service) Receive(ctx context.Context, channelID int64, req *http.Reques
 	}
 	return s.receiveEvent(ctx, a, e)
 }
-func (s *Service) receiveEvent(ctx context.Context, a Adapter, e Event) error {
+func validateReceivedEvent(a Adapter, e Event) error {
 	c := a.Channel()
 	if !sameChannel(e.Evidence, c) || !validID(e.Evidence.EventID) || !validID(e.Evidence.Transaction) || e.Currency != c.Currency || !validAmount(e.AmountMinor) || len(e.Evidence.Payload) > MaxEvidence {
 		return ErrInvalid
@@ -229,27 +269,59 @@ func (s *Service) receiveEvent(ctx context.Context, a Adapter, e Event) error {
 	if e.OrderID != "" && !validID(e.OrderID) {
 		return ErrInvalid
 	}
+	return nil
+}
+
+// admitWebhookProof persists authenticity/evidence only. It never posts credit,
+// creates an inbox item or dispatches provider requests.
+func (s *Service) admitWebhookProof(ctx context.Context, a Adapter, e Event) (Event, error) {
+	if err := validateReceivedEvent(a, e); err != nil {
+		return Event{}, err
+	}
+	if e.Evidence.Source != "webhook" || len(e.Evidence.Payload) == 0 || len(e.Evidence.Signature) == 0 {
+		return Event{}, ErrEvidence
+	}
+	o, err := s.eventOrder(ctx, a, e)
+	if errors.Is(err, ErrNotFound) && e.OrderID == "" {
+		if gated, ok := a.(proofGatedCallback); ok {
+			// A lost checkout response may leave PaymentID unbound. The signed
+			// core intent reference provides only a local lookup candidate;
+			// Core still verifies its original bytes/signature and intent.
+			candidate := e
+			candidate.OrderID, err = gated.proofOrderID(e)
+			if err == nil {
+				o, err = s.eventOrder(ctx, a, candidate)
+			}
+		}
+	}
+	if err != nil {
+		return Event{}, err
+	}
+	// Recover durable acceptance before checking delivery freshness again.
+	proof, err := s.core.LookupProof(ctx, o.Intent.ID, e.Evidence)
+	if errors.Is(err, ErrNotFound) {
+		proof, err = s.core.AcceptProof(ctx, o.Intent.ID, e.Evidence)
+	}
+	if err != nil {
+		return Event{}, err
+	}
+	if !proofMatches(proof, o.Intent.ID, e.Evidence) {
+		return Event{}, ErrConflict
+	}
+	e.Evidence.AcceptedProofID = proof.ID
+	return e, nil
+}
+func (s *Service) receiveEvent(ctx context.Context, a Adapter, e Event) error {
+	c := a.Channel()
+	if err := validateReceivedEvent(a, e); err != nil {
+		return err
+	}
 	if e.Evidence.Source == "webhook" {
-		if len(e.Evidence.Payload) == 0 || len(e.Evidence.Signature) == 0 {
-			return ErrEvidence
-		}
-		o, err := s.eventOrder(ctx, a, e)
-		if err != nil {
-			return err // An orphan callback must be retried, not falsely ACKed.
-		}
-		// Acceptance may already be durable even if a prior Go response or inbox
-		// write was lost. Look up exact bytes before checking delivery freshness.
-		proof, err := s.core.LookupProof(ctx, o.Intent.ID, e.Evidence)
-		if errors.Is(err, ErrNotFound) {
-			proof, err = s.core.AcceptProof(ctx, o.Intent.ID, e.Evidence)
-		}
+		var err error
+		e, err = s.admitWebhookProof(ctx, a, e)
 		if err != nil {
 			return err
 		}
-		if !proofMatches(proof, o.Intent.ID, e.Evidence) {
-			return ErrConflict
-		}
-		e.Evidence.AcceptedProofID = proof.ID
 	} else if e.Evidence.Source != "api" || e.Evidence.AcceptedProofID != "" {
 		return ErrEvidence
 	}

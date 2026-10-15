@@ -440,6 +440,272 @@ func (x *AuthorizeResponse) GetFundingAccounts() []*Account {
 	return nil
 }
 
+// Authentication is forwarded in server-owned metadata, never caller scopes/owner.
+type AuthorizeRemoteRequest struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *AuthorizeRemoteRequest) Reset() {
+	*x = AuthorizeRemoteRequest{}
+	mi := &file_lmm_core_v1_control_proto_msgTypes[5]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuthorizeRemoteRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuthorizeRemoteRequest) ProtoMessage() {}
+
+func (x *AuthorizeRemoteRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_lmm_core_v1_control_proto_msgTypes[5]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuthorizeRemoteRequest.ProtoReflect.Descriptor instead.
+func (*AuthorizeRemoteRequest) Descriptor() ([]byte, []int) {
+	return file_lmm_core_v1_control_proto_rawDescGZIP(), []int{5}
+}
+
+type NativePersonalRemoteSource struct {
+	state        protoimpl.MessageState `protogen:"open.v1"`
+	CredentialId int64                  `protobuf:"varint,1,opt,name=credential_id,json=credentialId,proto3" json:"credential_id,omitempty"`
+	// Only interactive PERSONAL SESSION is currently authorized, not API_KEY.
+	NativeKind    CredentialKind `protobuf:"varint,2,opt,name=native_kind,json=nativeKind,proto3,enum=lmm.core.v1.CredentialKind" json:"native_kind,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *NativePersonalRemoteSource) Reset() {
+	*x = NativePersonalRemoteSource{}
+	mi := &file_lmm_core_v1_control_proto_msgTypes[6]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *NativePersonalRemoteSource) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*NativePersonalRemoteSource) ProtoMessage() {}
+
+func (x *NativePersonalRemoteSource) ProtoReflect() protoreflect.Message {
+	mi := &file_lmm_core_v1_control_proto_msgTypes[6]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use NativePersonalRemoteSource.ProtoReflect.Descriptor instead.
+func (*NativePersonalRemoteSource) Descriptor() ([]byte, []int) {
+	return file_lmm_core_v1_control_proto_rawDescGZIP(), []int{6}
+}
+
+func (x *NativePersonalRemoteSource) GetCredentialId() int64 {
+	if x != nil {
+		return x.CredentialId
+	}
+	return 0
+}
+
+func (x *NativePersonalRemoteSource) GetNativeKind() CredentialKind {
+	if x != nil {
+		return x.NativeKind
+	}
+	return CredentialKind_CREDENTIAL_KIND_UNSPECIFIED
+}
+
+type OAuthGrantRemoteSource struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	GrantId       string                 `protobuf:"bytes,1,opt,name=grant_id,json=grantId,proto3" json:"grant_id,omitempty"`
+	AccessId      string                 `protobuf:"bytes,2,opt,name=access_id,json=accessId,proto3" json:"access_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *OAuthGrantRemoteSource) Reset() {
+	*x = OAuthGrantRemoteSource{}
+	mi := &file_lmm_core_v1_control_proto_msgTypes[7]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *OAuthGrantRemoteSource) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*OAuthGrantRemoteSource) ProtoMessage() {}
+
+func (x *OAuthGrantRemoteSource) ProtoReflect() protoreflect.Message {
+	mi := &file_lmm_core_v1_control_proto_msgTypes[7]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use OAuthGrantRemoteSource.ProtoReflect.Descriptor instead.
+func (*OAuthGrantRemoteSource) Descriptor() ([]byte, []int) {
+	return file_lmm_core_v1_control_proto_rawDescGZIP(), []int{7}
+}
+
+func (x *OAuthGrantRemoteSource) GetGrantId() string {
+	if x != nil {
+		return x.GrantId
+	}
+	return ""
+}
+
+func (x *OAuthGrantRemoteSource) GetAccessId() string {
+	if x != nil {
+		return x.AccessId
+	}
+	return ""
+}
+
+type AuthorizeRemoteResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// Types that are valid to be assigned to Source:
+	//
+	//	*AuthorizeRemoteResponse_NativePersonal
+	//	*AuthorizeRemoteResponse_OauthGrant
+	Source isAuthorizeRemoteResponse_Source `protobuf_oneof:"source"`
+	UserId int64                            `protobuf:"varint,3,opt,name=user_id,json=userId,proto3" json:"user_id,omitempty"`
+	// Stable PERSONAL storage account, not a public user/team ID.
+	OwnerAccountId int64 `protobuf:"varint,4,opt,name=owner_account_id,json=ownerAccountId,proto3" json:"owner_account_id,omitempty"`
+	AuthVersion    int64 `protobuf:"varint,5,opt,name=auth_version,json=authVersion,proto3" json:"auth_version,omitempty"`
+	ExpiresAt      int64 `protobuf:"varint,6,opt,name=expires_at,json=expiresAt,proto3" json:"expires_at,omitempty"`
+	// Revalidate at <=15s; expiry does not permit caching through revocation.
+	RemotePermission bool `protobuf:"varint,7,opt,name=remote_permission,json=remotePermission,proto3" json:"remote_permission,omitempty"`
+	unknownFields    protoimpl.UnknownFields
+	sizeCache        protoimpl.SizeCache
+}
+
+func (x *AuthorizeRemoteResponse) Reset() {
+	*x = AuthorizeRemoteResponse{}
+	mi := &file_lmm_core_v1_control_proto_msgTypes[8]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *AuthorizeRemoteResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*AuthorizeRemoteResponse) ProtoMessage() {}
+
+func (x *AuthorizeRemoteResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_lmm_core_v1_control_proto_msgTypes[8]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use AuthorizeRemoteResponse.ProtoReflect.Descriptor instead.
+func (*AuthorizeRemoteResponse) Descriptor() ([]byte, []int) {
+	return file_lmm_core_v1_control_proto_rawDescGZIP(), []int{8}
+}
+
+func (x *AuthorizeRemoteResponse) GetSource() isAuthorizeRemoteResponse_Source {
+	if x != nil {
+		return x.Source
+	}
+	return nil
+}
+
+func (x *AuthorizeRemoteResponse) GetNativePersonal() *NativePersonalRemoteSource {
+	if x != nil {
+		if x, ok := x.Source.(*AuthorizeRemoteResponse_NativePersonal); ok {
+			return x.NativePersonal
+		}
+	}
+	return nil
+}
+
+func (x *AuthorizeRemoteResponse) GetOauthGrant() *OAuthGrantRemoteSource {
+	if x != nil {
+		if x, ok := x.Source.(*AuthorizeRemoteResponse_OauthGrant); ok {
+			return x.OauthGrant
+		}
+	}
+	return nil
+}
+
+func (x *AuthorizeRemoteResponse) GetUserId() int64 {
+	if x != nil {
+		return x.UserId
+	}
+	return 0
+}
+
+func (x *AuthorizeRemoteResponse) GetOwnerAccountId() int64 {
+	if x != nil {
+		return x.OwnerAccountId
+	}
+	return 0
+}
+
+func (x *AuthorizeRemoteResponse) GetAuthVersion() int64 {
+	if x != nil {
+		return x.AuthVersion
+	}
+	return 0
+}
+
+func (x *AuthorizeRemoteResponse) GetExpiresAt() int64 {
+	if x != nil {
+		return x.ExpiresAt
+	}
+	return 0
+}
+
+func (x *AuthorizeRemoteResponse) GetRemotePermission() bool {
+	if x != nil {
+		return x.RemotePermission
+	}
+	return false
+}
+
+type isAuthorizeRemoteResponse_Source interface {
+	isAuthorizeRemoteResponse_Source()
+}
+
+type AuthorizeRemoteResponse_NativePersonal struct {
+	NativePersonal *NativePersonalRemoteSource `protobuf:"bytes,1,opt,name=native_personal,json=nativePersonal,proto3,oneof"`
+}
+
+type AuthorizeRemoteResponse_OauthGrant struct {
+	OauthGrant *OAuthGrantRemoteSource `protobuf:"bytes,2,opt,name=oauth_grant,json=oauthGrant,proto3,oneof"`
+}
+
+func (*AuthorizeRemoteResponse_NativePersonal) isAuthorizeRemoteResponse_Source() {}
+
+func (*AuthorizeRemoteResponse_OauthGrant) isAuthorizeRemoteResponse_Source() {}
+
 type ListTeamsRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// Exclusive cursor, nonnegative. Results are ordered by team ID, at most 100.
@@ -450,7 +716,7 @@ type ListTeamsRequest struct {
 
 func (x *ListTeamsRequest) Reset() {
 	*x = ListTeamsRequest{}
-	mi := &file_lmm_core_v1_control_proto_msgTypes[5]
+	mi := &file_lmm_core_v1_control_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -462,7 +728,7 @@ func (x *ListTeamsRequest) String() string {
 func (*ListTeamsRequest) ProtoMessage() {}
 
 func (x *ListTeamsRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_lmm_core_v1_control_proto_msgTypes[5]
+	mi := &file_lmm_core_v1_control_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -475,7 +741,7 @@ func (x *ListTeamsRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTeamsRequest.ProtoReflect.Descriptor instead.
 func (*ListTeamsRequest) Descriptor() ([]byte, []int) {
-	return file_lmm_core_v1_control_proto_rawDescGZIP(), []int{5}
+	return file_lmm_core_v1_control_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ListTeamsRequest) GetAfterId() int64 {
@@ -497,7 +763,7 @@ type Team struct {
 
 func (x *Team) Reset() {
 	*x = Team{}
-	mi := &file_lmm_core_v1_control_proto_msgTypes[6]
+	mi := &file_lmm_core_v1_control_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -509,7 +775,7 @@ func (x *Team) String() string {
 func (*Team) ProtoMessage() {}
 
 func (x *Team) ProtoReflect() protoreflect.Message {
-	mi := &file_lmm_core_v1_control_proto_msgTypes[6]
+	mi := &file_lmm_core_v1_control_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -522,7 +788,7 @@ func (x *Team) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Team.ProtoReflect.Descriptor instead.
 func (*Team) Descriptor() ([]byte, []int) {
-	return file_lmm_core_v1_control_proto_rawDescGZIP(), []int{6}
+	return file_lmm_core_v1_control_proto_rawDescGZIP(), []int{10}
 }
 
 func (x *Team) GetId() int64 {
@@ -564,7 +830,7 @@ type ListTeamsResponse struct {
 
 func (x *ListTeamsResponse) Reset() {
 	*x = ListTeamsResponse{}
-	mi := &file_lmm_core_v1_control_proto_msgTypes[7]
+	mi := &file_lmm_core_v1_control_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -576,7 +842,7 @@ func (x *ListTeamsResponse) String() string {
 func (*ListTeamsResponse) ProtoMessage() {}
 
 func (x *ListTeamsResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_lmm_core_v1_control_proto_msgTypes[7]
+	mi := &file_lmm_core_v1_control_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -589,7 +855,7 @@ func (x *ListTeamsResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ListTeamsResponse.ProtoReflect.Descriptor instead.
 func (*ListTeamsResponse) Descriptor() ([]byte, []int) {
-	return file_lmm_core_v1_control_proto_rawDescGZIP(), []int{7}
+	return file_lmm_core_v1_control_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *ListTeamsResponse) GetTeams() []*Team {
@@ -626,7 +892,26 @@ const file_lmm_core_v1_control_proto_rawDesc = "" +
 	"\auser_id\x18\x03 \x01(\x03R\x06userId\x12%\n" +
 	"\x0eplatform_level\x18\x04 \x01(\x05R\rplatformLevel\x12*\n" +
 	"\x05owner\x18\x05 \x01(\v2\x14.lmm.core.v1.AccountR\x05owner\x12?\n" +
-	"\x10funding_accounts\x18\x06 \x03(\v2\x14.lmm.core.v1.AccountR\x0ffundingAccounts\"-\n" +
+	"\x10funding_accounts\x18\x06 \x03(\v2\x14.lmm.core.v1.AccountR\x0ffundingAccounts\"\x18\n" +
+	"\x16AuthorizeRemoteRequest\"\x7f\n" +
+	"\x1aNativePersonalRemoteSource\x12#\n" +
+	"\rcredential_id\x18\x01 \x01(\x03R\fcredentialId\x12<\n" +
+	"\vnative_kind\x18\x02 \x01(\x0e2\x1b.lmm.core.v1.CredentialKindR\n" +
+	"nativeKind\"P\n" +
+	"\x16OAuthGrantRemoteSource\x12\x19\n" +
+	"\bgrant_id\x18\x01 \x01(\tR\agrantId\x12\x1b\n" +
+	"\taccess_id\x18\x02 \x01(\tR\baccessId\"\xf1\x02\n" +
+	"\x17AuthorizeRemoteResponse\x12R\n" +
+	"\x0fnative_personal\x18\x01 \x01(\v2'.lmm.core.v1.NativePersonalRemoteSourceH\x00R\x0enativePersonal\x12F\n" +
+	"\voauth_grant\x18\x02 \x01(\v2#.lmm.core.v1.OAuthGrantRemoteSourceH\x00R\n" +
+	"oauthGrant\x12\x17\n" +
+	"\auser_id\x18\x03 \x01(\x03R\x06userId\x12(\n" +
+	"\x10owner_account_id\x18\x04 \x01(\x03R\x0eownerAccountId\x12!\n" +
+	"\fauth_version\x18\x05 \x01(\x03R\vauthVersion\x12\x1d\n" +
+	"\n" +
+	"expires_at\x18\x06 \x01(\x03R\texpiresAt\x12+\n" +
+	"\x11remote_permission\x18\a \x01(\bR\x10remotePermissionB\b\n" +
+	"\x06source\"-\n" +
 	"\x10ListTeamsRequest\x12\x19\n" +
 	"\bafter_id\x18\x01 \x01(\x03R\aafterId\"\x8d\x01\n" +
 	"\x04Team\x12\x0e\n" +
@@ -649,11 +934,12 @@ const file_lmm_core_v1_control_proto_rawDesc = "" +
 	"\x15TEAM_ROLE_UNSPECIFIED\x10\x00\x12\x13\n" +
 	"\x0fTEAM_ROLE_OWNER\x10\x01\x12\x13\n" +
 	"\x0fTEAM_ROLE_ADMIN\x10\x02\x12\x14\n" +
-	"\x10TEAM_ROLE_MEMBER\x10\x032\xfa\x01\n" +
+	"\x10TEAM_ROLE_MEMBER\x10\x032\xd8\x02\n" +
 	"\vCoreControl\x12S\n" +
 	"\fCapabilities\x12 .lmm.core.v1.CapabilitiesRequest\x1a!.lmm.core.v1.CapabilitiesResponse\x12J\n" +
 	"\tAuthorize\x12\x1d.lmm.core.v1.AuthorizeRequest\x1a\x1e.lmm.core.v1.AuthorizeResponse\x12J\n" +
-	"\tListTeams\x12\x1d.lmm.core.v1.ListTeamsRequest\x1a\x1e.lmm.core.v1.ListTeamsResponseBLZJgithub.com/TokenNotIncluded/api.lmm.best/extensions/internal/corepb;corepbb\x06proto3"
+	"\tListTeams\x12\x1d.lmm.core.v1.ListTeamsRequest\x1a\x1e.lmm.core.v1.ListTeamsResponse\x12\\\n" +
+	"\x0fAuthorizeRemote\x12#.lmm.core.v1.AuthorizeRemoteRequest\x1a$.lmm.core.v1.AuthorizeRemoteResponseBLZJgithub.com/TokenNotIncluded/api.lmm.best/extensions/internal/corepb;corepbb\x06proto3"
 
 var (
 	file_lmm_core_v1_control_proto_rawDescOnce sync.Once
@@ -668,38 +954,47 @@ func file_lmm_core_v1_control_proto_rawDescGZIP() []byte {
 }
 
 var file_lmm_core_v1_control_proto_enumTypes = make([]protoimpl.EnumInfo, 3)
-var file_lmm_core_v1_control_proto_msgTypes = make([]protoimpl.MessageInfo, 8)
+var file_lmm_core_v1_control_proto_msgTypes = make([]protoimpl.MessageInfo, 12)
 var file_lmm_core_v1_control_proto_goTypes = []any{
-	(AccountKind)(0),             // 0: lmm.core.v1.AccountKind
-	(CredentialKind)(0),          // 1: lmm.core.v1.CredentialKind
-	(TeamRole)(0),                // 2: lmm.core.v1.TeamRole
-	(*CapabilitiesRequest)(nil),  // 3: lmm.core.v1.CapabilitiesRequest
-	(*CapabilitiesResponse)(nil), // 4: lmm.core.v1.CapabilitiesResponse
-	(*AuthorizeRequest)(nil),     // 5: lmm.core.v1.AuthorizeRequest
-	(*Account)(nil),              // 6: lmm.core.v1.Account
-	(*AuthorizeResponse)(nil),    // 7: lmm.core.v1.AuthorizeResponse
-	(*ListTeamsRequest)(nil),     // 8: lmm.core.v1.ListTeamsRequest
-	(*Team)(nil),                 // 9: lmm.core.v1.Team
-	(*ListTeamsResponse)(nil),    // 10: lmm.core.v1.ListTeamsResponse
+	(AccountKind)(0),                   // 0: lmm.core.v1.AccountKind
+	(CredentialKind)(0),                // 1: lmm.core.v1.CredentialKind
+	(TeamRole)(0),                      // 2: lmm.core.v1.TeamRole
+	(*CapabilitiesRequest)(nil),        // 3: lmm.core.v1.CapabilitiesRequest
+	(*CapabilitiesResponse)(nil),       // 4: lmm.core.v1.CapabilitiesResponse
+	(*AuthorizeRequest)(nil),           // 5: lmm.core.v1.AuthorizeRequest
+	(*Account)(nil),                    // 6: lmm.core.v1.Account
+	(*AuthorizeResponse)(nil),          // 7: lmm.core.v1.AuthorizeResponse
+	(*AuthorizeRemoteRequest)(nil),     // 8: lmm.core.v1.AuthorizeRemoteRequest
+	(*NativePersonalRemoteSource)(nil), // 9: lmm.core.v1.NativePersonalRemoteSource
+	(*OAuthGrantRemoteSource)(nil),     // 10: lmm.core.v1.OAuthGrantRemoteSource
+	(*AuthorizeRemoteResponse)(nil),    // 11: lmm.core.v1.AuthorizeRemoteResponse
+	(*ListTeamsRequest)(nil),           // 12: lmm.core.v1.ListTeamsRequest
+	(*Team)(nil),                       // 13: lmm.core.v1.Team
+	(*ListTeamsResponse)(nil),          // 14: lmm.core.v1.ListTeamsResponse
 }
 var file_lmm_core_v1_control_proto_depIdxs = []int32{
 	0,  // 0: lmm.core.v1.Account.kind:type_name -> lmm.core.v1.AccountKind
 	1,  // 1: lmm.core.v1.AuthorizeResponse.credential_kind:type_name -> lmm.core.v1.CredentialKind
 	6,  // 2: lmm.core.v1.AuthorizeResponse.owner:type_name -> lmm.core.v1.Account
 	6,  // 3: lmm.core.v1.AuthorizeResponse.funding_accounts:type_name -> lmm.core.v1.Account
-	2,  // 4: lmm.core.v1.Team.role:type_name -> lmm.core.v1.TeamRole
-	9,  // 5: lmm.core.v1.ListTeamsResponse.teams:type_name -> lmm.core.v1.Team
-	3,  // 6: lmm.core.v1.CoreControl.Capabilities:input_type -> lmm.core.v1.CapabilitiesRequest
-	5,  // 7: lmm.core.v1.CoreControl.Authorize:input_type -> lmm.core.v1.AuthorizeRequest
-	8,  // 8: lmm.core.v1.CoreControl.ListTeams:input_type -> lmm.core.v1.ListTeamsRequest
-	4,  // 9: lmm.core.v1.CoreControl.Capabilities:output_type -> lmm.core.v1.CapabilitiesResponse
-	7,  // 10: lmm.core.v1.CoreControl.Authorize:output_type -> lmm.core.v1.AuthorizeResponse
-	10, // 11: lmm.core.v1.CoreControl.ListTeams:output_type -> lmm.core.v1.ListTeamsResponse
-	9,  // [9:12] is the sub-list for method output_type
-	6,  // [6:9] is the sub-list for method input_type
-	6,  // [6:6] is the sub-list for extension type_name
-	6,  // [6:6] is the sub-list for extension extendee
-	0,  // [0:6] is the sub-list for field type_name
+	1,  // 4: lmm.core.v1.NativePersonalRemoteSource.native_kind:type_name -> lmm.core.v1.CredentialKind
+	9,  // 5: lmm.core.v1.AuthorizeRemoteResponse.native_personal:type_name -> lmm.core.v1.NativePersonalRemoteSource
+	10, // 6: lmm.core.v1.AuthorizeRemoteResponse.oauth_grant:type_name -> lmm.core.v1.OAuthGrantRemoteSource
+	2,  // 7: lmm.core.v1.Team.role:type_name -> lmm.core.v1.TeamRole
+	13, // 8: lmm.core.v1.ListTeamsResponse.teams:type_name -> lmm.core.v1.Team
+	3,  // 9: lmm.core.v1.CoreControl.Capabilities:input_type -> lmm.core.v1.CapabilitiesRequest
+	5,  // 10: lmm.core.v1.CoreControl.Authorize:input_type -> lmm.core.v1.AuthorizeRequest
+	12, // 11: lmm.core.v1.CoreControl.ListTeams:input_type -> lmm.core.v1.ListTeamsRequest
+	8,  // 12: lmm.core.v1.CoreControl.AuthorizeRemote:input_type -> lmm.core.v1.AuthorizeRemoteRequest
+	4,  // 13: lmm.core.v1.CoreControl.Capabilities:output_type -> lmm.core.v1.CapabilitiesResponse
+	7,  // 14: lmm.core.v1.CoreControl.Authorize:output_type -> lmm.core.v1.AuthorizeResponse
+	14, // 15: lmm.core.v1.CoreControl.ListTeams:output_type -> lmm.core.v1.ListTeamsResponse
+	11, // 16: lmm.core.v1.CoreControl.AuthorizeRemote:output_type -> lmm.core.v1.AuthorizeRemoteResponse
+	13, // [13:17] is the sub-list for method output_type
+	9,  // [9:13] is the sub-list for method input_type
+	9,  // [9:9] is the sub-list for extension type_name
+	9,  // [9:9] is the sub-list for extension extendee
+	0,  // [0:9] is the sub-list for field type_name
 }
 
 func init() { file_lmm_core_v1_control_proto_init() }
@@ -707,13 +1002,17 @@ func file_lmm_core_v1_control_proto_init() {
 	if File_lmm_core_v1_control_proto != nil {
 		return
 	}
+	file_lmm_core_v1_control_proto_msgTypes[8].OneofWrappers = []any{
+		(*AuthorizeRemoteResponse_NativePersonal)(nil),
+		(*AuthorizeRemoteResponse_OauthGrant)(nil),
+	}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_lmm_core_v1_control_proto_rawDesc), len(file_lmm_core_v1_control_proto_rawDesc)),
 			NumEnums:      3,
-			NumMessages:   8,
+			NumMessages:   12,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

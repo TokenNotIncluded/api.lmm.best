@@ -1,6 +1,9 @@
 use super::*;
-use crate::identity::LoginRequest;
-use axum::{extract::ConnectInfo, response::Redirect};
+use crate::identity::{LoginOutcome, LoginRequest, MfaCompletion, MfaError};
+use axum::{
+    extract::{ConnectInfo, rejection::JsonRejection},
+    response::Redirect,
+};
 use rand::RngCore;
 use std::net::SocketAddr;
 
@@ -10,6 +13,7 @@ pub(super) fn routes(store: IdentityStore) -> Router<IdentityStore> {
     Router::new()
         .route("/core/v1/auth/register", post(register))
         .route("/core/v1/auth/login", post(login))
+        .route("/core/v1/auth/mfa/complete", post(complete_mfa_login))
         .route("/core/v1/auth/password", post(change_password))
         .route("/core/v1/auth/session/refresh", post(refresh))
         .route("/core/v1/auth/logout", post(logout))
@@ -43,9 +47,44 @@ async fn register(
 }
 async fn login(
     State(store): State<IdentityStore>,
-    Json(body): Json<LoginRequest>,
-) -> Result<impl IntoResponse> {
-    Ok(Json(store.login(&body).await?))
+    input: std::result::Result<Json<LoginRequest>, JsonRejection>,
+) -> Response {
+    let Ok(Json(body)) = input else {
+        return IdentityError::Invalid.into_response();
+    };
+    match store.login_with_mfa(&body).await {
+        Ok(LoginOutcome::Session(issued)) => Json(issued).into_response(),
+        Ok(LoginOutcome::Challenge(challenge)) => Json(challenge).into_response(),
+        Err(error) => mfa_failure(error),
+    }
+}
+async fn complete_mfa_login(
+    State(store): State<IdentityStore>,
+    input: std::result::Result<Json<MfaCompletion>, JsonRejection>,
+) -> Response {
+    let Ok(Json(body)) = input else {
+        return IdentityError::Invalid.into_response();
+    };
+    match store.complete_mfa_login(&body).await {
+        Ok(issued) => Json(issued).into_response(),
+        Err(error) => mfa_failure(error),
+    }
+}
+fn mfa_failure(error: MfaError) -> Response {
+    let (status, code, retry_after) = match error {
+        MfaError::Identity(error) => return error.into_response(),
+        MfaError::CodeInvalid => (StatusCode::BAD_REQUEST, "MFA_CODE_INVALID", None),
+        MfaError::FlowExpired => (StatusCode::BAD_REQUEST, "MFA_FLOW_EXPIRED", None),
+        MfaError::Locked(seconds) => (StatusCode::TOO_MANY_REQUESTS, "MFA_LOCKED", Some(seconds)),
+        MfaError::Unavailable => (StatusCode::SERVICE_UNAVAILABLE, "MFA_UNAVAILABLE", None),
+    };
+    let mut response = (status, Json(json!({"error":{"code":code}}))).into_response();
+    if let Some(seconds) = retry_after
+        && let Ok(value) = HeaderValue::from_str(&seconds.max(1).to_string())
+    {
+        response.headers_mut().insert(header::RETRY_AFTER, value);
+    }
+    response
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]

@@ -537,7 +537,7 @@ describe('requests bound to the initiating authentication', () => {
     assert.equal(useAuthStore.getState().auth.accessToken, 'new-account-token')
   })
 
-  test('blocks a 401 retry when refresh authenticates another session', async () => {
+  test('blocks a 401 retry and refuses a refresh bundle from another session', async () => {
     applyAuthBundle(
       bundle('original-token', Math.floor(Date.now() / 1000) + 600),
       false
@@ -580,7 +580,7 @@ describe('requests bound to the initiating authentication', () => {
       ['Bearer original-token'],
       'the original POST must not be replayed with a new token'
     )
-    assert.equal(useAuthStore.getState().auth.accessToken, 'new-account-token')
+    assert.equal(useAuthStore.getState().auth.accessToken, null)
   })
 
   test('late 401 responses cannot refresh or clear a newer login', async () => {

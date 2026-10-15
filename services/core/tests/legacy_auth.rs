@@ -68,8 +68,13 @@ fn config() -> LegacyAuthConfig {
         .unwrap()
 }
 async fn setup(pool: PgPool) -> (IdentityStore, Router) {
-    let store = IdentityStore::from_pool(pool).with_registration_enabled(true);
+    let store = IdentityStore::from_pool(pool.clone()).with_registration_enabled(true);
     store.init_database().await.unwrap();
+    // Explicit installer-owned fixture: management/user projection reads abuse.
+    sqlx::raw_sql(lmm_core::abuse::SCHEMA)
+        .execute(&pool)
+        .await
+        .unwrap();
     store.check_schema().await.unwrap();
     let app = legacy_auth::router(store.clone(), config());
     (store, app)
@@ -448,7 +453,7 @@ async fn imported_bcrypt_username_email_and_policy_are_preserved(pool: PgPool) {
     store.logout(&bootstrap.secret).await.unwrap();
     let hash = bcrypt::hash("abc12345", 4).unwrap();
     sqlx::query("INSERT INTO core_identity.password_logins(login_name,user_id,password_hash) VALUES ('legacy-773',773,$1)").bind(&hash).execute(&pool).await.unwrap();
-    sqlx::query("INSERT INTO core_identity.user_profiles(user_id,username,display_name,email,email_login_allowed,legacy_bcrypt_allowed) VALUES (773,'旧用户','真实名字','old@example.test',TRUE,TRUE)").execute(&pool).await.unwrap();
+    sqlx::query("UPDATE core_identity.user_profiles SET username='旧用户',display_name='真实名字',email='old@example.test',email_login_allowed=TRUE,legacy_bcrypt_allowed=TRUE,password_login_allowed=TRUE WHERE user_id=773").execute(&pool).await.unwrap();
     let (_, bundle) = login(&app, "old@example.test").await;
     assert_eq!(bundle["user"]["id"], 773);
     assert_eq!(bundle["user"]["username"], "旧用户");
@@ -483,7 +488,12 @@ async fn imported_bcrypt_username_email_and_policy_are_preserved(pool: PgPool) {
         &[],
     )
     .await;
-    assert_eq!(denied.0, StatusCode::UNAUTHORIZED);
+    // An imported enforced policy with no usable native factor remains
+    // unavailable; a valid password must neither bypass it nor mint a flow.
+    assert_eq!(denied.0, StatusCode::SERVICE_UNAVAILABLE);
+    assert_eq!(denied.2["code"], "MFA_UNAVAILABLE");
+    assert!(denied.2.get("data").is_none());
+    assert!(denied.1.get("set-cookie").is_none());
     assert!(
         store
             .login(&LoginRequest {

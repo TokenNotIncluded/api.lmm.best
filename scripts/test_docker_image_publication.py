@@ -39,7 +39,7 @@ class SourceContracts(unittest.TestCase):
         self.assertRegex(self.workflow, r'^name: [^\n]+\non:\n  workflow_dispatch:\npermissions:')
         for trigger in ('workflow_call:', 'push:', 'pull_request:', 'schedule:'):
             self.assertNotIn(trigger, self.workflow)
-        self.assertIn("github.repository == 'TokenNotIncluded/api.lmm.best'", self.build)
+        self.assertIn("github.repository == 'TokenNotIncluded/lmm-api'", self.build)
         self.assertIn("github.ref == 'refs/heads/wip/rust-core-go-extensions'", self.build)
         self.assertIn("startsWith(github.ref, 'refs/tags/microservice-preview-')", self.build)
         self.assertIn('test "$GITHUB_REF_NAME" = "microservice-preview-$GITHUB_SHA"', self.build)

@@ -29,6 +29,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { regenerate2FABackupCodes } from '@/lib/api'
 
+import { twoFAErrorMessage } from '../../lib/two-fa-error'
+
 // ============================================================================
 // Two-FA Backup Codes Dialog Component
 // ============================================================================
@@ -65,8 +67,10 @@ export function TwoFABackupDialog({
       } else {
         toast.error(response.message || t('Failed to regenerate backup codes'))
       }
-    } catch {
-      toast.error(t('Failed to regenerate backup codes'))
+    } catch (error) {
+      toast.error(
+        twoFAErrorMessage(error, t('Failed to regenerate backup codes'))
+      )
     } finally {
       setLoading(false)
     }

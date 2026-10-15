@@ -33,8 +33,8 @@ impl RuntimeRole {
             GRANT CONNECT ON DATABASE "{database}" TO {name};
             GRANT USAGE ON SCHEMA core_meta,core_identity,core_billing TO {name};
             GRANT SELECT ON ALL TABLES IN SCHEMA core_meta,core_billing TO {name};
-            GRANT SELECT,INSERT,UPDATE ON core_identity.accounts,core_identity.users,core_identity.teams,core_identity.memberships,core_identity.credentials,core_identity.invites,core_identity.password_logins,core_identity.user_profiles,core_identity.company_billing_profiles,core_identity.web_sessions,core_identity.api_key_settings TO {name};
-            GRANT SELECT,INSERT ON core_identity.key_funding_rules,core_identity.credential_grants,core_identity.oauth_identities,core_identity.audit,core_identity.web_session_credentials TO {name};
+            GRANT SELECT,INSERT,UPDATE ON core_identity.accounts,core_identity.users,core_identity.teams,core_identity.memberships,core_identity.credentials,core_identity.invites,core_identity.password_logins,core_identity.user_profiles,core_identity.company_billing_profiles,core_identity.web_sessions,core_identity.api_key_settings,core_identity.mfa_factors,core_identity.mfa_enrollments,core_identity.mfa_backup_codes,core_identity.mfa_challenges TO {name};
+            GRANT SELECT,INSERT ON core_identity.key_funding_rules,core_identity.credential_grants,core_identity.oauth_identities,core_identity.audit,core_identity.web_session_credentials,core_identity.session_authentication TO {name};
             GRANT SELECT,INSERT,DELETE ON core_identity.oauth_flows TO {name};
             GRANT SELECT,INSERT,UPDATE,DELETE ON core_identity.auth_attempts TO {name};
             GRANT SELECT ON core_identity.developer_access,core_identity.user_routing_groups TO {name};
@@ -42,6 +42,32 @@ impl RuntimeRole {
             GRANT SELECT,INSERT,UPDATE ON core_billing.account_policies TO {name};
             GRANT EXECUTE ON FUNCTION core_billing.open_ledger_wallet(bigint),core_billing.post_ledger(jsonb) TO {name};
         "#)).execute(owner).await.unwrap();
+        // Identity/ledger-only fixtures intentionally omit optional components.
+        // Complete runtime provisioning/checking remains strict in production.
+        let abuse_installed: bool =
+            sqlx::query_scalar("SELECT to_regnamespace('core_abuse') IS NOT NULL")
+                .fetch_one(owner)
+                .await
+                .unwrap();
+        if abuse_installed {
+            sqlx::raw_sql(&format!(
+                r#"
+-- Abuse administration is checked against canonical superadmin Sessions in Rust.
+-- Secrets are host-private references; audit/operations/previews are append-only.
+GRANT USAGE ON SCHEMA core_abuse TO {name};
+GRANT SELECT ON ALL TABLES IN SCHEMA core_abuse TO {name};
+GRANT UPDATE (revision,document) ON core_abuse.settings TO {name};
+GRANT INSERT,UPDATE (marked,policy_id,revision) ON core_abuse.user_marks TO {name};
+GRANT INSERT ON core_abuse.previews,core_abuse.operations,core_abuse.audit TO {name};
+GRANT INSERT,UPDATE (attempts),DELETE ON core_abuse.model_counters TO {name};
+GRANT INSERT,UPDATE (finished_at),DELETE ON core_abuse.model_leases TO {name};
+GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};
+            "#
+            ))
+            .execute(owner)
+            .await
+            .unwrap();
+        }
         let mut url = reqwest::Url::parse(&std::env::var("DATABASE_URL").unwrap()).unwrap();
         assert!(matches!(url.host_str(), Some("localhost" | "127.0.0.1")));
         url.set_path(&database);

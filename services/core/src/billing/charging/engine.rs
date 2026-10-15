@@ -212,6 +212,9 @@ impl Charging {
             commit(tx).await?;
             return Ok(stored.charge);
         }
+        // Existing exact operation receipts above remain safely replayable.
+        // Only a NEW reservation is excluded by the current abuse mark.
+        authority::reject_new_model(&mut tx, actor.user).await?;
         let payers = authority::funding(&mut tx, &actor).await?;
         let at = now(&mut tx).await?;
         let mut last_error = Error::NoFunds;

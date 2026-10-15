@@ -49,3 +49,9 @@ enabled = false
 # [commerce]
 # config_file = "/etc/lmm.conf.d/core-commerce.toml"
 # token_file = "/etc/lmm.conf.d/secrets/core/commerce-token"
+
+# Optional independent custom moderation upstream credential aliases.
+# This does not enable model traffic; [model] remains explicit. Fixed text needs
+# no sidecar. Public policy/API responses contain aliases, never secret paths.
+# [abuse]
+# credential_config_file = "/etc/lmm.conf.d/core-abuse-credentials.toml"

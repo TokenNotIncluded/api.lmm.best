@@ -16,6 +16,10 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
+import { getRouteApi } from '@tanstack/react-router'
+
+import { HoneypotPage } from '@/features/honeypot'
+
 import { SettingsPage } from '../components/settings-page'
 import type { SecuritySettings } from '../types'
 import { DEFAULT_IP_ACCESS_ROUTING_RULES } from './ip-access-routing-config'
@@ -58,6 +62,11 @@ const defaultSecuritySettings: SecuritySettings = {
 }
 
 export function SecuritySettings() {
+  const params = getRouteApi(
+    '/_authenticated/system-settings/security/$section'
+  ).useParams()
+  // Native Core administration must not depend on the legacy /api/option API.
+  if (params.section === 'honeypot') return <HoneypotPage />
   return (
     <SettingsPage
       routePath='/_authenticated/system-settings/security/$section'

@@ -19,17 +19,20 @@ func fixtureSQL(t *testing.T, ctx context.Context, db *sql.DB, statement string,
 		t.Fatal(err)
 	}
 }
-func rejectInstalledDatabase(t *testing.T, ctx context.Context, runtime *sql.DB, dsn string) {
+func rejectInstalledDatabase(t *testing.T, ctx context.Context, runtime *sql.DB) {
 	t.Helper()
 	if err := Check(ctx, runtime); !errors.Is(err, ErrUnavailable) {
 		t.Fatalf("drift accepted by Check: %v", err)
 	}
-	s, err := Open(ctx, DatabaseConfig{DSN: dsn})
+	s, err := NewPostgres(ctx, runtime)
 	if s != nil {
-		s.Close()
+		t.Fatal("rejected constructor returned a release service")
 	}
 	if !errors.Is(err, ErrUnavailable) {
-		t.Fatalf("drift accepted by Open: %v", err)
+		t.Fatalf("drift accepted by NewPostgres: %v", err)
+	}
+	if err := runtime.PingContext(ctx); err != nil {
+		t.Fatal("rejected constructor closed caller-owned pool", err)
 	}
 }
 func testPostgresInitializeIsolation(t *testing.T, ctx context.Context, owner, admin *sql.DB) {
@@ -62,31 +65,33 @@ func testPostgresInitializeIsolation(t *testing.T, ctx context.Context, owner, a
 		})
 	}
 }
-func testPostgresInstalledIntegrity(t *testing.T, ctx context.Context, owner, admin, runtime *sql.DB, dsn string, s *Releases) {
+func testPostgresInstalledIntegrity(t *testing.T, ctx context.Context, owner, admin, runtime *sql.DB, s *Releases) {
 	t.Helper()
 	t.Run("OrdinaryRestrictedInstallationStillAccepted", func(t *testing.T) {
 		if err := Check(ctx, runtime); err != nil {
 			t.Fatal(err)
 		}
-		opened, err := Open(ctx, DatabaseConfig{DSN: dsn})
+		opened, err := NewPostgres(ctx, runtime)
 		if err != nil {
 			t.Fatal(err)
 		}
-		opened.Close()
+		if opened.db != runtime {
+			t.Fatal("constructor did not borrow the supplied pool")
+		}
 	})
 	t.Run("CheckRejectsLiteralPgLookalikeApplicationSchema", func(t *testing.T) {
 		fixtureSQL(t, ctx, owner, "CREATE SCHEMA pgx_core")
 		defer fixtureSQL(t, ctx, owner, "DROP SCHEMA pgx_core CASCADE")
 		fixtureSQL(t, ctx, owner, "CREATE TABLE pgx_core.records(id bigint)")
-		rejectInstalledDatabase(t, ctx, runtime, dsn) // isolation without runtime DDL authority
+		rejectInstalledDatabase(t, ctx, runtime) // isolation without runtime DDL authority
 		fixtureSQL(t, ctx, owner, "GRANT CREATE ON SCHEMA pgx_core TO operations_runtime")
-		rejectInstalledDatabase(t, ctx, runtime, dsn)
+		rejectInstalledDatabase(t, ctx, runtime)
 	})
 	for _, name := range []string{"public", "lmm_operations", "information_schema", "pg_catalog", "pg_toast"} {
 		t.Run("CheckRejectsCreate_"+name, func(t *testing.T) {
 			fixtureSQL(t, ctx, admin, "GRANT CREATE ON SCHEMA "+pq.QuoteIdentifier(name)+" TO operations_runtime")
 			defer fixtureSQL(t, ctx, admin, "REVOKE CREATE ON SCHEMA "+pq.QuoteIdentifier(name)+" FROM operations_runtime")
-			rejectInstalledDatabase(t, ctx, runtime, dsn)
+			rejectInstalledDatabase(t, ctx, runtime)
 		})
 	}
 	t.Run("UnreadPublicationRLSCannotReopenAsSuccessfulNull", func(t *testing.T) {
@@ -100,27 +105,27 @@ func testPostgresInstalledIntegrity(t *testing.T, ctx context.Context, owner, ad
 		if err = runtime.QueryRowContext(ctx, "SELECT count(*) FROM lmm_operations.publications").Scan(&visible); err != nil || visible != 0 {
 			t.Fatalf("RLS counterexample not reproduced: %d %v", visible, err)
 		}
-		rejectInstalledDatabase(t, ctx, runtime, dsn)
+		rejectInstalledDatabase(t, ctx, runtime)
 	})
 	t.Run("DisabledRLSWithPolicyStillRejected", func(t *testing.T) {
 		fixtureSQL(t, ctx, owner, "CREATE POLICY drift ON lmm_operations.publications FOR SELECT USING (true)")
 		defer fixtureSQL(t, ctx, owner, "DROP POLICY drift ON lmm_operations.publications")
-		rejectInstalledDatabase(t, ctx, runtime, dsn)
+		rejectInstalledDatabase(t, ctx, runtime)
 	})
 	t.Run("ForceRLSFlagStillRejected", func(t *testing.T) {
 		fixtureSQL(t, ctx, owner, "ALTER TABLE lmm_operations.publications FORCE ROW LEVEL SECURITY")
 		defer fixtureSQL(t, ctx, owner, "ALTER TABLE lmm_operations.publications NO FORCE ROW LEVEL SECURITY")
-		rejectInstalledDatabase(t, ctx, runtime, dsn)
+		rejectInstalledDatabase(t, ctx, runtime)
 	})
 	t.Run("RelationOwnerFingerprintDriftRejected", func(t *testing.T) {
 		fixtureSQL(t, ctx, admin, "ALTER TABLE lmm_operations.publications OWNER TO operations_observer")
 		defer fixtureSQL(t, ctx, admin, "ALTER TABLE lmm_operations.publications OWNER TO operations_owner")
-		rejectInstalledDatabase(t, ctx, runtime, dsn)
+		rejectInstalledDatabase(t, ctx, runtime)
 	})
 	t.Run("BenignThirdRoleACLDriftRejected", func(t *testing.T) {
 		fixtureSQL(t, ctx, owner, "GRANT SELECT ON lmm_operations.publications TO operations_observer")
 		defer fixtureSQL(t, ctx, owner, "REVOKE SELECT ON lmm_operations.publications FROM operations_observer")
-		rejectInstalledDatabase(t, ctx, runtime, dsn)
+		rejectInstalledDatabase(t, ctx, runtime)
 	})
 	if err := Check(ctx, runtime); err != nil {
 		t.Fatal("restored ordinary installation rejected", err)
@@ -160,7 +165,7 @@ func testPostgresInstalledIntegrity(t *testing.T, ctx context.Context, owner, ad
 		}()
 		for _, seconds := range []int64{-1, 0, MaxPublishedAt + 1, MaxID + 2} {
 			fixtureSQL(t, ctx, owner, "UPDATE lmm_operations.publications SET published_at=$1 WHERE id=$2", seconds, highID)
-			rejectInstalledDatabase(t, ctx, runtime, dsn)
+			rejectInstalledDatabase(t, ctx, runtime)
 			if n, err := s.Latest(ctx, 901); !errors.Is(err, ErrUnavailable) || n != nil {
 				t.Fatalf("invalid timestamp escaped latest: %v %v", n, err)
 			}

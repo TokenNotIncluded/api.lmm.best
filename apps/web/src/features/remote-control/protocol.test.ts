@@ -33,6 +33,60 @@ test('normalizes the encrypted Pi session list returned by the relay', () => {
   assert.equal(sessions[0]?.metadata.ciphertext, 'cipher-value')
 })
 
+test('distinguishes valid empty Pi lists from malformed successful payloads', () => {
+  assert.deepEqual(normalizePiSessionEnvelopes([]), [])
+  assert.deepEqual(normalizePiSessionEnvelopes({ sessions: [] }), [])
+  assert.deepEqual(normalizePiMessageEnvelopes([]), [])
+  assert.deepEqual(normalizePiMessageEnvelopes({ messages: [] }), [])
+
+  const invalid = [undefined, null, false, 42, '[]', {}, { unexpected: [] }]
+  for (const payload of [
+    ...invalid,
+    { sessions: null },
+    { sessions: {} },
+    { sessions: '[]' },
+    { messages: [] },
+  ]) {
+    assert.throws(
+      () => normalizePiSessionEnvelopes(payload),
+      /Invalid Pi session list/
+    )
+  }
+  for (const payload of [
+    ...invalid,
+    { messages: null },
+    { messages: {} },
+    { messages: '[]' },
+    { sessions: [] },
+  ]) {
+    assert.throws(
+      () => normalizePiMessageEnvelopes(payload),
+      /Invalid Pi message list/
+    )
+  }
+})
+
+test('retains Pi list size limits for array and named-envelope responses', () => {
+  for (const payload of [
+    Array(33).fill(null),
+    { sessions: Array(33).fill(null) },
+  ]) {
+    assert.throws(
+      () => normalizePiSessionEnvelopes(payload),
+      /Invalid Pi session list/
+    )
+  }
+  for (const payload of [
+    Array(129).fill(null),
+    { messages: Array(129).fill(null) },
+  ]) {
+    assert.throws(
+      () => normalizePiMessageEnvelopes(payload),
+      /Invalid Pi message list/
+    )
+  }
+})
+
 test('normalizes decrypted metadata and typed messages', () => {
   const envelope = normalizePiSessionEnvelopes([
     {

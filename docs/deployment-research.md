@@ -2,7 +2,7 @@
 
 原 `experiments/deploy` 的 DP-22 至 DP-30 是研究原型和历史证据，不是运行时或
 正式部署入口。目录已从工作树移除；源码、报告、原始记录和许可证仍可从
-[移除前的固定提交](https://github.com/TokenNotIncluded/api.lmm.best/tree/8ed99ec36c11aff958c1464e167d5b030f1664ae/experiments/deploy)
+[移除前的固定提交](https://github.com/TokenNotIncluded/lmm-api/tree/8ed99ec36c11aff958c1464e167d5b030f1664ae/experiments/deploy)
 恢复。本机另保留完整归档及逐文件校验清单，位于操作者的 Backups 目录。
 
 下表区分当前源码中的消费者与尚未接通的设计。历史工具测试、Python 模拟服务、

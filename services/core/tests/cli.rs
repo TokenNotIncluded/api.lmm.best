@@ -851,13 +851,141 @@ fn usage_index_stdin_is_bounded_strict_redacted_and_precedes_configuration() {
 #[sqlx::test(migrations = false)]
 async fn usage_index_owner_cli_upgrades_only_fresh_prior_fixture_and_rejects_runtime(pool: PgPool) {
     use std::os::unix::fs::PermissionsExt;
+    async fn snapshot(pool: &PgPool) -> Vec<String> {
+        const CATALOG: &str = r#"
+WITH catalog_path AS MATERIALIZED (
+ SELECT pg_catalog.set_config('search_path','pg_catalog',true)
+), ns AS MATERIALIZED (
+ SELECT n.oid,n.nspname FROM pg_namespace n CROSS JOIN catalog_path
+ WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND left(n.nspname,3)<>'pg_'
+), definitions AS (
+ SELECT json_build_array('relation',n.nspname,c.relname,c.relkind)::text AS definition
+ FROM pg_class c JOIN ns n ON n.oid=c.relnamespace
+ UNION ALL
+ SELECT json_build_array('column',n.nspname,c.relname,a.attnum,a.attname,
+   format_type(a.atttypid,a.atttypmod),a.attnotnull,a.attidentity,a.attgenerated,
+   pg_get_expr(d.adbin,d.adrelid))::text
+ FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN ns n ON n.oid=c.relnamespace
+ LEFT JOIN pg_attrdef d ON d.adrelid=a.attrelid AND d.adnum=a.attnum
+ WHERE a.attnum>0 AND NOT a.attisdropped
+ UNION ALL
+ SELECT json_build_array('constraint',n.nspname,c.conname,pg_get_constraintdef(c.oid,true))::text
+ FROM pg_constraint c JOIN ns n ON n.oid=c.connamespace
+ UNION ALL
+ SELECT json_build_array('index',n.nspname,c.relname,pg_get_indexdef(i.indexrelid))::text
+ FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid JOIN ns n ON n.oid=c.relnamespace
+ UNION ALL
+ SELECT json_build_array('function',n.nspname,p.proname,pg_get_functiondef(p.oid))::text
+ FROM pg_proc p JOIN ns n ON n.oid=p.pronamespace WHERE p.prokind IN ('f','p')
+ UNION ALL
+ SELECT json_build_array('trigger',n.nspname,c.relname,t.tgname,t.tgenabled,
+   pg_get_triggerdef(t.oid,true))::text
+ FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN ns n ON n.oid=c.relnamespace
+ WHERE NOT t.tgisinternal
+ UNION ALL
+ -- RI trigger names embed installation OIDs, which change on pg_dump/restore.
+ -- Hash their stable constraint/function/trigger properties instead.
+ SELECT json_build_array('internal-trigger',n.nspname,c.relname,k.conname,
+   pn.nspname,p.proname,t.tgtype,t.tgenabled,t.tgdeferrable,t.tginitdeferred,
+   t.tgattr::text,encode(t.tgargs,'hex'),pg_get_expr(t.tgqual,t.tgrelid))::text
+ FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN ns n ON n.oid=c.relnamespace
+ JOIN pg_proc p ON p.oid=t.tgfoid JOIN pg_namespace pn ON pn.oid=p.pronamespace
+ LEFT JOIN pg_constraint k ON k.oid=t.tgconstraint WHERE t.tgisinternal
+) SELECT definition FROM definitions ORDER BY definition COLLATE "C"
+"#;
+        let mut observed: Vec<String> = sqlx::query_scalar(r#"
+      SELECT value FROM (
+        SELECT json_build_array('component',name,encode(fingerprint,'hex'))::text AS value FROM core_meta.component_contract
+        UNION ALL SELECT json_build_array('runtime',singleton,encode(catalog_fingerprint,'hex'))::text FROM core_meta.runtime_contract
+        UNION ALL SELECT json_build_array('identity',singleton,version,encode(fingerprint,'hex'))::text FROM core_meta.schema_contract
+        UNION ALL SELECT json_build_array('journal',to_jsonb(j))::text FROM core_billing.ledger_journals j
+        UNION ALL SELECT json_build_array('entry',to_jsonb(e))::text FROM core_billing.ledger_entries e
+        UNION ALL SELECT json_build_array('wallet',to_jsonb(w))::text FROM core_billing.ledger_accounts w
+        UNION ALL SELECT json_build_array('balance',to_jsonb(b))::text FROM core_billing.balance_state b
+        UNION ALL SELECT json_build_array('operation',to_jsonb(o))::text FROM core_billing.ledger_operations o
+        UNION ALL SELECT json_build_array('request',to_jsonb(r))::text FROM core_charging.requests r
+        UNION ALL SELECT json_build_array('command',to_jsonb(c))::text FROM core_charging.ledger_commands c
+        UNION ALL SELECT json_build_array('schema-acl',n.nspname,n.nspowner,n.nspacl)::text
+          FROM pg_namespace n WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND left(n.nspname,3)<>'pg_'
+        UNION ALL SELECT json_build_array('relation-acl',n.nspname,c.relname,c.relowner,c.relacl)::text
+          FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+          WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND left(n.nspname,3)<>'pg_'
+        UNION ALL SELECT json_build_array('column-acl',n.nspname,c.relname,a.attnum,a.attname,a.attacl)::text
+          FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace
+          WHERE a.attnum>0 AND NOT a.attisdropped AND n.nspname NOT IN ('pg_catalog','information_schema') AND left(n.nspname,3)<>'pg_'
+        UNION ALL SELECT json_build_array('function-acl',n.nspname,p.proname,pg_get_function_identity_arguments(p.oid),p.proowner,p.proacl)::text
+          FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace
+          WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND left(n.nspname,3)<>'pg_'
+        UNION ALL SELECT json_build_array('sequence',to_jsonb(s))::text FROM pg_sequences s
+          WHERE s.schemaname NOT IN ('pg_catalog','information_schema') AND left(s.schemaname,3)<>'pg_'
+        UNION ALL SELECT json_build_array('index',n.nspname,c.relname,pg_get_indexdef(c.oid))::text
+          FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+          WHERE c.relkind='i' AND n.nspname NOT IN ('pg_catalog','information_schema') AND left(n.nspname,3)<>'pg_'
+      ) rows ORDER BY value COLLATE "C"
+    "#).fetch_all(pool).await.unwrap();
+        let definitions: Vec<String> = sqlx::query_scalar(CATALOG).fetch_all(pool).await.unwrap();
+        observed.extend(
+            definitions
+                .into_iter()
+                .map(|definition| format!("[\"catalog\",{definition}]")),
+        );
+        observed.sort();
+        observed
+    }
+
+    fn preserved(rows: Vec<String>) -> Vec<String> {
+        rows.into_iter()
+            .filter(|row| {
+                let value: serde_json::Value =
+                    serde_json::from_str(row).expect("invalid index-fixture observation");
+                !(value[0] == "component" && value[1] == "charging-ledger")
+                    && value[0] != "runtime"
+                    && !(value[0] == "index"
+                        && value[1] == "core_charging"
+                        && value[2] == "ledger_commands_request_operation")
+                    && !(matches!(value[0].as_str(), Some("relation-acl" | "column-acl"))
+                        && value[1] == "core_charging"
+                        && value[2] == "ledger_commands_request_operation")
+                    && !(value[0] == "catalog"
+                        && value[1][1] == "core_charging"
+                        && value[1][2] == "ledger_commands_request_operation"
+                        && matches!(value[1][0].as_str(), Some("relation" | "column" | "index")))
+            })
+            .collect()
+    }
     lmm_core::core_schema::init(&pool).await.unwrap();
-    // Reconstruct the exact prior contract in this brand-new SQLx database.
-    // This catalog SHA is independently recomputed by core_schema::index_tests
-    // from all prior sources (with their exact approved old component SHA).
-    const PRIOR: &str = "e8fa053daca7741952caa4c60e27071652f600b4fa48f4b7631ea54ee801df7b";
-    sqlx::raw_sql("DROP INDEX core_charging.ledger_commands_request_operation; UPDATE core_meta.component_contract SET fingerprint=decode('7f84659ad2bd60268256a9f76959299a33911aaaeaf7194156a6f195ab54a734','hex') WHERE name='charging-ledger'; UPDATE core_meta.runtime_contract SET catalog_fingerprint=decode('e8fa053daca7741952caa4c60e27071652f600b4fa48f4b7631ea54ee801df7b','hex')")
+    // Fresh current-v4 twelve-component schema with only this index removed.
+    // core_schema::index_tests independently constructs and pins this exact catalog.
+    const PRIOR: &str = "9ce6c5120645792608d4466ef9fe4b6f91add7ec082670d276bffbd94f48c14a";
+    const RETIRED_PRIOR: &str = "e8fa053daca7741952caa4c60e27071652f600b4fa48f4b7631ea54ee801df7b";
+    const RETIRED_ELEVEN_COMPONENT_PRIOR: &str =
+        "5510e0bee0e5659ff940b798c9d6d3c69aea220734d9f73577c847b6841254b7";
+    sqlx::raw_sql("DROP INDEX core_charging.ledger_commands_request_operation; UPDATE core_meta.component_contract SET fingerprint=decode('7f84659ad2bd60268256a9f76959299a33911aaaeaf7194156a6f195ab54a734','hex') WHERE name='charging-ledger'; UPDATE core_meta.runtime_contract SET catalog_fingerprint=decode('9ce6c5120645792608d4466ef9fe4b6f91add7ec082670d276bffbd94f48c14a','hex')")
         .execute(&pool).await.unwrap();
+    // Nonempty synthetic ledger data makes refusal and upgrade conservation real.
+    let store = IdentityStore::from_pool(pool.clone());
+    let issued = store.bootstrap_user(97, 0).await.unwrap();
+    let owner = store
+        .authorize(&issued.secret)
+        .await
+        .unwrap()
+        .owner_account_id;
+    let ledger = lmm_core::billing::ledger::Ledger::from_pool(pool.clone());
+    ledger.open_wallet(owner).await.unwrap();
+    ledger
+        .execute(&lmm_core::billing::ledger::Request {
+            scope: "index-cli-fixture".into(),
+            operation_key: "credit".into(),
+            actor_user_id: Some(97),
+            reason: "Synthetic current-v4 index CLI fixture".into(),
+            action: lmm_core::billing::ledger::Action::Credit {
+                account_id: owner,
+                amount_units: lmm_core::billing::Credits::try_from(1000).unwrap(),
+                payment_reference: "index-cli-fixture-credit".into(),
+            },
+        })
+        .await
+        .unwrap();
     let directory = std::env::temp_dir().join(format!(
         "lmm-index-owner-cli-{}-{:x}",
         std::process::id(),
@@ -889,6 +1017,7 @@ async fn usage_index_owner_cli_upgrades_only_fresh_prior_fixture_and_rejects_run
     role.optional("core_charging").await;
     std::fs::write(&database, role.url.as_bytes()).unwrap();
     std::fs::set_permissions(&database, std::fs::Permissions::from_mode(0o600)).unwrap();
+    let before_runtime = snapshot(&pool).await;
     let output = invoke(PRIOR.as_bytes());
     assert!(!output.status.success());
     assert!(output.stdout.is_empty());
@@ -900,7 +1029,49 @@ async fn usage_index_owner_cli_upgrades_only_fresh_prior_fixture_and_rejects_run
     .await
     .unwrap();
     assert!(absent);
-    std::fs::write(&database, database_url(&pool)).unwrap();
+    assert!(
+        snapshot(&pool).await == before_runtime,
+        "runtime refusal changed database observations"
+    );
+    let owner_url = database_url(&pool);
+    std::fs::write(&database, &owner_url).unwrap();
+    // Both retired catalogs must fail for saved=current/approval=retired,
+    // saved=retired/approval=retired, and saved=retired/approval=current.
+    // No mismatch may change financial rows, receipts, ACLs or definitions.
+    for (saved, approval) in [
+        (PRIOR, RETIRED_PRIOR),
+        (RETIRED_PRIOR, RETIRED_PRIOR),
+        (RETIRED_PRIOR, PRIOR),
+        (PRIOR, RETIRED_ELEVEN_COMPONENT_PRIOR),
+        (
+            RETIRED_ELEVEN_COMPONENT_PRIOR,
+            RETIRED_ELEVEN_COMPONENT_PRIOR,
+        ),
+        (RETIRED_ELEVEN_COMPONENT_PRIOR, PRIOR),
+    ] {
+        sqlx::query("UPDATE core_meta.runtime_contract SET catalog_fingerprint=decode($1,'hex') WHERE singleton")
+            .bind(saved).execute(&pool).await.unwrap();
+        let before_refusal = snapshot(&pool).await;
+        let output = invoke(approval.as_bytes());
+        assert!(
+            !output.status.success(),
+            "retired prior catalog approval was accepted"
+        );
+        assert!(output.stdout.is_empty());
+        assert!(
+            String::from_utf8_lossy(&output.stderr).contains("Storage"),
+            "retired prior was not rejected by the catalog guard"
+        );
+        assert!(!String::from_utf8_lossy(&output.stderr).contains(&role.url));
+        assert!(!String::from_utf8_lossy(&output.stderr).contains(&owner_url));
+        assert!(
+            snapshot(&pool).await == before_refusal,
+            "retired-prior refusal changed receipts, financial rows, ACLs or indexes"
+        );
+    }
+    sqlx::query("UPDATE core_meta.runtime_contract SET catalog_fingerprint=decode($1,'hex') WHERE singleton")
+        .bind(PRIOR).execute(&pool).await.unwrap();
+    let before_upgrade = snapshot(&pool).await;
     let output = invoke(&[PRIOR.as_bytes(), b"\n"].concat());
     assert!(
         output.status.success(),
@@ -912,9 +1083,24 @@ async fn usage_index_owner_cli_upgrades_only_fresh_prior_fixture_and_rejects_run
         String::from_utf8_lossy(&output.stdout).contains("schema receipts verified atomically")
     );
     lmm_core::core_schema::check(&pool).await.unwrap();
+    let same_owner: bool = sqlx::query_scalar("SELECT i.relowner=t.relowner FROM pg_class i CROSS JOIN pg_class t WHERE i.oid='core_charging.ledger_commands_request_operation'::regclass AND t.oid='core_charging.ledger_commands'::regclass")
+        .fetch_one(&pool).await.unwrap();
+    assert!(
+        same_owner,
+        "new usage index must retain the ledger-command owner"
+    );
+    assert!(
+        preserved(snapshot(&pool).await) == preserved(before_upgrade),
+        "index upgrade changed identity receipts, financial rows or ACLs"
+    );
+    let after_upgrade = snapshot(&pool).await;
     let output = invoke(PRIOR.as_bytes());
     assert!(!output.status.success());
     assert!(output.stdout.is_empty());
+    assert!(
+        snapshot(&pool).await == after_upgrade,
+        "existing-index refusal changed database observations"
+    );
     role.cleanup().await;
     std::fs::remove_dir_all(directory).unwrap();
 }

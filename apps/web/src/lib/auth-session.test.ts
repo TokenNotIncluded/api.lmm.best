@@ -71,7 +71,7 @@ describe('authentication session coordination', () => {
     })
   })
 
-  test('a session mismatch clears only local state and retries without the stale SID', async () => {
+  test('a session mismatch clears local state without accepting another cookie family', async () => {
     let expectedSID: string | undefined = bundle.session.sid
     const requestedSIDs: Array<string | undefined> = []
     const clears: Array<[boolean, string | undefined]> = []
@@ -100,10 +100,10 @@ describe('authentication session coordination', () => {
 
     const outcome = await createRefreshRunner(runtime)()
 
-    assert.equal(outcome.kind, 'authenticated')
-    assert.deepEqual(requestedSIDs, [bundle.session.sid, undefined])
-    assert.deepEqual(clears, [[false, 'idle']])
-    assert.deepEqual(accepted, [bundle])
+    assert.equal(outcome.kind, 'out_of_sync')
+    assert.deepEqual(requestedSIDs, [bundle.session.sid])
+    assert.deepEqual(clears, [[false, undefined]])
+    assert.deepEqual(accepted, [])
   })
 
   test('a rejected refresh confirms anonymous state and synchronizes sign-out', async () => {
