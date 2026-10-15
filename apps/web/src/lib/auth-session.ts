@@ -212,6 +212,23 @@ function isAuthTokenRotation(value: unknown): value is AuthTokenRotation {
   )
 }
 
+// An anonymous capability read can already be mounted when bootstrap refresh
+// returns 401. Removing its query cancels the request and strands its observer
+// on a pending result. Only keep that active public read; all user-scoped
+// status, permissions, financial data and mutations must leave with the session.
+function clearSessionCache(queryClient: QueryClient): void {
+  queryClient.removeQueries({
+    predicate: (query) =>
+      !(
+        query.isActive() &&
+        query.queryKey.length === 2 &&
+        query.queryKey[0] === 'status' &&
+        query.queryKey[1] === 'anonymous'
+      ),
+  })
+  queryClient.getMutationCache().clear()
+}
+
 function assertAuthCommitAvailable(): void {
   const blocked = getAuthCookieBlockedState()
   if (blocked) throw new AuthCookieBlockedError(blocked)
@@ -224,7 +241,7 @@ export function applyAuthBundle(
   assertAuthCommitAvailable()
   const previousSID = useAuthStore.getState().auth.session?.sid
   if (previousSID && previousSID !== bundle.session.sid) {
-    authCache?.clear()
+    if (authCache) clearSessionCache(authCache)
   }
   refreshCooldown = null
   authEpoch += 1
@@ -272,7 +289,7 @@ export function clearAuthentication(
   preserveValidPending2FA = false
 ): void {
   const sid = useAuthStore.getState().auth.session?.sid
-  authCache?.clear()
+  if (authCache) clearSessionCache(authCache)
   refreshCooldown = null
   authEpoch += 1
   useAuthStore.getState().auth.reset(bootstrapState, preserveValidPending2FA)
@@ -331,7 +348,7 @@ export function clearAuthenticatedClientState(
   queryClient: QueryClient,
   synchronizeTabs = true
 ): void {
-  if (queryClient !== authCache) queryClient.clear()
+  if (queryClient !== authCache) clearSessionCache(queryClient)
   clearAuthentication(synchronizeTabs)
 }
 
