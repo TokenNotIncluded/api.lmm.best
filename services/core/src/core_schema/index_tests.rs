@@ -3,10 +3,13 @@
 use super::*;
 
 async fn prior(pool: &PgPool) -> [u8; 32] {
+    assert_eq!(COMPONENTS.len(), 13);
     let mut tx = pool.begin().await.unwrap();
     for (name, source) in COMPONENTS {
         let source = if *name == "charging-ledger" {
-            let old = source.replace("CREATE INDEX ledger_commands_request_operation\n    ON core_charging.ledger_commands USING btree (request_id, operation_id);\n", "");
+            let index = "CREATE INDEX ledger_commands_request_operation\n    ON core_charging.ledger_commands USING btree (request_id, operation_id);\n";
+            assert_eq!(source.matches(index).count(), 1);
+            let old = source.replace(index, "");
             assert_eq!(
                 Sha256::digest(old.as_bytes()).as_slice(),
                 PRIOR_CHARGING_LEDGER
@@ -87,7 +90,7 @@ async fn current_schema_index_predecessor_upgrade_changes_only_verified_index_an
         .map(|b| format!("{b:02x}"))
         .collect::<String>();
     assert_eq!(
-        prior_hex, "431a4af6b4790abdb32a3583cb097b733c41b6b2cdc04537e15808260de44d57",
+        prior_hex, "660ddf6f75c0350c93ae2886951312997c82c4bc6ebcf5d79a561de629781bad",
         "current-schema index-predecessor fixture must match its reviewed canonical catalog"
     );
     println!("prior catalog SHA256={prior_hex}");
@@ -123,9 +126,10 @@ async fn current_schema_index_predecessor_upgrade_changes_only_verified_index_an
         "startup must not repair old schema"
     );
     unchanged(&pool, &before).await;
-    // The retired twelve-component, eleven-component and earlier catalogs are not
-    // this thirteen-component catalog, even when approval matches the saved receipt.
+    // The retired pre-Pi thirteen-component, twelve-component and earlier catalogs
+    // are not the current catalog, even when approval matches the saved receipt.
     for retired_hex in [
+        "431a4af6b4790abdb32a3583cb097b733c41b6b2cdc04537e15808260de44d57",
         "9ce6c5120645792608d4466ef9fe4b6f91add7ec082670d276bffbd94f48c14a",
         "e8fa053daca7741952caa4c60e27071652f600b4fa48f4b7631ea54ee801df7b",
         "5510e0bee0e5659ff940b798c9d6d3c69aea220734d9f73577c847b6841254b7",

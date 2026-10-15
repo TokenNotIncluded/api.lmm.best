@@ -955,15 +955,17 @@ WITH catalog_path AS MATERIALIZED (
             .collect()
     }
     lmm_core::core_schema::init(&pool).await.unwrap();
-    // Fresh current-v4 thirteen-component schema with only this index removed.
+    // Fresh current Pi/session thirteen-component schema with only this index removed.
     // core_schema::index_tests independently constructs and pins this exact catalog.
-    const PRIOR: &str = "431a4af6b4790abdb32a3583cb097b733c41b6b2cdc04537e15808260de44d57";
+    const PRIOR: &str = "660ddf6f75c0350c93ae2886951312997c82c4bc6ebcf5d79a561de629781bad";
+    const RETIRED_PRE_PI_THIRTEEN_COMPONENT_PRIOR: &str =
+        "431a4af6b4790abdb32a3583cb097b733c41b6b2cdc04537e15808260de44d57";
     const RETIRED_TWELVE_COMPONENT_PRIOR: &str =
         "9ce6c5120645792608d4466ef9fe4b6f91add7ec082670d276bffbd94f48c14a";
     const RETIRED_PRIOR: &str = "e8fa053daca7741952caa4c60e27071652f600b4fa48f4b7631ea54ee801df7b";
     const RETIRED_ELEVEN_COMPONENT_PRIOR: &str =
         "5510e0bee0e5659ff940b798c9d6d3c69aea220734d9f73577c847b6841254b7";
-    sqlx::raw_sql("DROP INDEX core_charging.ledger_commands_request_operation; UPDATE core_meta.component_contract SET fingerprint=decode('7f84659ad2bd60268256a9f76959299a33911aaaeaf7194156a6f195ab54a734','hex') WHERE name='charging-ledger'; UPDATE core_meta.runtime_contract SET catalog_fingerprint=decode('431a4af6b4790abdb32a3583cb097b733c41b6b2cdc04537e15808260de44d57','hex')")
+    sqlx::raw_sql("DROP INDEX core_charging.ledger_commands_request_operation; UPDATE core_meta.component_contract SET fingerprint=decode('7f84659ad2bd60268256a9f76959299a33911aaaeaf7194156a6f195ab54a734','hex') WHERE name='charging-ledger'; UPDATE core_meta.runtime_contract SET catalog_fingerprint=decode('660ddf6f75c0350c93ae2886951312997c82c4bc6ebcf5d79a561de629781bad','hex')")
         .execute(&pool).await.unwrap();
     // Nonempty synthetic ledger data makes refusal and upgrade conservation real.
     let store = IdentityStore::from_pool(pool.clone());
@@ -1038,10 +1040,16 @@ WITH catalog_path AS MATERIALIZED (
     );
     let owner_url = database_url(&pool);
     std::fs::write(&database, &owner_url).unwrap();
-    // All three retired catalogs must fail for saved=current/approval=retired,
+    // All four retired catalogs must fail for saved=current/approval=retired,
     // saved=retired/approval=retired, and saved=retired/approval=current.
     // No mismatch may change financial rows, receipts, ACLs or definitions.
     for (saved, approval) in [
+        (PRIOR, RETIRED_PRE_PI_THIRTEEN_COMPONENT_PRIOR),
+        (
+            RETIRED_PRE_PI_THIRTEEN_COMPONENT_PRIOR,
+            RETIRED_PRE_PI_THIRTEEN_COMPONENT_PRIOR,
+        ),
+        (RETIRED_PRE_PI_THIRTEEN_COMPONENT_PRIOR, PRIOR),
         (PRIOR, RETIRED_TWELVE_COMPONENT_PRIOR),
         (
             RETIRED_TWELVE_COMPONENT_PRIOR,
