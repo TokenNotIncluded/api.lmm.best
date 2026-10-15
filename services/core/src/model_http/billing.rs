@@ -38,6 +38,30 @@ where
     unreachable!()
 }
 
+/// Retry only an explicitly rolled-back reservation, preserving its ID/spec/worker.
+/// The monotonic window limits when another attempt may START; it does not
+/// interrupt an in-flight transaction or change the enclosing hook timeout.
+async fn retry_reserve<T, F, Fut>(mut operation: F) -> charging::Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = charging::Result<T>>,
+{
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    for attempt in 0..8 {
+        if tokio::time::Instant::now() >= deadline {
+            return Err(charging::Error::Retry);
+        }
+        match operation().await {
+            Err(charging::Error::Retry) if attempt < 7 => {
+                let next = tokio::time::Instant::now() + Duration::from_millis(10u64 << attempt);
+                tokio::time::sleep_until(next.min(deadline)).await;
+            }
+            result => return result,
+        }
+    }
+    unreachable!()
+}
+
 impl Billing for Bridge {
     fn reserve<'a>(
         &'a self,
@@ -99,7 +123,7 @@ impl Billing for Bridge {
                 lease_seconds: self.policy.lease_seconds,
                 maximum_seconds: self.policy.lease_seconds,
             };
-            let charge = retry(|| async {
+            let charge = retry_reserve(|| async {
                 if let Some(issuer) = &oauth_issuer {
                     self.charging
                         .reserve_oauth_with_context(issuer, &secret, &spec, &worker, peer)
@@ -355,4 +379,143 @@ fn local_input_bound(request: &Request) -> Result<u64, RelayError> {
             .len())?;
     }
     Ok(bytes)
+}
+
+#[cfg(test)]
+mod reserve_retry_tests {
+    use super::*;
+    use std::{cell::Cell, future, task::Poll};
+
+    #[tokio::test]
+    async fn explicit_rollbacks_beyond_three_attempts_preserve_success() {
+        let calls = Cell::new(0);
+        let result = retry_reserve(|| {
+            calls.set(calls.get() + 1);
+            future::ready(if calls.get() <= 4 {
+                Err(charging::Error::Retry)
+            } else {
+                Ok("original-reservation-handle")
+            })
+        })
+        .await;
+        assert_eq!(result, Ok("original-reservation-handle"));
+        assert_eq!(calls.get(), 5);
+    }
+
+    #[tokio::test]
+    async fn explicit_rollbacks_beyond_three_attempts_preserve_business_rejection() {
+        let calls = Cell::new(0);
+        let result = retry_reserve(|| {
+            calls.set(calls.get() + 1);
+            future::ready(Err::<(), _>(if calls.get() <= 4 {
+                charging::Error::Retry
+            } else {
+                charging::Error::BudgetExceeded
+            }))
+        })
+        .await;
+        assert_eq!(result, Err(charging::Error::BudgetExceeded));
+        assert_eq!(calls.get(), 5);
+    }
+
+    #[tokio::test]
+    async fn every_non_retry_error_returns_without_replay() {
+        use charging::Error::*;
+        for original in [
+            Invalid,
+            Unauthorized,
+            Forbidden,
+            Conflict,
+            BudgetExceeded,
+            NoFunds,
+            NeedReservation,
+            StaleWorker,
+            WrongState,
+            NotFound,
+            Storage,
+            Ledger,
+            CommitUnknown,
+        ] {
+            let calls = Cell::new(0);
+            let result = retry_reserve(|| {
+                calls.set(calls.get() + 1);
+                future::ready(Err::<(), _>(original))
+            })
+            .await;
+            assert_eq!(result, Err(original));
+            assert_eq!(calls.get(), 1, "unexpected replay of {original:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn permanent_retry_has_a_finite_attempt_limit() {
+        let calls = Cell::new(0);
+        let result = retry_reserve(|| {
+            calls.set(calls.get() + 1);
+            future::ready(Err::<(), _>(charging::Error::Retry))
+        })
+        .await;
+        assert_eq!(result, Err(charging::Error::Retry));
+        assert!(calls.get() > 0 && calls.get() <= 8);
+    }
+
+    #[tokio::test]
+    async fn elapsed_transaction_time_prevents_a_new_attempt_after_window() {
+        let calls = Cell::new(0);
+        let result = retry_reserve(|| {
+            calls.set(calls.get() + 1);
+            async {
+                tokio::time::sleep(Duration::from_millis(2050)).await;
+                Err::<(), _>(charging::Error::Retry)
+            }
+        })
+        .await;
+        assert_eq!(result, Err(charging::Error::Retry));
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[tokio::test]
+    async fn an_in_flight_transaction_result_is_not_interrupted_by_window() {
+        let calls = Cell::new(0);
+        let result = retry_reserve(|| {
+            calls.set(calls.get() + 1);
+            async {
+                tokio::time::sleep(Duration::from_millis(2050)).await;
+                Ok("committed-after-start-window")
+            }
+        })
+        .await;
+        assert_eq!(result, Ok("committed-after-start-window"));
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[tokio::test]
+    async fn dropping_during_backoff_never_starts_another_operation() {
+        let calls = Cell::new(0);
+        let mut pending = Box::pin(retry_reserve(|| {
+            calls.set(calls.get() + 1);
+            future::ready(Err::<(), _>(charging::Error::Retry))
+        }));
+        // One deterministic poll completes the first operation and reaches the
+        // pending backoff. Dropping models an actual hook-timeout future drop,
+        // not a client disconnect (which deliberately does not cancel reserve).
+        let first = future::poll_fn(|cx| Poll::Ready(pending.as_mut().poll(cx))).await;
+        assert!(first.is_pending());
+        assert_eq!(calls.get(), 1);
+        drop(pending);
+        tokio::time::sleep(Duration::from_millis(25)).await;
+        assert_eq!(calls.get(), 1);
+    }
+
+    #[tokio::test]
+    async fn existing_non_reservation_retry_keeps_three_attempts() {
+        let calls = Cell::new(0);
+        let result = retry(|| {
+            calls.set(calls.get() + 1);
+            future::ready(Err::<(), _>(charging::Error::Retry))
+        })
+        .await;
+        assert_eq!(result, Err(charging::Error::Retry));
+        assert_eq!(calls.get(), 3);
+    }
 }
