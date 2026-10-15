@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Plan a financial import from the frozen, local SELECT-only legacy snapshot.
+"""Plan financial facts from the frozen, local SELECT-only legacy snapshot.
 
-The first phase deliberately has no target writer. It preserves every selected
-source column privately, derives exact typed economic facts, and names missing
-runtime contracts. Archive coverage is never reported as active migration.
+Most families remain planner-only. The explicit opening preview/apply/reconcile
+path accepts only a separately reviewed zero-reservation batch and a new owned
+offline target. Archive coverage is never reported as active migration.
 """
 
 from __future__ import annotations
@@ -913,10 +913,24 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True, help="New 0700 directory under ~/Backups")
     parser.add_argument("--migration-id", required=True)
     parser.add_argument("--apply", action="store_true")
+    opening_modes = parser.add_mutually_exclusive_group()
+    opening_modes.add_argument("--opening-preview", action="store_true", help="Prepare only the reviewed-zero opening candidate; never apply other financial families")
+    opening_modes.add_argument("--apply-opening", action="store_true", help="Apply one separately approved opening-only batch to a new owned offline target")
+    opening_modes.add_argument("--reconcile-opening", action="store_true", help="Read back an original uncertain opening attempt; never retry it")
+    parser.add_argument("--target-receipt", type=Path)
+    parser.add_argument("--reservation-evidence", type=Path)
+    parser.add_argument("--reservation-review", type=Path)
+    parser.add_argument("--opening-approval", type=Path)
+    parser.add_argument("--opening-attempt", type=Path)
     args = parser.parse_args()
     output = None
     try:
         require(not args.apply, "financial_apply_contract_not_frozen")
+        opening_mode = args.opening_preview or args.apply_opening or args.reconcile_opening
+        if opening_mode:
+            require(args.reuse_export_proof is not None and all(value is not None for value in
+                    (args.target_receipt,args.reservation_evidence,args.reservation_review)), "opening_frozen_reviewed_inputs_required")
+            require(not (args.apply_opening or args.reconcile_opening) or args.opening_approval is not None, "opening_approval_required")
         require(IDENTITY.MIGRATION_ID.fullmatch(args.migration_id) is not None, "migration_id_invalid")
         tool_hashes = tool_source_hashes()
         IDENTITY.private_backup_path(args.output.parent, directory=True)
@@ -948,11 +962,35 @@ def main() -> int:
                     "target_writes": 0, "target_runtime_contract_review_required": True}
         IDENTITY.write_private(output, "manifest.private.json", canonical(manifest) + "\n")
         IDENTITY.write_private(output, "report.private.json", canonical(plan["public_summary"]) + "\n")
+        if opening_mode:
+            opening_path = Path(__file__).with_name("legacy_financial_opening.py")
+            opening_spec = importlib.util.spec_from_file_location("legacy_financial_opening", opening_path)
+            opening_module = importlib.util.module_from_spec(opening_spec)
+            opening_spec.loader.exec_module(opening_module)
+            args._opening_plan, args._opening_identities, args._opening_identity_manifest = plan, identities, identity_manifest
+            # Pass this exact already-loaded planner module, including its typed
+            # hash/domain and verified source export. No target JSON bypass.
+            import types
+            financial = types.SimpleNamespace(**globals())
+            public = opening_module.run(financial, args, output=output, source=source, tables=tables, proof=proof, plan=plan,
+                planner_manifest=manifest, identities=identities, identity_manifest=identity_manifest,
+                source_path=IDENTITY.private_backup_path(args.source_receipt), map_path=map_path,
+                identity_manifest_path=identity_manifest_path)
+            IDENTITY.write_private(output, "opening-report.private.json", canonical(public)+"\n")
+            print(canonical(public))
+            return 0
         print(canonical(plan["public_summary"]))
         return 0
-    except (MappingError, OSError, ValueError, KeyError, TypeError, subprocess.TimeoutExpired) as error:
+    except (MappingError, OSError, ValueError, KeyError, TypeError, RecursionError, subprocess.TimeoutExpired) as error:
         code = str(error) if isinstance(error, MappingError) else type(error).__name__
-        result = {"status": "financial-planner-aborted-no-target-writes", "error_code": code}
+        attempted = output is not None and (output/"opening-attempt.private.json").is_file()
+        unknown = attempted or (args.reconcile_opening and args.opening_attempt is not None) or code == "opening_outcome_unknown_reconcile_original_attempt"
+        result = {"status": "opening-outcome-unknown" if unknown
+                  else "financial-planner-aborted-no-target-writes", "error_code": code}
+        if unknown:
+            result["automatic_retry"] = False
+            if args.opening_attempt is not None:
+                result["original_attempt"] = str(args.opening_attempt)
         if output:
             try:
                 IDENTITY.write_private(output, "failure.private.json", canonical(result) + "\n")
