@@ -334,6 +334,14 @@ class GateTests(unittest.TestCase):
                          'typecheck:web'} <= {c.name for c in full})
         self.assertEqual(len(full), len({c.name for c in full}))
 
+    def test_charging_gate_preserves_library_contracts_and_real_ledger_target(self):
+        for level in ('related', 'full'):
+            checks = {check.name: check for check in gate.plan(self.root, level, ['docs/new.md'], self.out)}
+            self.assertEqual(checks['core-regression'].command,
+                             ('cargo', 'test', '--locked', '--lib'))
+            self.assertEqual(checks['charging-regression'].command,
+                             ('cargo', 'test', '--locked', '--test', 'assembled_billing'))
+
     def test_database_guard_rejects_missing_remote_and_override_destinations(self):
         examples = [({}, 'DATABASE_URL'),
                     ({'DATABASE_URL': 'postgres://u:p@127.0.0.1/postgres'}, 'DATABASE_URL'),

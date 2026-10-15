@@ -8,7 +8,7 @@ Work branch: `wip/mk-03-billing`. Integration PR: #675. Fresh PostgreSQL only.
 This directory implements charging transactions and their PostgreSQL contract
 tests. The sibling `transactional_ledger` module supplies the actual wallet
 adapter; `tests/assembled_billing.rs` exercises both against disposable PostgreSQL.
-`tests/charging.rs` separately exercises the engine with a transactional recording
+`src/billing/charging/tests.rs` separately exercises the engine with a transactional recording
 adapter, which provides no wallet evidence.
 
 `core_schema::init` installs identity, ledger, payments, charging, routing, events
@@ -144,8 +144,8 @@ runtime roles are tested separately with restricted grants.
 
 ```sh
 DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/postgres \
-  cargo test --locked --test charging
-cargo clippy --locked --test charging -- -D warnings
+  cargo test --locked --lib billing::charging::tests
+cargo clippy --locked --lib --test assembled_billing -- -D warnings
 ```
 
 The PostgreSQL tests create isolated fresh databases. Missing PostgreSQL fails the

@@ -51,13 +51,18 @@ MIGRATION_ID = re.compile(r"[a-zA-Z0-9][a-zA-Z0-9_.-]{0,127}\Z")
 # This deliberately accepts only the format the Rust verifier currently uses.
 ARGON2 = re.compile(r"\$argon2id\$v=19\$m=19456,t=2,p=1\$([A-Za-z0-9+/]+)\$([A-Za-z0-9+/]+)\Z")
 TABLES = ("accounts", "users", "user_profiles", "password_logins", "developer_access")
-IDENTITY_VERSION = 3
+IDENTITY_VERSION = 4
 # Bind this importer to the reviewed DDL, rather than trusting a caller's hash.
-IDENTITY_FINGERPRINT = "9f3c43d55fe0115920ff16018343f17fc59f20746ba097732accbd465c415f64"
+IDENTITY_FINGERPRINT = "1fe8c54a0afce5d50e322d41dad405b7676f81983e720d5412bf893e40636ac8"
 IDENTITY_SCHEMA = Path(__file__).resolve().parents[1] / "services/core/schema/identity.sql"
 IDENTITY_SCHEMA_RUST = Path(__file__).resolve().parents[1] / "services/core/src/identity/schema.rs"
 ROOT = Path(__file__).resolve().parents[1]
-CORE_SEED_CONTRACT = "ledger-zero-events-empty-routing-unset-v1"
+CORE_SEED_CONTRACT = "ledger-zero-events-empty-routing-unset-abuse-default-oauth-contract-v3"
+CORE_COMPONENTS = frozenset({
+    "identity", "oauth-grants", "ledger", "payments", "charging", "routing",
+    "events", "charging-ledger", "migration", "console", "model-gateway",
+    "commerce", "abuse",
+})
 DEVELOPER_POLICY = "legacy-explicit-override-before-manual-v1-paid-unproven"
 
 
@@ -106,16 +111,42 @@ def current_contract() -> dict:
         schema = (path.parent / relative).resolve()
         require(schema.parent == (ROOT / "services/core/schema").resolve() and name not in components, "component_contract_invalid")
         components[name] = sha256_file(schema)
-    require(components.get("identity") == expected["identity_fingerprint_sha256"] and len(components) == 11, "component_contract_incomplete")
+    require(components.get("identity") == expected["identity_fingerprint_sha256"]
+            and set(components) == CORE_COMPONENTS, "component_contract_incomplete")
     catalogs = re.findall(r'const CATALOG:\s*&str\s*=\s*r#"(.*?)"#;', source, re.S)
     require(len(catalogs) == 1, "catalog_contract_syntax_unknown")
     return {**expected, "component_fingerprints": components,
-            "catalog_query_sha256": hashlib.sha256(catalogs[0].encode()).hexdigest(), "catalog_query": catalogs[0]}
+            "catalog_query_sha256": hashlib.sha256(catalogs[0].encode()).hexdigest(), "catalog_query": catalogs[0],
+            "oauth_catalog_query_sha256": hashlib.sha256(oauth_catalog_query().encode()).hexdigest()}
 
 
 def catalog_hash_sql(contract: dict) -> str:
     # Match Rust's UTF-8 definitions, each prefixed with its 8-byte BE length.
     return "SELECT encode(sha256(coalesce(string_agg(int8send(octet_length(convert_to(definition,'UTF8'))::bigint)||convert_to(definition,'UTF8'),''::bytea ORDER BY definition COLLATE \"C\"),''::bytea)),'hex') FROM (" + contract["catalog_query"] + ") catalog_definitions"
+
+
+def oauth_catalog_query() -> str:
+    source = (ROOT / "services/core/src/identity/grants.rs").read_text(encoding="utf-8")
+    catalogs = re.findall(r'const CATALOG:\s*&str\s*=\s*r#"(.*?)"#;', source, re.S)
+    require(len(catalogs) == 1, "oauth_catalog_contract_syntax_unknown")
+    require('VALUES (1,$1,$2)' in source, "oauth_seed_version_unknown")
+    return catalogs[0]
+
+
+def oauth_seed_guard_sql(contract: dict) -> str:
+    """Validate the installer-written OAuth receipt, including its actual catalog."""
+    catalog = oauth_catalog_query()
+    require(hashlib.sha256(catalog.encode()).hexdigest() == contract.get("oauth_catalog_query_sha256"),
+            "oauth_catalog_contract_changed")
+    # grants::catalog uses the same UTF-8, 8-byte length-prefixed digest as Core,
+    # with its sole output column named d. The complete Core catalog is checked too.
+    query = "SELECT d AS definition FROM (" + catalog + ") oauth_definitions"
+    actual = catalog_hash_sql({"catalog_query": query})
+    fingerprint = sql_literal(contract["component_fingerprints"]["oauth-grants"])
+    return ("(SELECT count(*) FROM core_oauth.contract)<>1 OR NOT EXISTS("
+            "SELECT 1 FROM core_oauth.contract WHERE singleton AND version=1 "
+            "AND encode(ddl_fingerprint,'hex')=" + fingerprint +
+            " AND encode(catalog_fingerprint,'hex')=(" + actual + "))")
 
 
 def id_map_bytes(records: list[dict]) -> str:
@@ -543,7 +574,7 @@ def build_import_sql(plan: dict, *, migration_id: str, source_sha256: str,
     require(isinstance(target_contract, dict) and all(target_contract.get(key) == value for key, value in expected_contract.items()), "target_contract_invalid")
     require(type(target_contract.get("identity_version")) is int, "target_contract_invalid")
     contract = current_contract()
-    for key in ("component_fingerprints", "catalog_query_sha256"):
+    for key in ("component_fingerprints", "catalog_query_sha256", "oauth_catalog_query_sha256"):
         require(target_contract.get(key) == contract[key], "target_assembled_contract_invalid")
     catalog_hash = target_contract.get("catalog_fingerprint_sha256", "")
     require(isinstance(catalog_hash, str) and HEX.fullmatch(catalog_hash) is not None, "target_catalog_hash_invalid")
@@ -580,7 +611,7 @@ def build_import_sql(plan: dict, *, migration_id: str, source_sha256: str,
     allow_seed = target_contract.get("allow_initialized_zero_ledger_seed") is True or allow_core_seed
     seed_exclusion = "AND NOT (n.nspname='core_billing' AND c.relname IN ('ledger_accounts','balance_state'))" if allow_seed else ""
     if allow_core_seed:
-        seed_exclusion += " AND NOT (n.nspname='core_events' AND c.relname='capacity') AND NOT (n.nspname='public' AND c.relname='routing_active_release')"
+        seed_exclusion += " AND NOT (n.nspname='core_events' AND c.relname='capacity') AND NOT (n.nspname='public' AND c.relname='routing_active_release') AND NOT (n.nspname='core_abuse' AND c.relname='settings') AND NOT (n.nspname='core_oauth' AND c.relname='contract')"
     seed_guard = """
  IF (SELECT count(*) FROM core_billing.ledger_accounts)<>2
  OR (SELECT count(*) FROM core_billing.balance_state)<>2
@@ -598,14 +629,19 @@ def build_import_sql(plan: dict, *, migration_id: str, source_sha256: str,
  IF (SELECT count(*) FROM core_events.capacity)<>1
  OR NOT EXISTS(SELECT 1 FROM core_events.capacity WHERE singleton AND max_events=100000 AND max_bytes=268435456 AND pending_events=0 AND pending_bytes=0)
  OR (SELECT count(*) FROM public.routing_active_release)<>1
- OR NOT EXISTS(SELECT 1 FROM public.routing_active_release WHERE singleton AND config_version IS NULL) THEN
+ OR NOT EXISTS(SELECT 1 FROM public.routing_active_release WHERE singleton AND config_version IS NULL)
+ OR (SELECT count(*) FROM core_abuse.settings)<>1
+ OR NOT EXISTS(SELECT 1 FROM core_abuse.settings WHERE singleton AND revision=0 AND document='{"version":1,"policies":[]}'::jsonb) THEN
   RAISE EXCEPTION 'non-canonical initialized core seed';
  END IF;
  seed_before := seed_before || jsonb_build_object('event_capacity',(SELECT to_jsonb(c) FROM core_events.capacity c),
-  'routing_release',(SELECT to_jsonb(r) FROM public.routing_active_release r));
+  'routing_release',(SELECT to_jsonb(r) FROM public.routing_active_release r),
+  'abuse_settings',(SELECT to_jsonb(s) FROM core_abuse.settings s),
+  'oauth_contract',(SELECT to_jsonb(c) FROM core_oauth.contract c));
 """
+        seed_guard += " IF " + oauth_seed_guard_sql(contract) + " THEN RAISE EXCEPTION 'non-canonical initialized OAuth seed'; END IF;\n"
     seed_readback = """
- IF seed_before - 'event_capacity' - 'routing_release' IS DISTINCT FROM jsonb_build_object(
+ IF seed_before - 'event_capacity' - 'routing_release' - 'abuse_settings' - 'oauth_contract' IS DISTINCT FROM jsonb_build_object(
   'accounts',(SELECT jsonb_agg(to_jsonb(a) ORDER BY id) FROM core_billing.ledger_accounts a),
   'balances',(SELECT jsonb_agg(to_jsonb(b) ORDER BY ledger_account_id) FROM core_billing.balance_state b)) THEN
   RAISE EXCEPTION 'initialized ledger seed changed';
@@ -614,7 +650,9 @@ def build_import_sql(plan: dict, *, migration_id: str, source_sha256: str,
     if allow_core_seed:
         seed_readback += """
  IF seed_before->'event_capacity' IS DISTINCT FROM (SELECT to_jsonb(c) FROM core_events.capacity c)
- OR seed_before->'routing_release' IS DISTINCT FROM (SELECT to_jsonb(r) FROM public.routing_active_release r) THEN
+ OR seed_before->'routing_release' IS DISTINCT FROM (SELECT to_jsonb(r) FROM public.routing_active_release r)
+ OR seed_before->'abuse_settings' IS DISTINCT FROM (SELECT to_jsonb(s) FROM core_abuse.settings s)
+ OR seed_before->'oauth_contract' IS DISTINCT FROM (SELECT to_jsonb(c) FROM core_oauth.contract c) THEN
   RAISE EXCEPTION 'initialized core seed changed';
  END IF;
 """
@@ -752,7 +790,7 @@ COMMIT;
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--source-receipt", type=Path, required=True)
-    parser.add_argument("--target-receipt", type=Path, help="Owner-provisioned private receipt: status=initialized-empty-identity-target; migration_id; source_archive_sha256; connection={socket_directory,port,database,role,pgpass_file}; instance_identity={database_oid,database_owner,postmaster_started_at,server_version_num,server_instance_nonce,listen_addresses}; contract={identity_version:3,identity_fingerprint_sha256:reviewed-exact-raw-SQL-SHA256,component_fingerprints:exact-11-components,catalog_query_sha256:current-Rust-query-SHA,catalog_fingerprint_sha256:owner-verified-actual-catalog,allow_initialized_core_seed:true,initialized_core_seed_contract:ledger-zero-events-empty-routing-unset-v1}; application_or_worker_started:false; registry_provisioned:true")
+    parser.add_argument("--target-receipt", type=Path, help="Owner-provisioned private receipt: status=initialized-empty-identity-target; migration_id; source_archive_sha256; connection={socket_directory,port,database,role,pgpass_file}; instance_identity={database_oid,database_owner,postmaster_started_at,server_version_num,server_instance_nonce,listen_addresses}; contract={identity_version:4,identity_fingerprint_sha256:reviewed-exact-raw-SQL-SHA256,component_fingerprints:exact-13-components,catalog_query_sha256:current-Rust-query-SHA,catalog_fingerprint_sha256:owner-verified-actual-catalog,allow_initialized_core_seed:true,initialized_core_seed_contract:ledger-zero-events-empty-routing-unset-abuse-default-oauth-contract-v3}; application_or_worker_started:false; registry_provisioned:true")
     parser.add_argument("--output", type=Path, required=True, help="New private directory under ~/Backups; must not already exist")
     parser.add_argument("--migration-id", required=True)
     parser.add_argument("--apply", action="store_true", help="Explicitly execute the private SQL plan against the matching empty initialized target")

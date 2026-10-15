@@ -496,9 +496,44 @@ class DeveloperAccessTests(unittest.TestCase):
 
 
 class IdentityContractTests(unittest.TestCase):
+    def test_oauth_catalog_query_changes_invalidate_frozen_contract(self):
+        contract = MODULE.current_contract()
+        original = Path.read_text
+        grants = MODULE.ROOT / "services/core/src/identity/grants.rs"
+        def changed(path, *args, **kwargs):
+            source = original(path, *args, **kwargs)
+            return source.replace('SELECT d FROM definitions', 'SELECT d||chr(32) AS d FROM definitions') if path == grants else source
+        with patch.object(Path, "read_text", changed):
+            self.assertNotEqual(MODULE.current_contract()["oauth_catalog_query_sha256"], contract["oauth_catalog_query_sha256"])
+            with self.assertRaisesRegex(MODULE.MappingError, "^oauth_catalog_contract_changed$"):
+                MODULE.oauth_seed_guard_sql(contract)
+
+    def test_assembled_contract_includes_commerce_and_abuse(self):
+        contract = MODULE.current_contract()
+        self.assertEqual(set(contract["component_fingerprints"]), MODULE.CORE_COMPONENTS)
+        for name in ("commerce", "abuse"):
+            self.assertEqual(contract["component_fingerprints"][name],
+                hashlib.sha256((MODULE.ROOT / "services/core/schema" / (name + ".sql")).read_bytes()).hexdigest())
+
+    def test_missing_or_replaced_component_is_rejected(self):
+        source = (MODULE.ROOT / "services/core/src/core_schema.rs").read_text()
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / "services/core/src").mkdir(parents=True)
+            (root / "services/core/schema").symlink_to(MODULE.ROOT / "services/core/schema", target_is_directory=True)
+            # Use real schema bytes, but preserve the helper's resolved-path guard.
+            for name in ("identity", "commerce", "abuse"):
+                self.assertIn('(\"' + name + '\", include_str!', source)
+            for replacement in ("", '("unknown", include_str!("../schema/abuse.sql")),'):
+                changed = source.replace('(\"abuse\", include_str!(\"../schema/abuse.sql\")),', replacement)
+                (root / "services/core/src/core_schema.rs").write_text(changed)
+                with patch.object(MODULE, "ROOT", root):
+                    with self.assertRaisesRegex(MODULE.MappingError, "^component_contract_incomplete$"):
+                        MODULE.current_contract()
+
     def test_current_source_raw_bytes_and_rust_version_match_pinned_review(self):
         contract = MODULE.identity_contract()
-        self.assertEqual(contract, {"identity_version": 3,
+        self.assertEqual(contract, {"identity_version": 4,
             "identity_fingerprint_sha256": hashlib.sha256(MODULE.IDENTITY_SCHEMA.read_bytes()).hexdigest()})
         self.assertEqual(contract["identity_fingerprint_sha256"], MODULE.IDENTITY_FINGERPRINT)
 
@@ -511,8 +546,8 @@ class IdentityContractTests(unittest.TestCase):
                     MODULE.identity_contract()
 
     def test_old_future_missing_or_duplicate_source_versions_are_rejected(self):
-        for contents in ("const VERSION: i32 = 2;", "const VERSION: i32 = 4;", "",
-                         "const VERSION: i32 = 3;\nconst VERSION: i32 = 3;"):
+        for contents in ("const VERSION: i32 = 2;", "const VERSION: i32 = 3;", "const VERSION: i32 = 5;", "",
+                         "const VERSION: i32 = 4;\nconst VERSION: i32 = 4;"):
             with self.subTest(contents=contents), tempfile.TemporaryDirectory() as temporary:
                 rust = Path(temporary) / "schema.rs"
                 rust.write_text(contents)
@@ -603,8 +638,8 @@ class ImportSqlTests(unittest.TestCase):
             {"target_contract": {"identity_version": 1, "identity_fingerprint_sha256": "b" * 64}},
             {"target_contract": {"identity_version": 2, "identity_fingerprint_sha256": "invalid"}},
             {"target_contract": target_contract(identity_version=2)},
-            {"target_contract": target_contract(identity_version="3")},
-            {"target_contract": target_contract(identity_version=3.0)},
+            {"target_contract": target_contract(identity_version="4")},
+            {"target_contract": target_contract(identity_version=4.0)},
             {"target_contract": target_contract(identity_fingerprint_sha256="b" * 64)},
         ]
         for changes in variants:
@@ -622,14 +657,14 @@ class ImportSqlTests(unittest.TestCase):
         self.assertNotIn("non-canonical initialized ledger seed", default)
 
     def test_core_seed_opt_in_requires_the_explicit_reviewed_seed_contract(self):
-        for seed in (None, "", True, "ledger-zero-events-empty-routing-unset-v0"):
+        for seed in (None, "", True, "ledger-zero-events-empty-routing-unset-v0", "ledger-zero-events-empty-routing-unset-v1", "ledger-zero-events-empty-routing-unset-abuse-default-v2"):
             with self.subTest(seed=seed), self.assertRaisesRegex(MODULE.MappingError, "^target_seed_contract_invalid$"):
                 self.sql(target_contract=target_contract(allow_initialized_core_seed=True,
                     initialized_core_seed_contract=seed))
 
-    def test_version_three_and_exact_fingerprint_are_bound_to_sql(self):
+    def test_version_four_and_exact_fingerprint_are_bound_to_sql(self):
         sql, _ = self.sql()
-        self.assertIn("singleton AND version=3 AND encode(fingerprint,'hex')='" + MODULE.IDENTITY_FINGERPRINT + "'", sql)
+        self.assertIn("singleton AND version=4 AND encode(fingerprint,'hex')='" + MODULE.IDENTITY_FINGERPRINT + "'", sql)
         self.assertNotIn("version=2", sql)
 
     def test_developer_rows_are_atomic_counted_and_exactly_read_back(self):
@@ -659,6 +694,11 @@ class ImportSqlTests(unittest.TestCase):
         self.assertIn("balance_units<>0 OR b.revision<>0", body)
         self.assertIn("pending_events=0 AND pending_bytes=0", body)
         self.assertIn("singleton AND config_version IS NULL", body)
+        self.assertIn("singleton AND revision=0 AND document='{\"version\":1,\"policies\":[]}'::jsonb", body)
+        self.assertIn("seed_before->'abuse_settings' IS DISTINCT FROM", body)
+        self.assertIn("seed_before->'oauth_contract' IS DISTINCT FROM", body)
+        self.assertIn("non-canonical initialized OAuth seed", body)
+        self.assertIn("encode(ddl_fingerprint,'hex')='" + contract['component_fingerprints']['oauth-grants'] + "'", body)
         self.assertIn("jsonb_agg(to_jsonb(a) ORDER BY id)", body)
         self.assertIn("jsonb_agg(to_jsonb(b) ORDER BY ledger_account_id)", body)
         self.assertIn("to_jsonb(c) FROM core_events.capacity", body)
@@ -672,6 +712,8 @@ class ImportSqlTests(unittest.TestCase):
         self.assertNotIn("non-canonical initialized core seed", sql)
         self.assertNotIn("AND NOT (n.nspname='public' AND c.relname='routing_active_release')", sql)
         self.assertNotIn("AND NOT (n.nspname='core_events' AND c.relname='capacity')", sql)
+        self.assertNotIn("AND NOT (n.nspname='core_abuse' AND c.relname='settings')", sql)
+        self.assertNotIn("AND NOT (n.nspname='core_oauth' AND c.relname='contract')", sql)
 
     def test_target_emptiness_scope_includes_public_and_other_application_schemas(self):
         sql, _ = self.sql()
@@ -688,6 +730,14 @@ class ImportSqlTests(unittest.TestCase):
         with self.assertRaisesRegex(MODULE.MappingError, "^mapping_hash_mismatch$"):
             MODULE.build_import_sql(plan, migration_id="synthetic", source_sha256=SOURCE_SHA256,
                 target_contract=target_contract(), manifest=manifest, target_identity=target_identity())
+
+    def test_v3_manifest_is_rejected_without_probing_target(self):
+        old = {"identity_version": 3,
+               "identity_fingerprint_sha256": "9f3c43d55fe0115920ff16018343f17fc59f20746ba097732accbd465c415f64"}
+        with patch.object(MODULE, "psql") as runner:
+            with self.assertRaisesRegex(MODULE.MappingError, "^identity_manifest_mismatch$"):
+                self.sql(manifest={"identity_contract": old})
+            runner.assert_not_called()
 
     def test_manifest_map_source_and_proof_are_bound(self):
         for field, value in (("source_target_id_map_sha256", "f" * 64), ("mapping_sha256", "f" * 64),
@@ -1031,6 +1081,31 @@ class SourceExportGuardTests(unittest.TestCase):
         self.assertTrue(all(call.kwargs["readonly"] for call in runner.call_args_list))
         self.assertEqual(stdout.getvalue(), "")
 
+    def test_v3_target_contract_fails_before_any_target_probe(self):
+        receipt_path = self.snapshot / "source-receipt.json"
+        receipt_path.write_text(json.dumps(self.receipt))
+        receipt_path.chmod(0o600)
+        target_path = self.snapshot / "target-receipt.json"
+        target_path.write_text(json.dumps({
+            "status": "initialized-empty-identity-target", "registry_provisioned": True,
+            "application_or_worker_started": False, "migration_id": "synthetic-stale-target",
+            "source_archive_sha256": self.receipt["archive"]["sha256"],
+            "instance_identity": {"server_instance_nonce": "synthetic-auxiliary-nonce"},
+            "contract": target_contract(identity_version=3),
+        }))
+        target_path.chmod(0o600)
+        raw = "".join(json.dumps(row) + "\n" for row in self.rows())
+        argv = [str(SCRIPT), "--source-receipt", str(receipt_path), "--target-receipt", str(target_path),
+                "--output", str(self.snapshot / "stale-target-preview"), "--migration-id", "synthetic-stale-target"]
+        stdout, stderr = io.StringIO(), io.StringIO()
+        with patch.object(sys, "argv", argv), patch.object(MODULE, "psql", side_effect=[json.dumps(self.identity), raw]) as runner, contextlib.redirect_stdout(stdout), contextlib.redirect_stderr(stderr):
+            result = MODULE.main()
+        self.assertEqual(result, 1)
+        self.assertEqual(json.loads(stderr.getvalue())["error_code"], "target_contract_invalid")
+        self.assertEqual(runner.call_count, 2)
+        self.assertTrue(all(call.kwargs["readonly"] for call in runner.call_args_list))
+        self.assertEqual(stdout.getvalue(), "")
+
     def test_unconfirmed_apply_keeps_original_manifest_plan_and_run_id(self):
         receipt_path = self.snapshot / "source-receipt.json"
         receipt_path.write_text(json.dumps(self.receipt))
@@ -1182,7 +1257,7 @@ class RealIdentityTransactionTests(unittest.TestCase):
 
     The private receipt must attest status=initialized-empty-identity-fixture,
     synthetic_only=true, registry_provisioned=true, and no app/worker started.
-    It supplies connection, instance_identity, and the reviewed schema-3 contract
+    It supplies connection, instance_identity, and the reviewed schema-4 contract
     with allow_initialized_core_seed=true and initialized_core_seed_contract.
     Never use an application database here.
     Every database response and error stays in a new private Backups directory.
@@ -1225,6 +1300,10 @@ COMMIT;
         table_names = names.get("tables")
         self.assertTrue(isinstance(table_names, list) and bool(table_names), "fixture_identity_tables_missing")
         self.assertTrue(all(isinstance(name, str) and MODULE.IDENTIFIER.fullmatch(name) for name in table_names), "fixture_identifier_invalid")
+        mfa_tables = {"mfa_factors", "mfa_enrollments", "mfa_backup_codes", "mfa_challenges", "session_authentication"}
+        self.assertTrue(mfa_tables <= set(table_names), "fixture_mfa_tables_missing")
+        mfa_sequences = {"core_identity.mfa_enrollments_id_seq", "core_identity.mfa_backup_codes_id_seq"}
+        self.assertTrue(mfa_sequences <= set(names["all_sequences"]), "fixture_mfa_sequences_missing")
         table_states = []
         for name in table_names:
             relation = 'core_identity."' + name + '"'
@@ -1352,6 +1431,12 @@ SELECT jsonb_build_object(
             ("catalog-drift", "ALTER TABLE core_identity.user_profiles ADD COLUMN synthetic_unreviewed TEXT;", "installed core contract or actual catalog mismatch"),
             ("nonempty-target", "INSERT INTO core_identity.accounts(id,kind) OVERRIDING SYSTEM VALUE VALUES(7,'personal');", "target business table is not empty"),
             ("noncanonical-seed", "UPDATE core_events.capacity SET max_events=max_events+1;", "non-canonical initialized core seed"),
+            ("changed-abuse-revision", "UPDATE core_abuse.settings SET revision=1;", "non-canonical initialized core seed"),
+            ("changed-abuse-document", "UPDATE core_abuse.settings SET document='{}'::jsonb;", "non-canonical initialized core seed"),
+            ("missing-abuse-seed", "DELETE FROM core_abuse.settings;", "non-canonical initialized core seed"),
+            ("wrong-oauth-ddl", "UPDATE core_oauth.contract SET ddl_fingerprint=decode(repeat('aa',32),'hex');", "non-canonical initialized OAuth seed"),
+            ("wrong-oauth-catalog", "UPDATE core_oauth.contract SET catalog_fingerprint=decode(repeat('aa',32),'hex');", "non-canonical initialized OAuth seed"),
+            ("missing-oauth-seed", "DELETE FROM core_oauth.contract;", "non-canonical initialized OAuth seed"),
         ):
             rejected(sql.replace("SELECT pg_advisory_xact_lock", mutation + "\nSELECT pg_advisory_xact_lock", 1), label, message, before)
 
@@ -1412,6 +1497,12 @@ SELECT jsonb_build_object(
         self.assertTrue(state("state-after-replay") == imported, "identical_replay_changed_state")
         rejected(sql.replace("SELECT pg_advisory_xact_lock", "UPDATE core_identity.user_profiles SET display_name='tampered synthetic' WHERE user_id=37;\nSELECT pg_advisory_xact_lock", 1),
                  "field-proof-conflict", "identity exact readback mismatch", imported)
+
+        # A disabled native factor is still non-import state; replay must not
+        # invent assurance or erase it. This fixture uses no sequence values.
+        rejected(sql.replace("SELECT pg_advisory_xact_lock",
+                 "INSERT INTO core_identity.mfa_factors(user_id,enabled) VALUES(37,false);\nSELECT pg_advisory_xact_lock", 1),
+                 "native-mfa-replay-conflict", "non-import target table is not empty", imported)
 
         changed_users = deepcopy(source_users)
         changed_users[0]["display_name"] = "Changed synthetic profile"

@@ -32,22 +32,23 @@ jobs:
       - name: Install repository Rust toolchain
         id: rust
         run: rustup toolchain install 1.99.0 --profile minimal --component rustfmt --component clippy
-      - name: Compile and run charging PostgreSQL contract tests
+      - name: Run charging PostgreSQL contracts and upstream cost unit tests
         working-directory: services/core
         shell: bash
         run: |
-          set -o pipefail
-          cargo test --locked --test charging 2>&1 | tee "$RUNNER_TEMP/mk-03-tests.log"
-      - name: Lint charging test target
+          set -euo pipefail
+          cargo test --locked --lib billing::charging::tests 2>&1 | tee "$RUNNER_TEMP/mk-03-tests.log"
+          cargo test --locked --lib upstream_cost::tests 2>&1 | tee -a "$RUNNER_TEMP/mk-03-tests.log"
+      - name: Lint Core library and test targets
         working-directory: services/core
-        run: cargo clippy --locked --test charging -- -D warnings
+        run: cargo clippy --locked --lib --tests -- -D warnings
       - name: Preserve test evidence and formatting suggestions
         if: ${{ always() && steps.checkout.outcome == 'success' && steps.rust.outcome == 'success' }}
         working-directory: services/core
         shell: bash
         run: |
           cargo fmt --all
-          git diff -- src/billing/charging tests/charging.rs > "$RUNNER_TEMP/mk-03-format.patch"
+          git diff -- src/billing/charging src/upstream_cost.rs > "$RUNNER_TEMP/mk-03-format.patch"
           echo 'RecordingLedger tests do not prove real ledger funding, refunds, or production readiness.' >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
         if: always()

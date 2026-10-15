@@ -318,7 +318,9 @@ def plan(root: Path, level: str, changed: list[str], output: Path) -> list[Check
     # Fixed real core regression, even for a docs-only change. No path-only acceptance.
     checks += [Check('core-regression', ('cargo', 'test', '--locked', '--lib'), CORE, ('DATABASE_URL',), tests='rust'),
                Check('routing-regression', ('cargo', 'test', '--locked', '--test', 'routing'), CORE, ('DATABASE_URL',), tests='rust'),
-               Check('charging-regression', ('cargo', 'test', '--locked', '--test', 'charging'), CORE, ('DATABASE_URL',), tests='rust'),
+               # Charging contracts now live in the unfiltered library suite above.
+               # Keep this separate gate on the real transactional ledger integration.
+               Check('charging-regression', ('cargo', 'test', '--locked', '--test', 'assembled_billing'), CORE, ('DATABASE_URL',), tests='rust'),
                Check('extensions-regression', ('go', 'test', '-mod=readonly', '-race', '-count=1', '-json', './...'), EXT, tests='go')]
     if level == 'full' or affected('contracts') or affected(EXT):
         checks.append(Check('protocol-generated', ('bash', 'scripts/generate-core-protocol.sh', '--check')))
