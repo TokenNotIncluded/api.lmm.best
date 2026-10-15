@@ -19,9 +19,10 @@ use std::{
 
 mod admin;
 
-const USAGE: &str = "Usage: lmm-core [--config /absolute/core.toml | --legacy-env] [serve | init-db | bootstrap-user | complete-setup | install-usage-receipt-index]\n\n\
+const USAGE: &str = "Usage: lmm-core [--config /absolute/core.toml | --legacy-env] [serve | init-db | bootstrap-user | complete-setup | install-usage-receipt-index | schema-manifest]\n\n\
 Commands:\n\
   serve           Start the core service (the default without arguments).\n\
+  schema-manifest Print the compiled schema contract as JSON; accepts no config options and performs no I/O except stdout.\n\
   init-db         Initialize a new, empty core database.\n\
   bootstrap-user  Read a user_id and platform_level JSON object from stdin.\n\n\
   complete-setup  Record setup completion offline after creating or importing root.\n\
@@ -43,6 +44,7 @@ enum Command {
     BootstrapUser,
     CompleteSetup,
     InstallUsageReceiptIndex,
+    SchemaManifest,
     Help,
     Version,
 }
@@ -78,13 +80,15 @@ fn command(args: impl IntoIterator<Item = OsString>) -> io::Result<Arguments> {
                 | "init-db"
                 | "bootstrap-user"
                 | "complete-setup"
-                | "install-usage-receipt-index",
+                | "install-usage-receipt-index"
+                | "schema-manifest",
             ) if operation.is_none() && !version => {
                 operation = Some(match arg.to_str() {
                     Some("init-db") => Command::InitDb,
                     Some("bootstrap-user") => Command::BootstrapUser,
                     Some("complete-setup") => Command::CompleteSetup,
                     Some("install-usage-receipt-index") => Command::InstallUsageReceiptIndex,
+                    Some("schema-manifest") => Command::SchemaManifest,
                     _ => Command::Serve,
                 });
             }
@@ -113,6 +117,16 @@ fn main() -> Result<(), Box<dyn Error>> {
         }
         Command::Version => {
             println!("lmm-core {}", env!("CARGO_PKG_VERSION"));
+            return Ok(());
+        }
+        Command::SchemaManifest => {
+            if arguments.config.is_some() || arguments.legacy_env {
+                return Err(io::Error::new(io::ErrorKind::InvalidInput, USAGE).into());
+            }
+            use std::io::Write;
+            let mut output = io::stdout().lock();
+            serde_json::to_writer(&mut output, &lmm_core::core_schema::schema_manifest())?;
+            writeln!(output)?;
             return Ok(());
         }
         Command::Serve => None,
@@ -170,6 +184,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
                 commerce: config::commerce_configured(),
                 console: console_enabled,
                 web_identity: legacy_config.is_some(),
+                oauth2: config::oauth2_configured(),
             },
         )
         .await?;
@@ -209,7 +224,21 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
             capabilities.console = true;
         }
         remote_store = Some(store.clone());
-        if let Some(config) = legacy_config {
+        let oauth2 = config::oauth2_issuer(store.clone()).await?;
+        let oauth2 = oauth2.map(|issuer| {
+            if let Some(gateway) = &model_gateway {
+                issuer.with_catalog_surface(gateway.oauth_catalog_surface())
+            } else {
+                issuer
+            }
+        });
+        if let Some(issuer) = &oauth2 {
+            routes = routes.merge(lmm_core::oauth2_http::router(issuer.clone()));
+        }
+        if let Some(mut config) = legacy_config {
+            if let Some(issuer) = oauth2 {
+                config.auth = config.auth.with_oauth2_issuer(issuer)?;
+            }
             public_status = lmm_core::http::PublicStatus {
                 password_login_enabled: true,
                 two_factor_enabled: store.mfa_enabled(),

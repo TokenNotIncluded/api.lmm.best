@@ -5,6 +5,7 @@
 mod decode;
 mod encode;
 pub(crate) mod honeypot;
+pub(crate) mod honeypot_network;
 mod request;
 mod sse;
 #[cfg(test)]

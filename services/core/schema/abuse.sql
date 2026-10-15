@@ -64,3 +64,21 @@ CREATE TABLE core_abuse.model_leases (
 );
 CREATE INDEX abuse_live_leases ON core_abuse.model_leases(expires_at,user_id)
     WHERE finished_at IS NULL;
+
+-- Private evidence captured in the successful account-creation transaction.
+-- Historical accounts must not be backfilled from log guesses or sessions.
+CREATE TABLE core_abuse.registration_observations (
+ user_id BIGINT PRIMARY KEY REFERENCES core_identity.users(id),
+ registered_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+ username_at_registration TEXT NOT NULL CHECK(length(username_at_registration) BETWEEN 1 AND 128),
+ email_at_registration TEXT NOT NULL CHECK(length(email_at_registration)<=320),
+ source_ip INET,
+ source_kind TEXT NOT NULL CHECK(source_kind IN ('unknown','socket','trusted_x_forwarded_for')),
+ source_policy_version INTEGER,
+ CHECK ((source_kind='unknown' AND source_ip IS NULL AND source_policy_version IS NULL)
+  OR (source_kind<>'unknown' AND source_ip IS NOT NULL AND source_policy_version=1)),
+ CHECK (source_ip IS NULL OR masklen(source_ip)=CASE family(source_ip) WHEN 4 THEN 32 ELSE 128 END)
+);
+CREATE INDEX registration_observations_time ON core_abuse.registration_observations(registered_at,user_id);
+CREATE INDEX registration_observations_ip ON core_abuse.registration_observations(source_ip,registered_at,user_id)
+ WHERE source_ip IS NOT NULL;

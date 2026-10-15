@@ -248,6 +248,53 @@ impl Router {
             .map_err(|_| RoutingError::LockPoisoned)
     }
 
+    /// Internal metadata input captured from the same immutable serving snapshot.
+    /// This document contains internal destinations/references and is never an
+    /// HTTP DTO. CatalogSurface alone projects safe metadata from this input.
+    pub(crate) fn catalog_document(&self) -> Result<super::store::ReleaseDocument, RoutingError> {
+        let active = self.snapshot()?;
+        let mut groups = Vec::new();
+        let mut routes = Vec::new();
+        let mut aliases = Vec::new();
+        for (name, group) in &active.groups {
+            groups.push(super::ModelGroup {
+                name: name.clone(),
+                enabled: group.enabled,
+            });
+            routes.extend(group.routes.values().map(|route| route.config.clone()));
+            aliases.extend(
+                group
+                    .aliases
+                    .iter()
+                    .map(|(alias, model)| super::ModelAlias {
+                        group: name.clone(),
+                        alias: alias.clone(),
+                        model: model.clone(),
+                    }),
+            );
+        }
+        let mut upstreams: Vec<_> = active
+            .upstreams
+            .values()
+            .map(|upstream| upstream.config.clone())
+            .collect();
+        groups.sort_by(|a, b| a.name.cmp(&b.name));
+        routes.sort_by_key(|route| route.id);
+        aliases.sort_by(|a, b| (&a.group, &a.alias).cmp(&(&b.group, &b.alias)));
+        upstreams.sort_by_key(|upstream| upstream.id);
+        Ok(super::store::ReleaseDocument {
+            contract_version: super::CONTRACT_VERSION,
+            routing: RoutingConfig {
+                version: active.version.routing,
+                groups,
+                upstreams,
+                routes,
+                aliases,
+            },
+            pricing: active.prices.config().clone(),
+        })
+    }
+
     pub fn version(&self) -> Result<ReleaseVersion, RoutingError> {
         Ok(self.snapshot()?.version)
     }

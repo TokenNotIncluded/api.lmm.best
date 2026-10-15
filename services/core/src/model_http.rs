@@ -6,6 +6,7 @@
 //! Streaming requires explicit host opt-in and durable pre-output checkpoints.
 //! Unknown provider usage retains its durable hold.
 mod billing;
+mod catalog;
 mod checkpoints;
 mod honeypot;
 mod routing;
@@ -35,7 +36,8 @@ use std::{
 };
 use subtle::ConstantTimeEq;
 
-pub use honeypot::HoneypotGateway;
+pub use catalog::{CatalogError, CatalogSurface, CatalogV1};
+pub use honeypot::{HoneypotCredential, HoneypotGateway};
 pub use routing::UpstreamCredential;
 pub const SCHEMA: &str = include_str!("../schema/model_gateway.sql");
 
@@ -76,6 +78,7 @@ pub struct ModelGateway {
     limits: Limits,
     local_streaming: bool,
     honeypot: Option<HoneypotGateway>,
+    catalog_surface: Arc<CatalogSurface>,
 }
 
 impl ModelGateway {
@@ -119,6 +122,11 @@ impl ModelGateway {
                 .catalog(group)
                 .map_err(|_| RelayError::RouteUnavailable)?;
         }
+        let catalog_surface = Arc::new(CatalogSurface::from_gateway(
+            routing.clone(),
+            &credentials,
+            limits.total_timeout,
+        ));
         let bridge = Arc::new(Bridge {
             pool: pool.clone(),
             charging: Charging::new(pool.clone(), Arc::new(TransactionalLedger)),
@@ -137,6 +145,7 @@ impl ModelGateway {
             limits,
             local_streaming: false,
             honeypot: None,
+            catalog_surface,
         })
     }
 
@@ -162,6 +171,12 @@ impl ModelGateway {
     /// This exposes configuration, never upstream credential material.
     pub fn dashboard_routing(&self) -> Arc<crate::routing::Router> {
         self.bridge.routing.clone()
+    }
+
+    /// The read-only OAuth issuer receives this server-created opaque surface.
+    /// A disabled or stale surface returns unavailable without changing traffic.
+    pub fn oauth_catalog_surface(&self) -> Arc<CatalogSurface> {
+        self.catalog_surface.clone()
     }
 
     pub fn router(&self) -> Router {

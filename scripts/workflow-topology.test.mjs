@@ -197,3 +197,29 @@ test('independent check failures do not skip the Go host required by Rust tests'
   assert.doesNotMatch(source, /LMM_CORE_DATABASE_URL_SECRET_FILE|LMM_CORE_WORKER_THREADS/);
   assert.match(source, /pull_request:[\s\S]*?paths:[\s\S]*?\.github\/workflows\/\*\.yml/);
 });
+
+
+test('Core CI uses the same pinned PostgreSQL catalog as the RPC fixture', () => {
+  const source = workflow('core-protocol');
+  const ciImage = source.match(/services:\n      postgres:\n        image: (\S+)/)?.[1];
+  const rpcImage = read('deployment/docker/compose.identity.yml')
+    .match(/^    image: (postgres:\S+)/m)?.[1];
+  assert.match(rpcImage ?? '', /^postgres:18-alpine@sha256:[a-f0-9]{64}$/);
+  assert.equal(ciImage, rpcImage, 'reviewed catalog checks require the same PostgreSQL image');
+});
+
+
+test('Core CI freezes the process binary and private root before running all Rust tests', () => {
+  const source = workflow('core-protocol');
+  const block = source.match(/      - name: Rust checks and real database tests\n([\s\S]*?)(?=      - name:)/)?.[1];
+  assert.ok(block, 'the Rust database test step must exist');
+  const compile = block.indexOf('cargo test --locked --all-targets --no-run');
+  const binary = block.indexOf('LMM_MODEL_PROCESS_CORE_BIN="$(realpath target/debug/lmm-core)"');
+  const hash = block.indexOf('LMM_MODEL_PROCESS_CORE_SHA256="$(sha256sum "$LMM_MODEL_PROCESS_CORE_BIN"');
+  const root = block.indexOf('LMM_MODEL_PROCESS_ROOT="$(mktemp -d /tmp/lmm-model-XXXXXXXX)"');
+  const exported = block.indexOf('export LMM_MODEL_PROCESS_CORE_BIN LMM_MODEL_PROCESS_CORE_SHA256 LMM_MODEL_PROCESS_ROOT');
+  const execute = block.indexOf('cargo test --locked --all-targets --no-fail-fast');
+  assert.ok(compile >= 0 && binary > compile && hash > binary && root > hash
+    && exported > root && execute > exported, 'freeze inputs after compiling, before executing');
+  assert.doesNotMatch(block, /--skip|--exclude|--ignored|continue-on-error|\|\|\s*true/);
+});

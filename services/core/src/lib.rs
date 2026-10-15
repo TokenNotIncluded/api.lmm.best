@@ -21,6 +21,8 @@ pub mod internal_rpc;
 pub mod legacy_auth;
 pub mod lifecycle;
 pub mod model_http;
+pub mod oauth2_balance;
+pub mod oauth2_http;
 #[cfg(unix)]
 pub mod payments;
 pub mod relay;

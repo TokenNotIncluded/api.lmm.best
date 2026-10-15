@@ -1043,3 +1043,49 @@ fn routing_benchmark() {
         samples.len()
     );
 }
+
+#[test]
+fn catalog_document_keeps_exact_routing_price_snapshot_across_publication() {
+    let (config, prices) = fixture(1);
+    let router = build(config.clone(), prices.clone());
+    let first = router.catalog_document().unwrap();
+    assert_eq!(first.contract_version, CONTRACT_VERSION);
+    assert_eq!(
+        serde_json::to_value(&first.routing).unwrap(),
+        serde_json::to_value(&config).unwrap()
+    );
+    assert_eq!(
+        serde_json::to_value(&first.pricing).unwrap(),
+        serde_json::to_value(&prices).unwrap()
+    );
+    let mut next_config = config;
+    let mut next_prices = prices;
+    next_config.version = 2;
+    next_config.routes[0].targets[0].timeout_ms = 31_000;
+    next_prices.version = 3;
+    next_prices.rules[0].rates.input = 7_000_000;
+    let version = router
+        .publish(
+            router.version().unwrap(),
+            next_config.clone(),
+            Arc::new(PriceSnapshot::compile(next_prices.clone()).unwrap()),
+        )
+        .unwrap();
+    let after = router.catalog_document().unwrap();
+    assert_eq!(
+        (after.routing.version, after.pricing.version),
+        (version.routing, version.pricing)
+    );
+    assert_eq!(
+        serde_json::to_value(&after.routing).unwrap(),
+        serde_json::to_value(&next_config).unwrap()
+    );
+    assert_eq!(
+        serde_json::to_value(&after.pricing).unwrap(),
+        serde_json::to_value(&next_prices).unwrap()
+    );
+    // A previously projected document remains the old complete pair.
+    assert_eq!((first.routing.version, first.pricing.version), (1, 1));
+    assert_eq!(first.routing.routes[0].targets[0].timeout_ms, 30_000);
+    assert_eq!(first.pricing.rules[0].rates.input, 3_000_000);
+}

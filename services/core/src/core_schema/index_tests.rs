@@ -22,6 +22,9 @@ async fn prior(pool: &PgPool) -> [u8; 32] {
     IdentityStore::record_schema_contract(&mut tx)
         .await
         .unwrap();
+    crate::identity::grants::record_schema_contract(&mut tx)
+        .await
+        .unwrap();
     for (name, source) in COMPONENTS {
         let hash = if *name == "charging-ledger" {
             PRIOR_CHARGING_LEDGER.to_vec()
@@ -51,6 +54,7 @@ async fn snapshot(pool: &PgPool) -> Vec<String> {
         SELECT json_build_array('component',name,encode(fingerprint,'hex'))::text AS value FROM core_meta.component_contract
         UNION ALL SELECT json_build_array('runtime',singleton,encode(catalog_fingerprint,'hex'))::text FROM core_meta.runtime_contract
         UNION ALL SELECT json_build_array('identity',singleton,version,encode(fingerprint,'hex'))::text FROM core_meta.schema_contract
+        UNION ALL SELECT json_build_array('oauth',singleton,version,encode(ddl_fingerprint,'hex'),encode(catalog_fingerprint,'hex'))::text FROM core_oauth.contract
         UNION ALL SELECT json_build_array('journal',to_jsonb(j))::text FROM core_billing.ledger_journals j
         UNION ALL SELECT json_build_array('entry',to_jsonb(e))::text FROM core_billing.ledger_entries e
         UNION ALL SELECT json_build_array('wallet',to_jsonb(w))::text FROM core_billing.ledger_accounts w
@@ -83,7 +87,7 @@ async fn current_schema_index_predecessor_upgrade_changes_only_verified_index_an
         .map(|b| format!("{b:02x}"))
         .collect::<String>();
     assert_eq!(
-        prior_hex, "9ce6c5120645792608d4466ef9fe4b6f91add7ec082670d276bffbd94f48c14a",
+        prior_hex, "431a4af6b4790abdb32a3583cb097b733c41b6b2cdc04537e15808260de44d57",
         "current-schema index-predecessor fixture must match its reviewed canonical catalog"
     );
     println!("prior catalog SHA256={prior_hex}");
@@ -119,9 +123,10 @@ async fn current_schema_index_predecessor_upgrade_changes_only_verified_index_an
         "startup must not repair old schema"
     );
     unchanged(&pool, &before).await;
-    // The retired eleven-component and earlier catalogs are not this installed
-    // twelve-component catalog, even when approval matches the saved receipt.
+    // The retired twelve-component, eleven-component and earlier catalogs are not
+    // this thirteen-component catalog, even when approval matches the saved receipt.
     for retired_hex in [
+        "9ce6c5120645792608d4466ef9fe4b6f91add7ec082670d276bffbd94f48c14a",
         "e8fa053daca7741952caa4c60e27071652f600b4fa48f4b7631ea54ee801df7b",
         "5510e0bee0e5659ff940b798c9d6d3c69aea220734d9f73577c847b6841254b7",
     ] {

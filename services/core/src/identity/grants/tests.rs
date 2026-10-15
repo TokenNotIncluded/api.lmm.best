@@ -499,7 +499,10 @@ async fn grants_restricted_runtime_permissions(pool: PgPool) {
         GRANT SELECT ON core_meta.schema_contract,core_identity.users,core_identity.accounts TO {role};
         GRANT UPDATE ON core_identity.users,core_identity.accounts TO {role};
         GRANT SELECT ON ALL TABLES IN SCHEMA core_oauth TO {role};
-        GRANT INSERT,UPDATE ON core_oauth.families,core_oauth.codes,core_oauth.access_tokens,core_oauth.refresh_tokens TO {role};"#
+        GRANT INSERT,UPDATE ON core_oauth.families,core_oauth.codes,core_oauth.access_tokens,core_oauth.refresh_tokens TO {role};
+        -- The table CHECK references this pure format function. Match the
+        -- existing production runtime grant; PUBLIC execute remains revoked.
+        GRANT EXECUTE ON FUNCTION core_oauth.readonly_scope_set(text[]) TO {role};"#
     )).execute(&mut *setup).await.unwrap();
     setup.commit().await.unwrap();
     let selected_role = role.clone();
@@ -543,6 +546,8 @@ async fn grants_restricted_runtime_permissions(pool: PgPool) {
         .await
         .unwrap();
         assert!(!privileged);
+        let format_execute:bool=sqlx::query_scalar("SELECT has_function_privilege(current_user,'core_oauth.readonly_scope_set(text[])','EXECUTE')").fetch_one(&restricted).await.unwrap();
+        assert!(format_execute);
         let runtime = GrantStore::open(IdentityStore::from_pool(restricted.clone()), profile())
             .await
             .unwrap();

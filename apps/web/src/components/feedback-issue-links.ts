@@ -20,8 +20,7 @@ import { normalizeInterfaceLanguage } from '@/i18n/languages'
 
 export type FeedbackIssueCategory = 'frontend' | 'feature' | 'bug'
 
-const ISSUE_FORM_URL =
-  'https://github.com/TokenNotIncluded/api.lmm.best/issues/new'
+const ISSUE_FORM_URL = 'https://github.com/TokenNotIncluded/lmm-api/issues/new'
 
 const ISSUE_TEMPLATES = {
   frontend: {

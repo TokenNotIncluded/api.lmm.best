@@ -121,6 +121,7 @@ struct IdentityFile {
     password_slots: u32,
     api_key_encryption_key_file: Option<PathBuf>,
     mfa: Option<MfaFile>,
+    oauth2: Option<OAuth2File>,
     web: Option<WebFile>,
     google: Option<GoogleFile>,
 }
@@ -131,10 +132,19 @@ impl Default for IdentityFile {
             password_slots: one(),
             api_key_encryption_key_file: None,
             mfa: None,
+            oauth2: None,
             web: None,
             google: None,
         }
     }
+}
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct OAuth2File {
+    issuer: String,
+    groups: Vec<String>,
+    access_ttl_seconds: u32,
+    family_ttl_seconds: u32,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -195,6 +205,8 @@ struct ModelFile {
 #[serde(deny_unknown_fields)]
 struct AbuseFile {
     credential_config_file: PathBuf,
+    #[serde(default)]
+    local_http: bool,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -284,6 +296,7 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
             || file.identity.google.is_some()
             || file.identity.api_key_encryption_key_file.is_some()
             || file.identity.mfa.is_some()
+            || file.identity.oauth2.is_some()
             || file.console.enabled
             || file.model.is_some()
             || file.abuse.is_some()
@@ -338,6 +351,38 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
     if let Some(mfa) = file.identity.mfa {
         paths.push(("LMM_CORE_MFA_KEYRING_FILE", mfa.keyring_file));
     }
+    if let Some(oauth2) = file.identity.oauth2 {
+        let web = file
+            .identity
+            .web
+            .as_ref()
+            .ok_or_else(|| invalid_config("OAuth2 requires configured Web authentication"))?;
+        if web.local_http
+            || web.origin != oauth2.issuer
+            || !(1..=86_400).contains(&oauth2.access_ttl_seconds)
+            || !(1..=31_536_000).contains(&oauth2.family_ttl_seconds)
+            || crate::identity::grants::LmmProfile::new(&oauth2.issuer, oauth2.groups.clone())
+                .is_err()
+        {
+            return Err(invalid_config(
+                "OAuth2 requires exact HTTPS Web issuer, groups and bounded lifetimes",
+            ));
+        }
+        put("LMM_CORE_OAUTH2_ISSUER", oauth2.issuer);
+        put(
+            "LMM_CORE_OAUTH2_GROUPS",
+            serde_json::to_string(&oauth2.groups)
+                .map_err(|_| invalid_config("invalid OAuth2 groups"))?,
+        );
+        put(
+            "LMM_CORE_OAUTH2_ACCESS_TTL_SECONDS",
+            oauth2.access_ttl_seconds.to_string(),
+        );
+        put(
+            "LMM_CORE_OAUTH2_FAMILY_TTL_SECONDS",
+            oauth2.family_ttl_seconds.to_string(),
+        );
+    }
     if let Some(web) = file.identity.web {
         put("LMM_CORE_WEB_ORIGIN", web.origin);
         put("LMM_CORE_WEB_LOCAL_HTTP", web.local_http.to_string());
@@ -376,6 +421,7 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
         paths.push(("LMM_CORE_MODEL_CONFIG_FILE", model.config_file));
     }
     if let Some(abuse) = file.abuse {
+        put("LMM_CORE_ABUSE_LOCAL_HTTP", abuse.local_http.to_string());
         paths.push((
             "LMM_CORE_ABUSE_CREDENTIAL_CONFIG_FILE",
             abuse.credential_config_file,
@@ -565,7 +611,8 @@ pub fn identity_database_required() -> io::Result<bool> {
         || setting_os("LMM_CORE_GOOGLE_CLIENT_ID").is_some()
         || setting_os("LMM_CORE_GOOGLE_CLIENT_SECRET").is_some()
         || setting_os("LMM_CORE_GOOGLE_CLIENT_SECRET_FILE").is_some()
-        || setting_os("LMM_CORE_GOOGLE_REDIRECT_URI").is_some())
+        || setting_os("LMM_CORE_GOOGLE_REDIRECT_URI").is_some()
+        || oauth2_configured())
 }
 
 /// A bounded core pool. RPC identity and event delivery use separate pools.
@@ -859,6 +906,55 @@ fn read_file_with_metadata(
     Ok((bytes, opened))
 }
 
+pub fn oauth2_configured() -> bool {
+    [
+        "LMM_CORE_OAUTH2_ISSUER",
+        "LMM_CORE_OAUTH2_GROUPS",
+        "LMM_CORE_OAUTH2_ACCESS_TTL_SECONDS",
+        "LMM_CORE_OAUTH2_FAMILY_TTL_SECONDS",
+    ]
+    .iter()
+    .any(|name| setting_os(name).is_some())
+}
+/// Explicit public-client profile. There is no default enabled issuer, group,
+/// lifetime, local-HTTP relaxation or fallback to a forwarded request origin.
+pub async fn oauth2_issuer(
+    store: crate::identity::IdentityStore,
+) -> io::Result<Option<crate::identity::grants::LmmIssuer>> {
+    if !oauth2_configured() {
+        return Ok(None);
+    }
+    let required = |name| {
+        setting(name).map_err(|_| invalid_config("OAuth2 profile configuration is incomplete"))
+    };
+    let issuer = required("LMM_CORE_OAUTH2_ISSUER")?;
+    if required("LMM_CORE_WEB_ORIGIN")? != issuer
+        || setting_os("LMM_CORE_WEB_REFRESH_KEY_FILE").is_none()
+        || bool_setting("LMM_CORE_WEB_LOCAL_HTTP")?
+    {
+        return Err(invalid_config(
+            "OAuth2 requires the exact configured HTTPS Web origin",
+        ));
+    }
+    let groups: Vec<String> = serde_json::from_str(&required("LMM_CORE_OAUTH2_GROUPS")?)
+        .map_err(|_| invalid_config("invalid OAuth2 group profile"))?;
+    let profile = crate::identity::grants::LmmProfile::new(&issuer, groups)
+        .map_err(|_| invalid_config("invalid OAuth2 issuer or group profile"))?;
+    let lifetime = |name, maximum| -> io::Result<i64> {
+        required(name)?
+            .parse::<i64>()
+            .ok()
+            .filter(|value| (1..=maximum).contains(value))
+            .ok_or_else(|| invalid_config("invalid bounded OAuth2 lifetime"))
+    };
+    let access = lifetime("LMM_CORE_OAUTH2_ACCESS_TTL_SECONDS", 86_400)?;
+    let family = lifetime("LMM_CORE_OAUTH2_FAMILY_TTL_SECONDS", 31_536_000)?;
+    crate::identity::grants::LmmIssuer::open(store, profile, access, family)
+        .await
+        .map(Some)
+        .map_err(|_| invalid_config("OAuth2 installed schema or profile is unavailable"))
+}
+
 pub struct WebAuthConfig {
     pub auth: crate::legacy_auth::LegacyAuthConfig,
     pub registration_enabled: bool,
@@ -1149,6 +1245,8 @@ fn credential_file(path: &Path, invalid: &'static str) -> io::Result<(String, Cr
 struct AbuseCredentialRegistry {
     secrets: BTreeMap<String, String>,
     origins: Vec<CredentialOrigin>,
+    allowed_origins: BTreeMap<String, BTreeSet<String>>,
+    additional_roots: BTreeMap<String, reqwest::Certificate>,
 }
 fn reject_credential_reuse(
     isolated: &AbuseCredentialRegistry,
@@ -1180,6 +1278,8 @@ fn reject_credential_reuse(
 struct AbuseCredentialFile {
     alias: String,
     secret_file: PathBuf,
+    allowed_origins: Vec<String>,
+    tls_ca_file: Option<PathBuf>,
 }
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -1188,7 +1288,14 @@ struct AbuseCredentialsFile {
     credentials: Vec<AbuseCredentialFile>,
 }
 
+#[cfg(test)]
 fn abuse_credentials(document: &[u8]) -> io::Result<AbuseCredentialRegistry> {
+    abuse_credentials_for_network(document, false)
+}
+fn abuse_credentials_for_network(
+    document: &[u8],
+    local_http: bool,
+) -> io::Result<AbuseCredentialRegistry> {
     let config: AbuseCredentialsFile = parse_document(document)
         .map_err(|_| invalid_config("invalid isolated moderation credential configuration"))?;
     if config.version != 1 || config.credentials.len() > 32 {
@@ -1210,10 +1317,51 @@ fn abuse_credentials(document: &[u8]) -> io::Result<AbuseCredentialRegistry> {
                 "invalid isolated moderation credential alias",
             ));
         }
+        if entry.allowed_origins.is_empty() || entry.allowed_origins.len() > 16 {
+            return Err(invalid_config("invalid isolated moderation origin policy"));
+        }
+        let mut allowed = BTreeSet::new();
+        for raw in entry.allowed_origins {
+            let origin = crate::relay::honeypot::validate_origin(&raw, local_http)
+                .map_err(|_| invalid_config("invalid isolated moderation origin policy"))?;
+            if !allowed.insert(origin) {
+                return Err(invalid_config("duplicate isolated moderation origin"));
+            }
+        }
+        let additional_root = entry
+            .tls_ca_file
+            .map(|path| {
+                let bytes = private_file(&path, 64 * 1024)?;
+                // With reqwest's rustls backend, from_pem only retains bytes;
+                // a PEM with no certificate would also add zero roots at build.
+                // Use its maintained PEM reader, require a certificate, then
+                // let its actual TLS root store validate every DER certificate.
+                let parsed = reqwest::Certificate::from_pem_bundle(&bytes)
+                    .map_err(|_| invalid_config("invalid isolated moderation CA"))?;
+                if parsed.is_empty() {
+                    return Err(invalid_config("invalid isolated moderation CA"));
+                }
+                let certificate = reqwest::Certificate::from_pem(&bytes)
+                    .map_err(|_| invalid_config("invalid isolated moderation CA"))?;
+                reqwest::Client::builder()
+                    .no_proxy()
+                    .tls_built_in_root_certs(false)
+                    .add_root_certificate(certificate.clone())
+                    .build()
+                    .map_err(|_| invalid_config("invalid isolated moderation CA"))?;
+                Ok(certificate)
+            })
+            .transpose()?;
         let (secret, origin) = credential_file(
             &entry.secret_file,
             "invalid isolated moderation upstream credential",
         )?;
+        registry
+            .allowed_origins
+            .insert(entry.alias.clone(), allowed);
+        if let Some(root) = additional_root {
+            registry.additional_roots.insert(entry.alias.clone(), root);
+        }
         registry.secrets.insert(entry.alias, secret);
         registry.origins.push(origin);
     }
@@ -1231,12 +1379,40 @@ pub fn models_and_abuse(
     Option<crate::model_http::ModelGateway>,
 )> {
     let (normal, normal_origins) = models_with_origins(pool.clone())?;
-    let registry = match setting_os("LMM_CORE_ABUSE_CREDENTIAL_CONFIG_FILE") {
-        Some(path) => abuse_credentials(&configuration_file(Path::new(&path), 64 * 1024)?)?,
+    let local_http = bool_setting("LMM_CORE_ABUSE_LOCAL_HTTP")?;
+    let mut registry = match setting_os("LMM_CORE_ABUSE_CREDENTIAL_CONFIG_FILE") {
+        Some(path) => abuse_credentials_for_network(
+            &configuration_file(Path::new(&path), 64 * 1024)?,
+            local_http,
+        )?,
         None => AbuseCredentialRegistry::default(),
     };
     reject_credential_reuse(&registry, normal.as_ref(), &normal_origins)?;
-    let store = crate::abuse::AbuseStore::new(pool, registry.secrets.keys().cloned().collect());
+    // Domain admission and transport receive the same host-normalized origin
+    // registry. Neither can expand it from a request or a persisted policy.
+    let store = crate::abuse::AbuseStore::new_with_network_policy(
+        pool,
+        registry.allowed_origins.clone(),
+        local_http,
+    )
+    .map_err(|_| invalid_config("invalid isolated moderation network policy"))?;
+    let mut credentials = BTreeMap::new();
+    for (alias, secret) in registry.secrets {
+        let allowed = registry
+            .allowed_origins
+            .get(&alias)
+            .ok_or_else(|| invalid_config("invalid isolated moderation network policy"))?
+            .iter()
+            .cloned()
+            .collect();
+        let credential = crate::model_http::HoneypotCredential::new(
+            secret,
+            allowed,
+            registry.additional_roots.remove(&alias),
+        )
+        .map_err(|_| invalid_config("invalid isolated moderation network policy"))?;
+        credentials.insert(alias, credential);
+    }
     let limits = crate::relay::Limits {
         max_in_flight: max_inflight()?,
         request_bytes: 1024 * 1024,
@@ -1244,8 +1420,13 @@ pub fn models_and_abuse(
         hook_timeout: Duration::from_secs(5),
         ..crate::relay::Limits::default()
     };
-    let gateway = crate::model_http::HoneypotGateway::new(store.clone(), registry.secrets, limits)
-        .map_err(|_| invalid_config("invalid isolated moderation transport configuration"))?;
+    let gateway = crate::model_http::HoneypotGateway::new_with_network_policy(
+        store.clone(),
+        credentials,
+        local_http,
+        limits,
+    )
+    .map_err(|_| invalid_config("invalid isolated moderation transport configuration"))?;
     Ok((store, normal.map(|normal| normal.with_honeypot(gateway))))
 }
 
@@ -1459,6 +1640,46 @@ mod tests {
         assert!(parse_document::<PaymentConfig>(b"version=1\nprovider='stripe-test'\nchannels=[]\n[permissions]\nrelease_refund=true\n").is_err());
     }
     #[test]
+    fn oauth2_requires_exact_https_web_origin_groups_and_explicit_lifetimes() {
+        let common = "version=1\n[database]\nurl_file='/nonexistent-oauth/database'\n[identity.web]\norigin='https://issuer.example.test'\nrefresh_key_file='/nonexistent-oauth/refresh'\nuser_agreement_enabled=true\nprivacy_policy_enabled=true\n";
+        let oauth = "[identity.oauth2]\nissuer='https://issuer.example.test'\ngroups=['default']\naccess_ttl_seconds=900\nfamily_ttl_seconds=86400\n";
+        let values = parse_core_file(format!("{common}{oauth}").as_bytes()).unwrap();
+        assert_eq!(
+            values.get("LMM_CORE_OAUTH2_ISSUER").unwrap(),
+            "https://issuer.example.test"
+        );
+        for bad in [
+            oauth.replace("https://issuer.example.test", "https://other.example.test"),
+            oauth.replace("https://issuer.example.test", "http://issuer.example.test"),
+            oauth.replace("groups=['default']", "groups=[]"),
+            oauth.replace("groups=['default']", "groups=['default','default']"),
+            oauth.replace("access_ttl_seconds=900", "access_ttl_seconds=0"),
+            oauth.replace("family_ttl_seconds=86400", "family_ttl_seconds=31536001"),
+            oauth.replace("access_ttl_seconds=900\n", ""),
+        ] {
+            assert!(parse_core_file(format!("{common}{bad}").as_bytes()).is_err());
+        }
+        assert!(
+            parse_core_file(
+                format!("{common}{oauth}")
+                    .replace(
+                        "origin='https://issuer.example.test'",
+                        "origin='https://issuer.example.test'\nlocal_http=true"
+                    )
+                    .as_bytes()
+            )
+            .is_err()
+        );
+        assert!(
+            parse_core_file(
+                format!("version=1\n[database]\nurl_file='/nonexistent-oauth/database'\n{oauth}")
+                    .as_bytes()
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
     fn resource_limits_reject_invalid_or_unbounded_settings() {
         assert_eq!(parse_limit("TEST_LIMIT", None, 2, 8).unwrap(), 2);
         assert_eq!(parse_limit("TEST_LIMIT", Some("1"), 2, 8).unwrap(), 1);
@@ -1553,7 +1774,7 @@ mod tests {
         assert!(!error.to_string().contains("never-return-this-marker"));
         for alias in ["", "bad alias", "bad/alias", "..\n"] {
             let document = format!(
-                "version=1\n[[credentials]]\nalias={alias:?}\nsecret_file='/nonexistent-lmm-test/secret'\n"
+                "version=1\n[[credentials]]\nalias={alias:?}\nsecret_file='/nonexistent-lmm-test/secret'\nallowed_origins=['https://isolated.example']\n"
             );
             assert!(abuse_credentials(document.as_bytes()).is_err());
         }
@@ -1572,7 +1793,7 @@ mod tests {
         let secret = directory.join("upstream-secret");
         fs::write(&secret, b"synthetic-moderation-secret\n").unwrap();
         let row = format!(
-            "[[credentials]]\nalias='isolated-1'\nsecret_file={:?}\n",
+            "[[credentials]]\nalias='isolated-1'\nsecret_file={:?}\nallowed_origins=['https://isolated.example']\n",
             secret.to_str().unwrap()
         );
         let document = format!("version=1\n{row}");
@@ -1644,7 +1865,7 @@ rules=[{{id=1,model='local-model',group='allowed',speed='standard',rates={{input
         let isolated = |path: &Path| {
             abuse_credentials(
                 format!(
-                    "version=1\n[[credentials]]\nalias='isolated'\nsecret_file={:?}\n",
+                    "version=1\n[[credentials]]\nalias='isolated'\nsecret_file={:?}\nallowed_origins=['https://isolated.example']\n",
                     path.to_str().unwrap()
                 )
                 .as_bytes(),
@@ -1683,6 +1904,168 @@ rules=[{{id=1,model='local-model',group='allowed',speed='standard',rates={{input
         assert!(reject_credential_reuse(&empty, Some(&normal), &origins).is_ok());
         assert!(reject_credential_reuse(&independent, None, &[]).is_ok());
         fs::remove_dir_all(directory).unwrap();
+    }
+
+    #[test]
+    fn isolated_network_local_mode_is_separate_and_defaults_false() {
+        let doc = b"version=1\n[database]\nurl_file='/nonexistent-lmm-test/db'\n[abuse]\ncredential_config_file='/nonexistent-lmm-test/abuse.toml'\n";
+        let parsed = parse_core_file(doc).unwrap();
+        assert_eq!(parsed["LMM_CORE_ABUSE_LOCAL_HTTP"], "false");
+        assert!(!parsed.contains_key("LMM_CORE_MODEL_LOCAL_HTTP"));
+        let local = [doc.as_slice(), b"local_http=true\n"].concat();
+        assert_eq!(
+            parse_core_file(&local).unwrap()["LMM_CORE_ABUSE_LOCAL_HTTP"],
+            "true"
+        );
+        let invalid = [doc.as_slice(), b"insecure=true\n"].concat();
+        assert!(parse_core_file(&invalid).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn isolated_origins_are_required_canonical_bounded_and_local_only_by_opt_in() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = std::env::temp_dir().join(format!(
+            "lmm-origin-config-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        fs::create_dir(&root).unwrap();
+        let secret = root.join("secret");
+        fs::write(&secret, b"isolated-origin-synthetic-key").unwrap();
+        fs::set_permissions(&secret, fs::Permissions::from_mode(0o600)).unwrap();
+        let prefix = format!(
+            "version=1\n[[credentials]]\nalias='isolated'\nsecret_file={:?}\n",
+            secret.to_str().unwrap()
+        );
+        assert!(abuse_credentials(prefix.as_bytes()).is_err());
+        for origins in [
+            "[]",
+            "['https://allowed.example/path']",
+            "['https://user@allowed.example']",
+            "['https://allowed.example?secret=marker']",
+            "['https://allowed.example#marker']",
+            "['http://allowed.example']",
+            "['https://127.0.0.1']",
+            "['http://127.0.0.1:9443']",
+            "['https://allowed.example','https://ALLOWED.example:443/']",
+        ] {
+            let doc = format!("{prefix}allowed_origins={origins}\n");
+            let error = abuse_credentials(doc.as_bytes()).err().unwrap();
+            assert!(!error.to_string().contains("marker"));
+        }
+        let too_many = (0..17)
+            .map(|n| format!("'https://h{n}.example'"))
+            .collect::<Vec<_>>()
+            .join(",");
+        assert!(
+            abuse_credentials(format!("{prefix}allowed_origins=[{too_many}]\n").as_bytes())
+                .is_err()
+        );
+        let secure = format!(
+            "{prefix}allowed_origins=['https://ALLOWED.example:443/','https://other.example:8443']\n"
+        );
+        let registry = abuse_credentials(secure.as_bytes()).unwrap();
+        assert_eq!(
+            registry.allowed_origins["isolated"],
+            BTreeSet::from([
+                "https://allowed.example".to_owned(),
+                "https://other.example:8443".to_owned()
+            ])
+        );
+        assert!(registry.additional_roots.is_empty());
+        let local = format!("{prefix}allowed_origins=['http://127.0.0.1:9443']\n");
+        assert!(abuse_credentials(local.as_bytes()).is_err());
+        assert!(abuse_credentials_for_network(local.as_bytes(), true).is_ok());
+        assert!(
+            abuse_credentials_for_network(
+                format!("{prefix}allowed_origins=['http://localhost:9443']\n").as_bytes(),
+                true
+            )
+            .is_err()
+        );
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn isolated_ca_uses_private_file_parser_and_stays_alias_scoped() {
+        use std::os::unix::fs::{PermissionsExt, symlink};
+        use std::process::{Command, Stdio};
+        let root = std::env::temp_dir().join(format!(
+            "lmm-origin-ca-{}-{}",
+            std::process::id(),
+            rand::random::<u64>()
+        ));
+        fs::create_dir(&root).unwrap();
+        let secret = root.join("secret");
+        fs::write(&secret, b"isolated-ca-synthetic-key").unwrap();
+        fs::set_permissions(&secret, fs::Permissions::from_mode(0o600)).unwrap();
+        let ca = root.join("ca.pem");
+        let document = |path: &Path| {
+            format!(
+                "version=1\n[[credentials]]\nalias='with-ca'\nsecret_file={:?}\nallowed_origins=['https://allowed.example']\ntls_ca_file={:?}\n[[credentials]]\nalias='system-roots-only'\nsecret_file={:?}\nallowed_origins=['https://other.example']\n",
+                secret.to_str().unwrap(),
+                path.to_str().unwrap(),
+                secret.to_str().unwrap()
+            )
+        };
+        fs::write(&ca, b"not a certificate").unwrap();
+        fs::set_permissions(&ca, fs::Permissions::from_mode(0o600)).unwrap();
+        assert!(abuse_credentials(document(&ca).as_bytes()).is_err());
+        for invalid in [
+            b"".as_slice(),
+            b"-----BEGIN PRIVATE KEY-----\nAA==\n-----END PRIVATE KEY-----\n".as_slice(),
+            b"-----BEGIN CERTIFICATE-----\nAA==\n-----END CERTIFICATE-----\n".as_slice(),
+            b"-----BEGIN CERTIFICATE-----\nnot-base64!\n-----END CERTIFICATE-----\n".as_slice(),
+        ] {
+            fs::write(&ca, invalid).unwrap();
+            assert!(abuse_credentials(document(&ca).as_bytes()).is_err());
+        }
+        let status = Command::new("openssl")
+            .args([
+                "req",
+                "-x509",
+                "-newkey",
+                "rsa:2048",
+                "-nodes",
+                "-days",
+                "1",
+                "-keyout",
+                "ca.key",
+                "-out",
+                "ca.pem",
+                "-subj",
+                "/CN=isolated-host-config-test",
+            ])
+            .current_dir(&root)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .unwrap();
+        assert!(status.success());
+        fs::set_permissions(&ca, fs::Permissions::from_mode(0o644)).unwrap();
+        assert!(abuse_credentials(document(&ca).as_bytes()).is_err());
+        fs::set_permissions(&ca, fs::Permissions::from_mode(0o600)).unwrap();
+        let registry = abuse_credentials(document(&ca).as_bytes()).unwrap();
+        assert_eq!(registry.additional_roots.len(), 1);
+        assert!(registry.additional_roots.contains_key("with-ca"));
+        assert!(!registry.additional_roots.contains_key("system-roots-only"));
+        let valid = fs::read(&ca).unwrap();
+        let mut bundle = valid.clone();
+        bundle.extend_from_slice(&valid);
+        fs::write(&ca, &bundle).unwrap();
+        assert!(abuse_credentials(document(&ca).as_bytes()).is_ok());
+        bundle.extend_from_slice(b"-----BEGIN CERTIFICATE-----\nAA==\n-----END CERTIFICATE-----\n");
+        fs::write(&ca, bundle).unwrap();
+        assert!(abuse_credentials(document(&ca).as_bytes()).is_err());
+        fs::write(&ca, valid).unwrap();
+        let link = root.join("link.pem");
+        symlink(&ca, &link).unwrap();
+        assert!(abuse_credentials(document(&link).as_bytes()).is_err());
+        fs::write(&ca, vec![b'x'; 65_537]).unwrap();
+        assert!(abuse_credentials(document(&ca).as_bytes()).is_err());
+        fs::remove_dir_all(root).unwrap();
     }
 
     #[tokio::test]

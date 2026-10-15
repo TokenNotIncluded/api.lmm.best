@@ -46,7 +46,7 @@ git submodule update --init --depth 1 -- apps/cli
 安装 owner 和受限 runtime 必须分开。原生或 Docker 安装只读所选路径，按
 [离线角色与授权](../deployment/postgres/README.md)准备；不把 owner URL 放进运行服务。
 不要因为重复初始化被拒绝就清库、删除卷或使用旧环境变量模式。
-历史期初余额的有限离线流程见 [opening 导入](legacy-financial-opening.md)；它需要独立审核材料，不能作为现有站点的通用升级或自动资金迁移。
+历史期初余额导入仍需独立审核，进展见 [A03 / PR #884](https://github.com/TokenNotIncluded/lmm-api/pull/884)；它不属于本页的全新安装步骤，不能作为现有站点的通用升级或自动资金迁移。
 
 程序使用 TOML，可显式选择 `lmm-core --config /absolute/private/core.toml`。
 `database.url_file` 指向受限数据库凭据；`identity.web.origin` 和

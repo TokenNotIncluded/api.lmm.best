@@ -30,6 +30,11 @@
 \set enable_payments false
 \endif
 
+\if :{?enable_oauth2}
+\else
+\set enable_oauth2 false
+\endif
+
 BEGIN;
 SET LOCAL statement_timeout = '5s';
 SELECT current_database() AS core_database \gset
@@ -71,7 +76,8 @@ GRANT USAGE ON SCHEMA core_abuse TO :"runtime_role";
 GRANT SELECT ON ALL TABLES IN SCHEMA core_abuse TO :"runtime_role";
 GRANT UPDATE (revision,document) ON core_abuse.settings TO :"runtime_role";
 GRANT INSERT,UPDATE (marked,policy_id,revision) ON core_abuse.user_marks TO :"runtime_role";
-GRANT INSERT ON core_abuse.previews,core_abuse.operations,core_abuse.audit TO :"runtime_role";
+GRANT INSERT ON core_abuse.previews,core_abuse.operations,core_abuse.audit,
+    core_abuse.registration_observations TO :"runtime_role";
 GRANT INSERT,UPDATE (attempts),DELETE ON core_abuse.model_counters TO :"runtime_role";
 GRANT INSERT,UPDATE (finished_at),DELETE ON core_abuse.model_leases TO :"runtime_role";
 GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO :"runtime_role";
@@ -97,6 +103,20 @@ GRANT SELECT ON core_identity.developer_access,
 GRANT USAGE ON SEQUENCE core_identity.accounts_id_seq, core_identity.users_id_seq,
     core_identity.teams_id_seq, core_identity.credentials_id_seq,
     core_identity.invites_id_seq, core_identity.audit_id_seq TO :"runtime_role";
+
+\if :enable_oauth2
+-- Native OAuth issues no core credential or spending authority. Only the
+-- immutable snapshot's consumption and family scope/revocation are mutable.
+GRANT USAGE ON SCHEMA core_oauth TO :"runtime_role";
+GRANT SELECT ON core_oauth.contract TO :"runtime_role";
+GRANT SELECT, INSERT ON core_oauth.families, core_oauth.authorization_requests,
+    core_oauth.authorization_codes, core_oauth.access_tokens,
+    core_oauth.refresh_tokens TO :"runtime_role";
+GRANT UPDATE (scopes, revoked_at) ON core_oauth.families TO :"runtime_role";
+GRANT UPDATE (consumed_at) ON core_oauth.authorization_requests,
+    core_oauth.authorization_codes, core_oauth.refresh_tokens TO :"runtime_role";
+GRANT EXECUTE ON FUNCTION core_oauth.readonly_scope_set(text[]) TO :"runtime_role";
+\endif
 
 \if :enable_commerce
 -- Commerce performs charging and publishes events in the same core transaction.

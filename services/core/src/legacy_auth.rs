@@ -1,6 +1,7 @@
 //! Existing Web authentication contract backed exclusively by Rust identity.
 #[path = "identity_compat.rs"]
 mod compatibility;
+mod oauth2;
 use crate::identity::{
     BrowserAuth, BrowserAuthError, BrowserBundle, BrowserLoginOutcome, BrowserRegistration,
     BrowserSessionMetadata, IdentityError, IdentityStore, MfaCompletion, MfaError,
@@ -33,6 +34,7 @@ pub struct LegacyAuthConfig {
     refresh_key: Arc<[u8]>,
     secure: bool,
     require_legal_acceptance: bool,
+    oauth2: Option<crate::identity::grants::LmmIssuer>,
 }
 impl LegacyAuthConfig {
     /// Use a newly generated private key, independent from old sessions. The
@@ -57,7 +59,18 @@ impl LegacyAuthConfig {
             refresh_key: refresh_key.into(),
             secure: true,
             require_legal_acceptance: true,
+            oauth2: None,
         })
+    }
+    pub fn with_oauth2_issuer(
+        mut self,
+        issuer: crate::identity::grants::LmmIssuer,
+    ) -> Result<Self, IdentityError> {
+        if issuer.profile().issuer() != self.origin {
+            return Err(IdentityError::Invalid);
+        }
+        self.oauth2 = Some(issuer);
+        Ok(self)
     }
     /// Only exact configured Web callbacks enable the built-in browser preset.
     /// The client ID is public; credentials and provider endpoints stay private.
@@ -101,6 +114,7 @@ pub fn router(store: IdentityStore, config: LegacyAuthConfig) -> Router {
     };
     Router::new()
         .merge(compatibility::routes())
+        .merge(oauth2::routes())
         .route("/api/user/register", post(register))
         .route("/api/user/login", post(login))
         .route("/api/user/login/2fa", post(complete_mfa_login))
@@ -126,13 +140,29 @@ async fn security(State(state): State<AuthState>, request: Request, next: Next) 
         *request.method(),
         axum::http::Method::GET | axum::http::Method::HEAD | axum::http::Method::OPTIONS
     );
-    let mut response = if unsafe_method && !valid_origin(request.headers(), &state.config.origin) {
+    let mut response = if request.uri().path() == "/api/oauth2/authorize"
+        && request
+            .uri()
+            .query()
+            .is_some_and(|query| query.len() > 8192)
+    {
+        failure(
+            StatusCode::BAD_REQUEST,
+            "AUTH_INVALID_REQUEST",
+            "Invalid authorization request",
+        )
+    } else if unsafe_method && !valid_origin(request.headers(), &state.config.origin) {
         failure(
             StatusCode::FORBIDDEN,
             "AUTH_ORIGIN_FORBIDDEN",
             "Request origin is not allowed",
         )
-    } else if unsafe_method || request.uri().path() == "/api/oauth/google/callback" {
+    } else if unsafe_method
+        || matches!(
+            request.uri().path(),
+            "/api/oauth/google/callback" | "/api/oauth2/authorize"
+        )
+    {
         let peer = request
             .extensions()
             .get::<ConnectInfo<SocketAddr>>()
@@ -163,9 +193,11 @@ async fn security(State(state): State<AuthState>, request: Request, next: Next) 
         (header::X_CONTENT_TYPE_OPTIONS, "nosniff"),
         (header::REFERRER_POLICY, "no-referrer"),
     ] {
-        response
-            .headers_mut()
-            .insert(name, HeaderValue::from_static(value));
+        if name != header::REFERRER_POLICY || !response.headers().contains_key(&name) {
+            response
+                .headers_mut()
+                .insert(name, HeaderValue::from_static(value));
+        }
     }
     response
 }

@@ -31,6 +31,15 @@ enabled = false
 # user_agreement_enabled = false
 # privacy_policy_enabled = false
 
+# Optional read-only lmm CLI issuer; requires the exact HTTPS identity.web
+# origin and refresh key above, plus enable_oauth2=true runtime grants.
+# Does not enable Pi model spending or upgrade an existing database.
+# [identity.oauth2]
+# issuer = "https://api.example.invalid"
+# groups = ["default"]
+# access_ttl_seconds = 900
+# family_ttl_seconds = 2592000
+
 # Optional extension RPC; separately provision socket access and module grants.
 # [rpc]
 # socket = "/run/lmm/core/core.sock"
@@ -55,3 +64,4 @@ enabled = false
 # no sidecar. Public policy/API responses contain aliases, never secret paths.
 # [abuse]
 # credential_config_file = "/etc/lmm.conf.d/core-abuse-credentials.toml"
+# local_http = false # explicit opt-in permits only numeric loopback URLs

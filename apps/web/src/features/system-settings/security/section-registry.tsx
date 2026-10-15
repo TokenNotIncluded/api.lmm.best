@@ -59,7 +59,13 @@ const MarketAIReviewSettingsSection = lazyNamedSection(
   'MarketAIReviewSettingsSection'
 )
 
+const HoneypotSection = lazyNamedSection(
+  () => import('@/features/honeypot'),
+  'HoneypotPage'
+)
+
 const SECURITY_SECTIONS = [
+  { id: 'honeypot', titleKey: 'Honeypot', build: () => <HoneypotSection /> },
   {
     id: 'market-ai-review',
     titleKey: 'Market AI first review',

@@ -72,6 +72,14 @@ expected revision 和 operation ID；输出列出改变的 policy ID 及旧/新 
 在线预览必须先读取并验证完整 v4 policy 响应，包括版本和全部 capabilities；固定文本
 也不例外。缺少凭证别名集合或协议元数据时返回 `INVALID_RESPONSE`，不会生成预览，
 也不会把“没有信息”当成“允许任意别名”。
+客户端兼容原来的五字段数字回环能力，以及包含 `external_https`、`local_http`、
+`allowed_origins` 的完整八字段能力；能力中的未知字段和不一致组合均拒绝。
+新服务器即使只使用固定文本且没有别名，也须返回完整能力，不能省略为空值。
+八字段预览还在私有 artifact 中保存实际服务器能力；确认时先查询原 operation，
+若尚未执行，再回读能力、revision 和旧 config。任何变化都拒绝 PUT，需要重新审查。
+已执行的原 operation 仍按原 config hash 核对，不重发。
+能力回读不是服务器原子快照；GET 到 PUT 之间的主机能力变化仍由 Core 最终校验，
+客户端不会把回读成功当成上游可达或请求已执行。
 审查后使用相同的 `apply --preview ... --confirm ... --apply`，单次 PUT 由 Core 做
 revision 比较。仍被用户引用的 policy 不能删除。
 
@@ -84,9 +92,17 @@ revision 比较。仍被用户引用的 policy 不能删除。
 `custom_upstream` 模式省略 `fixed_text`，`clients` 必须分别配置 `openai_chat` 和
 `openai_responses`。每项使用 `base_url`、`upstream_protocol`、`model`、
 `credential_reference`；上游协议支持 `openai_chat`、`openai_responses`、
-`anthropic_messages`、`gemini`，允许转换。上游 URL 只允许服务器上的数字回环
-HTTP，管理员可在服务器前置本地转发器连接其他服务。不能直接配置公网地址、
-本地文件路径或明文 token。`credential_reference` 只能引用服务器预加载的别名，名称为 1–64 位 ASCII 字母、
+`anthropic_messages`、`gemini`，允许转换。原五字段能力仍只允许数字回环 HTTP。
+完整八字段能力可明确允许外部 HTTPS，但 URL 的标准化 origin 必须精确出现在该
+`credential_reference` 的服务器白名单里；同一域名的其他端口、子域名或其他别名
+不能借用授权。HTTP 和 HTTPS 数字回环还必须单独允许 `local_http`；DNS 名称不能
+用这个开关获得 HTTP 权限。客户端只接受 ASCII DNS 名称或标准数字 IP，规范化
+大小写、默认端口和 IPv6；不接受 URL 中的凭证、查询、片段或反斜杠。
+客户端不解析上游 DNS，也不替代 Core 的全部地址校验、固定连接、TLS 和重定向限制。
+完整结构但已不在当前白名单的旧 config 仍可读取、导出和作为 before 快照，以便
+移除旧路由；只有待提交的新 config 获得当前能力授权。没有实际服务器能力时，
+离线校验不会接受外部 HTTPS。不能配置本地文件路径或明文 token。
+`credential_reference` 只能引用服务器预加载的别名，名称为 1–64 位 ASCII 字母、
 数字、`_`、`.` 或 `-`。策略名、公开模型名和上游模型名拒绝 Unicode 控制字符，
 理由不得含 NUL；本地预校验与实际 Core 的这些输入限制一致。
 `public_models` 明确列出给这些用户展示的模型，不读取真实私有分组模型。

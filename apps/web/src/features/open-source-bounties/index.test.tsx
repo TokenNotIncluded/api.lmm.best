@@ -44,7 +44,7 @@ const project: BountyProject = {
   id: 1,
   owner_user_id: 10,
   owner_username: 'publisher',
-  repository_url: 'https://github.com/TokenNotIncluded/api.lmm.best',
+  repository_url: 'https://github.com/TokenNotIncluded/lmm-api',
   title: 'Fix favicon regressions',
   description: longDescription,
   rules: 'Acceptance rules',

@@ -23,7 +23,7 @@ Flat `error` events terminate both runtimes immediately, preventing a later comp
 
 ## Confirmed partial-output policy in issue #373
 
-Issue [#373](https://github.com/TokenNotIncluded/api.lmm.best/issues/373) requests zero fallback after explicit failure without provider usage, while also requiring the original [#341](https://github.com/TokenNotIncluded/api.lmm.best/pull/341) regressions to remain green. The original `failed_text` regression explicitly charges a stream that emitted text and then `response.failed` without provider usage. Both requirements cannot be met unchanged.
+Issue [#373](https://github.com/TokenNotIncluded/lmm-api/issues/373) requests zero fallback after explicit failure without provider usage, while also requiring the original [#341](https://github.com/TokenNotIncluded/lmm-api/pull/341) regressions to remain green. The original `failed_text` regression explicitly charges a stream that emitted text and then `response.failed` without provider usage. Both requirements cannot be met unchanged.
 
 On 2026-10-03 the maintainer explicitly chose to preserve the existing partial-output billing rule. An explicit failed/error event after actual output therefore still uses the existing local lower bound when provider usage is absent. Empty failures, created-only and empty-incomplete requests continue to settle at zero. The issue is resolved against this confirmed policy rather than changing the original `failed_text` regression.
 

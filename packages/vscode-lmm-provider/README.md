@@ -1,6 +1,6 @@
 # LMM for Copilot
 
-<img src="https://raw.githubusercontent.com/TokenNotIncluded/api.lmm.best/main/packages/vscode-lmm-provider/assets/icon.png" alt="LMM logo" width="128" height="128" />
+<img src="https://raw.githubusercontent.com/TokenNotIncluded/lmm-api/main/packages/vscode-lmm-provider/assets/icon.png" alt="LMM logo" width="128" height="128" />
 
 > **Preview:** Requires a deployed LMM server with `lmm-vscode` OAuth registration. The extension checks server support before opening the browser; local tests do not establish production account or model access.
 

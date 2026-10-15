@@ -42,6 +42,13 @@ redirect_uri = "https://api.example.test/api/oauth/google/callback"
 已有用户禁用、本地 MFA 或注册限制不绕过；当前 Google 浏览器路径对需要本地 MFA 的账号失败关闭，尚不提供该路径的第二因素续接。
 合成签名供应商及隔离 PostgreSQL 测试不等于真实 Google 账号验收，也不代表旧站点已启用。
 
+## LMM 客户端授权
+
+可选的 Rust OAuth2 issuer 为 `lmm` CLI 提供明确同意后的只读目录和个人余额。
+协议、配置、限制和未完成验收见 [客户端授权](core-oauth2.md)。
+该授权不签发 API Key、不授予开发者资格，也不允许模型、MCP、团队或资金写入。
+Pi 的四项必需 scope 需要另行完成真实委托消费及 usage 接入，不能把 CLI 只读授权作为 Pi 可用证明。
+
 ## 可选 TOTP 二次验证（MFA）
 
 当前源码提供密码登录后的 TOTP 挑战、一次性恢复码及浏览器中的启用、停用和恢复码重建。

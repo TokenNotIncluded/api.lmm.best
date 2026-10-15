@@ -14,7 +14,7 @@
       ],
       "owner": "LIghtJUNction",
       "reviewer": "pending",
-      "issue": "https://github.com/TokenNotIncluded/api.lmm.best/pull/675",
+      "issue": "https://github.com/TokenNotIncluded/lmm-api/pull/675",
       "opened": "2026-10-10",
       "expires": "2026-10-24",
       "reason": "WIP acceptance gap, not a demonstrated funds loss: routing and charging are compiled by separate path harnesses; store PostgreSQL tests use a funds adapter. These checks do not exercise the complete production host and Rust funds chain.",

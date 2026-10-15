@@ -1,15 +1,15 @@
 # MK-05 verification record
 
-Date: 2026-10-10 (UTC). Draft PR: [#696](https://github.com/TokenNotIncluded/api.lmm.best/pull/696).
-Parent: [#675](https://github.com/TokenNotIncluded/api.lmm.best/pull/675).
+Date: 2026-10-10 (UTC). Draft PR: [#696](https://github.com/TokenNotIncluded/lmm-api/pull/696).
+Parent: [#675](https://github.com/TokenNotIncluded/lmm-api/pull/675).
 Work branch: `wip/mk-05-relay`. Target: `wip/rust-core-go-extensions`.
 Initial base: `b83723cdac3f148140806b8025cb5360a2f6a26d`.
 
 ## Evidence inspected before this record
 
 Implementation and tests: `6c2a39afd0c17cc0ee8bcc32185c4a1ef5f0483f`.
-Successful run: [38022308784](https://github.com/TokenNotIncluded/api.lmm.best/actions/runs/38022308784).
-Evidence: [artifact 11658308770](https://github.com/TokenNotIncluded/api.lmm.best/actions/runs/38022308784/artifacts/11658308770),
+Successful run: [38022308784](https://github.com/TokenNotIncluded/lmm-api/actions/runs/38022308784).
+Evidence: [artifact 11658308770](https://github.com/TokenNotIncluded/lmm-api/actions/runs/38022308784/artifacts/11658308770),
 `mk05-relay-38022308784.zip`, SHA-256:
 `d1974ee2ffc4411be98f7a3f93d8920ecb9a6a224b2b7dbbb32174a8bbf71a60`.
 

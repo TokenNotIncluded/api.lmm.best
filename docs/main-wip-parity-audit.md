@@ -96,7 +96,7 @@ CLI、负载及全站功能对齐仍缺证据，不编造追平百分比。
 - 归档前后五个候选 unit 均 active/running，应用 PID/二进制哈希未变化；Core、Go
   live/ready 与 Web status 的只读健康检查通过。磁盘仍 79%、余量约 198.7 GiB；
   不把并发文件活动的全盘变化归因于本轮清理，也没有新查库或重发业务请求。
-- [#895 状态评论](https://github.com/TokenNotIncluded/api.lmm.best/issues/895#issuecomment-6129958838)
+- [#895 状态评论](https://github.com/TokenNotIncluded/lmm-api/issues/895#issuecomment-6129958838)
   已写入并读回，Issue 保持 OPEN。正式镜像与匿名下载回执只证明各自窄范围，
   不抵扣容器内完整业务、升级恢复或真实供应商验收。
 - 独立 Pi 插件提交 `255383070c` 兼容余额 v2，显示明确的 public credits 而非 USD；

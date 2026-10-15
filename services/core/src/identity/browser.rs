@@ -1,5 +1,6 @@
 //! Browser-session compatibility without importing legacy sessions or funds.
 mod google;
+pub(super) mod grants;
 mod mfa;
 mod password;
 use super::*;

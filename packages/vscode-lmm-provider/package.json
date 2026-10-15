@@ -8,7 +8,7 @@
   "license": "AGPL-3.0-only",
   "repository": {
     "type": "git",
-    "url": "https://github.com/TokenNotIncluded/api.lmm.best.git",
+    "url": "https://github.com/TokenNotIncluded/lmm-api.git",
     "directory": "packages/vscode-lmm-provider"
   },
   "homepage": "https://api.lmm.best",

@@ -21,6 +21,8 @@ import { after, afterEach, describe, test } from 'node:test'
 
 import { Window } from 'happy-dom'
 
+import type { ApiKey } from '../../types'
+
 const domWindow = new Window()
 const domGlobals = [
   'window',
@@ -82,6 +84,7 @@ type ApiMethod = (url: string, data?: unknown) => Promise<{ data: unknown }>
 type MockableApi = {
   get: ApiMethod
   post: ApiMethod
+  put: ApiMethod
 }
 type RenderedDrawer = {
   host: HTMLDivElement
@@ -92,6 +95,7 @@ type RenderedDrawer = {
 const apiClient = api as unknown as MockableApi
 const originalGet = apiClient.get
 const originalPost = apiClient.post
+const originalPut = apiClient.put
 let renderedDrawer: RenderedDrawer | null = null
 
 function installApiFixtures(createdPayloads: Array<Record<string, unknown>>) {
@@ -169,7 +173,10 @@ async function waitForCondition(
   })
 }
 
-async function renderCreateDrawer(): Promise<void> {
+async function renderCreateDrawer(
+  currentRow?: ApiKey,
+  neutralAuto = false
+): Promise<void> {
   const host = document.createElement('div')
   document.body.append(host)
   const root = createRoot(host)
@@ -207,6 +214,21 @@ async function renderCreateDrawer(): Promise<void> {
     },
     { updatedAt: freshAt }
   )
+  if (neutralAuto) {
+    queryClient.setQueryData(
+      ['user-groups'],
+      {
+        success: true,
+        data: { auto: { desc: 'Automatic routing', ratio: 'model-specific' } },
+      },
+      { updatedAt: freshAt }
+    )
+    queryClient.setQueryData(
+      ['token-auto-groups'],
+      { success: true, data: { groups: ['auto'], max_count: 16 } },
+      { updatedAt: freshAt }
+    )
+  }
   renderedDrawer = { host, queryClient, root }
 
   await act(async () =>
@@ -214,7 +236,11 @@ async function renderCreateDrawer(): Promise<void> {
       <QueryClientProvider client={queryClient}>
         <I18nextProvider i18n={i18n}>
           <ApiKeysProvider>
-            <ApiKeysMutateDrawer open onOpenChange={() => undefined} />
+            <ApiKeysMutateDrawer
+              open
+              currentRow={currentRow}
+              onOpenChange={() => undefined}
+            />
           </ApiKeysProvider>
         </I18nextProvider>
       </QueryClientProvider>
@@ -222,7 +248,10 @@ async function renderCreateDrawer(): Promise<void> {
   )
   await act(async () =>
     waitForCondition(() => {
-      return findButton('Select a group', false) !== null
+      return (
+        findButton(currentRow ? 'Save changes' : 'Select a group', false) !==
+        null
+      )
     }, 'API key drawer did not finish initializing')
   )
 }
@@ -336,6 +365,7 @@ test('copies the public Base URL and a read-only quota curl with only a placehol
 afterEach(async () => {
   apiClient.get = originalGet
   apiClient.post = originalPost
+  apiClient.put = originalPut
   domWindow.localStorage.clear()
   if (renderedDrawer) {
     await act(async () => renderedDrawer?.root.unmount())
@@ -572,4 +602,116 @@ test('a limited key uses a fixed Credit basis after changing the display currenc
   )
   assert.equal(created[0]?.remain_quota, 625000)
   assert.equal(created[0]?.unlimited_quota, false)
+})
+
+test('a server exposing only neutral Auto creates a key without cross-group retry', async () => {
+  const payloads: Array<Record<string, unknown>> = []
+  installApiFixtures(payloads)
+  const fixtureGet = apiClient.get
+  const groups = {
+    success: true,
+    data: { auto: { desc: 'Automatic routing', ratio: 'model-specific' } },
+  }
+  const order = { success: true, data: { groups: ['auto'], max_count: 16 } }
+  apiClient.get = async (url) =>
+    url === '/api/user/self/groups'
+      ? { data: groups }
+      : url === '/api/token/auto-groups'
+        ? { data: order }
+        : fixtureGet(url)
+  await renderCreateDrawer()
+  assert.ok(renderedDrawer)
+  await act(async () => {
+    renderedDrawer?.queryClient.setQueryData(['user-groups'], groups)
+    renderedDrawer?.queryClient.setQueryData(['token-auto-groups'], order)
+  })
+  await selectComboboxOption(
+    getControlByLabel<HTMLButtonElement>('Group'),
+    'Automatic routing'
+  )
+  const retry = getControlByLabel<HTMLInputElement>('Cross-group retry')
+  assert.equal(retry.disabled, true)
+  assert.equal(retry.checked, false)
+  await changeInput(
+    getControlByLabel<HTMLInputElement>('Name'),
+    'Single group device'
+  )
+  await act(async () => findButton('Create API Key', true).click())
+  await act(async () =>
+    waitForCondition(
+      () => payloads.length === 1,
+      'neutral Auto key was not submitted'
+    )
+  )
+  assert.equal(payloads[0]?.group, 'auto')
+  assert.deepEqual(payloads[0]?.auto_groups, [])
+  assert.equal(payloads[0]?.cross_group_retry, false)
+})
+
+test('editing a neutral Auto token preserves normal metadata and submits an inherited empty override', async () => {
+  const payloads: Array<Record<string, unknown>> = []
+  installApiFixtures(payloads)
+  const fixtureGet = apiClient.get
+  const token: ApiKey = {
+    id: 20,
+    name: 'Single group device',
+    key: '',
+    status: 1,
+    remain_quota: 0,
+    used_quota: 0,
+    unlimited_quota: true,
+    expired_time: -1,
+    created_time: 1,
+    accessed_time: 1,
+    group: 'auto',
+    auto_groups: ['auto'],
+    cross_group_retry: false,
+    model_limits_enabled: false,
+    model_limits: '',
+    allow_ips: '',
+  }
+  const groups = {
+    success: true,
+    data: { auto: { desc: 'Automatic routing', ratio: 'model-specific' } },
+  }
+  const order = { success: true, data: { groups: ['auto'], max_count: 16 } }
+  apiClient.get = async (url) =>
+    url === '/api/user/self/groups'
+      ? { data: groups }
+      : url === '/api/token/auto-groups'
+        ? { data: order }
+        : url === '/api/token/20'
+          ? { data: { success: true, data: token } }
+          : fixtureGet(url)
+  apiClient.put = async (url, data) => {
+    assert.equal(url, '/api/token/')
+    payloads.push(data as Record<string, unknown>)
+    return { data: { success: true } }
+  }
+  await renderCreateDrawer(token, true)
+  assert.ok(renderedDrawer)
+  await act(async () => {
+    renderedDrawer?.queryClient.setQueryData(['user-groups'], groups)
+    renderedDrawer?.queryClient.setQueryData(['token-auto-groups'], order)
+  })
+  assert.equal(
+    document.body.textContent?.includes('No valid custom Auto groups remain'),
+    false
+  )
+  await changeInput(
+    getControlByLabel<HTMLInputElement>('Name'),
+    'Renamed neutral device'
+  )
+  await act(async () => findButton('Save changes', true).click())
+  await act(async () =>
+    waitForCondition(
+      () => payloads.length === 1,
+      'neutral Auto update not submitted'
+    )
+  )
+  assert.equal(payloads[0]?.id, 20)
+  assert.equal(payloads[0]?.name, 'Renamed neutral device')
+  assert.equal(payloads[0]?.group, 'auto')
+  assert.deepEqual(payloads[0]?.auto_groups, [])
+  assert.equal(payloads[0]?.cross_group_retry, false)
 })
