@@ -215,7 +215,11 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
             store.clone()
         };
         let mut routes = lmm_core::identity_http::router(native_store)
-            .merge(lmm_core::abuse::admin::router(abuse));
+            .merge(lmm_core::abuse::admin::router(abuse))
+            .merge(lmm_core::identity::admin_users::router(
+                lmm_core::identity::admin_users::AdminUsersStore::new(store.clone()),
+            ));
+        capabilities.admin_users_read = true;
         capabilities.abuse_admin = true;
         if console_enabled {
             routes = routes.merge(lmm_core::console_compat::router(

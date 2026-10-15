@@ -29,5 +29,8 @@ pub mod relay;
 pub mod remote_control;
 pub mod routing;
 pub mod runtime_database;
+#[cfg(test)]
+#[path = "../tests/common/runtime.rs"]
+pub(crate) mod test_runtime;
 pub mod upstream_cost;
 pub mod usage;

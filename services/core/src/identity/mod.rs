@@ -1,6 +1,7 @@
 //! Core-owned users, accounts and authority. The store never calls Go.
 //! Identity checks are not reservations: billing must recheck authority in its
 //! own transaction before taking funds. Model routes remain unavailable.
+pub mod admin_users;
 mod auth;
 mod browser;
 pub use browser::{

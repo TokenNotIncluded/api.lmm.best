@@ -97,6 +97,8 @@ pub struct Capabilities {
     pub commerce: bool,
     /// Global administration availability; never a per-user moderation state.
     pub abuse_admin: bool,
+    /// Actual native user-read router assembled after schema/runtime checks.
+    pub admin_users_read: bool,
 }
 
 #[derive(Clone, Default)]
@@ -193,6 +195,8 @@ async fn public_status_response(
             "assistant":{"enabled":false},"custom_oauth_providers":[],
             "backend_capabilities":{"bounty_notifications":false,"bounty_challenge_cancel":false,
                 "bounty_public_read":false,"self_oauth_unbind":false,"responses_websocket":false},
+            "admin_users_protocol":crate::identity::admin_users::PROTOCOL,
+            "capabilities":{"admin_users_read":state.capabilities.admin_users_read},
             "configured_components":state.capabilities,
             "capability_scope":"configured_components_only",
             "models_local_synthetic":state.capabilities.models,

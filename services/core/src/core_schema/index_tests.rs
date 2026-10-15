@@ -432,5 +432,4 @@ async fn upgrade_rejects_runtime_role_and_unrelated_superuser(pool: PgPool) {
     role.cleanup().await;
 }
 
-#[path = "../../tests/common/runtime.rs"]
-mod runtime;
+use crate::test_runtime as runtime;

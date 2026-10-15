@@ -10,6 +10,8 @@ use axum::{
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
+mod v2;
+
 #[derive(Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PolicyUpdate {
@@ -564,6 +566,7 @@ pub fn router(store: AbuseStore) -> Router {
         .route("/core/v1/admin/abuse/users/commit", post(commit))
         .route("/core/v1/admin/abuse/operations/{id}", get(operation))
         .route("/core/v1/admin/abuse/audit", get(audit))
+        .merge(v2::routes())
         .layer(DefaultBodyLimit::max(96 * 1024))
         .layer(axum::middleware::from_fn(
             |request: axum::extract::Request, next: axum::middleware::Next| async move {
