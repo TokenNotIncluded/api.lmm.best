@@ -3,6 +3,7 @@ mod google;
 pub(super) mod grants;
 mod mfa;
 mod password;
+mod sessions;
 use super::*;
 use hmac::{Hmac, Mac};
 use subtle::ConstantTimeEq;

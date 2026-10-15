@@ -19,7 +19,7 @@ For commercial licensing, please contact support@quantumnous.com
 import type { TFunction } from 'i18next'
 
 export function sessionDevice(
-  userAgent: string,
+  userAgent: string | null,
   unknownDevice: string,
   browserLabel: string,
   maxTouchPoints = 0

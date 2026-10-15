@@ -2,6 +2,7 @@
 #[path = "identity_compat.rs"]
 mod compatibility;
 mod oauth2;
+mod sessions;
 use crate::identity::{
     BrowserAuth, BrowserAuthError, BrowserBundle, BrowserLoginOutcome, BrowserRegistration,
     BrowserSessionMetadata, IdentityError, IdentityStore, MfaCompletion, MfaError,
@@ -114,6 +115,7 @@ pub fn router(store: IdentityStore, config: LegacyAuthConfig) -> Router {
     };
     Router::new()
         .merge(compatibility::routes())
+        .merge(sessions::routes())
         .merge(oauth2::routes())
         .route("/api/user/register", post(register))
         .route("/api/user/login", post(login))

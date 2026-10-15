@@ -177,3 +177,10 @@ python3 -B scripts/test-core-rpc-docker.py
 测试覆盖非空库保护、并发安装、结构版本不匹配、账号关系、付款规则、权限分离、并发邀请、退出重入、审计回滚、凭证过期/撤销及数据库故障。
 
 当前源码已提供密码注册/登录、浏览器会话续期及上述 Google 桥接；具体安装仍需匹配配置和独立验收，不能据此声称管理员激活、MFA 全链、所有提供者或旧站点迁移已完成。身份响应只是当前权限快照，不是资金预留许可。`/health/ready` 取决于受限运行角色及启用组件；模型默认关闭，启用后的 readiness 也不证明实际供应商调用或扣费成功。其余业务及资金范围按[业务验收](microkernel-business-acceptance.md)记录。
+
+启用浏览器兼容入口后，`GET /api/user/sessions` 读取当前用户的原生浏览器会话；
+`DELETE /api/user/sessions/{sid}` 撤销一个本人会话，`POST /api/user/sessions/revoke-others`
+撤销其他本人会话。`PUT /api/user/sessions/settings` 只接受布尔值 `session_auto_logout`。
+这些操作要求当前浏览器凭据及其认证证明；启用 MFA 时还须满足当前 MFA 策略，API Key 不能代替浏览器会话。不导入旧会话。
+撤销当前会话会清除刷新 Cookie。每周退出策略写入持久化配置，已经到期的会话不会因关闭策略而复活。
+列表不含凭据或刷新令牌；没有采集到的 IP 和 User-Agent 返回 `null`，不补造历史元数据。

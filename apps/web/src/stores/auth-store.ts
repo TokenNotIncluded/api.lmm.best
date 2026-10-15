@@ -146,8 +146,8 @@ export interface LoginSession {
   sid: string
   current: boolean
   login_method: string
-  ip: string
-  user_agent: string
+  ip: string | null
+  user_agent: string | null
   created_at: number
   last_active_at: number
   expires_at: number
