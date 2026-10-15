@@ -48,6 +48,12 @@ mise exec -- python3 -B scripts/quality-gate.py quick --base "$BASE" --output "$
 支付库名须为 `lmm_payments_test`，商店库是新的 `_test` 结尾库。localhost 可能是
 生产隧道，名称检查不能证明隔离。工具不自动创建这些库，也不读取 `.env`。
 
+支付存储锁等待/连接池超时回归另需 `PAYMENT_DEADLINE_TEST_DSN`，指向已核实归属的
+全新空库 `lmm_payments_deadline_test`。测试显式安装 schema，不删除或复用旧表；
+在 `services/extensions/internal/modules/payments/pgtest` 下运行
+`mise exec -- go test -race -count=1 -run '^TestPostgresStorageDeadlines$' .`。
+未配置该专用实例时会跳过，不能计为通过；聚合工具不自动准备此实例。
+
 Go 的 `go test ./...` 不跨嵌套模块；完整计划另检查现有 pgtest 和新增 Go 模块。
 缺工具、实例或产物需报告并处理，不能换成 mock 后宣称等价验收。外部供应商可以
 模拟，应用内部身份、权限、订单、路由和资金链路不能用固定成功对象替代。

@@ -16,9 +16,17 @@ import (
 //go:embed schema.sql
 var Schema string
 
+// Bound pool/lock/query waits independently of HTTP socket write deadlines.
+// Each transaction shares one budget, including commit. Expiry remains an
+// unavailable/possibly unknown storage outcome, never permission to retry a
+// provider call or release money. Earlier caller deadlines are preserved.
+const storageTimeout = 3 * time.Second
+
 type Postgres struct{ db *sql.DB }
 
 func NewPostgres(ctx context.Context, db *sql.DB, expectedDatabase string) (*Postgres, error) {
+	ctx, cancel := context.WithTimeout(ctx, storageTimeout)
+	defer cancel()
 	if db == nil || expectedDatabase == "" {
 		return nil, ErrInvalid
 	}
@@ -36,6 +44,8 @@ func NewPostgres(ctx context.Context, db *sql.DB, expectedDatabase string) (*Pos
 	return &Postgres{db: db}, nil
 }
 func (p *Postgres) Insert(ctx context.Context, o Order) error {
+	ctx, cancel := context.WithTimeout(ctx, storageTimeout)
+	defer cancel()
 	o.Version = 1
 	b, err := encodeOrder(o)
 	if err != nil {
@@ -47,7 +57,11 @@ func (p *Postgres) Insert(ctx context.Context, o Order) error {
 	}
 	return nil
 }
+
+// @mark payments.storage-deadline role=implementation
 func (p *Postgres) Get(ctx context.Context, id string) (Order, error) {
+	ctx, cancel := context.WithTimeout(ctx, storageTimeout)
+	defer cancel()
 	var b []byte
 	err := p.db.QueryRowContext(ctx, `SELECT snapshot FROM payment_orders WHERE id=$1`, id).Scan(&b)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -63,6 +77,8 @@ func (p *Postgres) Get(ctx context.Context, id string) (Order, error) {
 	return o, nil
 }
 func (p *Postgres) FindPayment(ctx context.Context, namespace, transaction string) (Order, error) {
+	ctx, cancel := context.WithTimeout(ctx, storageTimeout)
+	defer cancel()
 	var id string
 	err := p.db.QueryRowContext(ctx, `SELECT id FROM payment_orders WHERE namespace=$1 AND payment_id=$2`, namespace, transaction).Scan(&id)
 	if errors.Is(err, sql.ErrNoRows) {
@@ -73,7 +89,11 @@ func (p *Postgres) FindPayment(ctx context.Context, namespace, transaction strin
 	}
 	return p.Get(ctx, id)
 }
+
+// @mark payments.storage-deadline role=transaction
 func (p *Postgres) Mutate(ctx context.Context, id string, fn func(*Order) error) error {
+	ctx, cancel := context.WithTimeout(ctx, storageTimeout)
+	defer cancel()
 	tx, err := p.db.BeginTx(ctx, &sql.TxOptions{Isolation: sql.LevelReadCommitted})
 	if err != nil {
 		return ErrUnavailable
@@ -143,6 +163,8 @@ func mergeEvent(old, next Event) (Event, bool, error) {
 	return old, true, nil
 }
 func (p *Postgres) PutEvent(ctx context.Context, e Event) error {
+	ctx, cancel := context.WithTimeout(ctx, storageTimeout)
+	defer cancel()
 	b, err := json.Marshal(e)
 	if err != nil || len(b) > 96<<10 {
 		return ErrInvalid
@@ -191,6 +213,8 @@ func (p *Postgres) PutEvent(ctx context.Context, e Event) error {
 	return nil
 }
 func (p *Postgres) Events(ctx context.Context, now time.Time, limit int) ([]Event, error) {
+	ctx, cancel := context.WithTimeout(ctx, storageTimeout)
+	defer cancel()
 	if limit < 1 || limit > 100 {
 		return nil, ErrInvalid
 	}
@@ -214,6 +238,8 @@ func (p *Postgres) Events(ctx context.Context, now time.Time, limit int) ([]Even
 	return result, nil
 }
 func (p *Postgres) FinishEvent(ctx context.Context, key, status, code string, next time.Time) error {
+	ctx, cancel := context.WithTimeout(ctx, storageTimeout)
+	defer cancel()
 	_, err := p.db.ExecContext(ctx, `UPDATE payment_events SET status=$2,error_code=$3,next_attempt=$4,updated_at=now() WHERE event_key=$1 AND status<>'done' AND NOT ($2='review' AND $3='independent_provider_evidence_required' AND COALESCE(snapshot->'evidence'->>'accepted_proof_id','')<>'')`, key, status, code, next)
 	if err != nil {
 		return ErrUnavailable
@@ -221,6 +247,8 @@ func (p *Postgres) FinishEvent(ctx context.Context, key, status, code string, ne
 	return nil
 }
 func (p *Postgres) DueOrders(ctx context.Context, now time.Time, limit int) ([]string, error) {
+	ctx, cancel := context.WithTimeout(ctx, storageTimeout)
+	defer cancel()
 	if limit < 1 || limit > 100 {
 		return nil, ErrInvalid
 	}
