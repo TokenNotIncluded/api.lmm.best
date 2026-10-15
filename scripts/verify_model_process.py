@@ -157,6 +157,8 @@ def environment() -> dict:
              'CARGO_HOME', 'RUSTUP_HOME'}
     result = {key: value for key, value in os.environ.items() if key in allow}
     result['PYTHONDONTWRITEBYTECODE'] = '1'
+    # Build the locked crypto source, never a host-installed AWS-LC library.
+    result['AWS_LC_SYS_USE_SYSTEM'] = '0'
     return result
 
 

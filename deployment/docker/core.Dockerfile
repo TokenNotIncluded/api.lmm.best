@@ -5,7 +5,7 @@ COPY contracts/proto /src/contracts/proto
 COPY services/core/src ./src
 COPY services/core/schema ./schema
 # Bound formal image compilation independently of runtime container limits.
-RUN cargo build --locked --release --jobs 2 --bin lmm-core
+RUN AWS_LC_SYS_USE_SYSTEM=0 cargo build --locked --release --jobs 2 --bin lmm-core
 
 FROM scratch AS binaries
 COPY --from=build /src/services/core/target/release/lmm-core /lmm-core

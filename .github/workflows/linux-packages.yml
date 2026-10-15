@@ -80,7 +80,7 @@ jobs:
           target_env=$(printf '%s' "$RUST_TARGET" | tr '[:lower:]-' '[:upper:]_')
           export "CARGO_TARGET_${target_env}_LINKER=musl-gcc"
           export "CC_${RUST_TARGET//-/_}=musl-gcc"
-          cargo +1.99.0 build --manifest-path services/core/Cargo.toml --locked --release --target "$RUST_TARGET" --bin lmm-core
+          AWS_LC_SYS_USE_SYSTEM=0 cargo +1.99.0 build --manifest-path services/core/Cargo.toml --locked --release --target "$RUST_TARGET" --bin lmm-core
           cargo +1.99.0 build --manifest-path apps/cli/Cargo.toml --locked --release --target "$RUST_TARGET" --bin lmm
           mkdir -p out/core out/extensions out/cli
           cp "services/core/target/$RUST_TARGET/release/lmm-core" out/core/

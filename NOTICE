@@ -63,3 +63,19 @@ and other third-party components. Electron and Chromium third-party license
 notices must remain available with desktop installers and installed apps.
 
 ==== End of Notices ====
+
+
+==== Core Rust JWT and random-number dependency update ====
+
+This scoped notice covers jsonwebtoken 10.3.0, rand 0.8.6, the official
+non-FIPS aws-lc-rs 1.18.2 / aws-lc-sys 0.46.0 backend, untrusted 0.7.1, and
+the newly introduced build tools cmake 0.1.58, dunce 1.0.5, fs_extra 1.3.0
+and jobserver 0.1.35. It is not a complete Rust/transitive dependency audit.
+
+AWS-LC retains material originating in AWS, Google BoringSSL, OpenSSL and
+individual contributors. Its aggregate license includes the applicable
+copyright notices and license terms for the compiled third-party components.
+The published crate SPDX expressions and original license/copyright texts for
+all dependencies listed here are reproduced in the scoped Core appendix of
+THIRD-PARTY-LICENSES.md, distributed with this notice. Existing project and
+upstream attribution notices remain unchanged.
