@@ -23,7 +23,7 @@ import { SectionPageLayout } from '@/components/layout'
 import { Button } from '@/components/ui/button'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { AccountStatus } from '@/features/onboarding/account-status'
-import { isConsoleActivated } from '@/lib/console-activation'
+import { canManageApiKeys } from '@/lib/can-manage-api-keys'
 import { useAuthStore } from '@/stores/auth-store'
 
 import { ApiBaseUrl } from './components/api-base-url'
@@ -40,7 +40,7 @@ export function ApiKeys() {
   const [creationMode, setCreationMode] = useState<ApiKeyCreationMode>('manual')
   // Keep this explanation reachable without mounting key queries or actions.
   // A balance, role or local onboarding flag must not grant API access.
-  if (!isConsoleActivated(user)) {
+  if (!canManageApiKeys(user)) {
     return (
       <SectionPageLayout>
         <SectionPageLayout.Title>{t('API Keys')}</SectionPageLayout.Title>

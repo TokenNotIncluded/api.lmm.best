@@ -15,6 +15,7 @@ import {
   topupPaymentAmounts,
   type TopupRecord,
 } from '../lib/topup-display'
+import { readableTopupCurrencies } from '../lib/user-data-display'
 
 type PaymentRecord = TopupRecord & {
   currency?: string
@@ -23,15 +24,15 @@ type PaymentRecord = TopupRecord & {
 }
 
 function paymentCurrency(record: PaymentRecord): string | null {
-  const preferred = (record.currency ?? record.settlement_currency)
-    ?.trim()
-    .toUpperCase()
+  const rawPreferred = record.currency ?? record.settlement_currency
+  if (rawPreferred !== undefined && typeof rawPreferred !== 'string') {
+    return 'UNKNOWN'
+  }
+  const preferred = rawPreferred?.trim().toUpperCase()
   if (preferred) return preferred
-  const currencies = new Set(
-    record.methods?.map(
-      (method) => method.settlement_currency?.trim().toUpperCase() || 'UNKNOWN'
-    )
-  )
+  const methodCurrencies = readableTopupCurrencies(record.methods)
+  if (methodCurrencies === null) return 'UNKNOWN'
+  const currencies = new Set(methodCurrencies)
   const known = [...currencies].filter((currency) => currency !== 'UNKNOWN')
   if (known.length > 1) return 'MULTIPLE'
   if (currencies.has('UNKNOWN')) return 'UNKNOWN'

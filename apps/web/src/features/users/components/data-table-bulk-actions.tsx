@@ -23,6 +23,7 @@ import { useTranslation } from 'react-i18next'
 import { CopyButton } from '@/components/copy-button'
 import { DataTableBulkActions as BulkActionsToolbar } from '@/components/data-table'
 import { Separator } from '@/components/ui/separator'
+import { HoneypotBulkActionButton } from '@/features/honeypot/bulk-mark-dialog'
 
 import {
   collectContacts,
@@ -40,10 +41,8 @@ interface DataTableBulkActionsProps {
 /**
  * Bulk actions for the user table.
  *
- * Deliberately read-only: the admin API exposes no bulk mutation endpoint, so
- * every state-changing action stays on the per-row menu behind its own
- * confirmation dialog. What a selection can usefully do is hand the operator a
- * pasteable list, so the toolbar offers exactly that.
+ * Contact exports are read-only. Native Core honeypot changes have their own
+ * fresh revision reads, exact-target preview and explicit confirmation dialog.
  */
 export function DataTableBulkActions({ table }: DataTableBulkActionsProps) {
   const { t } = useTranslation()
@@ -62,6 +61,7 @@ export function DataTableBulkActions({ table }: DataTableBulkActionsProps) {
 
   return (
     <BulkActionsToolbar table={table} entityName={t('user')}>
+      <HoneypotBulkActionButton ids={selectedUsers.map((user) => user.id)} />
       <CopyButton
         value={usernamesPayload}
         variant='outline'

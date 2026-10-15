@@ -21,6 +21,7 @@ import { create } from 'zustand'
 import type { AdminCapabilities } from '@/lib/admin-permissions'
 
 export type UserPermissions = {
+  api_key_management?: boolean
   sidebar_settings?: boolean
   sidebar_modules?: Record<string, unknown>
   admin_permissions?: AdminCapabilities

@@ -70,6 +70,7 @@ import {
   USER_STATUSES,
   isUserDeleted,
 } from '../constants'
+import { readableTopupMethods } from '../lib/user-data-display'
 import type { User } from '../types'
 import { DataTableRowActions } from './data-table-row-actions'
 import { TopupCreditsValue, TopupPaymentValue } from './topup-values'
@@ -162,6 +163,7 @@ function UserMobileRow({ row }: { row: Row<User> }) {
   const email = user.email?.trim()
   const displayName = user.display_name?.trim()
   const topup = user.topup_summary
+  const methods = readableTopupMethods(topup?.methods)
   const disabled = isUserDeleted(user) || user.status === USER_STATUS.DISABLED
 
   return (
@@ -300,13 +302,17 @@ function UserMobileRow({ row }: { row: Row<User> }) {
               {t('Top-up credits')}: <TopupCreditsValue record={topup} /> ·{' '}
               {topup?.orders ?? 0}
             </div>
-            {topup?.methods && topup.methods.length > 0 ? (
+            {methods === null ? (
+              <p className='text-muted-foreground mt-1 text-xs'>
+                {t('Payment method')}: {t('Unavailable')}
+              </p>
+            ) : methods.length > 0 ? (
               <details className='mt-1 text-xs'>
                 <summary className='text-muted-foreground inline-flex min-h-11 cursor-pointer items-center py-2 underline decoration-dotted underline-offset-2'>
-                  {t('Payment method')} · {topup.methods.length}
+                  {t('Payment method')} · {methods.length}
                 </summary>
                 <div className='border-muted-foreground/30 mt-1 space-y-1 border-l pl-2'>
-                  {topup.methods.map((method) => {
+                  {methods.map((method) => {
                     const label = [
                       method.method.trim(),
                       method.provider?.trim(),
