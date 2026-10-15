@@ -1,4 +1,5 @@
 """Offline fixture regressions; real Docker bind mounts are tested separately."""
+import ast
 import importlib.util
 import json
 import os
@@ -22,6 +23,26 @@ FIXTURE.DOCKER = FIXTURE.ROOT / "deployment/docker"
 
 
 class PrivateFixtureTests(unittest.TestCase):
+    def test_fresh_install_component_inventory_is_exact(self):
+        source = ast.parse(SOURCE.read_text())
+        checks = [node.test for node in ast.walk(source)
+                  if isinstance(node, ast.Assert)
+                  and isinstance(node.test, ast.Compare)
+                  and ast.unparse(node.test.left) == "set(components)"]
+        self.assertEqual(len(checks), 1)
+        check = checks[0]
+        self.assertEqual(len(check.ops), 1)
+        self.assertIsInstance(check.ops[0], ast.Eq)
+        self.assertEqual(len(check.comparators), 1)
+        expected = check.comparators[0]
+        self.assertIsInstance(expected, ast.Set)
+        self.assertEqual(len(expected.elts), 12)
+        self.assertEqual(ast.literal_eval(expected), {
+            "identity", "ledger", "payments", "charging", "routing", "events",
+            "charging-ledger", "migration", "console", "model-gateway", "commerce",
+            "abuse",
+        })
+
     def test_standalone_limits_are_read_from_the_current_toml_contract(self):
         with (FIXTURE.DOCKER / "config/core-standalone.toml").open("rb") as file:
             config = FIXTURE.tomllib.load(file)
@@ -44,6 +65,22 @@ class PrivateFixtureTests(unittest.TestCase):
                 f"NOT {function}(:'migration_import_runs_oid'::oid,'{privileges}')", after)
         self.assertIn("current_user=session_user", after)
         self.assertIn("NOT has_schema_privilege('core_migration','USAGE,CREATE')", after)
+        self.assertNotRegex(FIXTURE.RUNTIME_PRIVILEGES_SQL, r"\b(?:GRANT|REVOKE)\b")
+
+    def test_charging_audit_resolves_private_relation_before_switching_identity(self):
+        before, after = FIXTURE.RUNTIME_PRIVILEGES_SQL.split(
+            "SET SESSION AUTHORIZATION lmm_core_runtime;", 1)
+        self.assertIn("'core_charging.requests'::regclass::oid", before)
+        self.assertIn("AS charging_requests_oid \\gset", before)
+        self.assertNotIn("core_charging.requests", after)
+        for function, privileges in (
+            ("has_table_privilege", "INSERT,UPDATE,DELETE,TRUNCATE"),
+            ("has_any_column_privilege", "INSERT,UPDATE"),
+        ):
+            self.assertIn(
+                f"NOT {function}(:'charging_requests_oid'::oid,'{privileges}')", after)
+        self.assertIn("current_user=session_user", after)
+        self.assertIn("NOT has_schema_privilege('core_charging','USAGE,CREATE')", after)
         self.assertNotRegex(FIXTURE.RUNTIME_PRIVILEGES_SQL, r"\b(?:GRANT|REVOKE)\b")
 
     def test_docker_commands_pin_local_socket_and_keep_secret_input_off_argv(self):

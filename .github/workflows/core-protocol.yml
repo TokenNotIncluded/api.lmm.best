@@ -63,7 +63,7 @@ jobs:
       CARGO_PROFILE_TEST_DEBUG: "0"
     services:
       postgres:
-        image: postgres:17-alpine
+        image: postgres:18-alpine@sha256:77f585114c32fbca283dc835b0596f4e52b51b4c6662d7810b2f4084f60a1873
         env:
           POSTGRES_PASSWORD: postgres
         ports: ['5432:5432']
@@ -134,6 +134,12 @@ jobs:
         working-directory: services/core
         run: |
           cargo clippy --locked --all-targets -- -D warnings
+          # Compile once, then bind the real Core child used by all six process tests.
+          cargo test --locked --all-targets --no-run
+          LMM_MODEL_PROCESS_CORE_BIN="$(realpath target/debug/lmm-core)"
+          LMM_MODEL_PROCESS_CORE_SHA256="$(sha256sum "$LMM_MODEL_PROCESS_CORE_BIN" | cut -d ' ' -f1)"
+          LMM_MODEL_PROCESS_ROOT="$(mktemp -d /tmp/lmm-model-XXXXXXXX)"
+          export LMM_MODEL_PROCESS_CORE_BIN LMM_MODEL_PROCESS_CORE_SHA256 LMM_MODEL_PROCESS_ROOT
           cargo test --locked --all-targets --no-fail-fast 2>&1 | tee "$RUNNER_TEMP/core-tests.log"
       - name: Go contract and race tests
         if: ${{ !cancelled() }}
