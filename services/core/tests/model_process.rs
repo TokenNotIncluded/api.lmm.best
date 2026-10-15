@@ -722,6 +722,95 @@ async fn independent_process_team_payer_fallback_and_revocation(pool: PgPool) {
     );
     host.finish().await;
 }
+// Diagnostic-only successor: never consume a successful paused SSE response.
+async fn budget_diagnostic_timed(
+    response: impl std::future::Future<Output = reqwest::Response>,
+) -> (reqwest::Response, u64) {
+    let started = Instant::now();
+    let response = response.await;
+    (
+        response,
+        started.elapsed().as_millis().min(u128::from(u64::MAX)) as u64,
+    )
+}
+async fn budget_diagnostic_error(response: &mut reqwest::Response) -> Value {
+    if response.status() == StatusCode::OK {
+        return json!({"body": "successful_sse_not_read"});
+    }
+    let read = tokio::time::timeout(Duration::from_millis(500), async {
+        let mut bytes = Vec::new();
+        while let Some(chunk) = response.chunk().await.map_err(|_| "read_error")? {
+            let remaining = 4096usize.saturating_sub(bytes.len());
+            if chunk.len() > remaining {
+                return Err("body_over_4096_bytes");
+            }
+            bytes.extend_from_slice(&chunk);
+        }
+        serde_json::from_slice::<Value>(&bytes).map_err(|_| "non_json")
+    })
+    .await;
+    match read {
+        Ok(Ok(value)) => {
+            let code = value["error"]["code"].as_str().filter(|code| {
+                !code.is_empty()
+                    && code.len() <= 64
+                    && code
+                        .bytes()
+                        .all(|byte| byte.is_ascii_lowercase() || byte == b'_')
+            });
+            let phase = value["error"]["message"]
+                .as_str()
+                .and_then(|message| message.strip_prefix("relay_timeout: "))
+                .filter(|phase| {
+                    matches!(
+                        *phase,
+                        "Route"
+                            | "Reserve"
+                            | "Connect"
+                            | "Headers"
+                            | "Read"
+                            | "Write"
+                            | "Total"
+                            | "Settle"
+                    )
+                });
+            json!({"code": code, "timeout_phase": phase})
+        }
+        Ok(Err(kind)) => json!({"diagnostic_error": kind}),
+        Err(_) => json!({"diagnostic_error": "body_read_timeout"}),
+    }
+}
+async fn budget_diagnostic_database(pool: &PgPool, account: i64, key: i64) -> Value {
+    let query = sqlx::query_scalar::<_, Value>(r#"
+SELECT jsonb_build_object(
+    'wallet_buckets', (SELECT jsonb_agg(jsonb_build_object('bucket',a.bucket,'balance_units',b.balance_units) ORDER BY a.id)
+        FROM core_billing.ledger_accounts a JOIN core_billing.balance_state b ON b.ledger_account_id=a.id WHERE a.owner_account_id=$1),
+    'request_count', (SELECT count(*) FROM core_charging.requests WHERE key_id=$2),
+    'request_rows', (SELECT jsonb_agg(to_jsonb(q)) FROM (SELECT id,state,reserved,settled,refunded,authorized_at,lease_until,hard_deadline FROM core_charging.requests WHERE key_id=$2 ORDER BY id LIMIT 8) q),
+    'hold_count', (SELECT count(*) FROM core_charging.ledger_holds h JOIN core_charging.requests r ON r.id=h.request_id WHERE r.key_id=$2),
+    'hold_rows', (SELECT jsonb_agg(to_jsonb(q)) FROM (SELECT h.request_id,h.position,h.reserved,h.captured,h.refunded,h.closed FROM core_charging.ledger_holds h JOIN core_charging.requests r ON r.id=h.request_id WHERE r.key_id=$2 ORDER BY h.request_id,h.position LIMIT 8) q),
+    'budget_checks', (SELECT jsonb_agg(to_jsonb(q)) FROM (SELECT b.request_id,b.request_revision,b.budget_id,b.budget_revision,b.limit_credits,b.requested_credits FROM core_charging.budget_checks b JOIN core_charging.requests r ON r.id=b.request_id WHERE r.key_id=$2 ORDER BY b.request_id,b.budget_id LIMIT 8) q)
+)
+"#).bind(account).bind(key).fetch_one(pool);
+    match tokio::time::timeout(Duration::from_secs(1), query).await {
+        Ok(Ok(value)) => value,
+        Ok(Err(error)) => {
+            json!({"diagnostic_error": "database_read_failed", "sqlstate": error.as_database_error().and_then(|error| error.code()).map(|code| code.into_owned())})
+        }
+        Err(_) => json!({"diagnostic_error": "database_read_timeout"}),
+    }
+}
+fn budget_diagnostic_private(path: &Path, value: &Value) -> std::io::Result<()> {
+    use std::io::Write;
+    let bytes = serde_json::to_vec(value).map_err(std::io::Error::other)?;
+    let mut file = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)?;
+    file.write_all(&bytes)
+}
+
 #[sqlx::test(migrations = false)]
 async fn independent_process_distinct_requests_compete_for_real_budget(pool: PgPool) {
     let s = seed(&pool, 1000).await;
@@ -743,24 +832,50 @@ async fn independent_process_distinct_requests_compete_for_real_budget(pool: PgP
         .unwrap();
     let p = Provider::start(true).await;
     let host = start_core(&pool, &p, &[s.key_id], "budget").await;
-    let (one, two) = tokio::join!(
-        http(
+    let ((mut one, one_elapsed_ms), (mut two, two_elapsed_ms)) = tokio::join!(
+        budget_diagnostic_timed(http(
             &host,
             Some(&s.key),
             "/v1/chat/completions",
             "stream-pause",
             "budget-one",
             true
-        ),
-        http(
+        )),
+        budget_diagnostic_timed(http(
             &host,
             Some(&s.key),
             "/v1/chat/completions",
             "stream-pause",
             "budget-two",
             true
-        )
+        ))
     );
+    eprintln!(
+        "budget_http_status one={} two={} one_ms={} two_ms={}",
+        one.status().as_u16(),
+        two.status().as_u16(),
+        one_elapsed_ms,
+        two_elapsed_ms
+    );
+    if !((one.status() == StatusCode::OK && two.status() == StatusCode::PAYMENT_REQUIRED)
+        || (two.status() == StatusCode::OK && one.status() == StatusCode::PAYMENT_REQUIRED))
+    {
+        let (one_error, two_error) = tokio::join!(
+            budget_diagnostic_error(&mut one),
+            budget_diagnostic_error(&mut two)
+        );
+        eprintln!("budget_http_error one={} two={}", one_error, two_error);
+        // Keep real balances/holds in a private synthetic-fixture artifact only.
+        let value = json!({"one_status":one.status().as_u16(),"two_status":two.status().as_u16(),"one_ms":one_elapsed_ms,"two_ms":two_elapsed_ms,"one_error":one_error,"two_error":two_error,"provider_hits":p.hits.load(Ordering::SeqCst),"provider_closed":p.stream_closed.load(Ordering::SeqCst),"gate_permits":p.stream_gate.available_permits(),"database":budget_diagnostic_database(&pool,s.account,s.key_id).await});
+        if budget_diagnostic_private(
+            &host.directory.join("budget-failure-diagnostic.json"),
+            &value,
+        )
+        .is_err()
+        {
+            eprintln!("budget_diagnostic_private_write_failed");
+        }
+    }
     assert!(
         (one.status() == StatusCode::OK && two.status() == StatusCode::PAYMENT_REQUIRED)
             || (two.status() == StatusCode::OK && one.status() == StatusCode::PAYMENT_REQUIRED)
