@@ -12,7 +12,7 @@ import {
   getHoneypotOperation,
   getHoneypotPolicies,
   HoneypotFailure,
-  saveHoneypotPolicies,
+  saveReviewedHoneypotPolicies,
   type HoneypotScope,
 } from './api'
 import {
@@ -52,7 +52,14 @@ function Field(props: { label: string; children: ReactNode; wide?: boolean }) {
 }
 function initialUpstream(snapshot: HoneypotPolicies): HoneypotUpstream {
   return {
-    base_url: 'http://127.0.0.1:8080/v1',
+    base_url: snapshot.capabilities.numeric_loopback_only
+      ? 'http://127.0.0.1:8080/v1'
+      : 'allowed_origins' in snapshot.capabilities &&
+          snapshot.capabilities.allowed_origins?.[
+            snapshot.capabilities.credential_references[0] ?? ''
+          ]?.[0]
+        ? `${snapshot.capabilities.allowed_origins[snapshot.capabilities.credential_references[0]][0]}/v1`
+        : '',
     upstream_protocol:
       snapshot.capabilities.upstream_protocols[0] ?? 'openai_chat',
     model: '',
@@ -146,14 +153,15 @@ export function HoneypotPolicyEditor(props: {
     let configHash: string | undefined
     try {
       configHash = await hashHoneypotConfig(draft)
-      const result = await saveHoneypotPolicies(
+      const result = await saveReviewedHoneypotPolicies(
         {
           operation_id: id,
           reason: reason.trim(),
           expected_revision: expectedRevision,
           config: draft,
         },
-        props.scope
+        props.scope,
+        baseline
       )
       await refreshAfterApplied(result.policy_revision)
     } catch (caught) {
@@ -320,7 +328,9 @@ export function HoneypotPolicyEditor(props: {
               <>
                 <p className='text-muted-foreground text-sm'>
                   {t(
-                    'Use a numeric loopback HTTP server and a credential alias already loaded on the host.'
+                    baseline.capabilities.numeric_loopback_only
+                      ? 'Use a numeric loopback HTTP server and a credential alias already loaded on the host.'
+                      : 'Use HTTPS at an origin allowed for the selected host credential alias. Local connections require host approval.'
                   )}
                 </p>
                 {(['openai_chat', 'openai_responses'] as const).map(
@@ -344,6 +354,17 @@ export function HoneypotPolicyEditor(props: {
                             ? 'OpenAI Chat Completions'
                             : 'OpenAI Responses'}
                         </legend>
+                        {!baseline.capabilities.numeric_loopback_only &&
+                          'allowed_origins' in baseline.capabilities && (
+                            <p className='text-xs break-all whitespace-pre-wrap lg:col-span-2'>
+                              {t('Allowed origins for this alias')}:{' '}
+                              {(
+                                baseline.capabilities.allowed_origins?.[
+                                  upstream.credential_reference
+                                ] ?? []
+                              ).join(', ') || t('None')}
+                            </p>
+                          )}
                         <Field label='Upstream URL'>
                           <Input
                             value={upstream.base_url}

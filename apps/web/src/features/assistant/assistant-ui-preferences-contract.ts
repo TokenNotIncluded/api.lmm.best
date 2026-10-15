@@ -18,8 +18,7 @@ export const UI_PREFERENCE_OPTIONS = {
 } as const
 
 export type UIPreferences = {
-  [K in keyof typeof UI_PREFERENCE_OPTIONS]:
-    (typeof UI_PREFERENCE_OPTIONS)[K][number]
+  [K in keyof typeof UI_PREFERENCE_OPTIONS]: (typeof UI_PREFERENCE_OPTIONS)[K][number]
 }
 export type UIPreferencePatch = Partial<UIPreferences>
 export type AssistantUIPreferenceAction = {
@@ -62,26 +61,54 @@ export function parseAssistantUIPreferenceAction(
 ): AssistantUIPreferenceAction | undefined {
   if (!record(value)) return undefined
   const keys = [
-    'type', 'tool', 'requires_confirmation', 'action_id', 'actor_user_id',
-    'actor_session_id', 'expires_at', 'temporary', 'preview',
+    'type',
+    'tool',
+    'requires_confirmation',
+    'action_id',
+    'actor_user_id',
+    'actor_session_id',
+    'expires_at',
+    'temporary',
+    'preview',
   ]
-  if (Object.keys(value).length !== keys.length ||
-      Object.keys(value).some((key) => !keys.includes(key))) return undefined
-  if (value.type !== 'workspace_action' ||
-      (value.tool !== 'set_ui_preferences' && value.tool !== 'restore_ui_preferences') ||
-      value.requires_confirmation !== false ||
-      typeof value.action_id !== 'string' || !/^[a-f0-9]{32}$/.test(value.action_id) ||
-      typeof value.actor_user_id !== 'number' || !Number.isSafeInteger(value.actor_user_id) || value.actor_user_id <= 0 ||
-      typeof value.actor_session_id !== 'string' || value.actor_session_id.length === 0 || value.actor_session_id.length > 256 ||
-      typeof value.expires_at !== 'number' || !Number.isSafeInteger(value.expires_at) || value.expires_at <= 0 ||
-      typeof value.temporary !== 'boolean') return undefined
+  if (
+    Object.keys(value).length !== keys.length ||
+    Object.keys(value).some((key) => !keys.includes(key))
+  ) {
+    return undefined
+  }
+  if (
+    value.type !== 'workspace_action' ||
+    (value.tool !== 'set_ui_preferences' &&
+      value.tool !== 'restore_ui_preferences') ||
+    value.requires_confirmation !== false ||
+    typeof value.action_id !== 'string' ||
+    !/^[a-f0-9]{32}$/.test(value.action_id) ||
+    typeof value.actor_user_id !== 'number' ||
+    !Number.isSafeInteger(value.actor_user_id) ||
+    value.actor_user_id <= 0 ||
+    typeof value.actor_session_id !== 'string' ||
+    value.actor_session_id.length === 0 ||
+    value.actor_session_id.length > 256 ||
+    typeof value.expires_at !== 'number' ||
+    !Number.isSafeInteger(value.expires_at) ||
+    value.expires_at <= 0 ||
+    typeof value.temporary !== 'boolean'
+  ) {
+    return undefined
+  }
   const preview = parseUIPreferencePatch(value.preview)
   if (!preview) return undefined
   if (value.tool === 'restore_ui_preferences') {
     if (value.temporary || Object.keys(preview).length !== 0) return undefined
   } else {
     if (Object.keys(preview).length === 0) return undefined
-    if (value.temporary && (preview.language !== undefined || preview.currency !== undefined)) return undefined
+    if (
+      value.temporary &&
+      (preview.language !== undefined || preview.currency !== undefined)
+    ) {
+      return undefined
+    }
   }
   return { ...value, preview } as AssistantUIPreferenceAction
 }

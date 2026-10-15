@@ -24,7 +24,9 @@ for (const key of [
   })
 }
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true })
+const realRouter = await import('@tanstack/react-router')
 mock.module('@tanstack/react-router', () => ({
+  ...realRouter,
   useNavigate: () => () => undefined,
 }))
 mock.module('./error-page-frame', () => ({

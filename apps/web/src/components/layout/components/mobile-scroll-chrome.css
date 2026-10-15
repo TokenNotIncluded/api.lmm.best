@@ -33,12 +33,16 @@ License, or (at your option) any later version.
   }
 
   /* Fixed public headers stay out of document flow; do not resize the page. */
-  [data-mobile-scroll-chrome][data-mode='overlay'] > .mobile-scroll-chrome-inner > header {
+  [data-mobile-scroll-chrome][data-mode='overlay']
+    > .mobile-scroll-chrome-inner
+    > header {
     transition:
       transform 180ms ease-out,
       opacity 180ms ease-out;
   }
-  [data-mobile-scroll-chrome][data-mode='overlay'][data-hidden='true'] > .mobile-scroll-chrome-inner > header {
+  [data-mobile-scroll-chrome][data-mode='overlay'][data-hidden='true']
+    > .mobile-scroll-chrome-inner
+    > header {
     transform: translateY(calc(-100% - env(safe-area-inset-top, 0px)));
     opacity: 0;
   }
@@ -46,7 +50,9 @@ License, or (at your option) any later version.
 
 @media (prefers-reduced-motion: reduce) {
   [data-mobile-scroll-chrome][data-mode='flow'],
-  [data-mobile-scroll-chrome][data-mode='overlay'] > .mobile-scroll-chrome-inner > header {
+  [data-mobile-scroll-chrome][data-mode='overlay']
+    > .mobile-scroll-chrome-inner
+    > header {
     transition: none;
   }
 }

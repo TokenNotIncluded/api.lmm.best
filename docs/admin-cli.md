@@ -1,10 +1,13 @@
 # LMM 管理脚本
 
 `scripts/lmm-admin.py` 是 Python 3.10+ 标准库客户端，不需要安装依赖或启动服务。
-它只调用 Core 的 `/core/v1/admin/abuse` 接口，不连接数据库，也不自行授予管理权限。
+用户查看、预览、提交和手动 operation 查询调用 Core 的 `/core/v2/admin/abuse`；
+策略查看、修改及已知策略 operation 查询保留 `/core/v1/admin/abuse`。
+脚本不连接数据库，也不自行授予管理权限。
 这是新架构接口；旧部署不支持时会失败，不会回退到旧管理接口或直接改库。
 
-认证需要有效的 Core **superadmin Session bearer**；普通 API-Key 不能管理用户。
+认证需要有效的 Core **superadmin 个人 Session bearer** 和服务器保存的 MFA 证明；
+普通 API-Key、OAuth、HumanGrant、role 10 管理员 Session 均不能使用本蜜罐管理接口。
 脚本不负责登录、刷新 Session 或从浏览器导出凭证。先通过已经授权的登录流程获得
 Session，再使用 `LMM_ADMIN_SESSION` 环境变量、`--credential-file` 私有文件或
 `--token-stdin` 传入。没有 `--token` 参数。不要把凭证放进命令、URL、版本控制或日志。
@@ -27,6 +30,10 @@ python3 -B scripts/lmm-admin.py --server https://test.example.invalid --credenti
 ```
 
 分页使用输出的 `next_after` 作为下一次 `--after`；每页最多 200 条，没有自动抓全库。
+用户 ID 和分页游标必须在正 i64 范围内，最大 `9223372036854775807`。
+命令行整数先检查范围，v2 JSON 中即使小 ID 也必须是规范十进制字符串。
+返回的 ID、游标和新预览文件保留字符串；分页按整数大小检查顺序，不按字符排序。
+`--after 0` 只是本地首页标记，请求会省略 `after`；它不是合法用户或服务端游标。
 `users list --query-stdin` 从标准输入读取用户名或邮箱片段，最多 320 UTF-8 字节。
 默认输出只包括用户 ID、用户名、状态、角色、标记 revision 和 policy ID，不输出邮箱。
 `users list/inspect --out /private/users.json` 明确导出这一页/这一用户的邮箱，文件权限
@@ -58,6 +65,13 @@ artifact，零网络请求、零用户变更，也不需要凭证。第三条必
 用户预览有效期五分钟；policy/user 状态漂移返回冲突，不能自动重建预览并替人确认。
 Core 保证一个批次原子生效，并保留不可变审计。脚本不实现普通禁用、奖励追回、
 提现或余额修改命令：这些需要独立的正式接口与资金预览确认。
+
+新用户 artifact 明确使用 `artifact_version: 2`，保存 v2 字符串 ID；策略 artifact
+仍为版本 1。已有用户版本 1 artifact 可继续 dry-run、确认提交及恢复查询：
+原始文件字节和管理员确认的 SHA256 不变，不把旧预览改写为 v2，也不重新计算
+服务器的 `preview_hash`。提交仅发送原来的 `operation_id`、`preview_id`、
+`preview_hash`；大整数目标只在内存中无损转成十进制字符串来核对 v2 收据。
+用户 v2 路由不存在或返回旧数字响应时立即失败，不回退到 v1。
 
 ## 策略设置
 
@@ -128,11 +142,15 @@ revision+1 与预览的后状态。政策结果必须同时含 `applied_config_h
 不能证明此后政策没有被别的操作修改。operation 不含理由的原始 request hash，
 复用/恢复仍写 `exact_request_match_verified:false`，不能证明理由逐字一致。
 普通输入/权限/冲突错误退出码为 2；0 也可能表示只读或 dry-run，不代表已部署或改动。
+手动 `operation OP` 固定访问 v2 混合查询接口，先核对 kind：用户收据必须是 v2，
+策略收据必须保持 v1、空 users 和有效配置哈希。已知策略 artifact 的提交与恢复仍走
+原 v1 接口。401、404、503、网络失败或畸形响应不会触发其他版本查询或重复写入。
+提交后的查询若仍不能核对收据，退出码保持 3；查不到 operation 也不能证明回滚。
 
 ## 检查
 
 ```sh
-python3 -B scripts/test_lmm_admin.py
+python3 -B -m unittest discover -s scripts -p 'test_lmm_admin*.py'
 ```
 
 这些检查只覆盖合成回环 HTTP、凭证文件、artifact、协议校验和未知结果处理。

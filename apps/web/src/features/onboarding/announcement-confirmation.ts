@@ -23,7 +23,9 @@ type AnnouncementRevision = {
 }
 
 /** Confirm only the revisions that were visible when the user clicked. */
-export async function confirmVisibleAnnouncements<T extends AnnouncementRevision>(
+export async function confirmVisibleAnnouncements<
+  T extends AnnouncementRevision,
+>(
   visible: readonly T[],
   acknowledge: (item: T) => Promise<readonly T[]>
 ): Promise<void> {

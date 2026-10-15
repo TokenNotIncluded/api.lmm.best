@@ -833,10 +833,7 @@ describe('Primary next step follows account access', () => {
     )
     const main = rendered.container.querySelector('main')
     assert.ok(main)
-    assert.equal(
-      main.querySelector('a')?.getAttribute('href'),
-      '/wallet'
-    )
+    assert.equal(main.querySelector('a')?.getAttribute('href'), '/wallet')
     assert.equal(main.querySelectorAll('ol li').length, 3)
     const question = Array.from(
       main.querySelectorAll<HTMLButtonElement>('button')

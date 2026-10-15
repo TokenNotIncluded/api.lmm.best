@@ -46,13 +46,14 @@ import {
 import { finishPasskeyLogin } from '@/features/auth/passkey'
 import type { ApiResponse } from '@/features/auth/types'
 import { api, applyAuthBundle, isAuthBundle } from '@/lib/api'
+import { applyPending2FAFlow } from '@/lib/auth-session'
 import { getAuthenticatedLandingRoute } from '@/lib/console-activation'
 import {
   prepareCredentialRequestOptions,
   requestPasskeyAuthentication,
 } from '@/lib/passkey'
 import { getServerErrorMessageKey } from '@/lib/server-error-message'
-import { useAuthStore, type AuthBundle } from '@/stores/auth-store'
+import type { AuthBundle } from '@/stores/auth-store'
 
 type OAuthRequestConfig = AxiosRequestConfig & {
   skipBusinessError?: boolean
@@ -75,9 +76,6 @@ interface OAuthPasskeyChallenge {
 function OAuthCallback() {
   const navigate = useNavigate()
   const { redirectTo2FA } = useAuthRedirect()
-  const setPending2FAFlowToken = useAuthStore(
-    (state) => state.auth.setPending2FAFlowToken
-  )
   const [passkeyChallenge, setPasskeyChallenge] =
     useState<OAuthPasskeyChallenge | null>(null)
   const [isPasskeyPending, setIsPasskeyPending] = useState(false)
@@ -339,7 +337,7 @@ function OAuthCallback() {
               )
             }
             if (data.require_2fa === true) {
-              setPending2FAFlowToken(
+              applyPending2FAFlow(
                 data.flow_token,
                 typeof data.expires_at === 'number'
                   ? data.expires_at
@@ -398,7 +396,6 @@ function OAuthCallback() {
     provider,
     redirectTo2FA,
     safeNavigate,
-    setPending2FAFlowToken,
     search.code,
     search.error,
     search.error_code,

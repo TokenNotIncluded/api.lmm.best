@@ -16,46 +16,18 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useTranslation } from 'react-i18next'
+import { useLocation } from '@tanstack/react-router'
 
-import { SectionPageLayout } from '@/components/layout'
-
-import { UsersDeleteDialog } from './components/users-delete-dialog'
-import { UsersMutateDrawer } from './components/users-mutate-drawer'
-import { UsersPrimaryButtons } from './components/users-primary-buttons'
-import { UsersProvider, useUsers } from './components/users-provider'
-import { UsersTable } from './components/users-table'
-
-function UsersContent() {
-  const { t } = useTranslation()
-  const { open, setOpen, currentRow } = useUsers()
-
-  return (
-    <>
-      <SectionPageLayout fixedContent className='users-page'>
-        <SectionPageLayout.Title>{t('Users')}</SectionPageLayout.Title>
-        <SectionPageLayout.Actions>
-          <UsersPrimaryButtons />
-        </SectionPageLayout.Actions>
-        <SectionPageLayout.Content>
-          <UsersTable />
-        </SectionPageLayout.Content>
-      </SectionPageLayout>
-
-      <UsersMutateDrawer
-        open={open === 'create' || open === 'update'}
-        onOpenChange={(isOpen) => !isOpen && setOpen(null)}
-        currentRow={open === 'update' ? currentRow || undefined : undefined}
-      />
-      <UsersDeleteDialog />
-    </>
-  )
-}
+import { NativeAdminUsersEntry } from '@/features/native-users/entry'
+import { NativeUsersPage } from '@/features/native-users/page'
 
 export function Users() {
+  const search = useLocation({ select: (location) => location.searchStr })
   return (
-    <UsersProvider>
-      <UsersContent />
-    </UsersProvider>
+    <NativeAdminUsersEntry>
+      {(scope, recheck) => (
+        <NativeUsersPage scope={scope} recheck={recheck} search={search} />
+      )}
+    </NativeAdminUsersEntry>
   )
 }

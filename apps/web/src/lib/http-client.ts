@@ -145,8 +145,9 @@ function isProtectedAPIRead(config: ApiRequestConfig): boolean {
     String(accept ?? '')
       .toLowerCase()
       .includes('text/event-stream')
-  )
-    {return false}
+  ) {
+    return false
+  }
   try {
     const url = new URL(api.getUri(config), window.location.origin)
     return (

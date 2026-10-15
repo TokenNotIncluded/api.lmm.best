@@ -1,5 +1,6 @@
 /* Copyright (C) 2026 LIghtJUNction. SPDX-License-Identifier: AGPL-3.0-or-later */
 import * as z from 'zod'
+
 import {
   mergeAssistantToolText,
   validAssistantToolTextFields,
@@ -186,7 +187,12 @@ export function parseAssistantToolCatalog(
       ) {
         return null
       }
-      if ('text_schema' in tool && !validAssistantToolTextSchema(tool.text_schema)) return null
+      if (
+        'text_schema' in tool &&
+        !validAssistantToolTextSchema(tool.text_schema)
+      ) {
+        return null
+      }
       toolNames.add(tool.name)
       tools.push(tool as AssistantCatalogTool)
     }
@@ -239,9 +245,13 @@ export function assistantPolicyMatchesBackendCatalog(
     groups !== null &&
     assistantPolicyMatchesCatalog(policy, groups) &&
     (policy.rules === undefined || supportsAssistantToolPolicyRules(payload)) &&
-    (!Object.values(policy.rules ?? {}).some((rule) =>
-      rule.description !== undefined || rule.parameter_descriptions !== undefined
-    ) || record(record(record(payload)?.data)?.capabilities)?.tool_descriptions === true)
+    (!Object.values(policy.rules ?? {}).some(
+      (rule) =>
+        rule.description !== undefined ||
+        rule.parameter_descriptions !== undefined
+    ) ||
+      record(record(record(payload)?.data)?.capabilities)?.tool_descriptions ===
+        true)
   )
 }
 

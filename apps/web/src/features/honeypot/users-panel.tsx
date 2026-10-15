@@ -11,15 +11,21 @@ import { NativeSelect, NativeSelectOption } from '@/components/ui/native-select'
 import { getHoneypotUsers, type HoneypotScope } from './api'
 import { HoneypotBulkActionButton } from './bulk-mark-dialog'
 import { HoneypotFeedback } from './feedback'
+import { legacyUserIDsToStrings } from './legacy-user-ids'
 
 export function HoneypotUsersPanel(props: { scope: HoneypotScope }) {
   const { t } = useTranslation()
   const [query, setQuery] = useState('')
-  const [filter, setFilter] = useState({ query: '', state: 'all', after: 0 })
-  const [selected, setSelected] = useState<number[]>([])
+  const [filter, setFilter] = useState<{
+    query: string
+    state: string
+    after: string | null
+  }>({ query: '', state: 'all', after: null })
+  const [selected, setSelected] = useState<string[]>([])
+  const actorID = legacyUserIDsToStrings([props.scope.userId])?.[0]
   const users = useQuery({
     queryKey: [
-      'honeypot-users',
+      'honeypot-users-v2',
       props.scope.userId,
       props.scope.sessionId,
       filter,
@@ -30,7 +36,7 @@ export function HoneypotUsersPanel(props: { scope: HoneypotScope }) {
   })
   const rows = users.data?.users ?? []
   const nextAfter = users.data?.next_after
-  function select(id: number, checked: boolean) {
+  function select(id: string, checked: boolean) {
     setSelected((value) =>
       checked
         ? [...new Set([...value, id])]
@@ -44,7 +50,7 @@ export function HoneypotUsersPanel(props: { scope: HoneypotScope }) {
         onSubmit={(event) => {
           event.preventDefault()
           setSelected([])
-          setFilter((value) => ({ ...value, query, after: 0 }))
+          setFilter((value) => ({ ...value, query, after: null }))
         }}
       >
         <Input
@@ -59,7 +65,7 @@ export function HoneypotUsersPanel(props: { scope: HoneypotScope }) {
           aria-label={t('Status')}
           onChange={(event) => {
             setSelected([])
-            setFilter({ query, state: event.target.value, after: 0 })
+            setFilter({ query, state: event.target.value, after: null })
           }}
         >
           {(['all', 'normal', 'marked', 'disabled'] as const).map((state) => (
@@ -123,7 +129,8 @@ export function HoneypotUsersPanel(props: { scope: HoneypotScope }) {
               checked={selected.includes(user.user_id)}
               disabled={
                 user.platform_role !== 'user' ||
-                user.user_id === props.scope.userId ||
+                !actorID ||
+                user.user_id === actorID ||
                 users.isFetching
               }
               onCheckedChange={(checked) =>
@@ -153,14 +160,14 @@ export function HoneypotUsersPanel(props: { scope: HoneypotScope }) {
         <p>{t('No Users Found')}</p>
       )}
       <div className='flex gap-2'>
-        {filter.after > 0 && (
+        {filter.after !== null && (
           <Button
             type='button'
             variant='outline'
             disabled={users.isFetching}
             onClick={() => {
               setSelected([])
-              setFilter((value) => ({ ...value, after: 0 }))
+              setFilter((value) => ({ ...value, after: null }))
             }}
           >
             {t('First page')}

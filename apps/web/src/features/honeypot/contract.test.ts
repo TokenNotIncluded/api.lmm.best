@@ -183,10 +183,10 @@ test('preview must bind the exact operation, action, revisions, IDs and post-sta
     action: 'mark',
     policy_id: 'fixed',
     expected_policy_revision: 4,
-    targets: [{ user_id: 7, expected_revision: 0 }],
+    targets: [{ user_id: '7', expected_revision: 0 }],
   }
   const preview: HoneypotPreview = {
-    version: 1,
+    version: 2,
     preview_id: 'preview-1',
     preview_hash: 'a'.repeat(64),
     expires_at: 2000000000,
@@ -196,7 +196,7 @@ test('preview must bind the exact operation, action, revisions, IDs and post-sta
     policy_revision: 4,
     targets: [
       {
-        user_id: 7,
+        user_id: '7',
         username: 'example',
         active: true,
         expected_revision: 0,
@@ -211,7 +211,7 @@ test('preview must bind the exact operation, action, revisions, IDs and post-sta
     { policy_revision: 5 },
     { targets: [] },
     { targets: [...preview.targets, ...preview.targets] },
-    { targets: [{ ...preview.targets[0], user_id: 8 }] },
+    { targets: [{ ...preview.targets[0], user_id: '8' }] },
     { targets: [{ ...preview.targets[0], expected_revision: 1 }] },
     {
       targets: [

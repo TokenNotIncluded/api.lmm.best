@@ -1129,10 +1129,7 @@ export function ModelDetails() {
                 )}
           </p>
           {missingRuntime[modelId]?.status === 'no_access' && (
-            <a
-              href='/wallet'
-              className='text-primary mr-3 text-sm underline'
-            >
+            <a href='/wallet' className='text-primary mr-3 text-sm underline'>
               {t('Check API access status')}
             </a>
           )}

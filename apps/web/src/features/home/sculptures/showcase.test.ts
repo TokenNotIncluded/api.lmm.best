@@ -70,7 +70,7 @@ test('OpenAI keeps its central opening and six surrounding lobes', () => {
   const model = openaiMark()
   assert.ok(!model.points.some((p) => Math.hypot(p.x, p.y) < 0.13))
   for (let i = 0; i < 6; i++) {
-    const angle = i * Math.PI / 3
+    const angle = (i * Math.PI) / 3
     assert.ok(
       model.points.some(
         (p) =>

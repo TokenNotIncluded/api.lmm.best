@@ -157,13 +157,12 @@ function makeRouter() {
     path: '/challenges/$challengeId',
     component: () => <ChallengeDetailPage challengeId={41} />,
   })
-  const emptyRoutes = ['/', '/challenges', '/wallet', '/security'].map(
-    (path) =>
-      createRoute({
-        getParentRoute: () => rootRoute,
-        path,
-        component: () => null,
-      })
+  const emptyRoutes = ['/', '/challenges', '/wallet', '/security'].map((path) =>
+    createRoute({
+      getParentRoute: () => rootRoute,
+      path,
+      component: () => null,
+    })
   )
   return createRouter({
     routeTree: rootRoute.addChildren([detailRoute, ...emptyRoutes]),

@@ -19,10 +19,15 @@ function fixture() {
   Object.defineProperty(doc, 'hidden', { value: false })
   const entry = doc.querySelector('aside')!
   entry.getBoundingClientRect = () => new view.DOMRect(0, 64, 800, 64)
-  const frames = new Map<ReturnType<typeof view.requestAnimationFrame>, FrameRequestCallback>()
+  const frames = new Map<
+    ReturnType<typeof view.requestAnimationFrame>,
+    FrameRequestCallback
+  >()
   let nextFrame = 0
   view.requestAnimationFrame = (callback) => {
-    const frameID = (++nextFrame) as unknown as ReturnType<typeof view.requestAnimationFrame>
+    const frameID = ++nextFrame as unknown as ReturnType<
+      typeof view.requestAnimationFrame
+    >
     frames.set(frameID, callback)
     return frameID
   }

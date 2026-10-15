@@ -12,7 +12,10 @@ import {
 import { api } from '@/lib/http-client'
 import { useAuthStore } from '@/stores/auth-store'
 
-import type { UIPreferencePatch, UIPreferences } from './assistant-ui-preferences-contract'
+import type {
+  UIPreferencePatch,
+  UIPreferences,
+} from './assistant-ui-preferences-contract'
 import type { UIPreferenceAdapter } from './assistant-ui-preferences-runtime'
 
 export function useAssistantUIPreferenceAdapter(): UIPreferenceAdapter {
@@ -34,9 +37,10 @@ export function useAssistantUIPreferenceAdapter(): UIPreferenceAdapter {
         mode: latest.current.theme.theme,
         theme: latest.current.customization.customization.preset,
         language: normalizeInterfaceLanguage(appI18n.language),
-        currency: normalizeWalletDisplayCurrencyPreference(
-          parseWalletCurrencySettings(user?.setting).wallet_display_currency
-        ) || 'auto',
+        currency:
+          normalizeWalletDisplayCurrencyPreference(
+            parseWalletCurrencySettings(user?.setting).wallet_display_currency
+          ) || 'auto',
       }
     }
     const save = async (patch: UIPreferencePatch, signal: AbortSignal) => {
@@ -46,10 +50,14 @@ export function useAssistantUIPreferenceAdapter(): UIPreferenceAdapter {
       const abort = () => request.abort()
       const isCurrent = () => {
         const current = useAuthStore.getState().auth
-        return !request.signal.aborted && !!original.user && !!original.session?.sid &&
+        return (
+          !request.signal.aborted &&
+          !!original.user &&
+          !!original.session?.sid &&
           current.user?.id === original.user.id &&
           current.session?.sid === original.session.sid &&
           current.accessToken === original.accessToken
+        )
       }
       const check = () => {
         if (!isCurrent()) throw new Error('Preference session changed')
@@ -65,10 +73,14 @@ export function useAssistantUIPreferenceAdapter(): UIPreferenceAdapter {
           await appI18n.loadLanguages(patch.language)
           check()
         }
-        const settings: { language?: string; wallet_display_currency?: string } = {}
+        const settings: {
+          language?: string
+          wallet_display_currency?: string
+        } = {}
         if (patch.language) settings.language = patch.language
         if (patch.currency) {
-          settings.wallet_display_currency = patch.currency === 'auto' ? '' : patch.currency
+          settings.wallet_display_currency =
+            patch.currency === 'auto' ? '' : patch.currency
         }
         if (Object.keys(settings).length > 0) {
           // One existing profile request, containing only the changed fields.
@@ -79,11 +91,16 @@ export function useAssistantUIPreferenceAdapter(): UIPreferenceAdapter {
             skipErrorHandler: true,
           })
           check()
-          if (response.data?.success !== true) throw new Error('Preference save failed')
+          if (response.data?.success !== true) {
+            throw new Error('Preference save failed')
+          }
         }
         const currentPreferences = read()
         for (const key of Object.keys(patch) as Array<keyof UIPreferences>) {
-          if (currentPreferences[key] !== before[key] && currentPreferences[key] !== patch[key]) {
+          if (
+            currentPreferences[key] !== before[key] &&
+            currentPreferences[key] !== patch[key]
+          ) {
             throw new Error('A newer manual preference must be kept')
           }
         }
@@ -111,7 +128,10 @@ export function useAssistantUIPreferenceAdapter(): UIPreferenceAdapter {
           latest.current.customization.setPreset(patch.theme)
           latest.current.customization = {
             ...latest.current.customization,
-            customization: { ...latest.current.customization.customization, preset: patch.theme },
+            customization: {
+              ...latest.current.customization.customization,
+              preset: patch.theme,
+            },
           }
         }
       } finally {
@@ -121,10 +141,16 @@ export function useAssistantUIPreferenceAdapter(): UIPreferenceAdapter {
     }
     const preview = (patch: UIPreferencePatch) => {
       const releases: Array<() => void> = []
-      const release = () => { for (const stop of releases.reverse()) stop() }
+      const release = () => {
+        for (const stop of releases.reverse()) stop()
+      }
       try {
-        if (patch.mode) releases.push(latest.current.theme.previewTheme(patch.mode))
-        if (patch.theme) releases.push(latest.current.customization.previewPreset(patch.theme))
+        if (patch.mode) {
+          releases.push(latest.current.theme.previewTheme(patch.mode))
+        }
+        if (patch.theme) {
+          releases.push(latest.current.customization.previewPreset(patch.theme))
+        }
       } catch (error) {
         release()
         throw error

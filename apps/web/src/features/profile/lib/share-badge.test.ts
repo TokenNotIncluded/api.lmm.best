@@ -28,18 +28,19 @@ test('brand presets use the monochrome ribbon identity and readable contrast', (
     })
     return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722
   }
-  assert.deepEqual(BADGE_STYLE_PRESETS.map((preset) => preset.name), [
-    'Graphite',
-    'Paper',
-    'Clear',
-  ])
+  assert.deepEqual(
+    BADGE_STYLE_PRESETS.map((preset) => preset.name),
+    ['Graphite', 'Paper', 'Clear']
+  )
   assert.equal(BADGE_PALETTES.paper.bg, '#ffffff')
   assert.equal(BADGE_PALETTES.dark.fg, '#ffffff')
   for (const preset of BADGE_STYLE_PRESETS) {
     assert.equal(preset.font, 'sans')
     assert.equal(preset.radius, 16)
     assert.ok(
-      !['#d97757', '#3fb950', '#6fb7ff', '#a78bfa'].includes(preset.colors.accent)
+      !['#d97757', '#3fb950', '#6fb7ff', '#a78bfa'].includes(
+        preset.colors.accent
+      )
     )
     for (const key of ['fg', 'muted'] as const) {
       const foreground = luminance(preset.colors[key])

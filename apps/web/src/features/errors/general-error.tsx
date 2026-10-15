@@ -16,8 +16,8 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 
 For commercial licensing, please contact support@quantumnous.com
 */
-import { useNavigate } from '@tanstack/react-router'
-import { useSyncExternalStore } from 'react'
+import { useNavigate, useRouter, useRouterState } from '@tanstack/react-router'
+import { useMemo, useState, useSyncExternalStore } from 'react'
 import { useTranslation } from 'react-i18next'
 
 import { AuthCookieRecovery } from '@/components/auth-cookie-recovery'
@@ -28,6 +28,13 @@ import {
 } from '@/lib/auth-cookie'
 import { cn } from '@/lib/utils'
 
+import {
+  classifyError,
+  copyErrorDiagnostics,
+  createErrorDiagnostics,
+  diagnosticRouteTemplate,
+  isNonFailureError,
+} from './error-diagnostics'
 import { ErrorPageFrame } from './error-page-frame'
 
 const FEEDBACK_URL = 'https://github.com/TokenNotIncluded/lmm-api/issues'
@@ -37,28 +44,16 @@ type GeneralErrorProps = React.HTMLAttributes<HTMLDivElement> & {
   error?: unknown
 }
 
-function getHttpStatus(error: unknown): number | undefined {
-  if (typeof error !== 'object' || error === null) return undefined
-  const response = (error as Record<string, unknown>).response
-  if (typeof response !== 'object' || response === null) return undefined
-  const status = (response as Record<string, unknown>).status
-  return typeof status === 'number' ? status : undefined
-}
-
 export function GeneralError({
   className,
   minimal = false,
   error,
 }: GeneralErrorProps) {
-  const { t } = useTranslation()
-  const navigate = useNavigate()
   const blocked = useSyncExternalStore(
     subscribeAuthCookieState,
     getAuthCookieBlockedState,
     () => null
   )
-  const status = getHttpStatus(error)
-  const isRateLimited = status === 429
 
   if (blocked) {
     return (
@@ -68,10 +63,59 @@ export function GeneralError({
     )
   }
 
+  if (isNonFailureError(error)) return null
+  return (
+    <GeneralFailure className={className} minimal={minimal} error={error} />
+  )
+}
+
+function GeneralFailure({ className, minimal, error }: GeneralErrorProps) {
+  const { t } = useTranslation()
+  const navigate = useNavigate()
+  const router = useRouter()
+  const routeTemplate = useRouterState({
+    select: (state) =>
+      diagnosticRouteTemplate(state.matches, router.routesById),
+  })
+  const diagnostics = useMemo(
+    () =>
+      createErrorDiagnostics(
+        error,
+        [{ routeId: routeTemplate }],
+        router.routesById
+      ),
+    [error, routeTemplate, router]
+  )
+  const [copyResult, setCopyResult] = useState<{
+    incident: typeof diagnostics
+    success: boolean
+  } | null>(null)
+  const [copying, setCopying] = useState(false)
+  const status = classifyError(error).http_status
+  const isRateLimited = status === 429
+  const currentCopyResult =
+    copyResult?.incident === diagnostics ? copyResult : null
+
+  const copyDiagnostics = async () => {
+    if (!diagnostics || copying) return
+    setCopying(true)
+    try {
+      const success = await copyErrorDiagnostics(
+        diagnostics,
+        typeof navigator === 'undefined' ? undefined : navigator.clipboard
+      )
+      setCopyResult({ incident: diagnostics, success })
+    } catch {
+      setCopyResult({ incident: diagnostics, success: false })
+    } finally {
+      setCopying(false)
+    }
+  }
+
   return (
     <div className={cn('min-h-svh w-full', className)}>
       <ErrorPageFrame
-        status={status ?? 500}
+        status={status ?? undefined}
         showStatus={!minimal}
         title={
           isRateLimited
@@ -84,7 +128,27 @@ export function GeneralError({
             : t('Reload the page to try again.')
         }
         note={
-          !minimal ? t('Still broken? Report it on GitHub Issues.') : undefined
+          !minimal ? (
+            <>
+              <p>{t('Still broken? Report it on GitHub Issues.')}</p>
+              <p>
+                {t(
+                  'The event ID is local to this page, not a server request ID.'
+                )}
+              </p>
+              <p role='status' aria-live='polite'>
+                {!diagnostics
+                  ? t('Diagnostic information is unavailable in this browser.')
+                  : currentCopyResult
+                    ? currentCopyResult.success
+                      ? t('Diagnostic information copied.')
+                      : t('Could not copy diagnostic information. Try again.')
+                    : t(
+                        'Only time, build, route template, local event ID, HTTP status and error type are copied.'
+                      )}
+              </p>
+            </>
+          ) : undefined
         }
         actions={
           !minimal ? (
@@ -102,6 +166,14 @@ export function GeneralError({
                 onClick={() => navigate({ to: '/' })}
               >
                 {t('Back to Home')}
+              </Button>
+              <Button
+                variant='outline'
+                className='error-editorial-action error-editorial-action-secondary'
+                disabled={!diagnostics || copying}
+                onClick={() => void copyDiagnostics()}
+              >
+                {t('Copy diagnostic information')}
               </Button>
               <Button
                 variant='outline'

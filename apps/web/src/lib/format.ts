@@ -45,11 +45,12 @@ function normalizeIntlLocales(
 
 type NumberFormatKind = 'number' | 'compact' | 'percent'
 
-const numberFormatOptions: Record<NumberFormatKind, Intl.NumberFormatOptions> = {
-  number: { maximumFractionDigits: 2 },
-  compact: { notation: 'compact', maximumFractionDigits: 1 },
-  percent: { style: 'percent', maximumFractionDigits: 2 },
-}
+const numberFormatOptions: Record<NumberFormatKind, Intl.NumberFormatOptions> =
+  {
+    number: { maximumFractionDigits: 2 },
+    compact: { notation: 'compact', maximumFractionDigits: 1 },
+    percent: { style: 'percent', maximumFractionDigits: 2 },
+  }
 const numberFormatters = new Map<
   string,
   { formatter: Intl.NumberFormat; expiresAt: number }

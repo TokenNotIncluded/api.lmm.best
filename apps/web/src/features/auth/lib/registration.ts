@@ -77,9 +77,15 @@ export function hasOAuthLoginProvider(
   status: SystemStatus | null | undefined
 ): boolean {
   return (
-    ['wechat', 'google', 'github', 'discord', 'oidc', 'linuxdo', 'telegram'].some(
-      (method) => isOAuthProviderConfigured(status, method)
-    ) ||
+    [
+      'wechat',
+      'google',
+      'github',
+      'discord',
+      'oidc',
+      'linuxdo',
+      'telegram',
+    ].some((method) => isOAuthProviderConfigured(status, method)) ||
     (status?.custom_oauth_providers ?? []).some((provider) =>
       isOAuthProviderConfigured(status, `custom:${provider.slug}`)
     )

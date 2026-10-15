@@ -17,12 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { zodResolver } from '@hookform/resolvers/zod'
-import {
-  CalendarClock,
-  CreditCard,
-  RefreshCw,
-  Settings2,
-} from 'lucide-react'
+import { CalendarClock, CreditCard, RefreshCw, Settings2 } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { useForm, useWatch, type Resolver } from 'react-hook-form'
 import { useTranslation } from 'react-i18next'
@@ -87,15 +82,15 @@ import {
   getSubscriptionPaymentMethodLabel,
   type PlanFormValues,
 } from '../lib'
-import type { PlanRecord, WaffoPancakeProductType } from '../types'
-import { useSubscriptions } from './subscriptions-provider'
-import { WaffoPancakeProductsEditor } from './waffo-pancake-products-editor'
 import {
   ensurePancakePlanProducts,
   pancakeProductsForPlan,
   pancakeProductsPayload,
   PancakeProductCreationUncertain,
 } from '../lib/waffo-pancake-products'
+import type { PlanRecord, WaffoPancakeProductType } from '../types'
+import { useSubscriptions } from './subscriptions-provider'
+import { WaffoPancakeProductsEditor } from './waffo-pancake-products-editor'
 
 interface PancakeProductOption {
   id: string
@@ -138,8 +133,12 @@ export function SubscriptionsMutateDrawer({
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [groupOptions, setGroupOptions] = useState<string[]>([])
   const submitInFlight = useRef(false)
-  const [pancakeDraft, setPancakeDraft] = useState(() => pancakeProductsForPlan())
-  const [pancakeBlockedTypes, setPancakeBlockedTypes] = useState<Set<WaffoPancakeProductType>>(new Set())
+  const [pancakeDraft, setPancakeDraft] = useState(() =>
+    pancakeProductsForPlan()
+  )
+  const [pancakeBlockedTypes, setPancakeBlockedTypes] = useState<
+    Set<WaffoPancakeProductType>
+  >(new Set())
   const [pancakeProducts, setPancakeProducts] = useState<
     PancakeProductOption[]
   >([])
@@ -200,9 +199,21 @@ export function SubscriptionsMutateDrawer({
     control: form.control,
     name: 'creem_product_id',
   })
-  const [pancakeTitle, pancakePrice, pancakeCurrency, pancakeDurationValue, pancakeCustomSeconds] = useWatch({
+  const [
+    pancakeTitle,
+    pancakePrice,
+    pancakeCurrency,
+    pancakeDurationValue,
+    pancakeCustomSeconds,
+  ] = useWatch({
     control: form.control,
-    name: ['title', 'price_amount', 'currency', 'duration_value', 'custom_seconds'],
+    name: [
+      'title',
+      'price_amount',
+      'currency',
+      'duration_value',
+      'custom_seconds',
+    ],
   })
   const pancakeTerms = {
     title: pancakeTitle || '',
@@ -231,8 +242,11 @@ export function SubscriptionsMutateDrawer({
     setIsSubmitting(true)
     try {
       const products = await ensurePancakePlanProducts(
-        pancakeDraft, values, createWaffoPancakePlanProduct,
-        setPancakeDraft, pancakeBlockedTypes
+        pancakeDraft,
+        values,
+        createWaffoPancakePlanProduct,
+        setPancakeDraft,
+        pancakeBlockedTypes
       )
       const payload = formValuesToPlanPayload(values)
       payload.plan.waffo_pancake_products = pancakeProductsPayload(products)
@@ -253,8 +267,14 @@ export function SubscriptionsMutateDrawer({
       }
     } catch (error) {
       if (error instanceof PancakeProductCreationUncertain) {
-        setPancakeBlockedTypes((previous) => new Set([...previous, error.productType]))
-        toast.error(t('Product creation could not be confirmed. Refresh the catalog and select the product before retrying. Do not create it again blindly.'))
+        setPancakeBlockedTypes(
+          (previous) => new Set([...previous, error.productType])
+        )
+        toast.error(
+          t(
+            'Product creation could not be confirmed. Refresh the catalog and select the product before retrying. Do not create it again blindly.'
+          )
+        )
       } else {
         toast.error(t('Request failed'))
       }

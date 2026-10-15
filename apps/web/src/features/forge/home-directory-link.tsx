@@ -44,9 +44,7 @@ export function HomeDirectoryLink() {
             <strong>{t('AI directory')}</strong>
             <span id='home-directory-hint' className='home-directory-hint'>
               <span className='home-directory-wheel-hint'>{hints.wheel}</span>
-              <span className='home-directory-touch-hint'>
-                {hints.touch}
-              </span>
+              <span className='home-directory-touch-hint'>{hints.touch}</span>
             </span>
           </div>
           <span className='home-directory-percent' aria-hidden='true'>

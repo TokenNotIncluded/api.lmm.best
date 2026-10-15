@@ -70,16 +70,14 @@ const backend = {
     } else callback(null, { hello: 'Hello' })
   },
 }
-await i18n
-  .use(backend)
-  .init({
-    lng: 'en',
-    fallbackLng: 'en',
-    supportedLngs: ['en', 'zhCN', 'fr', 'ru', 'ja', 'vi', 'zhTW'],
-    load: 'currentOnly',
-    ns: ['translation'],
-    defaultNS: 'translation',
-  })
+await i18n.use(backend).init({
+  lng: 'en',
+  fallbackLng: 'en',
+  supportedLngs: ['en', 'zhCN', 'fr', 'ru', 'ja', 'vi', 'zhTW'],
+  load: 'currentOnly',
+  ns: ['translation'],
+  defaultNS: 'translation',
+})
 let redirect!: ReturnType<typeof useAuthRedirect>
 function Probe() {
   redirect = useAuthRedirect()

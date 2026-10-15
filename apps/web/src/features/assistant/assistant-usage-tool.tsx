@@ -105,11 +105,7 @@ export function AssistantUsageTool(props: { developerAccessGranted: boolean }) {
           )}
         </AlertDescription>
         <AlertAction>
-          <Button
-            variant='outline'
-            size='sm'
-            render={<Link to='/wallet' />}
-          >
+          <Button variant='outline' size='sm' render={<Link to='/wallet' />}>
             {t('Choose an activation path')}
             <HugeiconsIcon
               icon={ArrowRight01Icon}

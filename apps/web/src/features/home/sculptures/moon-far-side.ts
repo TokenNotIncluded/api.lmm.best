@@ -44,8 +44,7 @@ export function moonFarSide(): Sculpture {
     const basin =
       Math.max(0, 1 - ((x + 0.18) ** 2 + (y + 0.49) ** 2) / 0.27) *
       Math.max(0, z)
-    const light =
-      0.31 + 0.65 * Math.max(0, -x * 0.44 + y * 0.35 + z * 0.76)
+    const light = 0.31 + 0.65 * Math.max(0, -x * 0.44 + y * 0.35 + z * 0.76)
     const albedo: Vec3 = [209, 207, 200]
     s.add(
       [x * (1 + relief), y * (1 + relief), z * (1 + relief)],

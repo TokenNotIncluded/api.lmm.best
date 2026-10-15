@@ -65,10 +65,10 @@ import {
 } from '../../api'
 import { usePublicPlans } from '../../hooks/use-public-plans'
 import { formatDuration, formatResetPeriod } from '../../lib'
-import { formatPlanSourcePrice } from '../../lib/source-price'
 import { subscriptionCheckoutTradeNo } from '../../lib/pending-checkout'
-import type { PlanRecord, WaffoPancakeProductType } from '../../types'
+import { formatPlanSourcePrice } from '../../lib/source-price'
 import { selectPancakePurchaseOption } from '../../lib/waffo-pancake-products'
+import type { PlanRecord, WaffoPancakeProductType } from '../../types'
 
 interface PaymentMethod {
   type: string
@@ -130,7 +130,9 @@ function ScopedSubscriptionPurchaseDialog(
   const plansQuery = usePublicPlans(props.open && !!props.plan)
   const [paying, setPaying] = useState(false)
   const [quoteInvalidated, setQuoteInvalidated] = useState(false)
-  const [pancakeMode, setPancakeMode] = useState<WaffoPancakeProductType | ''>('')
+  const [pancakeMode, setPancakeMode] = useState<WaffoPancakeProductType | ''>(
+    ''
+  )
   const [quoteChanged, setQuoteChanged] = useState(false)
   const [selectedEpayMethodOverride, setSelectedEpayMethod] = useState('')
   const [waffoPancakeCheckoutRegionOverride, setWaffoPancakeCheckoutRegion] =
@@ -511,15 +513,19 @@ function ScopedSubscriptionPurchaseDialog(
           >
             {pancakeOptions && pancakeOptions.length > 0 && (
               <div className='flex flex-col gap-2'>
-                <label htmlFor='pancake-purchase-option' className='text-sm font-medium'>
+                <label
+                  htmlFor='pancake-purchase-option'
+                  className='text-sm font-medium'
+                >
                   {t('Purchase option')}
                 </label>
                 <Select
                   items={pancakeOptions.map((option) => ({
                     value: option.product_type,
-                    label: option.product_type === 'one_time'
-                      ? t('One-time purchase — no auto-renewal')
-                      : t('Subscription — automatic renewal'),
+                    label:
+                      option.product_type === 'one_time'
+                        ? t('One-time purchase — no auto-renewal')
+                        : t('Subscription — automatic renewal'),
                   }))}
                   value={pancakeOption?.product_type || null}
                   disabled={paying || plansQuery.isFetching}
@@ -529,12 +535,18 @@ function ScopedSubscriptionPurchaseDialog(
                     }
                   }}
                 >
-                  <SelectTrigger id='pancake-purchase-option' className='w-full'>
+                  <SelectTrigger
+                    id='pancake-purchase-option'
+                    className='w-full'
+                  >
                     <SelectValue placeholder={t('Choose a purchase option')} />
                   </SelectTrigger>
                   <SelectContent>
                     {pancakeOptions.map((option) => (
-                      <SelectItem key={option.product_type} value={option.product_type}>
+                      <SelectItem
+                        key={option.product_type}
+                        value={option.product_type}
+                      >
                         {option.product_type === 'one_time'
                           ? t('One-time purchase — no auto-renewal')
                           : t('Subscription — automatic renewal')}
@@ -544,9 +556,13 @@ function ScopedSubscriptionPurchaseDialog(
                 </Select>
                 <p className='text-muted-foreground text-xs'>
                   {pancakeOption?.product_type === 'one_time'
-                    ? t('Pay once for this plan period. It ends without another charge.')
+                    ? t(
+                        'Pay once for this plan period. It ends without another charge.'
+                      )
                     : pancakeOption?.product_type === 'subscription'
-                      ? t('Payment repeats each period until canceled. Available methods are shown by Pancake.')
+                      ? t(
+                          'Payment repeats each period until canceled. Available methods are shown by Pancake.'
+                        )
                       : t('Choose a purchase option')}
                 </p>
               </div>
@@ -558,7 +574,9 @@ function ScopedSubscriptionPurchaseDialog(
                   ? formatSettlementQuote(settlementQuote)
                   : plansQuery.isFetching
                     ? t('Loading...')
-                    : pancakeOptions && pancakeOptions.length > 1 && !pancakeOption
+                    : pancakeOptions &&
+                        pancakeOptions.length > 1 &&
+                        !pancakeOption
                       ? t('Choose a purchase option')
                       : t('Settlement quote unavailable')}
               </span>
@@ -572,18 +590,24 @@ function ScopedSubscriptionPurchaseDialog(
                 </AlertDescription>
               </Alert>
             )}
-            {!settlementQuote && !plansQuery.isFetching && !(pancakeOptions && pancakeOptions.length > 1 && !pancakeOption) && (
-              <Alert>
-                <AlertDescription>
-                  {t(
-                    (pancakeOptions !== undefined
-                      ? pancakeOption?.settlement?.reason
-                      : quotedPlan?.waffo_pancake_settlement?.reason) ||
-                      'Settlement quote unavailable'
-                  )}
-                </AlertDescription>
-              </Alert>
-            )}
+            {!settlementQuote &&
+              !plansQuery.isFetching &&
+              !(
+                pancakeOptions &&
+                pancakeOptions.length > 1 &&
+                !pancakeOption
+              ) && (
+                <Alert>
+                  <AlertDescription>
+                    {t(
+                      (pancakeOptions !== undefined
+                        ? pancakeOption?.settlement?.reason
+                        : quotedPlan?.waffo_pancake_settlement?.reason) ||
+                        'Settlement quote unavailable'
+                    )}
+                  </AlertDescription>
+                </Alert>
+              )}
             <div className='flex flex-wrap items-center gap-3 text-xs'>
               <Button
                 variant='outline'

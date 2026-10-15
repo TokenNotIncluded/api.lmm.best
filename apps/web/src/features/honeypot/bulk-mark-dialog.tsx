@@ -20,7 +20,7 @@ import { useAuthStore } from '@/stores/auth-store'
 
 import {
   commitHoneypotUsers,
-  getHoneypotOperation,
+  getHoneypotUserOperation,
   getHoneypotPolicies,
   getHoneypotUser,
   HoneypotFailure,
@@ -28,8 +28,14 @@ import {
   userResultMatchesPreview,
   type HoneypotScope,
 } from './api'
-import type { HoneypotAction, HoneypotPreview, HoneypotUser } from './contract'
+import {
+  honeypotUserIDSchema,
+  type HoneypotAction,
+  type HoneypotPreview,
+  type HoneypotUser,
+} from './contract'
 import { HoneypotFeedback } from './feedback'
+import { legacyUserIDsToStrings } from './legacy-user-ids'
 
 const actionLabels: Record<HoneypotAction, string> = {
   mark: 'Mark for honeypot',
@@ -37,14 +43,14 @@ const actionLabels: Record<HoneypotAction, string> = {
   convert_disabled: 'Convert disabled users to honeypot',
 }
 async function readSelectedUsers(
-  ids: number[],
+  ids: string[],
   scope: HoneypotScope
 ): Promise<HoneypotUser[]> {
   if (
     !ids.length ||
     ids.length > 200 ||
     new Set(ids).size !== ids.length ||
-    ids.some((id) => !Number.isSafeInteger(id) || id <= 0)
+    ids.some((id) => !honeypotUserIDSchema.safeParse(id).success)
   ) {
     throw new HoneypotFailure('invalid')
   }
@@ -64,14 +70,20 @@ async function readSelectedUsers(
 }
 
 export function HoneypotBulkActionButton(props: {
-  ids: number[]
+  ids: string[]
   onApplied?: () => void
   className?: string
 }) {
   const { t } = useTranslation()
   const user = useAuthStore((state) => state.auth.user)
   const sessionID = useAuthStore((state) => state.auth.session?.sid)
-  const [selected, setSelected] = useState<number[]>()
+  const [selected, setSelected] = useState<string[]>()
+  const actorID = legacyUserIDsToStrings([user?.id])?.[0]
+  const validIDs =
+    props.ids.length > 0 &&
+    props.ids.length <= 200 &&
+    new Set(props.ids).size === props.ids.length &&
+    props.ids.every((id) => honeypotUserIDSchema.safeParse(id).success)
   if (user?.role !== ROLE.SUPER_ADMIN || !sessionID) return null
   return (
     <>
@@ -80,8 +92,11 @@ export function HoneypotBulkActionButton(props: {
         variant='outline'
         size='sm'
         className={props.className}
-        disabled={!props.ids.length || props.ids.length > 200}
-        onClick={() => setSelected([...props.ids])}
+        disabled={!validIDs || !actorID}
+        title={!actorID ? t('Unavailable') : undefined}
+        onClick={() => {
+          if (validIDs && actorID) setSelected([...props.ids])
+        }}
       >
         {t('Manage honeypot marks')}
       </Button>
@@ -99,7 +114,7 @@ export function HoneypotBulkActionButton(props: {
 }
 
 export function HoneypotBulkDialog(props: {
-  ids: number[]
+  ids: string[]
   scope: HoneypotScope
   onClose: () => void
   onApplied?: () => void
@@ -113,17 +128,21 @@ export function HoneypotBulkDialog(props: {
   const [pending, setPending] = useState(false)
   const [error, setError] = useState<unknown>()
   const [applied, setApplied] = useState(false)
+  const actorID = legacyUserIDsToStrings([props.scope.userId])?.[0]
   const state = useQuery({
     queryKey: [
-      'honeypot-selected',
+      'honeypot-selected-v2',
       props.scope.userId,
       props.scope.sessionId,
       props.ids,
     ],
-    queryFn: async () => ({
-      policies: await getHoneypotPolicies(props.scope),
-      users: await readSelectedUsers(props.ids, props.scope),
-    }),
+    queryFn: async () => {
+      if (!actorID) throw new HoneypotFailure('invalid')
+      return {
+        policies: await getHoneypotPolicies(props.scope),
+        users: await readSelectedUsers(props.ids, props.scope),
+      }
+    },
     retry: false,
     refetchOnWindowFocus: false,
     staleTime: 0,
@@ -135,7 +154,7 @@ export function HoneypotBulkDialog(props: {
     state.data?.users.every(
       (user) =>
         user.platform_role === 'user' &&
-        user.user_id !== props.scope.userId &&
+        user.user_id !== actorID &&
         (action === 'convert_disabled'
           ? !user.active
           : action === 'mark'
@@ -206,7 +225,7 @@ export function HoneypotBulkDialog(props: {
     if (!preview || !unknown || pending) return
     setPending(true)
     try {
-      const result = await getHoneypotOperation(
+      const result = await getHoneypotUserOperation(
         preview.operation_id,
         props.scope
       )
@@ -262,9 +281,11 @@ export function HoneypotBulkDialog(props: {
                 : '—'}
             </p>
             <p className='text-sm break-words'>{reason}</p>
-            <p className='text-muted-foreground text-sm'>
-              {t('Preview only; no account has changed.')}
-            </p>
+            {!blocked && (
+              <p className='text-muted-foreground text-sm'>
+                {t('Preview only; no account has changed.')}
+              </p>
+            )}
             {preview.action === 'convert_disabled' && (
               <p role='alert'>
                 {t(

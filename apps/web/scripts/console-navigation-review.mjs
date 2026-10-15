@@ -101,9 +101,7 @@ async function session(persona, viewport) {
       }
     }
     await page.getByTestId(`persona-debug-option-${persona}`).click()
-    await page.waitForURL(
-      persona === 'l0' ? /\/wallet/ : /\/dashboard/
-    )
+    await page.waitForURL(persona === 'l0' ? /\/wallet/ : /\/dashboard/)
     assert.equal(
       await page.locator('html').getAttribute('data-persona-debug'),
       'true'

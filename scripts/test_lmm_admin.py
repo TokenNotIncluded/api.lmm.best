@@ -27,9 +27,9 @@ A = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(A)
 OP = "12345678-1234-4321-8123-123456789abc"
 TOKEN = "synthetic_session_credential_only"
-USER = {"user_id": 42, "username": "synthetic-user", "email": "private@example.invalid", "active": True,
+USER = {"user_id": "42", "username": "synthetic-user", "email": "private@example.invalid", "active": True,
         "platform_role": "user", "revision": 3, "marked": False, "policy_id": None}
-RESULT = {"version": 1, "status": "applied", "operation_id": OP, "kind": "users", "policy_revision": 4,
+RESULT = {"version": 2, "status": "applied", "operation_id": OP, "kind": "users", "policy_revision": 4,
           "users": [{**USER, "revision": 4, "marked": True, "policy_id": "test"}]}
 LIMITS = {"requests_per_minute_per_user": 2, "requests_per_minute_global": 10,
           "max_concurrent_per_user": 1, "max_concurrent_global": 2,
@@ -46,14 +46,14 @@ CAPABILITIES = {"modes": ["fixed_text", "custom_upstream"],
 
 def preview_request() -> dict:
     return {"operation_id": OP, "reason": "Synthetic evidence", "action": "mark", "policy_id": "test",
-            "expected_policy_revision": 4, "targets": [{"user_id": 42, "expected_revision": 3}]}
+            "expected_policy_revision": 4, "targets": [{"user_id": "42", "expected_revision": 3}]}
 
 
 def preview() -> dict:
-    return {"version": 1, "preview_id": "preview-test-id", "preview_hash": "a" * 64,
+    return {"version": 2, "preview_id": "preview-test-id", "preview_hash": "a" * 64,
             "expires_at": int(time.time()) + 300, "operation_id": OP, "action": "mark",
             "policy_id": "test", "policy_revision": 4,
-            "targets": [{"user_id": 42, "username": "synthetic-user", "active": True, "expected_revision": 3,
+            "targets": [{"user_id": "42", "username": "synthetic-user", "active": True, "expected_revision": 3,
                          "before": {"marked": False, "policy_id": None},
                          "after": {"marked": True, "policy_id": "test", "active": True}}]}
 
@@ -118,7 +118,7 @@ class TransportTests(unittest.TestCase):
                 A.origin_url(value, flag)
 
     def test_read_only_list_does_not_expose_email_or_extra_fields(self):
-        with server(lambda *_: (200, {"version": 1, "users": [{**USER, "ip": "secret", "token": "secret"}], "next_after": None}, {})) as (url, seen):
+        with server(lambda *_: (200, {"version": 2, "users": [USER], "next_after": None}, {})) as (url, seen):
             with patch.dict(os.environ, {"LMM_ADMIN_SESSION": TOKEN}):
                 args = A.parser().parse_args(["--server", url, "--allow-insecure-loopback", "users", "list"])
                 result = A.run(args)
@@ -126,6 +126,10 @@ class TransportTests(unittest.TestCase):
             self.assertNotIn("secret", json.dumps(result))
             self.assertEqual([row[0] for row in seen], ["GET"])
             self.assertEqual(seen[0][3], "Bearer " + TOKEN)
+        with server(lambda *_: (200, {"version": 2, "users": [{**USER, "ip": "secret", "token": "secret"}], "next_after": None}, {})) as (url, seen):
+            with patch.dict(os.environ, {"LMM_ADMIN_SESSION": TOKEN}), self.assertRaises(A.ClientError):
+                A.run(A.parser().parse_args(["--server", url, "--allow-insecure-loopback", "users", "list"]))
+            self.assertEqual([row[0] for row in seen], ["GET"])
 
     def test_redirect_is_not_followed_or_forwarded(self):
         with server(lambda *_: (200, {"ok": True}, {})) as (other, received):
@@ -254,7 +258,7 @@ class ArtifactTests(unittest.TestCase):
             result = A.apply_artifact(A.Client(url, TOKEN), self.args(path, digest))
         self.assertTrue(result["reconciled"])
         self.assertEqual([row[0] for row in seen], ["GET", "POST", "GET"])
-        self.assertEqual(seen[-1][1], A.API + "/operations/" + OP)
+        self.assertEqual(seen[-1][1], A.USERS_API + "/operations/" + OP)
 
     def test_unknown_commit_never_replayed(self):
         with server(lambda method, *_: missing() if method == "GET" else (503, {"error": {"code": "ADMIN_ABUSE_UNAVAILABLE"}}, {})) as (url, seen):
@@ -284,7 +288,7 @@ class ArtifactTests(unittest.TestCase):
         self.assertEqual([row[0] for row in seen], ["GET"])
 
     def test_policy_local_preview_sends_exact_put_without_before_snapshot(self):
-        result = {**RESULT, "kind": "policies", "policy_revision": 5, "users": [], "applied_config_hash": A.policy_config_hash(CONFIG)}
+        result = {**RESULT, "version": 1, "kind": "policies", "policy_revision": 5, "users": [], "applied_config_hash": A.policy_config_hash(CONFIG)}
         def dispatch(method, path, data, _):
             if method == "GET": return missing()
             self.assertEqual(method, "PUT")
@@ -301,7 +305,7 @@ class ArtifactTests(unittest.TestCase):
 
     def test_policy_preflight_requires_exact_applied_config_hash(self):
         for config_hash, exception in [(None, A.OutcomeUnknown), ("bad-hash", A.OutcomeUnknown), ("f" * 64, A.ClientError)]:
-            result = {**RESULT, "kind": "policies", "policy_revision": 5, "users": [], "applied_config_hash": config_hash}
+            result = {**RESULT, "version": 1, "kind": "policies", "policy_revision": 5, "users": [], "applied_config_hash": config_hash}
             with server(lambda *_: (200, result, {})) as (url, seen):
                 payload = {"operation_id": OP, "reason": "Synthetic reason", "expected_revision": 4,
                            "config": CONFIG, "before_config": {"version": 1, "policies": []}}
@@ -355,14 +359,14 @@ class ArtifactTests(unittest.TestCase):
             nonlocal generated, applied
             if path == A.API + "/policies":
                 return 200, {"version": 1, "revision": 4, "config": CONFIG, "capabilities": CAPABILITIES}, {}
-            if path == A.API + "/users/42": return 200, USER, {}
-            if path == A.API + "/users/preview":
+            if path == A.USERS_API + "/users/42": return 200, {"version": 2, **USER}, {}
+            if path == A.USERS_API + "/users/preview":
                 body = json.loads(data); generated = body["operation_id"]
-                self.assertEqual(body["targets"], [{"user_id": 42, "expected_revision": 3}])
+                self.assertEqual(body["targets"], [{"user_id": "42", "expected_revision": 3}])
                 return 200, {**preview(), "operation_id": generated}, {}
-            if path.startswith(A.API + "/operations/"):
+            if path.startswith(A.USERS_API + "/operations/"):
                 return (200, {**RESULT, "operation_id": generated}, {}) if applied else missing()
-            if path == A.API + "/users/commit":
+            if path == A.USERS_API + "/users/commit":
                 self.assertEqual(json.loads(data)["operation_id"], generated)
                 applied = True
                 return 200, {**RESULT, "operation_id": generated}, {}
@@ -395,7 +399,7 @@ class ArtifactTests(unittest.TestCase):
 class ContractTests(unittest.TestCase):
     def test_preview_binds_all_ids_revisions_policy_and_transitions(self):
         request = {"operation_id": OP, "action": "mark", "policy_id": "test", "expected_policy_revision": 4,
-                   "targets": [{"user_id": 42, "expected_revision": 3}]}
+                   "targets": [{"user_id": "42", "expected_revision": 3}]}
         self.assertEqual(A.check_preview(preview(), request), preview())
         mutations = [lambda v: v.update(policy_revision=5), lambda v: v.update(operation_id="other-operation"),
                      lambda v: v["targets"][0].update(user_id=99), lambda v: v["targets"][0].update(expected_revision=9),

@@ -399,18 +399,14 @@ try {
     await page
       .getByRole('button', { name: withdrawLabel, exact: true })
       .waitFor()
-    await page
-      .getByRole('button', { name: withdrawLabel, exact: true })
-      .click()
+    await page.getByRole('button', { name: withdrawLabel, exact: true }).click()
     assert.equal(unlistAttempts, 0)
     await page
       .getByRole('alertdialog')
       .getByRole('button', { name: 'Cancel', exact: true })
       .click()
     await page.getByRole('alertdialog').waitFor({ state: 'hidden' })
-    await page
-      .getByRole('button', { name: withdrawLabel, exact: true })
-      .click()
+    await page.getByRole('button', { name: withdrawLabel, exact: true }).click()
     await page
       .getByRole('alertdialog')
       .getByRole('button', { name: withdrawLabel, exact: true })

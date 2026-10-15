@@ -52,7 +52,10 @@ describe('Google browser capabilities', () => {
       { identity: { google: { client_id: 'test-client' } } },
     ]) {
       // Deliberately malformed server JSON still has to fail the runtime guard.
-      assert.equal(isBuiltInGoogleConfigured(status as unknown as SystemStatus), false)
+      assert.equal(
+        isBuiltInGoogleConfigured(status as unknown as SystemStatus),
+        false
+      )
     }
   })
 

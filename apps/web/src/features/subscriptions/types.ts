@@ -43,7 +43,9 @@ export const waffoPancakePlanProductSchema = z.object({
   enabled: z.boolean(),
 })
 
-export type WaffoPancakePlanProduct = z.infer<typeof waffoPancakePlanProductSchema>
+export type WaffoPancakePlanProduct = z.infer<
+  typeof waffoPancakePlanProductSchema
+>
 
 export interface WaffoPancakePurchaseOption {
   product_type: WaffoPancakeProductType
@@ -73,7 +75,11 @@ export const subscriptionPlanSchema = z.object({
   downgrade_group: z.string().optional(),
   stripe_price_id: z.string().optional(),
   creem_product_id: z.string().optional(),
-  waffo_pancake_products: z.array(waffoPancakePlanProductSchema).max(2).nullable().optional(),
+  waffo_pancake_products: z
+    .array(waffoPancakePlanProductSchema)
+    .max(2)
+    .nullable()
+    .optional(),
   waffo_pancake_product_id: z.string().optional(),
   waffo_pancake_product_type: waffoPancakeProductTypeSchema.optional(),
 })

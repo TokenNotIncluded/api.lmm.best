@@ -73,10 +73,12 @@ function matches(
   pending: PendingSubscriptionCheckout,
   evidence: SubscriptionCheckoutEvidence | undefined
 ): evidence is SubscriptionCheckoutEvidence {
-  return !!evidence &&
+  return (
+    !!evidence &&
     evidence.trade_no === pending.tradeNo &&
     evidence.user_id === pending.userId &&
     evidence.plan_id === pending.planId
+  )
 }
 
 export function subscriptionCheckoutState(
@@ -94,11 +96,19 @@ export function subscriptionCheckoutState(
       Number.isSafeInteger(evidence.complete_time) &&
       evidence.complete_time > 0 &&
       positiveId(evidence.user_subscription_id)
-    ) return 'confirmed'
-    if (evidence.payment_status === 'cancelled' || evidence.payment_status === 'expired') {
+    ) {
+      return 'confirmed'
+    }
+    if (
+      evidence.payment_status === 'cancelled' ||
+      evidence.payment_status === 'expired'
+    ) {
       return 'cancelled'
     }
-    if (evidence.payment_status === 'failed' || evidence.payment_status === 'refunded') {
+    if (
+      evidence.payment_status === 'failed' ||
+      evidence.payment_status === 'refunded'
+    ) {
       return 'failed'
     }
   }
@@ -122,9 +132,14 @@ export function applySubscriptionCheckoutEvidence(
 ): PendingSubscriptionCheckout[] {
   let changed = false
   const next = checkouts.map((current) => {
-    if (current.tradeNo !== request.tradeNo ||
-      current.userId !== request.userId || current.planId !== request.planId ||
-      current.attempt !== request.attempt) return current
+    if (
+      current.tradeNo !== request.tradeNo ||
+      current.userId !== request.userId ||
+      current.planId !== request.planId ||
+      current.attempt !== request.attempt
+    ) {
+      return current
+    }
     const state = subscriptionCheckoutState(current, evidence, now)
     if (state === current.state) return current
     changed = true
@@ -138,8 +153,12 @@ export function retrySubscriptionCheckoutConfirmation(
   now = Date.now()
 ): PendingSubscriptionCheckout {
   if (pending.state === 'confirmed') return pending
-  return { ...pending, state: 'pending', attempt: pending.attempt + 1,
-    expiresAt: now + SUBSCRIPTION_CHECKOUT_POLL_TIMEOUT_MS }
+  return {
+    ...pending,
+    state: 'pending',
+    attempt: pending.attempt + 1,
+    expiresAt: now + SUBSCRIPTION_CHECKOUT_POLL_TIMEOUT_MS,
+  }
 }
 
 export function restoreSubscriptionCheckouts(
@@ -155,17 +174,33 @@ export function restoreSubscriptionCheckouts(
     if (parsed?.version !== 2 || !Array.isArray(parsed.checkouts)) return []
     const restored: PendingSubscriptionCheckout[] = []
     for (const value of parsed.checkouts) {
-      if (!value || value.userId !== userId || !positiveId(value.planId) ||
+      if (
+        !value ||
+        value.userId !== userId ||
+        !positiveId(value.planId) ||
         !subscriptionCheckoutTradeNo({ order_id: value.tradeNo }) ||
-        !Number.isSafeInteger(value.expiresAt) || value.expiresAt <= 0 ||
+        !Number.isSafeInteger(value.expiresAt) ||
+        value.expiresAt <= 0 ||
         !positiveId(value.attempt) ||
-        !['pending', 'timed_out', 'cancelled', 'failed', 'confirmed'].includes(value.state) ||
-        restored.some((item) => item.tradeNo === value.tradeNo)) continue
-      const pending: PendingSubscriptionCheckout = {
-        tradeNo: value.tradeNo, userId, planId: value.planId,
-        expiresAt: value.expiresAt, attempt: value.attempt, state: value.state,
+        !['pending', 'timed_out', 'cancelled', 'failed', 'confirmed'].includes(
+          value.state
+        ) ||
+        restored.some((item) => item.tradeNo === value.tradeNo)
+      ) {
+        continue
       }
-      restored.push({ ...pending, state: subscriptionCheckoutState(pending, undefined, now) })
+      const pending: PendingSubscriptionCheckout = {
+        tradeNo: value.tradeNo,
+        userId,
+        planId: value.planId,
+        expiresAt: value.expiresAt,
+        attempt: value.attempt,
+        state: value.state,
+      }
+      restored.push({
+        ...pending,
+        state: subscriptionCheckoutState(pending, undefined, now),
+      })
     }
     return restored
   } catch {

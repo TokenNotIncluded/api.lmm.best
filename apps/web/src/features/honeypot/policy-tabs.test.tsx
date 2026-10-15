@@ -236,7 +236,7 @@ function transport(initial = policies, ambiguous = false) {
     }
     if (config.url?.endsWith('/policies')) return response(config, remote)
     if (config.url?.endsWith('/users')) {
-      return response(config, { version: 1, users: [], next_after: null })
+      return response(config, { version: 2, users: [], next_after: null })
     }
     throw new Error('Unexpected synthetic request')
   }

@@ -21,8 +21,14 @@ import { useState } from 'react'
 import { useTranslation } from 'react-i18next'
 import { toast } from 'sonner'
 
+import { AuthCookieRecovery } from '@/components/auth-cookie-recovery'
 import { ConfirmDialog } from '@/components/confirm-dialog'
 import { logout } from '@/features/auth/api'
+import { AuthCookieBlockedError } from '@/lib/auth-cookie'
+import {
+  captureLocalAuthRecoveryScope,
+  type LocalAuthRecoveryScope,
+} from '@/lib/auth-session'
 
 interface SignOutDialogProps {
   open: boolean
@@ -33,8 +39,15 @@ export function SignOutDialog({ open, onOpenChange }: SignOutDialogProps) {
   const { t } = useTranslation()
   const navigate = useNavigate()
   const [isSigningOut, setIsSigningOut] = useState(false)
+  const [recoveryScope, setRecoveryScope] =
+    useState<LocalAuthRecoveryScope | null>(null)
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (!nextOpen) setRecoveryScope(null)
+    onOpenChange(nextOpen)
+  }
 
   const handleSignOut = async () => {
+    const scope = captureLocalAuthRecoveryScope()
     setIsSigningOut(true)
     try {
       const response = await logout()
@@ -46,6 +59,10 @@ export function SignOutDialog({ open, onOpenChange }: SignOutDialogProps) {
       toast.success(t('Signed out'))
       void navigate({ to: '/sign-in', replace: true })
     } catch (error: unknown) {
+      if (error instanceof AuthCookieBlockedError) {
+        setRecoveryScope(scope)
+        return
+      }
       toast.error(
         error instanceof Error ? error.message : t('Failed to sign out session')
       )
@@ -57,7 +74,7 @@ export function SignOutDialog({ open, onOpenChange }: SignOutDialogProps) {
   return (
     <ConfirmDialog
       open={open}
-      onOpenChange={onOpenChange}
+      onOpenChange={handleOpenChange}
       title={t('Sign out')}
       desc={t(
         'Are you sure you want to sign out? You will need to sign in again to access your account.'
@@ -65,7 +82,15 @@ export function SignOutDialog({ open, onOpenChange }: SignOutDialogProps) {
       confirmText={t('Sign out')}
       handleConfirm={handleSignOut}
       isLoading={isSigningOut}
+      disabled={recoveryScope !== null}
       className='sm:max-w-sm'
-    />
+    >
+      {recoveryScope && (
+        <AuthCookieRecovery
+          expectedScope={recoveryScope}
+          onLocalEnd={() => handleOpenChange(false)}
+        />
+      )}
+    </ConfirmDialog>
   )
 }

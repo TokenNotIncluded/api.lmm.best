@@ -45,7 +45,8 @@ async function renderError(node: ReactNode) {
 
 test('server errors retain recovery and reporting actions without a game', async () => {
   const html = await renderError(<GeneralError />)
-  assert.match(html, /aria-label="500"/)
+  assert.doesNotMatch(html, /aria-label="500"/)
+  assert.match(html, />Copy diagnostic information</)
   assert.match(html, /The request fell over/)
   assert.match(html, />Retry</)
   assert.match(html, />Back to Home</)

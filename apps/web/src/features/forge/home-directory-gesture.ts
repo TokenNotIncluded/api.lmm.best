@@ -14,10 +14,7 @@ export function directoryWheelDistance(
   return Math.sign(-deltaY) * Math.min(80, Math.abs(deltaY * unit))
 }
 
-export function directoryProgress(
-  distance: number,
-  threshold: number
-): number {
+export function directoryProgress(distance: number, threshold: number): number {
   if (
     !Number.isFinite(distance) ||
     !Number.isFinite(threshold) ||

@@ -16,7 +16,8 @@ export type PancakeDraftProduct = WaffoPancakePlanProduct & {
 export type PancakePlanTerms = Pick<
   SubscriptionPlan,
   'title' | 'price_amount' | 'currency' | 'duration_unit' | 'duration_value'
-> & Pick<Partial<SubscriptionPlan>, 'custom_seconds'>
+> &
+  Pick<Partial<SubscriptionPlan>, 'custom_seconds'>
 
 export function pancakeProductTerms(
   plan: PancakePlanTerms,
@@ -37,13 +38,16 @@ export function pancakeProductTerms(
 export function pancakeProductsForPlan(
   plan?: SubscriptionPlan
 ): PancakeDraftProduct[] {
-  const saved = plan?.waffo_pancake_products ??
+  const saved =
+    plan?.waffo_pancake_products ??
     (plan?.waffo_pancake_product_id
-      ? [{
-          product_type: plan.waffo_pancake_product_type || 'subscription',
-          product_id: plan.waffo_pancake_product_id,
-          enabled: true,
-        }]
+      ? [
+          {
+            product_type: plan.waffo_pancake_product_type || 'subscription',
+            product_id: plan.waffo_pancake_product_id,
+            enabled: true,
+          },
+        ]
       : [])
   return (['one_time', 'subscription'] as const).map((productType) => {
     const product = saved.find((item) => item.product_type === productType)
@@ -85,7 +89,9 @@ export class PancakeProductCreationUncertain extends Error {
 export async function ensurePancakePlanProducts(
   draft: PancakeDraftProduct[],
   plan: PancakePlanTerms,
-  create: (input: PancakeProductCreateInput) => Promise<PancakeProductCreateResult>,
+  create: (
+    input: PancakeProductCreateInput
+  ) => Promise<PancakeProductCreateResult>,
   onProgress: (products: PancakeDraftProduct[]) => void,
   blockedTypes: ReadonlySet<WaffoPancakeProductType> = new Set()
 ): Promise<PancakeDraftProduct[]> {
@@ -133,7 +139,9 @@ export function pancakeProductsPayload(
   products: PancakeDraftProduct[]
 ): WaffoPancakePlanProduct[] {
   return products.map(({ product_type, product_id, enabled }) => ({
-    product_type, product_id, enabled,
+    product_type,
+    product_id,
+    enabled,
   }))
 }
 

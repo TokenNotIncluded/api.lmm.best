@@ -283,11 +283,7 @@ export function TrustLevelPanel({
                   level: recoveryLevel,
                 })}
               </p>
-              <Button
-                variant='outline'
-                size='sm'
-                render={<a href='/guide' />}
-              >
+              <Button variant='outline' size='sm' render={<a href='/guide' />}>
                 {t('Continue setup')}
               </Button>
             </div>

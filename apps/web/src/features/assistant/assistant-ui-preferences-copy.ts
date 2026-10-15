@@ -5,11 +5,14 @@ const en = {
   title: 'Display preferences',
   applying: 'Applying your display preferences…',
   applied: 'Display preferences updated.',
-  previewing: 'An eight-second preview. Your saved preferences have not changed.',
+  previewing:
+    'An eight-second preview. Your saved preferences have not changed.',
   restored: 'Restored. Newer manual choices were kept.',
   unchanged: 'Nothing to restore or change. Your current choices were kept.',
-  failed: 'The result could not be confirmed. Check your preferences before trying again.',
-  unavailable: 'This action is no longer available. Ask the assistant for a new change.',
+  failed:
+    'The result could not be confirmed. Check your preferences before trying again.',
+  unavailable:
+    'This action is no longer available. Ask the assistant for a new change.',
   undo: 'Undo this change',
   scope: 'Display only. Your balance, billing and settlement do not change.',
 }
@@ -44,13 +47,18 @@ const translations: Record<UIPreferences['language'], Copy> = {
     title: 'Préférences d’affichage',
     applying: 'Modification de l’affichage…',
     applied: 'Préférences d’affichage mises à jour.',
-    previewing: 'Aperçu de huit secondes. Vos préférences enregistrées restent inchangées.',
-    restored: 'Affichage rétabli. Vos choix manuels plus récents sont conservés.',
+    previewing:
+      'Aperçu de huit secondes. Vos préférences enregistrées restent inchangées.',
+    restored:
+      'Affichage rétabli. Vos choix manuels plus récents sont conservés.',
     unchanged: 'Rien à rétablir ou à modifier. Vos choix sont conservés.',
-    failed: 'Le résultat n’a pas pu être confirmé. Vérifiez vos préférences avant de réessayer.',
-    unavailable: 'Cette action n’est plus disponible. Demandez une nouvelle modification.',
+    failed:
+      'Le résultat n’a pas pu être confirmé. Vérifiez vos préférences avant de réessayer.',
+    unavailable:
+      'Cette action n’est plus disponible. Demandez une nouvelle modification.',
     undo: 'Annuler cette modification',
-    scope: 'Affichage uniquement. Le solde, la facturation et le règlement restent inchangés.',
+    scope:
+      'Affichage uniquement. Le solde, la facturation et le règlement restent inchangés.',
   },
   ru: {
     title: 'Настройки отображения',
@@ -58,9 +66,12 @@ const translations: Record<UIPreferences['language'], Copy> = {
     applied: 'Настройки отображения обновлены.',
     previewing: 'Просмотр на восемь секунд. Сохранённые настройки не изменены.',
     restored: 'Восстановлено. Более поздние ручные изменения сохранены.',
-    unchanged: 'Изменять или восстанавливать нечего. Текущие настройки сохранены.',
-    failed: 'Результат не подтверждён. Проверьте настройки перед повторной попыткой.',
-    unavailable: 'Действие больше недоступно. Попросите помощника изменить настройки снова.',
+    unchanged:
+      'Изменять или восстанавливать нечего. Текущие настройки сохранены.',
+    failed:
+      'Результат не подтверждён. Проверьте настройки перед повторной попыткой.',
+    unavailable:
+      'Действие больше недоступно. Попросите помощника изменить настройки снова.',
     undo: 'Отменить это изменение',
     scope: 'Меняется только отображение, не баланс, начисления или расчёты.',
   },
@@ -82,9 +93,12 @@ const translations: Record<UIPreferences['language'], Copy> = {
     applied: 'Đã cập nhật tùy chọn hiển thị.',
     previewing: 'Xem trước trong tám giây. Các tùy chọn đã lưu không thay đổi.',
     restored: 'Đã khôi phục. Giữ nguyên các thay đổi thủ công mới hơn.',
-    unchanged: 'Không cần khôi phục hoặc thay đổi. Giữ nguyên tùy chọn hiện tại.',
-    failed: 'Chưa xác nhận được kết quả. Hãy kiểm tra tùy chọn trước khi thử lại.',
-    unavailable: 'Thao tác này không còn hiệu lực. Hãy yêu cầu trợ lý thay đổi lại.',
+    unchanged:
+      'Không cần khôi phục hoặc thay đổi. Giữ nguyên tùy chọn hiện tại.',
+    failed:
+      'Chưa xác nhận được kết quả. Hãy kiểm tra tùy chọn trước khi thử lại.',
+    unavailable:
+      'Thao tác này không còn hiệu lực. Hãy yêu cầu trợ lý thay đổi lại.',
     undo: 'Hoàn tác thay đổi này',
     scope: 'Chỉ đổi cách hiển thị, không đổi số dư, phí hoặc thanh toán.',
   },

@@ -50,8 +50,8 @@ import {
   updateBillingPreference,
 } from '@/features/subscriptions/api'
 import { SubscriptionPurchaseDialog } from '@/features/subscriptions/components/dialogs/subscription-purchase-dialog'
-import { usePublicPlans } from '@/features/subscriptions/hooks/use-public-plans'
 import { useSubscriptionCheckoutConfirmation } from '@/features/subscriptions/hooks/use-checkout-confirmation'
+import { usePublicPlans } from '@/features/subscriptions/hooks/use-public-plans'
 import {
   formatDuration,
   formatResetPeriod,
@@ -177,11 +177,14 @@ function ScopedSubscriptionPlansCard({
     return undefined
   }, [isCurrent])
 
-  const { checkouts, start: markCheckoutPending, retry: retryCheckouts } =
-    useSubscriptionCheckoutConfirmation(userId, async () => {
-      await fetchSelfSubscription()
-      await onPurchaseSuccess?.()
-    })
+  const {
+    checkouts,
+    start: markCheckoutPending,
+    retry: retryCheckouts,
+  } = useSubscriptionCheckoutConfirmation(userId, async () => {
+    await fetchSelfSubscription()
+    await onPurchaseSuccess?.()
+  })
 
   useEffect(() => {
     const init = async () => {
@@ -311,19 +314,27 @@ function ScopedSubscriptionPlansCard({
             aria-live='polite'
             className='text-muted-foreground flex flex-wrap items-center gap-2 text-xs'
           >
-            {checkout.state === 'pending' && <RefreshCw className='size-3.5 shrink-0 animate-spin' />}
+            {checkout.state === 'pending' && (
+              <RefreshCw className='size-3.5 shrink-0 animate-spin' />
+            )}
             <span className='break-all'>{checkout.tradeNo}</span>
-            <span>{checkout.state === 'confirmed'
-              ? t('Subscription purchased successfully')
-              : checkout.state === 'pending'
-                ? t('Confirming subscription payment…')
-                : checkout.state === 'cancelled'
-                  ? t('Cancelled')
-                  : checkout.state === 'failed'
-                    ? t('Failed')
-                    : t('Unknown')}</span>
+            <span>
+              {checkout.state === 'confirmed'
+                ? t('Subscription purchased successfully')
+                : checkout.state === 'pending'
+                  ? t('Confirming subscription payment…')
+                  : checkout.state === 'cancelled'
+                    ? t('Cancelled')
+                    : checkout.state === 'failed'
+                      ? t('Failed')
+                      : t('Unknown')}
+            </span>
             {checkout.state !== 'pending' && checkout.state !== 'confirmed' && (
-              <Button variant='outline' size='sm' onClick={() => retryCheckouts(checkout.tradeNo)}>
+              <Button
+                variant='outline'
+                size='sm'
+                onClick={() => retryCheckouts(checkout.tradeNo)}
+              >
                 {t('Refresh')}
               </Button>
             )}

@@ -151,13 +151,19 @@ export async function updateAssistantSystemOptions(
   if (Object.hasOwn(request.values, 'AssistantToolPolicy')) {
     // Recheck immediately before every write: a loaded catalog can outlive a
     // backend rollback. Never drop unsupported restrictions from the draft.
-    const catalog = await api.get<unknown>('/api/assistant/admin/tool-catalog', {
-      ...settingsRequestConfig({ silent: true }),
-      disableDuplicate: true,
-      authScope: request.authScope,
-    })
+    const catalog = await api.get<unknown>(
+      '/api/assistant/admin/tool-catalog',
+      {
+        ...settingsRequestConfig({ silent: true }),
+        disableDuplicate: true,
+        authScope: request.authScope,
+      }
+    )
     const policy = parseAssistantToolPolicy(request.values.AssistantToolPolicy)
-    if (!policy || !assistantPolicyMatchesBackendCatalog(policy, catalog.data)) {
+    if (
+      !policy ||
+      !assistantPolicyMatchesBackendCatalog(policy, catalog.data)
+    ) {
       throw new Error(
         'Unable to refresh tool settings. Your draft was kept. Try saving again.'
       )

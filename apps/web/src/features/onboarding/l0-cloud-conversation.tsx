@@ -124,8 +124,9 @@ export function L0CloudConversation({
     staleTime: 5 * 60_000,
     retry: false,
   })
-  const [uiPreferenceAction, setUIPreferenceAction] =
-    useState<AssistantUIPreferenceAction | undefined>(undefined)
+  const [uiPreferenceAction, setUIPreferenceAction] = useState<
+    AssistantUIPreferenceAction | undefined
+  >(undefined)
   const [prompt, setPrompt] = useState('')
   const [supportRequired, setSupportRequired] = useState(false)
   const [away, setAway] = useState(false)

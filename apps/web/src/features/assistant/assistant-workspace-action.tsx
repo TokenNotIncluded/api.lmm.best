@@ -24,9 +24,17 @@ export function AssistantWorkspaceActionCard({
   disabled?: boolean
 }) {
   if (!action.requires_confirmation) {
-    return <AssistantUIPreferencesCard key={action.action_id} action={action} disabled={disabled} />
+    return (
+      <AssistantUIPreferencesCard
+        key={action.action_id}
+        action={action}
+        disabled={disabled}
+      />
+    )
   }
-  return <AssistantWorkspaceConfirmationCard action={action} disabled={disabled} />
+  return (
+    <AssistantWorkspaceConfirmationCard action={action} disabled={disabled} />
+  )
 }
 
 function AssistantWorkspaceConfirmationCard({

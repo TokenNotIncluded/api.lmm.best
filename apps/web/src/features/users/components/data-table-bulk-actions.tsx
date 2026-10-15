@@ -22,8 +22,12 @@ import { useTranslation } from 'react-i18next'
 
 import { CopyButton } from '@/components/copy-button'
 import { DataTableBulkActions as BulkActionsToolbar } from '@/components/data-table'
+import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { HoneypotBulkActionButton } from '@/features/honeypot/bulk-mark-dialog'
+import { legacyUserIDsToStrings } from '@/features/honeypot/legacy-user-ids'
+import { ROLE } from '@/lib/roles'
+import { useAuthStore } from '@/stores/auth-store'
 
 import {
   collectContacts,
@@ -46,9 +50,17 @@ interface DataTableBulkActionsProps {
  */
 export function DataTableBulkActions({ table }: DataTableBulkActionsProps) {
   const { t } = useTranslation()
+  const canManageHoneypot = useAuthStore(
+    (state) =>
+      state.auth.user?.role === ROLE.SUPER_ADMIN &&
+      Boolean(state.auth.session?.sid)
+  )
   const selectedUsers = table
     .getFilteredSelectedRowModel()
     .rows.map((row) => row.original)
+  const honeypotIDs = legacyUserIDsToStrings(
+    selectedUsers.map((user) => user.id)
+  )
 
   const usernames = collectUsernames(selectedUsers)
   const emails = collectEmails(selectedUsers)
@@ -61,7 +73,14 @@ export function DataTableBulkActions({ table }: DataTableBulkActionsProps) {
 
   return (
     <BulkActionsToolbar table={table} entityName={t('user')}>
-      <HoneypotBulkActionButton ids={selectedUsers.map((user) => user.id)} />
+      {canManageHoneypot &&
+        (honeypotIDs === undefined ? (
+          <Button type='button' variant='outline' size='sm' disabled>
+            {t('Manage honeypot marks')} · {t('Unavailable')}
+          </Button>
+        ) : (
+          <HoneypotBulkActionButton ids={honeypotIDs} />
+        ))}
       <CopyButton
         value={usernamesPayload}
         variant='outline'

@@ -6,21 +6,27 @@ import { api, type ApiRequestConfig } from '@/lib/api'
 import {
   configSchema,
   hashHoneypotConfig,
+  honeypotUserIDSchema,
   operationIDSchema,
   policiesSchema,
   previewMatchesRequest,
   previewRequestSchema,
   previewSchema,
   resultSchema,
+  userResultSchema,
   userListSchema,
-  userViewSchema,
+  userDetailSchema,
   type HoneypotConfig,
+  type HoneypotPolicies,
+  samePolicyCapabilities,
+  validatePolicyCapabilities,
   type HoneypotPreview,
   type HoneypotPreviewRequest,
   type HoneypotResult,
 } from './contract'
 
 const prefix = '/core/v1/admin/abuse'
+const usersPrefix = '/core/v2/admin/abuse'
 export type HoneypotScope = NonNullable<ApiRequestConfig['authScope']>
 export type HoneypotFailureKind =
   | 'invalid'
@@ -79,14 +85,84 @@ function failure(error: unknown, operationID?: string): HoneypotFailure {
                 : 'unavailable'
   return new HoneypotFailure(kind, operationID)
 }
+
+function coreErrorCode(error: unknown): string | undefined {
+  if (typeof error === 'object' && error !== null && 'response' in error) {
+    const response = error.response
+    if (
+      typeof response === 'object' &&
+      response !== null &&
+      'data' in response
+    ) {
+      const data = response.data
+      if (
+        typeof data === 'object' &&
+        data !== null &&
+        Object.keys(data).length === 1 &&
+        'error' in data
+      ) {
+        const body = data.error
+        if (
+          typeof body === 'object' &&
+          body !== null &&
+          Object.keys(body).length === 1 &&
+          'code' in body &&
+          typeof body.code === 'string'
+        ) {
+          return body.code
+        }
+      }
+    }
+  }
+  return undefined
+}
+
+/** A dispatched write needs the exact Core rejection; an HTTP status alone is ambiguous. */
+function dispatchedFailure(
+  error: unknown,
+  operationID: string
+): HoneypotFailure {
+  if (error instanceof HoneypotFailure) return error
+  const knownRejections: Record<string, HoneypotFailureKind> = {
+    '400:ADMIN_ABUSE_INVALID': 'invalid',
+    '401:ADMIN_ABUSE_UNAUTHORIZED': 'forbidden',
+    '403:ADMIN_ABUSE_FORBIDDEN': 'forbidden',
+    '404:ADMIN_ABUSE_NOT_FOUND': 'not_found',
+    '409:ADMIN_ABUSE_CONFLICT': 'conflict',
+    '410:ADMIN_ABUSE_PREVIEW_EXPIRED': 'expired',
+    '429:ADMIN_ABUSE_RATE_LIMITED': 'invalid',
+  }
+  return new HoneypotFailure(
+    knownRejections[`${statusOf(error)}:${coreErrorCode(error)}`] ?? 'unknown',
+    operationID
+  )
+}
+
+function operationFailure(
+  error: unknown,
+  operationID: string
+): HoneypotFailure {
+  if (error instanceof HoneypotFailure) return error
+  const status = statusOf(error),
+    code = coreErrorCode(error)
+  const kind =
+    (status === 401 && code === 'ADMIN_ABUSE_UNAUTHORIZED') ||
+    (status === 403 && code === 'ADMIN_ABUSE_FORBIDDEN')
+      ? 'forbidden'
+      : status === 404 && code === 'ADMIN_ABUSE_OPERATION_NOT_FOUND'
+        ? 'not_found'
+        : 'unknown'
+  return new HoneypotFailure(kind, operationID)
+}
 async function read<T>(
   path: string,
   schema: ZodType<T>,
   scope: HoneypotScope,
-  params?: Record<string, string | number>
+  params?: Record<string, string | number>,
+  apiPrefix = prefix
 ) {
   try {
-    const response = await api.get<unknown>(`${prefix}${path}`, {
+    const response = await api.get<unknown>(`${apiPrefix}${path}`, {
       ...options(scope),
       params,
     })
@@ -98,33 +174,90 @@ async function read<T>(
 
 export const getHoneypotPolicies = (scope: HoneypotScope) =>
   read('/policies', policiesSchema, scope)
-export const getHoneypotUser = (id: number, scope: HoneypotScope) =>
-  read(`/users/${id}`, userViewSchema, scope)
-export const getHoneypotUsers = (
+export async function getHoneypotUser(id: string, scope: HoneypotScope) {
+  if (!honeypotUserIDSchema.safeParse(id).success) {
+    throw new HoneypotFailure('invalid')
+  }
+  const user = await read(
+    `/users/${id}`,
+    userDetailSchema,
+    scope,
+    undefined,
+    usersPrefix
+  )
+  if (user.user_id !== id) throw new HoneypotFailure('invalid')
+  return user
+}
+export async function getHoneypotUsers(
   scope: HoneypotScope,
-  params: { after: number; limit: number; query: string; state: string }
-) => read('/users', userListSchema, scope, params)
-export async function getHoneypotOperation(id: string, scope: HoneypotScope) {
+  params: { after: string | null; limit: number; query: string; state: string }
+) {
+  const { after, ...rest } = params
+  if (
+    (after !== null && !honeypotUserIDSchema.safeParse(after).success) ||
+    !Number.isSafeInteger(params.limit) ||
+    params.limit < 1 ||
+    params.limit > 200
+  ) {
+    throw new HoneypotFailure('invalid')
+  }
+  const result = await read(
+    '/users',
+    userListSchema,
+    scope,
+    after === null ? rest : { ...rest, after },
+    usersPrefix
+  )
+  if (
+    result.users.length > params.limit ||
+    (after !== null &&
+      result.users.some((user) => BigInt(user.user_id) <= BigInt(after)))
+  ) {
+    throw new HoneypotFailure('invalid')
+  }
+  return result
+}
+
+async function readOperation(
+  id: string,
+  scope: HoneypotScope,
+  kind: 'users' | 'policies'
+) {
   const operationID = operationIDSchema.parse(id)
   try {
     const response = await api.get<unknown>(
-      `${prefix}/operations/${encodeURIComponent(operationID)}`,
+      `${kind === 'users' ? usersPrefix : prefix}/operations/${encodeURIComponent(operationID)}`,
       options(scope)
     )
+    if (
+      typeof response.data !== 'object' ||
+      response.data === null ||
+      !('kind' in response.data) ||
+      response.data.kind !== kind
+    ) {
+      throw new HoneypotFailure('unknown', operationID)
+    }
     return resultSchema.parse(response.data)
   } catch (error) {
-    throw failure(error, operationID)
+    throw operationFailure(error, operationID)
   }
 }
+/** Original v1 reader for a known policy operation; never guesses another protocol. */
+export const getHoneypotOperation = (id: string, scope: HoneypotScope) =>
+  readOperation(id, scope, 'policies')
+export const getHoneypotUserOperation = (id: string, scope: HoneypotScope) =>
+  readOperation(id, scope, 'users')
 
 export async function previewHoneypotUsers(
   request: HoneypotPreviewRequest,
   scope: HoneypotScope
 ) {
-  const body = previewRequestSchema.parse(request)
+  const parsed = previewRequestSchema.safeParse(request)
+  if (!parsed.success) throw new HoneypotFailure('invalid')
+  const body = parsed.data
   try {
     const response = await api.post<unknown>(
-      `${prefix}/users/preview`,
+      `${usersPrefix}/users/preview`,
       body,
       options(scope)
     )
@@ -142,6 +275,12 @@ export function userResultMatchesPreview(
   result: HoneypotResult,
   preview: HoneypotPreview
 ): boolean {
+  if (
+    !userResultSchema.safeParse(result).success ||
+    !previewSchema.safeParse(preview).success
+  ) {
+    return false
+  }
   const targets = new Map(
     preview.targets.map((target) => [target.user_id, target])
   )
@@ -169,12 +308,13 @@ export async function commitHoneypotUsers(
   scope: HoneypotScope
 ) {
   try {
+    const reviewed = previewSchema.parse(preview)
     const response = await api.post<unknown>(
-      `${prefix}/users/commit`,
+      `${usersPrefix}/users/commit`,
       {
-        operation_id: preview.operation_id,
-        preview_id: preview.preview_id,
-        preview_hash: preview.preview_hash,
+        operation_id: reviewed.operation_id,
+        preview_id: reviewed.preview_id,
+        preview_hash: reviewed.preview_hash,
       },
       options(scope)
     )
@@ -184,7 +324,7 @@ export async function commitHoneypotUsers(
     }
     return result
   } catch (error) {
-    throw failure(error, preview.operation_id)
+    throw dispatchedFailure(error, preview.operation_id)
   }
 }
 
@@ -219,6 +359,30 @@ export async function saveHoneypotPolicies(
     }
     return result
   } catch (error) {
-    throw failure(error, request.operation_id)
+    throw dispatchedFailure(error, request.operation_id)
   }
+}
+
+/** Recheck the reviewed host registry before dispatch; Core retains final authority. */
+export async function saveReviewedHoneypotPolicies(
+  request: Parameters<typeof saveHoneypotPolicies>[0],
+  scope: HoneypotScope,
+  reviewed: HoneypotPolicies
+) {
+  const parsed = configSchema.safeParse(request.config)
+  if (!parsed.success || !validatePolicyCapabilities(parsed.data, reviewed)) {
+    throw new HoneypotFailure('invalid')
+  }
+  const current = await getHoneypotPolicies(scope)
+  if (
+    reviewed.revision !== request.expected_revision ||
+    current.revision !== request.expected_revision ||
+    !samePolicyCapabilities(reviewed.capabilities, current.capabilities)
+  ) {
+    throw new HoneypotFailure('conflict')
+  }
+  if (!validatePolicyCapabilities(parsed.data, current)) {
+    throw new HoneypotFailure('invalid')
+  }
+  return saveHoneypotPolicies({ ...request, config: parsed.data }, scope)
 }

@@ -123,7 +123,12 @@ describe('new-user entry aliases', () => {
   })
 
   test('canonical destinations and unrelated paths are not rewritten', () => {
-    for (const path of ['/keys', '/profile', '/api-keys/unknown', '/settings-else']) {
+    for (const path of [
+      '/keys',
+      '/profile',
+      '/api-keys/unknown',
+      '/settings-else',
+    ]) {
       assert.equal(resolveLegacyRoute(path), null)
     }
   })

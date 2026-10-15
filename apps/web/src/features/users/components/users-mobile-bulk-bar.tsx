@@ -19,8 +19,11 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip'
 import { HoneypotBulkActionButton } from '@/features/honeypot/bulk-mark-dialog'
+import { legacyUserIDsToStrings } from '@/features/honeypot/legacy-user-ids'
 import { useCopyToClipboard } from '@/hooks/use-copy-to-clipboard'
+import { ROLE } from '@/lib/roles'
 import { cn } from '@/lib/utils'
+import { useAuthStore } from '@/stores/auth-store'
 
 import {
   collectContacts,
@@ -44,9 +47,17 @@ interface UsersMobileBulkBarProps {
  */
 export function UsersMobileBulkBar({ table }: UsersMobileBulkBarProps) {
   const { t } = useTranslation()
+  const canManageHoneypot = useAuthStore(
+    (state) =>
+      state.auth.user?.role === ROLE.SUPER_ADMIN &&
+      Boolean(state.auth.session?.sid)
+  )
   const selectedRows = table.getFilteredSelectedRowModel().rows
   const selectedUsers = selectedRows.map((row) => row.original)
   const selectedCount = selectedUsers.length
+  const honeypotIDs = legacyUserIDsToStrings(
+    selectedUsers.map((user) => user.id)
+  )
 
   const { copiedText, copyToClipboard } = useCopyToClipboard({ notify: false })
 
@@ -184,10 +195,23 @@ export function UsersMobileBulkBar({ table }: UsersMobileBulkBarProps) {
 
           <Separator className='my-2' aria-hidden='true' />
 
-          <HoneypotBulkActionButton
-            ids={selectedUsers.map((user) => user.id)}
-            className='mb-2 h-11 w-full'
-          />
+          {canManageHoneypot &&
+            (honeypotIDs === undefined ? (
+              <Button
+                type='button'
+                variant='outline'
+                size='sm'
+                className='mb-2 h-11 w-full'
+                disabled
+              >
+                {t('Manage honeypot marks')} · {t('Unavailable')}
+              </Button>
+            ) : (
+              <HoneypotBulkActionButton
+                ids={honeypotIDs}
+                className='mb-2 h-11 w-full'
+              />
+            ))}
           <div className='grid grid-cols-2 gap-2'>
             <Tooltip>
               <TooltipTrigger

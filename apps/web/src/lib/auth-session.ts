@@ -22,6 +22,8 @@ import { t } from 'i18next'
 
 import {
   AUTH_COOKIE_TIMEOUT_MS,
+  AuthCookieBlockedError,
+  getAuthCookieBlockedState,
   withAuthCookieActivity,
   withAuthCookieLock,
   type AuthCookieTransaction,
@@ -210,10 +212,16 @@ function isAuthTokenRotation(value: unknown): value is AuthTokenRotation {
   )
 }
 
+function assertAuthCommitAvailable(): void {
+  const blocked = getAuthCookieBlockedState()
+  if (blocked) throw new AuthCookieBlockedError(blocked)
+}
+
 export function applyAuthBundle(
   bundle: AuthBundle,
   synchronizeTabs = true
 ): void {
+  assertAuthCommitAvailable()
   const previousSID = useAuthStore.getState().auth.session?.sid
   if (previousSID && previousSID !== bundle.session.sid) {
     authCache?.clear()
@@ -227,6 +235,7 @@ export function applyAuthBundle(
 }
 
 export function applyPending2FAFlow(flow: string, expiresAt?: number): void {
+  assertAuthCommitAvailable()
   // A refresh queued before the password challenge cannot consume the ceremony.
   authEpoch += 1
   useAuthStore.getState().auth.setPending2FAFlowToken(flow, expiresAt)
@@ -270,6 +279,44 @@ export function clearAuthentication(
   if (synchronizeTabs && sid) {
     publishAuthSessionEvent('signed_out', sid)
   }
+}
+
+export type LocalAuthRecoveryScope = Readonly<{
+  userId: number | undefined
+  sessionId: string | undefined
+  authEpoch: number
+  accountWriteEpoch: number
+}>
+
+export function captureLocalAuthRecoveryScope(): LocalAuthRecoveryScope {
+  const auth = useAuthStore.getState().auth
+  return {
+    userId: auth.user?.id,
+    sessionId: auth.session?.sid,
+    ...authenticationGeneration(),
+  }
+}
+
+/** Explicit local UI recovery. Never confirms server revocation or unlocks Cookies. */
+export function endLocalAuthSessionForRecovery(scope: LocalAuthRecoveryScope): {
+  kind: 'ended' | 'superseded' | 'not_blocked'
+  serverLogoutConfirmed: false
+} {
+  const current = captureLocalAuthRecoveryScope()
+  if (
+    !sameGeneration(current, scope) ||
+    current.userId !== scope.userId ||
+    current.sessionId !== scope.sessionId
+  ) {
+    return { kind: 'superseded', serverLogoutConfirmed: false }
+  }
+  if (!getAuthCookieBlockedState()) {
+    return { kind: 'not_blocked', serverLogoutConfirmed: false }
+  }
+  // This check and reset are synchronous. Other tabs keep their current SID;
+  // late writers in this document remain fenced by the unchanged Cookie state.
+  clearAuthentication(false, 'complete')
+  return { kind: 'ended', serverLogoutConfirmed: false }
 }
 
 /** Binds the single application query cache to the authentication lifecycle. */
@@ -443,7 +490,9 @@ async function performRefreshWithBrowserLock(
       runRefresh(refreshEpoch, transaction, accountWrite)
     )
   } catch (error: unknown) {
-    useAuthStore.getState().auth.setBootstrapState('idle')
+    if (authEpoch === refreshEpoch) {
+      useAuthStore.getState().auth.setBootstrapState('idle')
+    }
     return { kind: 'transient_error', error }
   }
 }

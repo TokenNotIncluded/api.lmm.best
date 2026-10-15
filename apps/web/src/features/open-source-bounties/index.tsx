@@ -89,6 +89,7 @@ import { Separator } from '@/components/ui/separator'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
 import { TitledCard } from '@/components/ui/titled-card'
+import { refreshCurrentAccount } from '@/features/onboarding/use-auth-user-refresh'
 /*
 Copyright (C) 2023-2026 QuantumNous
 
@@ -114,7 +115,6 @@ import { BountyDecision } from '@/features/open-source-bounties/bounty-decision'
 import { BountyProgress } from '@/features/open-source-bounties/bounty-progress'
 import { useCreditInputDisplay } from '@/hooks/use-credit-input-display'
 import { useStatus } from '@/hooks/use-status'
-import { getSelf } from '@/lib/api'
 import { getBackendCapabilities } from '@/lib/backend-capabilities'
 import { formatQuota } from '@/lib/format'
 import { isCreditAmount } from '@/lib/quota-input'
@@ -346,7 +346,6 @@ export function OpenSourceBounties({
   const { label: currencyLabel } = useCreditInputDisplay()
   const queryClient = useQueryClient()
   const user = useAuthStore((state) => state.auth.user)
-  const setUser = useAuthStore((state) => state.auth.setUser)
   const { status } = useStatus()
   const canCancelChallenge =
     getBackendCapabilities(status).bounty_challenge_cancel
@@ -459,8 +458,7 @@ export function OpenSourceBounties({
       )
     )
     if (balanceChanged) {
-      const response = await getSelf()
-      if (response.success && response.data) setUser(response.data)
+      await refreshCurrentAccount()
     }
   }
 

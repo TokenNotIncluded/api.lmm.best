@@ -6,14 +6,14 @@ The five chapters, page content, scrolling, controls and point brush stay in pla
 
 ## Current scene modules
 
-| File | Active objects |
-| --- | --- |
+| File                               | Active objects                                                                                   |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------ |
 | `marks.ts`, `ai-brand-outlines.ts` | Claude, OpenAI, Grok, GLM, Kimi, DeepSeek, Qwen, Gemini, Mistral and Ollama marks in chapter one |
-| `market.ts` | Shop, vending machine, market stall |
-| `abstract.ts` | Radial mechanism, gyroscope, Mobius strip, braided trefoil, double helix, wave ribbons |
-| `cosmos.ts` | Earth, Moon, Mars, Sun, solar system, galaxy, black hole |
-| `future.ts`, `spectacle.ts` | Pelican cycling, rocket launch, stylized explosion, rotating chair |
-| `bicycle.ts` | Shared frame, wheels, crank, pedals and fixed-length rider legs |
+| `market.ts`                        | Shop, vending machine, market stall                                                              |
+| `abstract.ts`                      | Radial mechanism, gyroscope, Mobius strip, braided trefoil, double helix, wave ribbons           |
+| `cosmos.ts`                        | Earth, Moon, Mars, Sun, solar system, galaxy, black hole                                         |
+| `future.ts`, `spectacle.ts`        | Pelican cycling, rocket launch, stylized explosion, rotating chair                               |
+| `bicycle.ts`                       | Shared frame, wheels, crank, pedals and fixed-length rider legs                                  |
 
 There are 30 registered scenes. Portrait, whale, nature and Moon-far-side factories remain outside the active carousel. The local Claude mark is the loading/no-canvas fallback. Preserve the source attribution in `ai-brand-outlines.LICENSE` when updating the outlines.
 

@@ -10,6 +10,7 @@ import { useAuthStore, type AuthBundle } from '@/stores/auth-store'
 import {
   commitHoneypotUsers,
   getHoneypotOperation,
+  getHoneypotUserOperation,
   HoneypotFailure,
   previewHoneypotUsers,
   saveHoneypotPolicies,
@@ -52,7 +53,7 @@ const response = (config: InternalAxiosRequestConfig, data: unknown) => ({
   data,
 })
 const preview: HoneypotPreview = {
-  version: 1,
+  version: 2,
   preview_id: 'synthetic-preview',
   preview_hash: 'a'.repeat(64),
   expires_at: 2000000000,
@@ -62,7 +63,7 @@ const preview: HoneypotPreview = {
   policy_revision: 4,
   targets: [
     {
-      user_id: 7,
+      user_id: '7',
       username: 'example',
       active: true,
       expected_revision: 2,
@@ -72,14 +73,14 @@ const preview: HoneypotPreview = {
   ],
 }
 const result: HoneypotResult = {
-  version: 1,
+  version: 2,
   status: 'applied',
   operation_id: preview.operation_id,
   kind: 'users',
   policy_revision: 4,
   users: [
     {
-      user_id: 7,
+      user_id: '7',
       username: 'example',
       email: 'example@example.test',
       active: true,
@@ -104,7 +105,7 @@ test('a commit sends only the reviewed binding and verifies the complete post-st
   }
   assert.deepEqual(await commitHoneypotUsers(preview, scope), result)
   assert.equal(calls.length, 1)
-  assert.equal(calls[0].url, '/core/v1/admin/abuse/users/commit')
+  assert.equal(calls[0].url, '/core/v2/admin/abuse/users/commit')
   assert.deepEqual(JSON.parse(calls[0].data), {
     operation_id: preview.operation_id,
     preview_id: preview.preview_id,
@@ -127,7 +128,7 @@ test('a commit sends only the reviewed binding and verifies the complete post-st
   )
   assert.equal(
     userResultMatchesPreview(
-      { ...result, users: [{ ...result.users[0], user_id: 8 }] },
+      { ...result, users: [{ ...result.users[0], user_id: '8' }] },
       preview
     ),
     false
@@ -172,7 +173,14 @@ test('conflict and expired previews are refused, not reported as applied', async
         config,
         undefined,
         {
-          ...response(config, { error: { code: 'PRIVATE' } }),
+          ...response(config, {
+            error: {
+              code:
+                status === 409
+                  ? 'ADMIN_ABUSE_CONFLICT'
+                  : 'ADMIN_ABUSE_PREVIEW_EXPIRED',
+            },
+          }),
           status,
         }
       )
@@ -194,7 +202,7 @@ test('preview mismatches cannot reach a commit', async () => {
     count++
     return response(config, {
       ...preview,
-      targets: [{ ...preview.targets[0], user_id: 999 }],
+      targets: [{ ...preview.targets[0], user_id: '999' }],
     })
   }
   await assert.rejects(
@@ -205,7 +213,7 @@ test('preview mismatches cannot reach a commit', async () => {
         action: 'mark',
         policy_id: 'fixed',
         expected_policy_revision: 4,
-        targets: [{ user_id: 7, expected_revision: 2 }],
+        targets: [{ user_id: '7', expected_revision: 2 }],
       },
       scope
     ),
@@ -218,6 +226,7 @@ test('policy receipts require the exact operation, new revision and empty user m
   api.defaults.adapter = async (config) =>
     response(config, {
       ...result,
+      version: 1,
       kind: 'policies',
       policy_revision: 5,
       users: [],
@@ -246,6 +255,7 @@ test('policy receipts require the exact operation, new revision and empty user m
   api.defaults.adapter = async (config) =>
     response(config, {
       ...result,
+      version: 1,
       kind: 'policies',
       policy_revision: 5,
       users: result.users,
@@ -264,13 +274,13 @@ test('unknown recovery reads only the same operation and a new session cannot di
     return response(config, result)
   }
   assert.deepEqual(
-    await getHoneypotOperation(preview.operation_id, scope),
+    await getHoneypotUserOperation(preview.operation_id, scope),
     result
   )
   assert.equal(calls[0].method, 'get')
   assert.equal(
     calls[0].url,
-    `/core/v1/admin/abuse/operations/${preview.operation_id}`
+    `/core/v2/admin/abuse/operations/${preview.operation_id}`
   )
   installRoot(902, 'other-session')
   await assert.rejects(
@@ -328,5 +338,124 @@ test('policy receipt hashes are required, and valid mismatches are conflicts', a
   await assert.rejects(
     getHoneypotOperation(body.operation_id, scope),
     (error) => error instanceof HoneypotFailure && error.kind === 'unknown'
+  )
+})
+
+test('a dispatched write recognizes only the exact Core rejection code/status pair', async () => {
+  installRoot()
+  const cases = [
+    [400, 'ADMIN_ABUSE_INVALID', 'invalid'],
+    [401, 'ADMIN_ABUSE_UNAUTHORIZED', 'forbidden'],
+    [403, 'ADMIN_ABUSE_FORBIDDEN', 'forbidden'],
+    [404, 'ADMIN_ABUSE_NOT_FOUND', 'not_found'],
+    [409, 'ADMIN_ABUSE_CONFLICT', 'conflict'],
+    [410, 'ADMIN_ABUSE_PREVIEW_EXPIRED', 'expired'],
+    [429, 'ADMIN_ABUSE_RATE_LIMITED', 'invalid'],
+    [503, 'ADMIN_ABUSE_UNAVAILABLE', 'unknown'],
+    [404, 'ADMIN_ABUSE_OPERATION_NOT_FOUND', 'unknown'],
+    [403, 'ADMIN_ABUSE_CONFLICT', 'unknown'],
+    [409, 'ADMIN_ABUSE_FORBIDDEN', 'unknown'],
+    [410, 'ADMIN_ABUSE_CONFLICT', 'unknown'],
+  ] as const
+  let writes = 0
+  for (const [status, code, kind] of cases) {
+    api.defaults.adapter = async (config) => {
+      writes++
+      throw new AxiosError(
+        'synthetic private text',
+        'ERR_BAD_RESPONSE',
+        config,
+        undefined,
+        { ...response(config, { error: { code } }), status }
+      )
+    }
+    await assert.rejects(
+      commitHoneypotUsers(preview, scope),
+      (error) =>
+        error instanceof HoneypotFailure &&
+        error.kind === kind &&
+        error.operationID === preview.operation_id &&
+        !error.message.includes('synthetic private text')
+    )
+  }
+  for (const status of [400, 401, 403, 404, 409, 410, 429, 503]) {
+    for (const data of [
+      {},
+      '<html>synthetic proxy error</html>',
+      { error: { code: 'ADMIN_ABUSE_CONFLICT', details: 'extra' } },
+      { error: { code: 'ADMIN_ABUSE_CONFLICT' }, success: false },
+    ]) {
+      api.defaults.adapter = async (config) => {
+        writes++
+        throw new AxiosError(
+          'synthetic response',
+          'ERR_BAD_RESPONSE',
+          config,
+          undefined,
+          { ...response(config, data), status }
+        )
+      }
+      await assert.rejects(
+        commitHoneypotUsers(preview, scope),
+        (error) =>
+          error instanceof HoneypotFailure &&
+          error.kind === 'unknown' &&
+          error.operationID === preview.operation_id
+      )
+    }
+  }
+  assert.equal(writes, cases.length + 8 * 4)
+})
+
+test('original-operation query failures cannot prove rollback or switch routes', async () => {
+  installRoot()
+  const cases = [
+    [401, { error: { code: 'ADMIN_ABUSE_UNAUTHORIZED' } }, 'forbidden'],
+    [403, { error: { code: 'ADMIN_ABUSE_FORBIDDEN' } }, 'forbidden'],
+    [404, { error: { code: 'ADMIN_ABUSE_OPERATION_NOT_FOUND' } }, 'not_found'],
+    [404, { error: { code: 'ADMIN_ABUSE_NOT_FOUND' } }, 'unknown'],
+    [403, {}, 'unknown'],
+    [404, {}, 'unknown'],
+    [503, { error: { code: 'ADMIN_ABUSE_UNAVAILABLE' } }, 'unknown'],
+  ] as const
+  const calls: InternalAxiosRequestConfig[] = []
+  for (const read of [getHoneypotUserOperation, getHoneypotOperation]) {
+    for (const [status, data, kind] of cases) {
+      api.defaults.adapter = async (config) => {
+        calls.push(config)
+        throw new AxiosError(
+          'synthetic lookup',
+          'ERR_BAD_RESPONSE',
+          config,
+          undefined,
+          { ...response(config, data), status }
+        )
+      }
+      await assert.rejects(
+        read(preview.operation_id, scope),
+        (error) =>
+          error instanceof HoneypotFailure &&
+          error.kind === kind &&
+          error.operationID === preview.operation_id
+      )
+    }
+  }
+  assert.equal(calls.length, cases.length * 2)
+  assert.ok(calls.every((call) => call.method === 'get'))
+  assert.ok(
+    calls
+      .slice(0, cases.length)
+      .every(
+        (call) =>
+          call.url === `/core/v2/admin/abuse/operations/${preview.operation_id}`
+      )
+  )
+  assert.ok(
+    calls
+      .slice(cases.length)
+      .every(
+        (call) =>
+          call.url === `/core/v1/admin/abuse/operations/${preview.operation_id}`
+      )
   )
 })

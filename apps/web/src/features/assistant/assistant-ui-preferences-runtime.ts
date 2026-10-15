@@ -15,7 +15,14 @@ export type UIPreferenceAdapter = {
   preview: (patch: UIPreferencePatch) => () => void
 }
 export type UIPreferenceReceipt = {
-  status: 'applying' | 'applied' | 'previewing' | 'restored' | 'unchanged' | 'failed' | 'unavailable'
+  status:
+    | 'applying'
+    | 'applied'
+    | 'previewing'
+    | 'restored'
+    | 'unchanged'
+    | 'failed'
+    | 'unavailable'
   canUndo: boolean
 }
 
@@ -36,7 +43,10 @@ export function createUIPreferenceRuntime(
     return () => clearTimeout(timer)
   }
 ) {
-  const records = new Map<string, { expires: number; receipt: UIPreferenceReceipt }>()
+  const records = new Map<
+    string,
+    { expires: number; receipt: UIPreferenceReceipt }
+  >()
   const listeners = new Set<() => void>()
   let lastUndo: Undo | undefined
   let busy = false
@@ -66,9 +76,13 @@ export function createUIPreferenceRuntime(
     expectedID?: string
   ): Promise<UIPreferenceReceipt> {
     const saved = lastUndo
-    if (busy || signal.aborted || !saved ||
-        (expectedID !== undefined && saved.id !== expectedID) ||
-        !sameOwner(adapter.owner(), saved.owner)) {
+    if (
+      busy ||
+      signal.aborted ||
+      !saved ||
+      (expectedID !== undefined && saved.id !== expectedID) ||
+      !sameOwner(adapter.owner(), saved.owner)
+    ) {
       return { status: 'unchanged', canUndo: false }
     }
     lastUndo = undefined
@@ -76,7 +90,11 @@ export function createUIPreferenceRuntime(
       saved.stop()
       return publish(saved.id, { status: 'restored', canUndo: false })
     }
-    const patch = uiPreferenceUndoPatch(saved.before, saved.patch, adapter.read())
+    const patch = uiPreferenceUndoPatch(
+      saved.before,
+      saved.patch,
+      adapter.read()
+    )
     if (Object.keys(patch).length === 0) {
       return publish(saved.id, { status: 'unchanged', canUndo: false })
     }
@@ -84,7 +102,9 @@ export function createUIPreferenceRuntime(
     publish(saved.id, { status: 'applying', canUndo: false })
     try {
       await adapter.save(patch, signal)
-      if (signal.aborted || !sameOwner(adapter.owner(), saved.owner)) throw new Error('session changed')
+      if (signal.aborted || !sameOwner(adapter.owner(), saved.owner)) {
+        throw new Error('session changed')
+      }
       return publish(saved.id, { status: 'restored', canUndo: false })
     } catch {
       // Never automatically repeat an uncertain profile write.
@@ -100,20 +120,34 @@ export function createUIPreferenceRuntime(
     signal: AbortSignal
   ): Promise<UIPreferenceReceipt> {
     const action = parseAssistantUIPreferenceAction(value)
-    const unavailable: UIPreferenceReceipt = { status: 'unavailable', canUndo: false }
+    const unavailable: UIPreferenceReceipt = {
+      status: 'unavailable',
+      canUndo: false,
+    }
     if (!action) return unavailable
     // Keep IDs until their server expiry: eviction must never enable a replay.
     for (const [id, entry] of records) {
       if (entry.expires < now()) records.delete(id)
     }
-    const owner = { userID: action.actor_user_id, sessionID: action.actor_session_id }
-    if (signal.aborted || !sameOwner(adapter.owner(), owner) ||
-        action.expires_at * 1000 <= now() ||
-        action.expires_at * 1000 > now() + 135_000) return unavailable
+    const owner = {
+      userID: action.actor_user_id,
+      sessionID: action.actor_session_id,
+    }
+    if (
+      signal.aborted ||
+      !sameOwner(adapter.owner(), owner) ||
+      action.expires_at * 1000 <= now() ||
+      action.expires_at * 1000 > now() + 135_000
+    ) {
+      return unavailable
+    }
     const existing = records.get(action.action_id)
     if (existing) return existing.receipt
     if (busy || records.size >= 128) return unavailable
-    records.set(action.action_id, { expires: action.expires_at * 1000, receipt: unavailable })
+    records.set(action.action_id, {
+      expires: action.expires_at * 1000,
+      receipt: unavailable,
+    })
     if (action.tool === 'restore_ui_preferences') {
       return publish(action.action_id, await undo(adapter, signal))
     }
@@ -126,10 +160,15 @@ export function createUIPreferenceRuntime(
       discardUndo()
       const before = adapter.read()
       const patch = Object.fromEntries(
-        Object.entries(action.preview).filter(([key, selected]) => before[key as keyof UIPreferences] !== selected)
+        Object.entries(action.preview).filter(
+          ([key, selected]) => before[key as keyof UIPreferences] !== selected
+        )
       ) as UIPreferencePatch
       if (Object.keys(patch).length === 0) {
-        return publish(action.action_id, { status: 'unchanged', canUndo: false })
+        return publish(action.action_id, {
+          status: 'unchanged',
+          canUndo: false,
+        })
       }
       if (action.temporary) {
         lastPreviewAt = now()
@@ -152,10 +191,15 @@ export function createUIPreferenceRuntime(
           stop()
           return records.get(action.action_id)?.receipt ?? unavailable
         }
-        return publish(action.action_id, { status: 'previewing', canUndo: true })
+        return publish(action.action_id, {
+          status: 'previewing',
+          canUndo: true,
+        })
       }
       await adapter.save(patch, signal)
-      if (signal.aborted || !sameOwner(adapter.owner(), owner)) throw new Error('session changed')
+      if (signal.aborted || !sameOwner(adapter.owner(), owner)) {
+        throw new Error('session changed')
+      }
       lastUndo = { id: action.action_id, owner, before, patch }
       return publish(action.action_id, { status: 'applied', canUndo: true })
     } catch {
@@ -171,7 +215,9 @@ export function createUIPreferenceRuntime(
     receipt: (id: string) => records.get(id)?.receipt,
     subscribe: (listener: () => void) => {
       listeners.add(listener)
-      return () => { listeners.delete(listener) }
+      return () => {
+        listeners.delete(listener)
+      }
     },
   }
 }

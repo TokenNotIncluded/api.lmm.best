@@ -25,7 +25,9 @@ from pathlib import Path
 from typing import Any
 
 API = "/core/v1/admin/abuse"
-ARTIFACT_VERSION = 1
+USERS_API = "/core/v2/admin/abuse"
+ARTIFACT_VERSION = 2
+MAX_I64 = 9223372036854775807
 MAX_BODY = 1024 * 1024
 MAX_FILE = 1024 * 1024
 MAX_TOKEN = 8192
@@ -58,6 +60,23 @@ def integer(value: Any, name: str, minimum: int = 0) -> int:
     return value
 
 
+def user_id_string(value: Any, *, wire_version: int = 2) -> str:
+    """Compare IDs exactly without rewriting a legacy artifact or its hash."""
+    if wire_version == 1:
+        require(type(value) is int and 1 <= value <= MAX_I64, "Invalid legacy user ID")
+        return str(value)
+    require(wire_version == 2 and isinstance(value, str)
+            and re.fullmatch(r"[1-9][0-9]{0,18}", value) is not None
+            and int(value) <= MAX_I64, "Invalid v2 user ID")
+    return value
+
+
+def cli_user_id(value: Any, *, allow_zero: bool = False) -> str | None:
+    require(type(value) is int and (0 if allow_zero else 1) <= value <= MAX_I64,
+            "User ID/cursor outside supported i64 range")
+    return None if value == 0 else str(value)
+
+
 def unique_object(pairs: list[tuple[str, Any]]) -> dict[str, Any]:
     result: dict[str, Any] = {}
     for key, value in pairs:
@@ -72,7 +91,7 @@ def decode_json(raw: bytes) -> Any:
                           parse_constant=lambda _: (_ for _ in ()).throw(ClientError("Non-finite JSON number")))
         canonical(value)  # Also reject unpaired Unicode surrogates before validation.
         return value
-    except (UnicodeDecodeError, json.JSONDecodeError, RecursionError):
+    except (UnicodeDecodeError, ValueError, RecursionError):
         raise ClientError("Invalid JSON response or input") from None
 
 
@@ -199,13 +218,30 @@ class NoRedirect(urllib.request.HTTPRedirectHandler):
         return None
 
 
+def permitted_api_path(method: str, path: str) -> None:
+    allowed = {(API + "/policies", "GET"), (API + "/policies", "PUT"),
+               (USERS_API + "/users", "GET"), (USERS_API + "/users/preview", "POST"),
+               (USERS_API + "/users/commit", "POST"), (USERS_API + "/audit", "GET")}
+    if isinstance(path, str) and (path, method) in allowed:
+        return
+    if method == "GET" and isinstance(path, str):
+        for prefix in (API, USERS_API):
+            if path.startswith(prefix + "/operations/"):
+                valid_operation_id(path.removeprefix(prefix + "/operations/"))
+                return
+        if path.startswith(USERS_API + "/users/"):
+            user_id_string(path.removeprefix(USERS_API + "/users/"))
+            return
+    raise ClientError("Invalid API path or method")
+
+
 class Client:
     def __init__(self, server: str, token: str, *, timeout: float = TIMEOUT):
         self.server, self.token, self.timeout = server, token, timeout
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
 
     def request(self, method: str, path: str, body: Any = None, query: Any = None) -> Any:
-        require(path.startswith(API + "/"), "Invalid API path")
+        permitted_api_path(method, path)
         url = self.server + path
         if query:
             url += "?" + urllib.parse.urlencode(query)
@@ -240,10 +276,14 @@ class Client:
         except (urllib.error.URLError, TimeoutError, OSError, ValueError, http.client.HTTPException):
             raise ClientError("Network request failed; server response is unavailable") from None
 
-    def operation(self, operation_id: str) -> Any | None:
+    def operation(self, operation_id: str, *, kind: str | None = None) -> Any | None:
         valid_operation_id(operation_id)
+        require(kind in (None, "users", "policies"), "Invalid operation kind")
+        # Manual lookup is the explicit mixed v2 route; known policy callers
+        # retain v1. No HTTP status can select a different wire or replay a write.
+        prefix = API if kind == "policies" else USERS_API
         try:
-            result = self.request("GET", API + "/operations/" + operation_id)
+            result = self.request("GET", prefix + "/operations/" + operation_id)
         except ApiError as exc:
             if exc.status == 404 and exc.code == "ADMIN_ABUSE_OPERATION_NOT_FOUND":
                 return None
@@ -258,35 +298,54 @@ def valid_operation_id(value: Any) -> str:
     return value
 
 
-def safe_user(value: Any) -> dict[str, Any]:
-    require(isinstance(value, dict), "Invalid user response")
-    integer(value.get("user_id"), "user ID", 1)
+def safe_user(value: Any, *, detail: bool = False) -> dict[str, Any]:
+    fields = {"user_id", "username", "email", "active", "platform_role", "revision", "marked", "policy_id"}
+    require(isinstance(value, dict) and set(value) == (fields | {"version"} if detail else fields),
+            "Invalid user response fields")
+    if detail:
+        require(type(value["version"]) is int and value["version"] == 2, "Invalid user detail version")
+    user_id_string(value["user_id"])
     integer(value.get("revision"), "mark revision")
     require(isinstance(value.get("username"), str) and type(value.get("active")) is bool
-            and type(value.get("marked")) is bool and isinstance(value.get("platform_role"), str),
+            and isinstance(value.get("email"), str) and type(value.get("marked")) is bool
+            and value.get("platform_role") in ("user", "admin", "superadmin"),
             "Invalid user state")
-    require(value.get("policy_id") is None or isinstance(value["policy_id"], str), "Invalid user policy ID")
+    require(value["policy_id"] is None or (isinstance(value["policy_id"], str)
+            and re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", value["policy_id"]) is not None), "Invalid user policy ID")
+    require(value["marked"] == (value["policy_id"] is not None), "Inconsistent user mark and policy")
     return {key: value[key] for key in ("user_id", "username", "active", "platform_role", "revision", "marked", "policy_id")}
 
 
-def private_user(value: Any) -> dict[str, Any]:
-    result = safe_user(value)
+def private_user(value: Any, *, detail: bool = False) -> dict[str, Any]:
+    result = safe_user(value, detail=detail)
     require(isinstance(value.get("email"), str), "Invalid user email")
     return {**result, "email": value["email"]}
 
 
-def safe_operation(value: Any, operation_id: str) -> dict[str, Any]:
-    require(isinstance(value, dict) and type(value.get("version")) is int and value["version"] == 1 and value.get("status") == "applied"
-            and value.get("operation_id") == operation_id and value.get("kind") in ("policies", "users")
+def safe_operation(value: Any, operation_id: str, *, kind: str | None = None) -> dict[str, Any]:
+    require(isinstance(value, dict) and value.get("kind") in ("policies", "users")
+            and (kind is None or value["kind"] == kind), "Invalid operation kind")
+    expected_version = 2 if value["kind"] == "users" else 1
+    fields = {"version", "status", "operation_id", "kind", "policy_revision", "users"}
+    require(type(value.get("version")) is int and value["version"] == expected_version
+            and value.get("status") == "applied" and value.get("operation_id") == operation_id
             and isinstance(value.get("users"), list), "Invalid operation response")
-    revision = integer(value.get("policy_revision"), "operation policy revision")
-    output = {"operation_id": operation_id, "recorded": True, "status": "applied", "kind": value["kind"],
-              "policy_revision": revision, "users": [safe_user(user) for user in value["users"]]}
     if value["kind"] == "policies":
         config_hash = value.get("applied_config_hash")
         if not isinstance(config_hash, str) or SHA256.fullmatch(config_hash) is None:
             raise OutcomeUnknown(f"Outcome unknown for policy operation {operation_id}: missing valid applied_config_hash; do not resend")
+        require(set(value) == fields | {"applied_config_hash"} and value["users"] == [],
+                "Invalid policy operation fields")
+    else:
+        require(set(value) == fields and len(value["users"]) <= 200, "Invalid users operation fields")
+    revision = integer(value.get("policy_revision"), "operation policy revision")
+    output = {"operation_id": operation_id, "recorded": True, "status": "applied", "kind": value["kind"],
+              "policy_revision": revision, "users": [safe_user(user) for user in value["users"]]}
+    if value["kind"] == "policies":
         output["applied_config_hash"] = config_hash
+    else:
+        ids = [row["user_id"] for row in output["users"]]
+        require(len(ids) == len(set(ids)), "Duplicate operation target ID")
     return output
 
 
@@ -513,8 +572,12 @@ def revision_from(value: Any) -> int:
     return integer(value.get("revision"), "revision")
 
 
-def check_preview(value: Any, requested: dict[str, Any], *, allow_expired: bool = False) -> dict[str, Any]:
-    require(isinstance(value, dict) and type(value.get("version")) is int and value["version"] == 1,
+def check_preview(value: Any, requested: dict[str, Any], *, allow_expired: bool = False,
+                  wire_version: int = 2) -> dict[str, Any]:
+    fields = {"version", "preview_id", "preview_hash", "expires_at", "operation_id", "action",
+              "policy_id", "policy_revision", "targets"}
+    require(isinstance(value, dict) and set(value) == fields and type(value.get("version")) is int
+            and value["version"] == wire_version and wire_version in (1, 2),
             "Invalid server preview version")
     require(value.get("operation_id") == requested["operation_id"] and value.get("action") == requested["action"]
             and value.get("policy_id") == requested.get("policy_id")
@@ -527,12 +590,16 @@ def check_preview(value: Any, requested: dict[str, Any], *, allow_expired: bool 
     require(type(value.get("expires_at")) is int and value["expires_at"] > 0
             and (allow_expired or value["expires_at"] > int(time.time())), "Invalid or expired preview expiry")
     targets = value.get("targets")
-    require(isinstance(targets, list) and len(targets) == len(requested["targets"]), "Invalid preview target count")
-    expected = {row["user_id"]: row["expected_revision"] for row in requested["targets"]}
+    require(isinstance(targets, list) and 1 <= len(targets) <= 200
+            and len(targets) == len(requested["targets"]), "Invalid preview target count")
+    expected = {user_id_string(row["user_id"], wire_version=wire_version): row["expected_revision"]
+                for row in requested["targets"]}
+    require(len(expected) == len(requested["targets"]), "Duplicate requested target ID")
     seen = set()
     for row in targets:
-        require(isinstance(row, dict), "Invalid preview target")
-        uid = integer(row.get("user_id"), "preview user ID", 1)
+        require(isinstance(row, dict) and set(row) == {"user_id", "username", "active", "expected_revision", "before", "after"},
+                "Invalid preview target")
+        uid = user_id_string(row["user_id"], wire_version=wire_version)
         rev = integer(row.get("expected_revision"), "preview revision")
         require(uid in expected and uid not in seen and expected[uid] == rev, "Preview IDs or revisions changed")
         seen.add(uid)
@@ -542,6 +609,8 @@ def check_preview(value: Any, requested: dict[str, Any], *, allow_expired: bool 
                 and type(before["marked"]) is bool and isinstance(after, dict)
                 and set(after) == {"marked", "policy_id", "active"} and type(after["marked"]) is bool
                 and type(after["active"]) is bool, "Invalid preview state transition")
+        require(all(state["policy_id"] is None or isinstance(state["policy_id"], str) for state in (before, after)),
+                "Invalid preview policy ID")
         require(after["marked"] == (requested["action"] != "unmark")
                 and after["policy_id"] == requested.get("policy_id")
                 and after["active"] == (True if requested["action"] == "convert_disabled" else row["active"]),
@@ -560,7 +629,7 @@ def changed_policy_ids(before: dict[str, Any], after: dict[str, Any]) -> list[st
 
 
 def artifact(server: str, kind: str, operation_id: str, payload: Any) -> dict[str, Any]:
-    return {"artifact_version": ARTIFACT_VERSION, "server": server, "kind": kind,
+    return {"artifact_version": ARTIFACT_VERSION if kind == "users" else 1, "server": server, "kind": kind,
             "operation_id": operation_id, "payload": payload}
 
 
@@ -572,7 +641,7 @@ def apply_artifact(client: Client, args: argparse.Namespace) -> dict[str, Any]:
                 and hmac.compare_digest(args.confirm, digest), "Explicit --confirm must match the artifact SHA256")
     saved = decode_json(raw)
     require(isinstance(saved, dict) and set(saved) == {"artifact_version", "server", "kind", "operation_id", "payload"}
-            and type(saved["artifact_version"]) is int and saved["artifact_version"] == ARTIFACT_VERSION and saved["server"] == client.server,
+            and type(saved["artifact_version"]) is int and saved["artifact_version"] in (1, 2) and saved["server"] == client.server,
             "Artifact version or server binding mismatch")
     opid = valid_operation_id(saved["operation_id"])
     payload = saved["payload"]
@@ -592,17 +661,20 @@ def apply_artifact(client: Client, args: argparse.Namespace) -> dict[str, Any]:
         ids = set()
         for target in requested["targets"]:
             require(isinstance(target, dict) and set(target) == {"user_id", "expected_revision"}, "Invalid target fields")
-            user_id = integer(target["user_id"], "user ID", 1)
+            user_id = user_id_string(target["user_id"], wire_version=saved["artifact_version"])
             integer(target["expected_revision"], "expected revision")
             require(user_id not in ids, "Duplicate target ID")
             ids.add(user_id)
         require((requested["action"] == "unmark" and "policy_id" not in requested)
                 or (requested["action"] != "unmark" and isinstance(requested.get("policy_id"), str)
                     and re.fullmatch(r"[A-Za-z0-9_.-]{1,64}", requested["policy_id"]) is not None), "Invalid requested policy")
-        check_preview(preview, requested, allow_expired=True)
-        method, path = "POST", API + "/users/commit"
+        check_preview(preview, requested, allow_expired=True, wire_version=saved["artifact_version"])
+        operation_kind = "users"
+        method, path = "POST", USERS_API + "/users/commit"
         body = {key: preview[key] for key in ("operation_id", "preview_id", "preview_hash")}
     elif saved["kind"] == "policy-local-diff":
+        require(saved["artifact_version"] == 1, "Policy artifacts require version 1")
+        operation_kind = "policies"
         keys = {"operation_id", "reason", "expected_revision", "config", "before_config"}
         require(set(payload) in (keys, keys | {"capabilities"}) and payload["operation_id"] == opid,
                 "Invalid policy artifact")
@@ -619,7 +691,7 @@ def apply_artifact(client: Client, args: argparse.Namespace) -> dict[str, Any]:
         raise ClientError("Unknown artifact action")
     if not args.apply:
         return {"dry_run": True, "artifact_sha256": digest, "operation_id": opid, "kind": saved["kind"], "target_writes": 0}
-    existing = client.operation(opid)
+    existing = client.operation(opid, kind=operation_kind)
     if existing is not None:
         return {**checked_operation(existing, saved), "submitted": False, "reused": True, "exact_request_match_verified": False}
     if policy_caps is not None:
@@ -632,6 +704,8 @@ def apply_artifact(client: Client, args: argparse.Namespace) -> dict[str, Any]:
         result = client.request(method, path, body)
         require(isinstance(result, dict), "Invalid mutation response")
         return {**checked_operation(result, saved), "submitted": True, "reused": False}
+    except KeyboardInterrupt:
+        raise OutcomeUnknown(f"Outcome unknown for operation {opid}; use operation {opid}, never create a replacement operation") from None
     except ClientError as exc:
         known_rejections = {(400, "ADMIN_ABUSE_INVALID"), (401, "ADMIN_ABUSE_UNAUTHORIZED"),
                             (403, "ADMIN_ABUSE_FORBIDDEN"), (404, "ADMIN_ABUSE_NOT_FOUND"),
@@ -641,20 +715,20 @@ def apply_artifact(client: Client, args: argparse.Namespace) -> dict[str, Any]:
             raise
         # No automatic mutation replay: query the original operation exactly once.
         try:
-            observed = client.operation(opid)
+            observed = client.operation(opid, kind=operation_kind)
+            if observed is not None:
+                return {**checked_operation(observed, saved), "submitted": True, "reconciled": True, "exact_request_match_verified": False}
         except ClientError:
-            observed = None
-        if observed is not None:
-            return {**checked_operation(observed, saved), "submitted": True, "reconciled": True, "exact_request_match_verified": False}
+            pass
         raise OutcomeUnknown(f"Outcome unknown for operation {opid}; use operation {opid}, never create a replacement operation") from None
 
 
 def checked_operation(value: Any, saved: dict[str, Any]) -> dict[str, Any]:
-    safe = safe_operation(value, saved["operation_id"])
+    safe = safe_operation(value, saved["operation_id"], kind="users" if saved["kind"] == "users" else "policies")
     payload = saved["payload"]
     if saved["kind"] == "users":
         preview = payload["preview"]
-        expected = {row["user_id"]: row for row in preview["targets"]}
+        expected = {user_id_string(row["user_id"], wire_version=saved["artifact_version"]): row for row in preview["targets"]}
         require(safe["kind"] == "users" and safe["policy_revision"] == preview["policy_revision"]
                 and len(safe["users"]) == len(expected), "Recorded operation kind or targets differ from preview")
         seen = set()
@@ -736,13 +810,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             "Session token and query/reason cannot both consume stdin; use a private credential file")
     if args.command == "users":
         if args.user_command == "list":
-            require(0 <= args.after and 1 <= args.limit <= 200, "Users cursor/limit outside supported range")
+            cli_user_id(args.after, allow_zero=True)
+            require(1 <= args.limit <= 200, "Users cursor/limit outside supported range")
         else:
-            integer(args.user_id, "user ID", 1)
+            cli_user_id(args.user_id)
     if args.command == "honeypot":
         require(len(args.user_id) <= 200 and len(set(args.user_id)) == len(args.user_id), "User IDs must be unique (maximum 200)")
         for user_id in args.user_id:
-            integer(user_id, "user ID", 1)
+            cli_user_id(user_id)
         require((args.action == "unmark" and args.policy_id is None) or
                 (args.action != "unmark" and isinstance(args.policy_id, str) and 1 <= len(args.policy_id) <= 64),
                 "mark/convert_disabled requires --policy-id; unmark must omit it")
@@ -756,22 +831,28 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         return {"operation_id": args.operation_id, "recorded": False} if value is None else safe_operation(value, args.operation_id)
     if args.command == "users":
         if args.user_command == "inspect":
-            value = client.request("GET", API + f"/users/{args.user_id}")
-            output = safe_user(value)
-            require(output["user_id"] == args.user_id, "Server returned a different user")
+            value = client.request("GET", USERS_API + f"/users/{args.user_id}")
+            output = safe_user(value, detail=True)
+            require(output["user_id"] == cli_user_id(args.user_id), "Server returned a different user")
             if args.out:
-                output["private_export_sha256"] = private_write(args.out, private_user(value))
+                output["private_export_sha256"] = private_write(args.out, {"version": 2, **private_user(value, detail=True)})
             return output
         query = bounded_stdin(320, "Query") if args.query_stdin else ""
-        result = client.request("GET", API + "/users", query={"after": args.after, "limit": args.limit, "query": query, "state": args.state})
-        require(isinstance(result, dict) and type(result.get("version")) is int and result["version"] == 1
+        params = {"limit": args.limit, "query": query, "state": args.state}
+        if args.after:
+            params["after"] = cli_user_id(args.after)
+        result = client.request("GET", USERS_API + "/users", query=params)
+        require(isinstance(result, dict) and set(result) == {"version", "users", "next_after"}
+                and type(result.get("version")) is int and result["version"] == 2
                 and isinstance(result.get("users"), list) and len(result["users"]) <= args.limit, "Invalid users list response")
         output = {"users": [safe_user(row) for row in result["users"]], "next_after": result.get("next_after")}
         ids = [row["user_id"] for row in output["users"]]
-        require(ids == sorted(set(ids)) and all(uid > args.after for uid in ids), "Invalid users page order")
-        require(output["next_after"] is None or (type(output["next_after"]) is int and ids and output["next_after"] == ids[-1]), "Invalid users next cursor")
+        require(ids == sorted(set(ids), key=int) and all(int(uid) > args.after for uid in ids), "Invalid users page order")
+        if output["next_after"] is not None:
+            user_id_string(output["next_after"])
+            require(bool(ids) and output["next_after"] == ids[-1], "Invalid users next cursor")
         if args.out:
-            output["private_export_sha256"] = private_write(args.out, {"version": 1, "users": [private_user(row) for row in result["users"]], "next_after": result.get("next_after")})
+            output["private_export_sha256"] = private_write(args.out, {"version": 2, "users": [private_user(row) for row in result["users"]], "next_after": result["next_after"]})
         return output
     if args.command == "policy" and args.policy_command == "get":
         value = policy_response(client.request("GET", API + "/policies"))
@@ -802,14 +883,14 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
                 "target_writes": 0}
     targets = []
     for user_id in sorted(args.user_id):
-        user = client.request("GET", API + f"/users/{user_id}")
-        require(safe_user(user)["user_id"] == user_id, "Server returned a different user")
-        targets.append({"user_id": user_id, "expected_revision": revision_from(user)})
+        user = client.request("GET", USERS_API + f"/users/{user_id}")
+        require(safe_user(user, detail=True)["user_id"] == cli_user_id(user_id), "Server returned a different user")
+        targets.append({"user_id": cli_user_id(user_id), "expected_revision": revision_from(user)})
     requested = {"operation_id": operation_id, "reason": reason, "action": args.action,
                  "expected_policy_revision": revision, "targets": targets}
     if args.policy_id:
         requested["policy_id"] = args.policy_id
-    preview = check_preview(client.request("POST", API + "/users/preview", requested), requested)
+    preview = check_preview(client.request("POST", USERS_API + "/users/preview", requested), requested)
     digest = private_write(args.out, artifact(server, "users", operation_id, {"request": requested, "preview": preview}))
     return {"preview_kind": "SERVER_USER_PREVIEW", "artifact_sha256": digest,
             "operation_id": operation_id, "user_ids": [row["user_id"] for row in targets], "target_writes": 0}
