@@ -49,7 +49,7 @@ redirect_uri = "https://api.example.test/api/oauth/google/callback"
 CLI 授权不签发 API Key、不授予开发者资格，也不允许模型、MCP、团队或资金写入。
 源码另提供显式配置的 Pi 模型委托：必须已有真实开发者资格，并由用户同意有限 credits 预算；
 固定使用本人个人账户，独立记录 OAuth 来源和 usage，不把 access token 伪装成 API Key。
-此候选的编译、数据库、实际 Pi 和恢复验收仍未完成；CLI 只读通过不能证明 Pi 可用。
+当前组合已通过编译及独立 PostgreSQL/TCP 验收，覆盖来源绑定、跨续期预算、撤销竞争、用量和退款；上游为受控本地服务。实际外部 HTTPS/Pi SDK、完整站点和最终恢复验收仍须另行完成，不能从 CLI 只读通过推导 Pi 可用。
 
 ## 可选 TOTP 二次验证（MFA）
 
