@@ -111,11 +111,7 @@ func Run() error {
 	if address == "" {
 		address = "0.0.0.0:8081"
 	}
-	server := &http.Server{
-		Addr: address, Handler: handler,
-		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second,
-		IdleTimeout: time.Minute, MaxHeaderBytes: 16 << 10,
-	}
+	server := newHTTPServer(address, handler)
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	listener, err := net.Listen("tcp", address)
@@ -129,6 +125,19 @@ func Run() error {
 	return serveAndDrain(ctx, server, listener, host, func(work context.Context) {
 		runtime.StartWorkers(work, host)
 	}, 30*time.Second)
+}
+
+// Bound ordinary response writes so a peer that stops reading cannot retain an
+// admitted permit indefinitely. Streaming handlers must maintain their own
+// per-write deadlines through ResponseController (as remote-control SSE does).
+// This is a socket deadline, not cancellation of business work or a rollback.
+func newHTTPServer(address string, handler http.Handler) *http.Server {
+	return &http.Server{
+		Addr: address, Handler: handler,
+		ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		IdleTimeout:  time.Minute, MaxHeaderBytes: 16 << 10,
+	}
 }
 
 type drainingHost interface {
