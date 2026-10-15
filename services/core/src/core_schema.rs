@@ -4,7 +4,9 @@ use crate::identity::{IdentityError, IdentityStore};
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool, Row};
 
+mod check_db;
 mod manifest;
+pub use check_db::{DatabaseCheckError, DatabaseCheckReport, check_database};
 pub use manifest::{
     CatalogManifest, ComponentManifest, IdentityManifest, SchemaManifest, schema_manifest,
 };

@@ -19,10 +19,11 @@ use std::{
 
 mod admin;
 
-const USAGE: &str = "Usage: lmm-core [--config /absolute/core.toml | --legacy-env] [serve | init-db | bootstrap-user | complete-setup | install-usage-receipt-index | schema-manifest]\n\n\
+const USAGE: &str = "Usage: lmm-core [--config /absolute/core.toml | --legacy-env] [serve | init-db | bootstrap-user | complete-setup | install-usage-receipt-index | schema-manifest | check-db]\n\n\
 Commands:\n\
   serve           Start the core service (the default without arguments).\n\
   schema-manifest Print the compiled schema contract as JSON; accepts no config options and performs no I/O except stdout.\n\
+  check-db        Read-only schema/runtime authority JSON; requires explicit --config.\n\
   init-db         Initialize a new, empty core database.\n\
   bootstrap-user  Read a user_id and platform_level JSON object from stdin.\n\n\
   complete-setup  Record setup completion offline after creating or importing root.\n\
@@ -45,6 +46,7 @@ enum Command {
     CompleteSetup,
     InstallUsageReceiptIndex,
     SchemaManifest,
+    CheckDb,
     Help,
     Version,
 }
@@ -81,7 +83,8 @@ fn command(args: impl IntoIterator<Item = OsString>) -> io::Result<Arguments> {
                 | "bootstrap-user"
                 | "complete-setup"
                 | "install-usage-receipt-index"
-                | "schema-manifest",
+                | "schema-manifest"
+                | "check-db",
             ) if operation.is_none() && !version => {
                 operation = Some(match arg.to_str() {
                     Some("init-db") => Command::InitDb,
@@ -89,6 +92,7 @@ fn command(args: impl IntoIterator<Item = OsString>) -> io::Result<Arguments> {
                     Some("complete-setup") => Command::CompleteSetup,
                     Some("install-usage-receipt-index") => Command::InstallUsageReceiptIndex,
                     Some("schema-manifest") => Command::SchemaManifest,
+                    Some("check-db") => Command::CheckDb,
                     _ => Command::Serve,
                 });
             }
@@ -108,8 +112,32 @@ fn command(args: impl IntoIterator<Item = OsString>) -> io::Result<Arguments> {
     })
 }
 
+fn check_db_requested(args: &[OsString]) -> bool {
+    let mut config_value = false;
+    for arg in args {
+        if config_value {
+            config_value = false;
+            continue;
+        }
+        if arg == "--config" {
+            config_value = true;
+            continue;
+        }
+        if arg == "check-db" {
+            return true;
+        }
+    }
+    false
+}
+
 fn main() -> Result<(), Box<dyn Error>> {
-    let arguments = command(env::args_os().skip(1))?;
+    let raw: Vec<_> = env::args_os().skip(1).collect();
+    let checking = check_db_requested(&raw);
+    let arguments = match command(raw) {
+        Ok(arguments) => arguments,
+        Err(_) if checking => std::process::exit(admin::invalid_check_db_arguments()),
+        Err(error) => return Err(error.into()),
+    };
     let operation = match arguments.command {
         Command::Help => {
             println!("{USAGE}");
@@ -129,6 +157,10 @@ fn main() -> Result<(), Box<dyn Error>> {
             writeln!(output)?;
             return Ok(());
         }
+        Command::CheckDb => std::process::exit(admin::check_database(
+            arguments.config.as_deref(),
+            arguments.legacy_env,
+        )),
         Command::Serve => None,
         Command::InitDb => Some(admin::Operation::InitDb),
         Command::BootstrapUser => Some(admin::Operation::bootstrap(io::stdin().lock())?),
@@ -478,4 +510,45 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
     signal.abort();
     result?;
     Ok(())
+}
+
+#[cfg(test)]
+mod check_db_parser_tests {
+    use super::*;
+    fn args(values: &[&str]) -> Vec<OsString> {
+        values.iter().map(OsString::from).collect()
+    }
+    #[test]
+    fn check_db_is_explicit_and_accepts_both_config_positions() {
+        for input in [
+            args(&["--config", "/private/runtime.toml", "check-db"]),
+            args(&["check-db", "--config", "/private/runtime.toml"]),
+        ] {
+            let v = command(input).unwrap();
+            assert!(matches!(v.command, Command::CheckDb));
+            assert_eq!(v.config, Some(PathBuf::from("/private/runtime.toml")));
+            assert!(!v.legacy_env);
+        }
+        let v = command(args(&["check-db"])).unwrap();
+        assert!(matches!(v.command, Command::CheckDb));
+        assert!(v.config.is_none());
+    }
+    #[test]
+    fn check_db_never_implicitly_selects_serve_or_accepts_extra_commands() {
+        for input in [
+            args(&["check-db", "serve"]),
+            args(&["serve", "check-db"]),
+            args(&["check-db", "--config", "relative.toml"]),
+            args(&["check-db", "--unknown"]),
+        ] {
+            assert!(command(input).is_err());
+        }
+        assert!(matches!(
+            command(args(&[])).unwrap().command,
+            Command::Serve
+        ));
+        assert!(!check_db_requested(&args(&[
+            "--config", "check-db", "serve"
+        ])));
+    }
 }

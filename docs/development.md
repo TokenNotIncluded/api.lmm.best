@@ -53,6 +53,22 @@ git submodule update --init --depth 1 -- apps/cli
 `identity.web.refresh_key_file` 配置控制台身份。私密文件权限为 `0600` 或可读的
 `0400`，归属必须符合实际服务账户。
 
+只读检查已安装数据库和所选运行配置时，使用：
+
+```sh
+lmm-core --config /absolute/private/core.toml check-db
+```
+
+命令输出 JSON，检查已安装结构和该配置所需的运行权限；不初始化或升级数据库，
+不启动 HTTP、RPC、worker 或模型流量。退出码 `0` 仅表示这次有限检查通过，
+不证明备份完整、物理数据库身份或恢复就绪。
+
+[`scripts/core-ops.py`](../scripts/core-ops.py) 提供配套的 `plan`、`status` 和
+`reconcile`。先用 `python3 -B scripts/core-ops.py --help` 查看入口；它要求显式的
+安装记录、文件摘要和私有输入，`plan` 仅在 Backups 中独占创建新计划文件。
+`status` 与 `reconcile` 只读检查，UNKNOWN 不重放；物理身份尚未验证时会明确返回
+`PHYSICAL_IDENTITY_UNVERIFIED` 和退出码 `3`。它不授予维护、接管或恢复权限。
+
 本地 HTTP 须显式设 `identity.web.local_http=true`；`user_agreement_enabled` 和
 `privacy_policy_enabled` 与实际公开协议一致。注册使用 `identity.registration_enabled`。
 TOTP 二次验证需另行显式配置 [MFA keyring](core-identity.md#可选-totp-二次验证mfa)，

@@ -2,6 +2,9 @@
 //! never invokes these operations or creates database objects.
 use lmm_core::{config, identity::IdentityStore};
 use serde::Deserialize;
+
+mod check_db;
+pub use check_db::{invalid_arguments as invalid_check_db_arguments, run as check_database};
 use std::{
     error::Error,
     io::{self, Read},

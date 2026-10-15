@@ -1,6 +1,6 @@
 //! Read-only startup verification of the runtime role's database authority.
 //! Install/import owners must never be used by the network-facing process.
-use sqlx::PgPool;
+use sqlx::{PgConnection, PgPool};
 use std::fmt;
 
 #[derive(Clone, Copy, Default)]
@@ -50,6 +50,17 @@ pub async fn check(
     sqlx::query("SET LOCAL statement_timeout='1500ms'")
         .execute(&mut *transaction)
         .await?;
+    check_connection(&mut transaction, required).await?;
+    transaction.commit().await?;
+    Ok(())
+}
+
+/// The caller must provide its read-only transaction. This is the same SQL
+/// authority check used by the public startup wrapper, without another pool/TX.
+pub(crate) async fn check_connection(
+    connection: &mut PgConnection,
+    required: RequiredCapabilities,
+) -> Result<(), RuntimeDatabaseError> {
     let unsafe_role: bool = sqlx::query_scalar(r#"
         SELECT current_user<>session_user
         OR EXISTS(SELECT FROM pg_roles r WHERE r.rolname<>current_user AND (
@@ -83,7 +94,7 @@ pub async fn check(
             WHERE n.nspname NOT IN ('pg_catalog','information_schema') AND left(n.nspname,3)<>'pg_'
         ) SELECT FROM owners o WHERE pg_has_role(current_user,o.owner,'USAGE') OR pg_has_role(session_user,o.owner,'SET')
           OR pg_has_role(current_user,o.owner,'MEMBER WITH ADMIN OPTION') OR pg_has_role(session_user,o.owner,'MEMBER WITH ADMIN OPTION'))
-    "#).fetch_one(&mut *transaction).await?;
+    "#).fetch_one(&mut *connection).await?;
     if unsafe_role {
         return Err(RuntimeDatabaseError::UnsafePrivileges);
     }
@@ -143,7 +154,7 @@ pub async fn check(
         OR EXISTS(SELECT FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
           WHERE n.nspname='core_billing' AND CASE WHEN c.relkind='S'
             THEN has_sequence_privilege(c.oid,'USAGE,SELECT,UPDATE') ELSE FALSE END)
-    "#).fetch_one(&mut *transaction).await?;
+    "#).fetch_one(&mut *connection).await?;
     if forbidden_write {
         return Err(RuntimeDatabaseError::UnsafePrivileges);
     }
@@ -191,7 +202,7 @@ pub async fn check(
           AND has_table_privilege('core_billing.account_policies','UPDATE')
           AND has_function_privilege('core_billing.open_ledger_wallet(bigint)','EXECUTE')
           AND has_function_privilege('core_billing.post_ledger(jsonb)','EXECUTE')
-    "#).fetch_one(&mut *transaction).await?;
+    "#).fetch_one(&mut *connection).await?;
     if !identity_complete {
         return Err(RuntimeDatabaseError::MissingPrivileges);
     }
@@ -208,7 +219,7 @@ pub async fn check(
           AND NOT EXISTS(SELECT FROM (VALUES ('authorization_requests'),('authorization_codes'),('refresh_tokens')) t(name)
             WHERE NOT has_column_privilege('core_oauth.'||t.name,'consumed_at','UPDATE'))
           AND has_function_privilege('core_oauth.readonly_scope_set(text[])','EXECUTE')
-        "#).fetch_one(&mut *transaction).await?;
+        "#).fetch_one(&mut *connection).await?;
         if !complete {
             return Err(RuntimeDatabaseError::MissingPrivileges);
         }
@@ -224,7 +235,7 @@ pub async fn check(
             AND has_sequence_privilege('core_charging.budgets_id_seq','USAGE')
             AND has_sequence_privilege('core_charging.policy_events_id_seq','USAGE')
             AND has_function_privilege('core_charging.committed_credits(text,bigint,bigint,bigint)','EXECUTE')
-        "#).fetch_one(&mut *transaction).await?;
+        "#).fetch_one(&mut *connection).await?;
         if !complete {
             return Err(RuntimeDatabaseError::MissingPrivileges);
         }
@@ -236,7 +247,7 @@ pub async fn check(
           SELECT has_schema_privilege('public','USAGE')
             AND NOT EXISTS(SELECT FROM (VALUES ('routing_active_release'),('routing_groups'),('routing_routes')) t(name)
               WHERE NOT has_table_privilege('public.'||t.name,'SELECT'))
-        "#).fetch_one(&mut *transaction).await?;
+        "#).fetch_one(&mut *connection).await?;
         if !complete {
             return Err(RuntimeDatabaseError::MissingPrivileges);
         }
@@ -258,7 +269,7 @@ pub async fn check(
             AND has_function_privilege('core_charging.period_window(text,bigint,bigint,bigint)','EXECUTE')
             AND has_function_privilege('core_charging.subscription_window(bigint,bigint)','EXECUTE')
             AND has_function_privilege('core_charging.committed_credits(text,bigint,bigint,bigint)','EXECUTE')
-        "#).fetch_one(&mut *transaction).await?;
+        "#).fetch_one(&mut *connection).await?;
         if !complete {
             return Err(RuntimeDatabaseError::MissingPrivileges);
         }
@@ -273,7 +284,7 @@ pub async fn check(
               CROSS JOIN (VALUES ('SELECT'),('INSERT'),('UPDATE')) p(privilege)
               WHERE NOT has_table_privilege('core_events.'||t.name,p.privilege))
             AND has_sequence_privilege('core_events.outbox_id_seq','USAGE')
-        "#).fetch_one(&mut *transaction).await?;
+        "#).fetch_one(&mut *connection).await?;
         if !complete {
             return Err(RuntimeDatabaseError::MissingPrivileges);
         }
@@ -288,7 +299,7 @@ pub async fn check(
             AND has_table_privilege('core_console.announcement_reads','INSERT')
         "#,
         )
-        .fetch_one(&mut *transaction)
+        .fetch_one(&mut *connection)
         .await?;
         if !complete {
             return Err(RuntimeDatabaseError::MissingPrivileges);
@@ -299,7 +310,7 @@ pub async fn check(
           SELECT has_schema_privilege('core_model','USAGE')
             AND has_function_privilege('core_model.checkpoint_output(text,bytea,bigint,bytea,bigint,jsonb,boolean)','EXECUTE')
             AND has_function_privilege('core_model.completed_streams(integer)','EXECUTE')
-        "#).fetch_one(&mut *transaction).await?;
+        "#).fetch_one(&mut *connection).await?;
         if !complete {
             return Err(RuntimeDatabaseError::MissingPrivileges);
         }
@@ -322,7 +333,7 @@ pub async fn check(
             AND has_sequence_privilege('core_commerce.orders_id_seq','USAGE')
         "#,
         )
-        .fetch_one(&mut *transaction)
+        .fetch_one(&mut *connection)
         .await?;
         if !complete {
             return Err(RuntimeDatabaseError::MissingPrivileges);
@@ -342,12 +353,11 @@ pub async fn check(
             AND has_sequence_privilege('core_payments.intents_id_seq','SELECT')
         "#,
         )
-        .fetch_one(&mut *transaction)
+        .fetch_one(&mut *connection)
         .await?;
         if !complete {
             return Err(RuntimeDatabaseError::MissingPrivileges);
         }
     }
-    transaction.commit().await?;
     Ok(())
 }
