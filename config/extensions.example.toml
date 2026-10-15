@@ -9,6 +9,8 @@ modules = ["none"]
 web_compat = false
 # Shared HTTP, compatibility, callback and recovery-worker admission.
 # Omit for 16; valid range 1..64. Tune using measured deployment capacity.
+# Remote-control SSE retains at least one slot for non-stream work.
+# At 1, SSE returns 429 relay_capacity; commands and heartbeats remain usable.
 max_in_flight = 16
 
 # Enable a module only after provisioning its narrow credentials and storage.

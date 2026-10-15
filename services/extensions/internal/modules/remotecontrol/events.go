@@ -11,11 +11,12 @@ import (
 	"time"
 
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/coreclient"
+	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules"
 )
 
 const (
 	MaxStreamsPerUser   = 2
-	MaxStreams          = 4 // Leave four of the existing host's eight slots for commands/heartbeats.
+	MaxStreams          = 4 // Further reduced for small hosts to retain non-stream capacity.
 	StreamLease         = 60 * time.Second
 	StreamReauthorize   = 15 * time.Second
 	StreamRPCDeadline   = 3 * time.Second
@@ -36,10 +37,12 @@ func boundedDuration(value, limit time.Duration) time.Duration {
 func (m *Module) streamTimings() streamTiming {
 	return streamTiming{boundedDuration(m.timing.lease, StreamLease), boundedDuration(m.timing.reauthorize, StreamReauthorize-StreamRPCDeadline-StreamWriteDeadline), boundedDuration(m.timing.rpc, StreamRPCDeadline), boundedDuration(m.timing.write, StreamWriteDeadline)}
 }
-func (m *Module) reserveStream(owner int64) bool {
+func (m *Module) reserveStream(owner int64, capacity int) bool {
 	m.streamsMu.Lock()
 	defer m.streamsMu.Unlock()
-	if m.streamCount >= MaxStreams || m.streams[owner] >= MaxStreamsPerUser {
+	// At least one slot remains available to non-stream requests and workers.
+	// A one-slot host can still serve commands but cannot retain an SSE stream.
+	if m.streamCount >= min(MaxStreams, capacity-1) || m.streams[owner] >= MaxStreamsPerUser {
 		return false
 	}
 	m.streamCount++
@@ -142,7 +145,7 @@ func (m *Module) events(w http.ResponseWriter, r *http.Request) {
 	if !relayError(w, err) {
 		return
 	}
-	if !m.reserveStream(authority.UserID) {
+	if !m.reserveStream(authority.UserID, modules.RequestCapacity(r.Context())) {
 		relayError(w, ErrCapacity)
 		return
 	}

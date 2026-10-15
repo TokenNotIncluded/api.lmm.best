@@ -52,6 +52,19 @@ func NewHostWithLimit(registered []Module, credential []byte, limit int) (*Host,
 	return host, nil
 }
 
+type hostCapacityKey struct{}
+
+// RequestCapacity is the tighter bound of the host and module admission gates.
+// The standalone module router has only its per-module gate. Long-lived handlers
+// use this bound to leave capacity for commands and shared recovery work.
+func RequestCapacity(ctx context.Context) int {
+	capacity, ok := ctx.Value(hostCapacityKey{}).(int)
+	if !ok || capacity < 1 {
+		return MaxInFlightPerModule
+	}
+	return min(capacity, MaxInFlightPerModule)
+}
+
 func (h *Host) MarkReady() error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -159,5 +172,6 @@ func (h *Host) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer release()
-	h.handler.ServeHTTP(w, r)
+	ctx := context.WithValue(r.Context(), hostCapacityKey{}, h.limit)
+	h.handler.ServeHTTP(w, r.WithContext(ctx))
 }

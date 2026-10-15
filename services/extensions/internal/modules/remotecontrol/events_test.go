@@ -697,3 +697,73 @@ func TestSSESourceIdentityCannotMigrateAndHostDrainReleasesStreams(t *testing.T)
 		})
 	}
 }
+
+// Real Host, module router and TCP streams; only Core authorization is a
+// controlled interface double, not Rust or financial acceptance.
+func TestSSEPreservesHostCapacity(t *testing.T) {
+	for _, capacity := range []int{1, 2, 3, 4, 5, 16, 64} {
+		t.Run(fmt.Sprint(capacity), func(t *testing.T) {
+			m, err := New(&streamCore{kind: pb.CredentialKind_CREDENTIAL_KIND_SESSION})
+			if err != nil {
+				t.Fatal(err)
+			}
+			host, err := modules.NewHostWithLimit([]modules.Module{m}, []byte(hostToken), capacity)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := host.MarkReady(); err != nil {
+				t.Fatal(err)
+			}
+			server := httptest.NewServer(host)
+			server.Client().Timeout = 2 * time.Second
+			t.Cleanup(func() { host.BeginDrain(); server.Close() })
+			heartbeat(t, m.relay, 1, "session_abcdefgh")
+			heartbeat(t, m.relay, 2, "session_abcdefgh")
+			allowed := min(MaxStreams, capacity-1)
+			readers := make([]*eventReader, 0, allowed)
+			for i := 0; i < allowed; i++ {
+				token := aliceToken
+				if i%2 == 1 {
+					token = bobToken
+				}
+				response := streamRequest(t, server, context.Background(), streamPath, token)
+				if response.StatusCode != http.StatusOK {
+					t.Fatalf("stream %d: %d", i, response.StatusCode)
+				}
+				reader := readEvents(response.Body)
+				batchEvent(t, reader, "ready")
+				readers = append(readers, reader)
+			}
+			waitQuota(t, m, allowed)
+			extraToken := aliceToken
+			if allowed%2 == 1 {
+				extraToken = bobToken
+			}
+			extra := streamRequest(t, server, context.Background(), streamPath, extraToken)
+			extra.Body.Close()
+			if extra.StatusCode != http.StatusTooManyRequests {
+				t.Fatalf("extra stream was not quota-rejected: %d", extra.StatusCode)
+			}
+			waitQuota(t, m, allowed)
+			// Real heartbeat and command handlers still pass through both admission gates.
+			requireStatus(t, request(t, host, http.MethodPut, "/pi/sessions/session_abcdefgh", aliceToken, putInput()), http.StatusOK)
+			requireStatus(t, request(t, host, http.MethodPost, "/pi/sessions/session_abcdefgh/messages", aliceToken, postInput()), http.StatusOK)
+			release, err := host.TryAcquire()
+			if err != nil {
+				t.Fatalf("SSE retained the worker admission slot: %v", err)
+			}
+			release()
+			// Drain owns stream cancellation and must join all host permits.
+			host.BeginDrain()
+			for _, reader := range readers {
+				waitDone(t, reader)
+			}
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			if err := host.Wait(ctx); err != nil {
+				t.Fatal(err)
+			}
+			waitQuota(t, m, 0)
+		})
+	}
+}
