@@ -156,6 +156,88 @@ fn signed_tokens_require_issuer_audience_nonce_expiry_and_signature() {
     assert!(verify_token(&valid, &duplicate, &expected, "client-1").is_err());
 }
 #[test]
+fn signed_token_without_optional_nbf_remains_valid() {
+    let expected = digest(&"n".repeat(64)).unwrap();
+    let claims = claims();
+    assert!(claims.get("nbf").is_none());
+    assert_eq!(
+        verify_token(&token(claims), &keys(), &expected, "client-1")
+            .unwrap()
+            .sub,
+        "google-user-1"
+    );
+}
+
+#[test]
+fn signed_tokens_reject_malformed_optional_nbf() {
+    let expected = digest(&"n".repeat(64)).unwrap();
+    let future = now().unwrap() + 3600;
+    for invalid in [
+        json!(future.to_string()),
+        Value::Null,
+        json!([future]),
+        json!({"timestamp": future}),
+    ] {
+        let mut claims = claims();
+        claims["nbf"] = invalid;
+        // Every negative is signed with the same genuine test RSA key as the
+        // positive control; refusal must come from claim validation.
+        assert!(matches!(
+            verify_token(&token(claims), &keys(), &expected, "client-1"),
+            Err(IdentityError::Unauthorized)
+        ));
+    }
+}
+
+#[test]
+fn signed_tokens_reject_malformed_required_exp() {
+    let expected = digest(&"n".repeat(64)).unwrap();
+    let future = now().unwrap() + 3600;
+    for invalid in [
+        json!(future.to_string()),
+        Value::Null,
+        json!([future]),
+        json!({"timestamp": future}),
+        json!(true),
+        json!(-1),
+    ] {
+        let mut claims = claims();
+        claims["exp"] = invalid;
+        assert!(matches!(
+            verify_token(&token(claims), &keys(), &expected, "client-1"),
+            Err(IdentityError::Unauthorized)
+        ));
+    }
+    let mut absent = claims();
+    absent.as_object_mut().unwrap().remove("exp");
+    assert!(matches!(
+        verify_token(&token(absent), &keys(), &expected, "client-1"),
+        Err(IdentityError::Unauthorized)
+    ));
+}
+
+#[test]
+fn signed_tokens_reject_numeric_future_nbf_and_accept_past_nbf() {
+    let expected = digest(&"n".repeat(64)).unwrap();
+    let current = now().unwrap();
+    let mut future = claims();
+    future["exp"] = json!(current + 7200);
+    future["nbf"] = json!(current + 3600);
+    assert!(matches!(
+        verify_token(&token(future), &keys(), &expected, "client-1"),
+        Err(IdentityError::Unauthorized)
+    ));
+    let mut past = claims();
+    past["nbf"] = json!(current.saturating_sub(60));
+    assert_eq!(
+        verify_token(&token(past), &keys(), &expected, "client-1")
+            .unwrap()
+            .sub,
+        "google-user-1"
+    );
+}
+
+#[test]
 fn callback_configuration_cannot_redirect_to_an_unrelated_path_or_http() {
     for uri in [
         "http://example.com/core/v1/auth/oauth/google/callback",
