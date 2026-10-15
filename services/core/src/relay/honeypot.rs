@@ -1,6 +1,8 @@
 //! Explicitly uncharged moderation traffic. This transport has no routing,
 //! billing, wallet, reservation or ordinary-provider handle. The caller must
 //! obtain Core's durable moderation admission before starting it.
+use super::honeypot_network::{NetworkTarget, client_builder};
+pub(crate) use super::honeypot_network::{canonical_origin, validate_base_url, validate_origin};
 use super::{
     BlockKind, Cancellation, DrainReport, Event, FinishReason, Gate, Limits, Phase, Registry,
     RelayBody, RelayError, Request, ResponseHead, UpstreamProtocol, decode::Decoder,
@@ -19,12 +21,14 @@ use tokio::{
 use tokio_stream::Stream;
 
 /// Only host-resolved moderation credentials enter this type. It cannot accept
-/// client headers, platform provider credentials, proxies or DNS hostnames.
+/// client headers, platform provider credentials or proxies. Configured DNS
+/// origins are resolved, checked and pinned by the isolated network policy.
 pub(crate) struct HoneypotUpstream {
     protocol: UpstreamProtocol,
     model: String,
     endpoint: Url,
     credential: HeaderValue,
+    network: Option<NetworkTarget>,
 }
 impl HoneypotUpstream {
     pub(crate) fn local(
@@ -34,26 +38,38 @@ impl HoneypotUpstream {
         credential: &str,
         stream: bool,
     ) -> Result<Self, RelayError> {
-        if endpoint.chars().any(char::is_control) || endpoint.contains('\\') {
-            return Err(RelayError::Invalid("invalid moderation upstream"));
+        let endpoint = validate_base_url(endpoint, true)?;
+        if !super::honeypot_network::literal_ip(&endpoint).is_some_and(|ip| ip.is_loopback()) {
+            return Err(RelayError::Invalid("invalid local upstream"));
         }
-        let mut endpoint =
-            Url::parse(endpoint).map_err(|_| RelayError::Invalid("invalid moderation upstream"))?;
-        let local = endpoint
-            .host_str()
-            .and_then(|host| {
-                host.trim_matches(['[', ']'])
-                    .parse::<std::net::IpAddr>()
-                    .ok()
-            })
-            .is_some_and(|ip| ip.is_loopback());
-        if !local
-            || !matches!(endpoint.scheme(), "http" | "https")
-            || !endpoint.username().is_empty()
-            || endpoint.password().is_some()
-            || endpoint.fragment().is_some()
-            || endpoint.query().is_some()
-            || model.is_empty()
+        Self::encode(protocol, model, endpoint, credential, stream)
+    }
+
+    pub(crate) fn configured(
+        protocol: UpstreamProtocol,
+        model: String,
+        endpoint: &str,
+        credential: &str,
+        stream: bool,
+        network: NetworkTarget,
+    ) -> Result<Self, RelayError> {
+        let base = validate_base_url(endpoint, network.local_http)?;
+        if !network.allowed_origins.contains(&canonical_origin(&base)) {
+            return Err(RelayError::RouteUnavailable);
+        }
+        let mut upstream = Self::encode(protocol, model, base, credential, stream)?;
+        upstream.network = Some(network);
+        Ok(upstream)
+    }
+
+    fn encode(
+        protocol: UpstreamProtocol,
+        model: String,
+        mut endpoint: Url,
+        credential: &str,
+        stream: bool,
+    ) -> Result<Self, RelayError> {
+        if model.is_empty()
             || model.len() > 256
             || model.chars().any(char::is_control)
             || credential.is_empty()
@@ -107,6 +123,7 @@ impl HoneypotUpstream {
             model,
             endpoint,
             credential,
+            network: None,
         })
     }
 }
@@ -123,6 +140,7 @@ pub(crate) struct HoneypotTransport {
     ceiling: Limits,
     registry: Arc<Mutex<Registry>>,
     changed: Arc<Notify>,
+    dns_slots: Arc<Semaphore>,
 }
 
 /// Both the HTTP body and the producer retain Core's lease. Dropping a body
@@ -153,27 +171,13 @@ impl HoneypotTransport {
         if ceiling.connect_retries != 0 {
             return Err(RelayError::Invalid("moderation retries are disabled"));
         }
-        let client = reqwest::Client::builder()
-            .connect_timeout(ceiling.connect_timeout)
-            .redirect(reqwest::redirect::Policy::none())
-            .retry(reqwest::retry::never())
-            .referer(false)
-            .no_proxy()
-            .no_gzip()
-            .no_brotli()
-            .no_deflate()
-            .no_zstd()
-            .pool_max_idle_per_host(0)
-            .http2_adaptive_window(false)
-            .http2_initial_stream_window_size(65_536)
-            .http2_initial_connection_window_size(262_144)
-            .http2_max_frame_size(16_384)
-            .http2_max_header_list_size(16_384)
-            .user_agent("lmm-core-relay/0.1")
+        let client = client_builder(&ceiling)
             .build()
             .map_err(|_| RelayError::Invalid("HTTP client initialization failed"))?;
+        let dns_slots = super::honeypot_network::dns_slots(ceiling.max_in_flight);
         Ok(Self {
             client,
+            dns_slots,
             permits: Arc::new(Semaphore::new(ceiling.max_in_flight)),
             ceiling,
             registry: Arc::new(Mutex::new(Registry {
@@ -277,6 +281,7 @@ impl HoneypotTransport {
             pacing_started: Instant::now(),
             output_bytes_per_second,
             complete: false,
+            dns_slots: self.dns_slots.clone(),
         };
         tokio::spawn(async move {
             let _permit = permit;
@@ -389,6 +394,7 @@ struct Worker {
     pacing_started: Instant,
     output_bytes_per_second: u32,
     complete: bool,
+    dns_slots: Arc<Semaphore>,
 }
 impl Worker {
     fn head(&mut self) -> Result<(), RelayError> {
@@ -546,14 +552,30 @@ impl Worker {
     }
 
     async fn upstream(&mut self, route: HoneypotUpstream) -> Result<(), RelayError> {
+        let prepared = if let Some(network) = &route.network {
+            Some(
+                self.gate
+                    .run(
+                        self.limits.connect_timeout,
+                        Phase::Connect,
+                        network.prepare(&route.endpoint, &self.limits, self.dns_slots.clone()),
+                    )
+                    .await?,
+            )
+        } else {
+            None
+        };
         let payload = self.request.upstream_to(route.protocol, &route.model)?;
         let bytes = serde_json::to_vec(&payload)
             .map_err(|_| RelayError::Invalid("request encoding failed"))?;
         if bytes.len() > self.limits.request_bytes {
             return Err(RelayError::Limit("encoded request"));
         }
-        let builder = self
-            .client
+        let client = prepared
+            .as_ref()
+            .map(|connection| &connection.client)
+            .unwrap_or(&self.client);
+        let builder = client
             .post(route.endpoint)
             .header(header::CONTENT_TYPE, "application/json")
             .header(header::ACCEPT_ENCODING, "identity")
@@ -585,6 +607,12 @@ impl Worker {
                     .map_err(|_| RelayError::UpstreamConnection)
             })
             .await?;
+        if prepared
+            .as_ref()
+            .is_some_and(|connection| !connection.matches_peer(response.remote_addr()))
+        {
+            return Err(RelayError::UpstreamConnection);
+        }
         if !response.status().is_success() {
             return Err(RelayError::UpstreamStatus(response.status().as_u16()));
         }

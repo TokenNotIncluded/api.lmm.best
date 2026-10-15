@@ -4,8 +4,14 @@ use crate::identity::{IdentityError, IdentityStore};
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool, Row};
 
+mod manifest;
+pub use manifest::{
+    CatalogManifest, ComponentManifest, IdentityManifest, SchemaManifest, schema_manifest,
+};
+
 const COMPONENTS: &[(&str, &str)] = &[
     ("identity", include_str!("../schema/identity.sql")),
+    ("oauth-grants", include_str!("../schema/oauth_grants.sql")),
     ("ledger", include_str!("../schema/ledger.sql")),
     ("payments", include_str!("../schema/payments.sql")),
     ("charging", include_str!("../schema/charging.sql")),
@@ -128,6 +134,7 @@ pub async fn init(pool: &PgPool) -> Result<(), IdentityError> {
     sqlx::raw_sql(CONTRACT).execute(&mut *tx).await?;
     // Preserve the native identity contract used by the read-only RPC service.
     IdentityStore::record_schema_contract(&mut tx).await?;
+    crate::identity::grants::record_schema_contract(&mut tx).await?;
     for (name, schema) in COMPONENTS {
         sqlx::query("INSERT INTO core_meta.component_contract(name,fingerprint) VALUES ($1,$2)")
             .bind(name)

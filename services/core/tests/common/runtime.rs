@@ -58,7 +58,7 @@ GRANT USAGE ON SCHEMA core_abuse TO {name};
 GRANT SELECT ON ALL TABLES IN SCHEMA core_abuse TO {name};
 GRANT UPDATE (revision,document) ON core_abuse.settings TO {name};
 GRANT INSERT,UPDATE (marked,policy_id,revision) ON core_abuse.user_marks TO {name};
-GRANT INSERT ON core_abuse.previews,core_abuse.operations,core_abuse.audit TO {name};
+GRANT INSERT ON core_abuse.previews,core_abuse.operations,core_abuse.audit,core_abuse.registration_observations TO {name};
 GRANT INSERT,UPDATE (attempts),DELETE ON core_abuse.model_counters TO {name};
 GRANT INSERT,UPDATE (finished_at),DELETE ON core_abuse.model_leases TO {name};
 GRANT USAGE ON SEQUENCE core_abuse.audit_id_seq TO {name};

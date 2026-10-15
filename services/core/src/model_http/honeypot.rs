@@ -1,6 +1,7 @@
 //! Core admission precedes the isolated, explicitly uncharged transport.
 //! No mark/policy/lease field is exposed to the model client.
 use super::{one_header, public_error, request_id, with_request_id};
+use crate::relay::honeypot_network::NetworkTarget;
 use crate::{
     abuse::{self, AbuseError, AbuseStore, Mode},
     relay::{
@@ -16,15 +17,59 @@ use axum::{
 };
 use serde_json::json;
 use sha2::{Digest, Sha256};
-use std::{collections::BTreeMap, net::IpAddr, sync::Arc, time::Duration};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    net::IpAddr,
+    sync::Arc,
+    time::Duration,
+};
 use tokio::time::{Instant, timeout};
+
+/// Host-only credential and its exact permitted origins. No secret getter,
+/// Debug or Serialize implementation exists; added roots affect only this alias.
+#[derive(Clone)]
+pub struct HoneypotCredential {
+    secret: String,
+    origins: BTreeSet<String>,
+    additional_root: Option<reqwest::Certificate>,
+    legacy_local: bool,
+}
+impl HoneypotCredential {
+    pub fn new(
+        secret: String,
+        allowed_origins: Vec<String>,
+        additional_root: Option<reqwest::Certificate>,
+    ) -> Result<Self, RelayError> {
+        if secret.is_empty()
+            || secret.len() > 4096
+            || HeaderValue::from_str(&secret).is_err()
+            || allowed_origins.is_empty()
+            || allowed_origins.len() > 16
+        {
+            return Err(RelayError::Invalid("invalid upstream credential policy"));
+        }
+        let mut origins = BTreeSet::new();
+        for origin in allowed_origins {
+            if !origins.insert(crate::relay::honeypot::validate_origin(&origin, true)?) {
+                return Err(RelayError::Invalid("duplicate upstream origin"));
+            }
+        }
+        Ok(Self {
+            secret,
+            origins,
+            additional_root,
+            legacy_local: false,
+        })
+    }
+}
 
 /// Host-only moderation credential registry, separate from normal providers.
 /// Config and admin HTTP carry aliases only; credentials never serialize.
 #[derive(Clone)]
 pub struct HoneypotGateway {
     store: AbuseStore,
-    credentials: Arc<BTreeMap<String, String>>,
+    credentials: Arc<BTreeMap<String, HoneypotCredential>>,
+    local_http: bool,
     transport: HoneypotTransport,
     ceiling: Limits,
 }
@@ -33,25 +78,68 @@ impl HoneypotGateway {
         self.transport.drain(grace).await
     }
 
+    /// Compatibility constructor for explicitly local synthetic callers.
+    /// The host uses new_with_network_policy; this cannot reach external hosts.
     pub fn new(
         store: AbuseStore,
         credentials: BTreeMap<String, String>,
         ceiling: Limits,
     ) -> Result<Self, RelayError> {
-        if credentials.iter().any(|(alias, secret)| {
+        let credentials = credentials
+            .into_iter()
+            .map(|(alias, secret)| {
+                (
+                    alias,
+                    HoneypotCredential {
+                        secret,
+                        origins: BTreeSet::new(),
+                        additional_root: None,
+                        legacy_local: true,
+                    },
+                )
+            })
+            .collect();
+        Self::build(store, credentials, true, ceiling)
+    }
+
+    pub fn new_with_network_policy(
+        store: AbuseStore,
+        credentials: BTreeMap<String, HoneypotCredential>,
+        local_http: bool,
+        ceiling: Limits,
+    ) -> Result<Self, RelayError> {
+        if credentials.values().any(|credential| {
+            credential.legacy_local
+                || credential.origins.iter().any(|origin| {
+                    crate::relay::honeypot::validate_origin(origin, local_http).is_err()
+                })
+        }) {
+            return Err(RelayError::Invalid("invalid upstream policy"));
+        }
+        Self::build(store, credentials, local_http, ceiling)
+    }
+
+    fn build(
+        store: AbuseStore,
+        credentials: BTreeMap<String, HoneypotCredential>,
+        local_http: bool,
+        ceiling: Limits,
+    ) -> Result<Self, RelayError> {
+        if credentials.iter().any(|(alias, credential)| {
             alias.is_empty()
                 || alias.len() > 64
                 || !alias
                     .bytes()
                     .all(|byte| byte.is_ascii_alphanumeric() || b"_.-".contains(&byte))
-                || secret.is_empty()
-                || secret.len() > 4096
+                || credential.secret.is_empty()
+                || credential.secret.len() > 4096
         }) {
             return Err(RelayError::Invalid("invalid upstream credentials"));
         }
         Ok(Self {
             store,
             credentials: Arc::new(credentials),
+            local_http,
             transport: HoneypotTransport::new(ceiling.clone())?,
             ceiling,
         })
@@ -168,13 +256,29 @@ impl HoneypotGateway {
                     abuse::UpstreamProtocol::AnthropicMessages => UpstreamProtocol::Anthropic,
                     abuse::UpstreamProtocol::Gemini => UpstreamProtocol::Gemini,
                 };
-                match HoneypotUpstream::local(
-                    protocol,
-                    route.model,
-                    &route.base_url,
-                    credential,
-                    request.stream,
-                ) {
+                let selected = if credential.legacy_local {
+                    HoneypotUpstream::local(
+                        protocol,
+                        route.model,
+                        &route.base_url,
+                        &credential.secret,
+                        request.stream,
+                    )
+                } else {
+                    HoneypotUpstream::configured(
+                        protocol,
+                        route.model,
+                        &route.base_url,
+                        &credential.secret,
+                        request.stream,
+                        NetworkTarget {
+                            local_http: self.local_http,
+                            additional_root: credential.additional_root.clone(),
+                            allowed_origins: credential.origins.clone(),
+                        },
+                    )
+                };
+                match selected {
                     Ok(route) => HoneypotTarget::Upstream(route),
                     Err(_) => return Ok(fail(RelayError::RouteUnavailable)),
                 }

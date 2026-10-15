@@ -106,6 +106,22 @@ impl Limits {
 }
 impl PolicyConfig {
     pub fn validate(&self, aliases: &BTreeSet<String>) -> Result<()> {
+        self.validate_structure(aliases)?;
+        // Compatibility validation is explicitly local-only. Host runtime uses
+        // AbuseStore::new_with_network_policy and its exact origin bindings.
+        for target in self
+            .policies
+            .iter()
+            .flat_map(|policy| policy.clients.values())
+        {
+            if crate::routing::Endpoint::local_loopback(target.base_url.clone()).is_err() {
+                return Err(AbuseError::Invalid);
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn validate_structure(&self, aliases: &BTreeSet<String>) -> Result<()> {
         if self.version != 1
             || self.policies.len() > 32
             || serde_json::to_vec(self)
@@ -154,7 +170,7 @@ impl PolicyConfig {
                         if !bounded_text(&target.model, 256)
                             || !identifier(&target.credential_reference, 1, 64)
                             || !aliases.contains(&target.credential_reference)
-                            || crate::routing::Endpoint::local_loopback(target.base_url.clone())
+                            || crate::relay::honeypot::validate_base_url(&target.base_url, true)
                                 .is_err()
                         {
                             return Err(AbuseError::Invalid);

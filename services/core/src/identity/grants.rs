@@ -1,7 +1,16 @@
-//! Unissued OAuth foundation; no HTTP or production consent/code issuer.
+//! Read-only lmm public-client issuer plus the unissued Pi grant foundation.
 //! PKCE uses oxide-auth (MIT OR Apache-2.0), pinned in Cargo.toml.
+mod issuer;
+mod protocol;
+mod readonly;
 use super::*;
+pub use issuer::{AuthorizationRedirect, ConsentPage, LmmIssuer};
 use oxide_auth::code_grant::extensions::Pkce;
+pub use protocol::{
+    AuthorizationRequest, ConsentForm, ContinueForm, LmmProfile, RevokeForm, TokenForm,
+    TokenRequest, TokenWire,
+};
+pub use readonly::{BalanceV2, ReadError};
 use sqlx::{Postgres, Transaction};
 
 pub const SCHEMA: &str = include_str!("../../schema/oauth_grants.sql");
@@ -156,22 +165,26 @@ pub struct GrantStore {
 
 // Application-schema-only catalog: stable across pg_dump/restore; no data/ACLs.
 const CATALOG: &str = r#"
-WITH definitions AS (
+WITH catalog_path AS MATERIALIZED (
+ SELECT pg_catalog.set_config('search_path','pg_catalog',true)
+), oauth_namespace AS MATERIALIZED (
+ SELECT n.oid FROM pg_namespace n CROSS JOIN catalog_path WHERE n.nspname='core_oauth'
+), definitions AS (
  SELECT json_build_array('relation',c.relname,c.relkind)::text AS d
- FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='core_oauth'
+ FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.oid IN (SELECT oid FROM oauth_namespace)
  UNION ALL
  SELECT json_build_array('column',c.relname,a.attnum,a.attname,format_type(a.atttypid,a.atttypmod),a.attnotnull,a.attidentity,a.attgenerated,pg_get_expr(ad.adbin,ad.adrelid))::text
- FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace LEFT JOIN pg_attrdef ad ON ad.adrelid=a.attrelid AND ad.adnum=a.attnum WHERE n.nspname='core_oauth' AND a.attnum>0 AND NOT a.attisdropped
+ FROM pg_attribute a JOIN pg_class c ON c.oid=a.attrelid JOIN pg_namespace n ON n.oid=c.relnamespace LEFT JOIN pg_attrdef ad ON ad.adrelid=a.attrelid AND ad.adnum=a.attnum WHERE n.oid IN (SELECT oid FROM oauth_namespace) AND a.attnum>0 AND NOT a.attisdropped
  UNION ALL
- SELECT json_build_array('constraint',k.conname,pg_get_constraintdef(k.oid,true))::text FROM pg_constraint k JOIN pg_namespace n ON n.oid=k.connamespace WHERE n.nspname='core_oauth'
+ SELECT json_build_array('constraint',k.conname,pg_get_constraintdef(k.oid,true))::text FROM pg_constraint k JOIN pg_namespace n ON n.oid=k.connamespace WHERE n.oid IN (SELECT oid FROM oauth_namespace)
  UNION ALL
- SELECT json_build_array('index',c.relname,pg_get_indexdef(i.indexrelid))::text FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='core_oauth'
+ SELECT json_build_array('index',c.relname,pg_get_indexdef(i.indexrelid))::text FROM pg_index i JOIN pg_class c ON c.oid=i.indexrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.oid IN (SELECT oid FROM oauth_namespace)
  UNION ALL
- SELECT json_build_array('function',p.proname,pg_get_functiondef(p.oid))::text FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.nspname='core_oauth' AND p.prokind IN ('f','p')
+ SELECT json_build_array('function',p.proname,pg_get_functiondef(p.oid))::text FROM pg_proc p JOIN pg_namespace n ON n.oid=p.pronamespace WHERE n.oid IN (SELECT oid FROM oauth_namespace) AND p.prokind IN ('f','p')
  UNION ALL
- SELECT json_build_array('trigger',c.relname,t.tgname,t.tgenabled,pg_get_triggerdef(t.oid,true))::text FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname='core_oauth' AND NOT t.tgisinternal
+ SELECT json_build_array('trigger',c.relname,t.tgname,t.tgenabled,pg_get_triggerdef(t.oid,true))::text FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.oid IN (SELECT oid FROM oauth_namespace) AND NOT t.tgisinternal
  UNION ALL
- SELECT json_build_array('internal-trigger',c.relname,k.conname,pn.nspname,p.proname,t.tgtype,t.tgenabled,t.tgdeferrable,t.tginitdeferred,t.tgattr::text,encode(t.tgargs,'hex'),pg_get_expr(t.tgqual,t.tgrelid))::text FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_proc p ON p.oid=t.tgfoid JOIN pg_namespace pn ON pn.oid=p.pronamespace LEFT JOIN pg_constraint k ON k.oid=t.tgconstraint WHERE n.nspname='core_oauth' AND t.tgisinternal
+ SELECT json_build_array('internal-trigger',c.relname,k.conname,pn.nspname,p.proname,t.tgtype,t.tgenabled,t.tgdeferrable,t.tginitdeferred,t.tgattr::text,encode(t.tgargs,'hex'),pg_get_expr(t.tgqual,t.tgrelid))::text FROM pg_trigger t JOIN pg_class c ON c.oid=t.tgrelid JOIN pg_namespace n ON n.oid=c.relnamespace JOIN pg_proc p ON p.oid=t.tgfoid JOIN pg_namespace pn ON pn.oid=p.pronamespace LEFT JOIN pg_constraint k ON k.oid=t.tgconstraint WHERE n.oid IN (SELECT oid FROM oauth_namespace) AND t.tgisinternal
 ) SELECT d FROM definitions ORDER BY d COLLATE "C"
 "#;
 async fn catalog(c: &mut PgConnection) -> Result<Vec<u8>> {
@@ -182,6 +195,12 @@ async fn catalog(c: &mut PgConnection) -> Result<Vec<u8>> {
         hash.update(definition.as_bytes());
     }
     Ok(hash.finalize().to_vec())
+}
+pub(crate) async fn record_schema_contract(c: &mut PgConnection) -> Result<()> {
+    let fingerprint = catalog(c).await?;
+    sqlx::query("INSERT INTO core_oauth.contract(version,ddl_fingerprint,catalog_fingerprint) VALUES (1,$1,$2)")
+        .bind(Sha256::digest(SCHEMA.as_bytes()).to_vec()).bind(fingerprint).execute(c).await?;
+    Ok(())
 }
 async fn transaction(pool: &PgPool) -> Result<Transaction<'_, Postgres>> {
     let mut tx = pool.begin().await?;

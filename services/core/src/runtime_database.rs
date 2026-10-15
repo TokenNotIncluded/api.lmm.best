@@ -11,6 +11,7 @@ pub struct RequiredCapabilities {
     pub console: bool,
     pub commerce: bool,
     pub web_identity: bool,
+    pub oauth2: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -103,7 +104,7 @@ pub async fn check(
                OR n.nspname='core_charging' AND c.relname IN ('budget_checks','usage_events','refunds','policy_events','ledger_commands')
                OR n.nspname='core_identity' AND c.relname IN ('key_funding_rules','credential_grants','oauth_identities','audit','web_session_credentials','session_authentication')
                OR n.nspname='core_commerce' AND c.relname='operations'
-               OR n.nspname='core_abuse' AND c.relname IN ('previews','operations','audit'))
+               OR n.nspname='core_abuse' AND c.relname IN ('previews','operations','audit','registration_observations'))
               AND (has_table_privilege(c.oid,'UPDATE,DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN')
                 OR has_any_column_privilege(c.oid,'UPDATE,REFERENCES')))
             OR (n.nspname IN ('core_charging','core_events','core_commerce','core_payments')
@@ -111,6 +112,9 @@ pub async fn check(
             OR (n.nspname='core_abuse' AND (has_table_privilege(c.oid,'TRUNCATE,TRIGGER,REFERENCES,MAINTAIN')
               OR (c.relname NOT IN ('model_counters','model_leases') AND has_table_privilege(c.oid,'DELETE'))
               OR (c.relname='settings' AND has_table_privilege(c.oid,'INSERT'))))
+            OR (n.nspname='core_oauth' AND has_table_privilege(c.oid,'DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN'))
+            OR (n.nspname='core_oauth' AND c.relname IN ('contract','codes')
+              AND (has_table_privilege(c.oid,'INSERT,UPDATE') OR has_any_column_privilege(c.oid,'INSERT,UPDATE')))
             OR (n.nspname='core_identity' AND c.relname='api_key_settings'
               AND has_table_privilege(c.oid,'DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN'))
             OR (n.nspname='core_identity' AND c.relname NOT IN ('oauth_flows','auth_attempts')
@@ -129,7 +133,10 @@ pub async fn check(
             OR (n.nspname='core_abuse' AND c.relname='settings' AND a.attname NOT IN ('revision','document'))
             OR (n.nspname='core_abuse' AND c.relname='user_marks' AND a.attname NOT IN ('marked','policy_id','revision'))
             OR (n.nspname='core_abuse' AND c.relname='model_counters' AND a.attname<>'attempts')
-            OR (n.nspname='core_abuse' AND c.relname='model_leases' AND a.attname<>'finished_at'))
+            OR (n.nspname='core_abuse' AND c.relname='model_leases' AND a.attname<>'finished_at')
+            OR (n.nspname='core_oauth' AND NOT (
+              (c.relname='families' AND a.attname IN ('scopes','revoked_at'))
+              OR (c.relname IN ('authorization_requests','authorization_codes','refresh_tokens') AND a.attname='consumed_at'))))
           AND has_column_privilege(c.oid,a.attname,'UPDATE'))
         OR has_function_privilege('core_billing.import_opening_balance(jsonb)','EXECUTE')
         OR has_function_privilege('core_billing.import_account_opening_counters(jsonb)','EXECUTE')
@@ -146,9 +153,9 @@ pub async fn check(
     let identity_complete: bool = sqlx::query_scalar(r#"
         SELECT has_schema_privilege('core_identity','USAGE')
           AND has_schema_privilege('core_abuse','USAGE')
-          AND NOT EXISTS(SELECT FROM (VALUES ('settings'),('user_marks'),('previews'),('operations'),('audit'),('model_counters'),('model_leases')) t(name)
+          AND NOT EXISTS(SELECT FROM (VALUES ('settings'),('user_marks'),('previews'),('operations'),('audit'),('model_counters'),('model_leases'),('registration_observations')) t(name)
             WHERE NOT has_table_privilege('core_abuse.'||t.name,'SELECT'))
-          AND NOT EXISTS(SELECT FROM (VALUES ('user_marks'),('previews'),('operations'),('audit'),('model_counters'),('model_leases')) t(name)
+          AND NOT EXISTS(SELECT FROM (VALUES ('user_marks'),('previews'),('operations'),('audit'),('model_counters'),('model_leases'),('registration_observations')) t(name)
             WHERE NOT has_table_privilege('core_abuse.'||t.name,'INSERT'))
           AND has_column_privilege('core_abuse.settings','revision','UPDATE')
           AND has_column_privilege('core_abuse.settings','document','UPDATE')
@@ -189,6 +196,23 @@ pub async fn check(
         return Err(RuntimeDatabaseError::MissingPrivileges);
     }
 
+    if required.oauth2 {
+        let complete: bool = sqlx::query_scalar(r#"
+          SELECT has_schema_privilege('core_oauth','USAGE')
+          AND has_table_privilege('core_oauth.contract','SELECT')
+          AND NOT EXISTS(SELECT FROM (VALUES ('families'),('authorization_requests'),('authorization_codes'),('access_tokens'),('refresh_tokens')) t(name)
+            CROSS JOIN (VALUES ('SELECT'),('INSERT')) p(privilege)
+            WHERE NOT has_table_privilege('core_oauth.'||t.name,p.privilege))
+          AND has_column_privilege('core_oauth.families','scopes','UPDATE')
+          AND has_column_privilege('core_oauth.families','revoked_at','UPDATE')
+          AND NOT EXISTS(SELECT FROM (VALUES ('authorization_requests'),('authorization_codes'),('refresh_tokens')) t(name)
+            WHERE NOT has_column_privilege('core_oauth.'||t.name,'consumed_at','UPDATE'))
+          AND has_function_privilege('core_oauth.readonly_scope_set(text[])','EXECUTE')
+        "#).fetch_one(&mut *transaction).await?;
+        if !complete {
+            return Err(RuntimeDatabaseError::MissingPrivileges);
+        }
+    }
     if required.web_identity {
         let complete: bool = sqlx::query_scalar(r#"
           SELECT has_schema_privilege('core_charging','USAGE')

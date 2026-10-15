@@ -109,6 +109,7 @@ async fn restricted_role_checks_without_disabled_module_grants(pool: PgPool) {
             console: true,
             commerce: true,
             web_identity: true,
+            oauth2: false,
         },
     )
     .await

@@ -1,5 +1,6 @@
 //! Core-private abuse policy and resource isolation. Never changes financial truth.
 pub mod admin;
+pub mod registration;
 mod policy;
 use crate::identity::{CredentialKind, IdentityError, Principal};
 pub use policy::{
@@ -10,7 +11,12 @@ use serde::Serialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use sqlx::{PgConnection, PgPool, Row};
-use std::{collections::BTreeSet, fmt, net::IpAddr, sync::Arc};
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    fmt,
+    net::IpAddr,
+    sync::Arc,
+};
 
 const RESOURCE_LOCK: i64 = 741_803_140;
 pub const SCHEMA: &str = include_str!("../../schema/abuse.sql");
@@ -59,6 +65,11 @@ pub type Result<T> = std::result::Result<T, AbuseError>;
 pub struct AbuseStore {
     pool: PgPool,
     aliases: Arc<BTreeSet<String>>,
+    network: Option<Arc<NetworkPolicy>>,
+}
+struct NetworkPolicy {
+    origins: BTreeMap<String, BTreeSet<String>>,
+    local_http: bool,
 }
 pub struct ModelAdmission {
     pub lease_id: String,
@@ -189,7 +200,7 @@ async fn selected(c: &mut PgConnection, user_id: i64) -> Result<Option<(i64, Pol
         .iter()
         .flat_map(|p| p.clients.values().map(|t| t.credential_reference.clone()))
         .collect();
-    cfg.validate(&referenced)
+    cfg.validate_structure(&referenced)
         .map_err(|_| AbuseError::Unavailable)?;
     if row.try_get::<Option<bool>, _>("marked")? != Some(true) {
         return Ok(None);
@@ -208,8 +219,68 @@ impl AbuseStore {
         Self {
             pool,
             aliases: Arc::new(credential_references),
+            network: None,
         }
     }
+    /// Host-owned origin policy contains no secret or filesystem paths.
+    pub fn new_with_network_policy(
+        pool: PgPool,
+        origins: BTreeMap<String, BTreeSet<String>>,
+        local_http: bool,
+    ) -> Result<Self> {
+        if origins.len() > 32 {
+            return Err(AbuseError::Invalid);
+        }
+        let mut canonical = BTreeMap::new();
+        for (alias, entries) in origins {
+            if !policy::identifier(&alias, 1, 64) || entries.is_empty() || entries.len() > 16 {
+                return Err(AbuseError::Invalid);
+            }
+            let mut normalized = BTreeSet::new();
+            for origin in entries {
+                let origin = crate::relay::honeypot::validate_origin(&origin, local_http)
+                    .map_err(|_| AbuseError::Invalid)?;
+                if !normalized.insert(origin) {
+                    return Err(AbuseError::Invalid);
+                }
+            }
+            canonical.insert(alias, normalized);
+        }
+        Ok(Self {
+            pool,
+            aliases: Arc::new(canonical.keys().cloned().collect()),
+            network: Some(Arc::new(NetworkPolicy {
+                origins: canonical,
+                local_http,
+            })),
+        })
+    }
+
+    fn validate_configuration(&self, config: &PolicyConfig) -> Result<()> {
+        let Some(network) = &self.network else {
+            return config.validate(&self.aliases);
+        };
+        config.validate_structure(&self.aliases)?;
+        for target in config
+            .policies
+            .iter()
+            .flat_map(|policy| policy.clients.values())
+        {
+            let url =
+                crate::relay::honeypot::validate_base_url(&target.base_url, network.local_http)
+                    .map_err(|_| AbuseError::Invalid)?;
+            let origin = crate::relay::honeypot::canonical_origin(&url);
+            if !network
+                .origins
+                .get(&target.credential_reference)
+                .is_some_and(|origins| origins.contains(&origin))
+            {
+                return Err(AbuseError::Invalid);
+            }
+        }
+        Ok(())
+    }
+
     pub async fn lookup_model_policy(
         &self,
         secret: &str,
@@ -255,11 +326,10 @@ impl AbuseStore {
             return Err(AbuseError::Forbidden);
         }
         // Validate persisted policy again against this host's live credential aliases.
-        PolicyConfig {
+        self.validate_configuration(&PolicyConfig {
             version: 1,
             policies: vec![policy.clone()],
-        }
-        .validate(&self.aliases)
+        })
         .map_err(|_| AbuseError::Unavailable)?;
         let now: i64 =
             sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
@@ -328,5 +398,129 @@ impl AbuseStore {
         sqlx::query("UPDATE core_abuse.model_leases SET finished_at=COALESCE(finished_at,clock_timestamp()) WHERE id=$1")
             .bind(lease_id).execute(&self.pool).await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod network_policy_tests {
+    use super::*;
+
+    fn policy(base_url: &str, alias: &str) -> PolicyConfig {
+        let target = UpstreamTarget {
+            base_url: base_url.into(),
+            upstream_protocol: UpstreamProtocol::OpenaiChat,
+            model: "synthetic".into(),
+            credential_reference: alias.into(),
+        };
+        PolicyConfig {
+            version: 1,
+            policies: vec![Policy {
+                id: "origin-test".into(),
+                name: "origin test".into(),
+                mode: Mode::CustomUpstream,
+                fixed_text: None,
+                public_models: vec!["public-synthetic".into()],
+                clients: [
+                    (ClientProtocol::OpenaiChat, target.clone()),
+                    (ClientProtocol::OpenaiResponses, target),
+                ]
+                .into(),
+                limits: Limits {
+                    requests_per_minute_per_user: 10,
+                    requests_per_minute_global: 10,
+                    max_concurrent_per_user: 1,
+                    max_concurrent_global: 1,
+                    max_input_bytes: 4096,
+                    max_output_bytes: 4096,
+                    max_output_tokens: 1024,
+                    output_bytes_per_second: 0,
+                    total_timeout_seconds: 5,
+                },
+            }],
+        }
+    }
+
+    fn pool() -> PgPool {
+        // This test is solely structural validation: no connection/SQL is run.
+        sqlx::postgres::PgPoolOptions::new()
+            .connect_lazy("postgres://invalid:invalid@127.0.0.1:1/invalid")
+            .unwrap()
+    }
+
+    #[tokio::test]
+    async fn host_origin_binding_allows_base_paths_but_rejects_cross_origin_or_alias() {
+        let store = AbuseStore::new_with_network_policy(
+            pool(),
+            [
+                ("isolated".into(), ["https://Example.COM:443".into()].into()),
+                ("second".into(), ["https://other.example".into()].into()),
+            ]
+            .into(),
+            false,
+        )
+        .unwrap();
+        assert!(
+            store
+                .validate_configuration(&policy("https://example.com/prefix/v1", "isolated"))
+                .is_ok()
+        );
+        for (url, alias) in [
+            ("https://example.com:444/v1", "isolated"),
+            ("http://example.com/v1", "isolated"),
+            ("https://other.example/v1", "isolated"),
+            ("https://example.com/v1", "second"),
+            ("https://example.com/v1", "absent"),
+            ("https://example.com.evil/v1", "isolated"),
+            ("https://u:p@example.com/v1", "isolated"),
+        ] {
+            assert_eq!(
+                store.validate_configuration(&policy(url, alias)),
+                Err(AbuseError::Invalid),
+                "{url}/{alias}"
+            );
+        }
+        let legacy = AbuseStore::new(pool(), ["isolated".into()].into());
+        assert_eq!(
+            legacy.validate_configuration(&policy("https://example.com/v1", "isolated")),
+            Err(AbuseError::Invalid)
+        );
+        assert!(
+            legacy
+                .validate_configuration(&policy("http://127.0.0.1:8001/v1", "isolated"))
+                .is_ok()
+        );
+    }
+
+    #[tokio::test]
+    async fn host_policy_rejects_canonical_duplicates_and_requires_explicit_local_mode() {
+        assert!(
+            AbuseStore::new_with_network_policy(
+                pool(),
+                [(
+                    "isolated".into(),
+                    [
+                        "https://example.com".into(),
+                        "https://EXAMPLE.COM:443/".into()
+                    ]
+                    .into()
+                ),]
+                .into(),
+                false
+            )
+            .is_err()
+        );
+        let origins = [("isolated".into(), ["http://127.0.0.1:8001".into()].into())].into();
+        assert!(AbuseStore::new_with_network_policy(pool(), origins, false).is_err());
+        let origins = [("isolated".into(), ["http://127.0.0.1:8001".into()].into())].into();
+        let store = AbuseStore::new_with_network_policy(pool(), origins, true).unwrap();
+        assert!(
+            store
+                .validate_configuration(&policy("http://127.0.0.1:8001/v1", "isolated"))
+                .is_ok()
+        );
+        assert_eq!(
+            store.validate_configuration(&policy("http://127.0.0.1:8002/v1", "isolated")),
+            Err(AbuseError::Invalid)
+        );
     }
 }

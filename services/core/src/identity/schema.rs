@@ -18,6 +18,12 @@ SELECT EXISTS (
 "#;
 
 impl IdentityStore {
+    /// The same compiled version and bytes used by installation and startup.
+    /// This accessor reads no files, configuration or database state.
+    pub(crate) fn compiled_schema_contract() -> (i32, [u8; 32]) {
+        (VERSION, Sha256::digest(SCHEMA.as_bytes()).into())
+    }
+
     /// Shared by the explicit complete installer after all owned DDL succeeds.
     pub(crate) async fn record_schema_contract(connection: &mut PgConnection) -> Result<()> {
         sqlx::query("INSERT INTO core_meta.schema_contract(version,fingerprint) VALUES ($1,$2)")

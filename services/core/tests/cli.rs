@@ -898,6 +898,7 @@ WITH catalog_path AS MATERIALIZED (
         SELECT json_build_array('component',name,encode(fingerprint,'hex'))::text AS value FROM core_meta.component_contract
         UNION ALL SELECT json_build_array('runtime',singleton,encode(catalog_fingerprint,'hex'))::text FROM core_meta.runtime_contract
         UNION ALL SELECT json_build_array('identity',singleton,version,encode(fingerprint,'hex'))::text FROM core_meta.schema_contract
+        UNION ALL SELECT json_build_array('oauth',singleton,version,encode(ddl_fingerprint,'hex'),encode(catalog_fingerprint,'hex'))::text FROM core_oauth.contract
         UNION ALL SELECT json_build_array('journal',to_jsonb(j))::text FROM core_billing.ledger_journals j
         UNION ALL SELECT json_build_array('entry',to_jsonb(e))::text FROM core_billing.ledger_entries e
         UNION ALL SELECT json_build_array('wallet',to_jsonb(w))::text FROM core_billing.ledger_accounts w
@@ -954,13 +955,15 @@ WITH catalog_path AS MATERIALIZED (
             .collect()
     }
     lmm_core::core_schema::init(&pool).await.unwrap();
-    // Fresh current-v4 twelve-component schema with only this index removed.
+    // Fresh current-v4 thirteen-component schema with only this index removed.
     // core_schema::index_tests independently constructs and pins this exact catalog.
-    const PRIOR: &str = "9ce6c5120645792608d4466ef9fe4b6f91add7ec082670d276bffbd94f48c14a";
+    const PRIOR: &str = "431a4af6b4790abdb32a3583cb097b733c41b6b2cdc04537e15808260de44d57";
+    const RETIRED_TWELVE_COMPONENT_PRIOR: &str =
+        "9ce6c5120645792608d4466ef9fe4b6f91add7ec082670d276bffbd94f48c14a";
     const RETIRED_PRIOR: &str = "e8fa053daca7741952caa4c60e27071652f600b4fa48f4b7631ea54ee801df7b";
     const RETIRED_ELEVEN_COMPONENT_PRIOR: &str =
         "5510e0bee0e5659ff940b798c9d6d3c69aea220734d9f73577c847b6841254b7";
-    sqlx::raw_sql("DROP INDEX core_charging.ledger_commands_request_operation; UPDATE core_meta.component_contract SET fingerprint=decode('7f84659ad2bd60268256a9f76959299a33911aaaeaf7194156a6f195ab54a734','hex') WHERE name='charging-ledger'; UPDATE core_meta.runtime_contract SET catalog_fingerprint=decode('9ce6c5120645792608d4466ef9fe4b6f91add7ec082670d276bffbd94f48c14a','hex')")
+    sqlx::raw_sql("DROP INDEX core_charging.ledger_commands_request_operation; UPDATE core_meta.component_contract SET fingerprint=decode('7f84659ad2bd60268256a9f76959299a33911aaaeaf7194156a6f195ab54a734','hex') WHERE name='charging-ledger'; UPDATE core_meta.runtime_contract SET catalog_fingerprint=decode('431a4af6b4790abdb32a3583cb097b733c41b6b2cdc04537e15808260de44d57','hex')")
         .execute(&pool).await.unwrap();
     // Nonempty synthetic ledger data makes refusal and upgrade conservation real.
     let store = IdentityStore::from_pool(pool.clone());
@@ -1035,10 +1038,16 @@ WITH catalog_path AS MATERIALIZED (
     );
     let owner_url = database_url(&pool);
     std::fs::write(&database, &owner_url).unwrap();
-    // Both retired catalogs must fail for saved=current/approval=retired,
+    // All three retired catalogs must fail for saved=current/approval=retired,
     // saved=retired/approval=retired, and saved=retired/approval=current.
     // No mismatch may change financial rows, receipts, ACLs or definitions.
     for (saved, approval) in [
+        (PRIOR, RETIRED_TWELVE_COMPONENT_PRIOR),
+        (
+            RETIRED_TWELVE_COMPONENT_PRIOR,
+            RETIRED_TWELVE_COMPONENT_PRIOR,
+        ),
+        (RETIRED_TWELVE_COMPONENT_PRIOR, PRIOR),
         (PRIOR, RETIRED_PRIOR),
         (RETIRED_PRIOR, RETIRED_PRIOR),
         (RETIRED_PRIOR, PRIOR),

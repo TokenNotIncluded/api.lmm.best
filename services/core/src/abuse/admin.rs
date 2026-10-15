@@ -98,7 +98,7 @@ fn mutation_fields(operation: &str, reason: &str) -> Result<()> {
     }
     Ok(())
 }
-async fn administrator(c: &mut PgConnection, secret: &str) -> Result<Principal> {
+pub(super) async fn administrator(c: &mut PgConnection, secret: &str) -> Result<Principal> {
     let actor = crate::identity::authorize_in_transaction(c, secret).await?;
     if actor.credential_kind != CredentialKind::Session {
         return Err(AbuseError::Forbidden);
@@ -194,7 +194,10 @@ impl AbuseStore {
             json!({"version":1,"revision":revision,"config":config,"capabilities":{
             "client_protocols":["openai_chat","openai_responses"],
             "upstream_protocols":["openai_chat","openai_responses","anthropic_messages","gemini"],
-            "modes":["fixed_text","custom_upstream"],"numeric_loopback_only":true,
+            "modes":["fixed_text","custom_upstream"],"numeric_loopback_only":self.network.is_none(),
+            "external_https":self.network.is_some(),
+            "local_http":self.network.as_ref().is_none_or(|policy|policy.local_http),
+            "allowed_origins":self.network.as_ref().map(|policy|&policy.origins),
             "credential_references":self.aliases.as_ref()}}),
         )
     }
@@ -213,7 +216,7 @@ impl AbuseStore {
             tx.commit().await?;
             return Ok(result);
         }
-        input.config.validate(&self.aliases)?;
+        self.validate_configuration(&input.config)?;
         let current: i64 = sqlx::query_scalar(
             "SELECT revision FROM core_abuse.settings WHERE singleton FOR UPDATE",
         )
@@ -504,7 +507,7 @@ impl AbuseStore {
     }
 }
 
-fn bearer(headers: &HeaderMap) -> Result<&str> {
+pub(super) fn bearer(headers: &HeaderMap) -> Result<&str> {
     let mut values = headers.get_all(header::AUTHORIZATION).iter();
     let raw = values
         .next()
@@ -549,6 +552,14 @@ pub fn router(store: AbuseStore) -> Router {
         )
         .route("/core/v1/admin/abuse/users", get(get_users))
         .route("/core/v1/admin/abuse/users/{id}", get(get_user))
+        .route(
+            "/core/v1/admin/abuse/users/{id}/similarity",
+            get(super::registration::get_similarity),
+        )
+        .route(
+            "/core/v1/assistant/model-credential",
+            get(super::registration::get_model_credential),
+        )
         .route("/core/v1/admin/abuse/users/preview", post(preview))
         .route("/core/v1/admin/abuse/users/commit", post(commit))
         .route("/core/v1/admin/abuse/operations/{id}", get(operation))
