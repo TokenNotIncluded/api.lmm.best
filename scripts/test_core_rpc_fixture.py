@@ -1,4 +1,5 @@
 """Offline fixture regressions; real Docker bind mounts are tested separately."""
+import ast
 import importlib.util
 import json
 import os
@@ -22,6 +23,26 @@ FIXTURE.DOCKER = FIXTURE.ROOT / "deployment/docker"
 
 
 class PrivateFixtureTests(unittest.TestCase):
+    def test_fresh_install_component_inventory_is_exact(self):
+        source = ast.parse(SOURCE.read_text())
+        checks = [node.test for node in ast.walk(source)
+                  if isinstance(node, ast.Assert)
+                  and isinstance(node.test, ast.Compare)
+                  and ast.unparse(node.test.left) == "set(components)"]
+        self.assertEqual(len(checks), 1)
+        check = checks[0]
+        self.assertEqual(len(check.ops), 1)
+        self.assertIsInstance(check.ops[0], ast.Eq)
+        self.assertEqual(len(check.comparators), 1)
+        expected = check.comparators[0]
+        self.assertIsInstance(expected, ast.Set)
+        self.assertEqual(len(expected.elts), 12)
+        self.assertEqual(ast.literal_eval(expected), {
+            "identity", "ledger", "payments", "charging", "routing", "events",
+            "charging-ledger", "migration", "console", "model-gateway", "commerce",
+            "abuse",
+        })
+
     def test_standalone_limits_are_read_from_the_current_toml_contract(self):
         with (FIXTURE.DOCKER / "config/core-standalone.toml").open("rb") as file:
             config = FIXTURE.tomllib.load(file)

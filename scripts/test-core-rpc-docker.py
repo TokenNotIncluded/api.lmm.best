@@ -292,7 +292,7 @@ def main():
             components = json.loads(psql("SELECT json_agg(name ORDER BY name) FROM core_meta.component_contract;"))
             assert set(components) == {"identity", "ledger", "payments", "charging", "routing",
                                       "events", "charging-ledger", "migration", "console",
-                                      "model-gateway", "commerce"}
+                                      "model-gateway", "commerce", "abuse"}
             assert psql("SELECT bool_and(n.nspowner='lmm_core_owner'::regrole) FROM pg_namespace n WHERE n.nspname LIKE 'core\\_%' ESCAPE '\\';").strip() == "t"
             assert psql("""SELECT NOT EXISTS (
                 SELECT FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
