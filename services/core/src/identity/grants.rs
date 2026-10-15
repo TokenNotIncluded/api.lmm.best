@@ -1,9 +1,11 @@
 //! Read-only lmm public-client issuer plus the unissued Pi grant foundation.
 //! PKCE uses oxide-auth (MIT OR Apache-2.0), pinned in Cargo.toml.
+mod delegated;
 mod issuer;
 mod protocol;
 mod readonly;
 use super::*;
+pub use delegated::OAuthSource;
 pub use issuer::{AuthorizationRedirect, ConsentPage, LmmIssuer};
 use oxide_auth::code_grant::extensions::Pkce;
 pub use protocol::{
@@ -12,6 +14,11 @@ pub use protocol::{
 };
 pub use readonly::{BalanceV2, ReadError};
 use sqlx::{Postgres, Transaction};
+
+/// Canonical selector codec only; callers must still verify current consent.
+pub fn decode_group_selector(value: &str) -> Result<String> {
+    protocol::decode_group(&format!("group:{value}"))
+}
 
 pub const SCHEMA: &str = include_str!("../../schema/oauth_grants.sql");
 const SCOPES: &[&str] = &[

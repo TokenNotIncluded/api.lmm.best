@@ -282,3 +282,27 @@ pub(super) async fn manage_budget(
         _ => Err(Error::Forbidden),
     }
 }
+
+/// Only this exact native personal account may fund a model OAuth grant.
+/// Wallet/subscription preference remains the account's REAL current policy.
+pub(super) async fn oauth_payer(
+    c: &mut PgConnection,
+    source: &crate::identity::grants::OAuthSource,
+) -> Result<Payer> {
+    source.validate_stored().map_err(identity_error)?;
+    let preference:Option<String>=sqlx::query_scalar("SELECT p.preference FROM core_identity.users u JOIN core_identity.accounts a ON a.id=u.personal_account_id JOIN core_billing.account_policies p ON p.account_id=a.id WHERE u.id=$1 AND u.personal_account_id=$2 AND u.active AND a.active AND a.kind='personal' FOR SHARE OF u,a,p")
+        .bind(source.user_id).bind(source.personal_account_id).fetch_optional(c).await?;
+    Ok(Payer {
+        id: source.personal_account_id,
+        preference: preference.ok_or(Error::Forbidden)?,
+    })
+}
+pub(super) fn identity_error(error: crate::identity::IdentityError) -> Error {
+    match error {
+        crate::identity::IdentityError::Unauthorized => Error::Unauthorized,
+        crate::identity::IdentityError::Forbidden => Error::Forbidden,
+        crate::identity::IdentityError::Invalid => Error::Invalid,
+        crate::identity::IdentityError::Conflict => Error::Retry,
+        crate::identity::IdentityError::Storage => Error::Storage,
+    }
+}

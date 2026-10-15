@@ -1,5 +1,5 @@
--- OAuth v1: explicit fresh installation, with a read-only lmm public-client issuer.
--- The lmm-pi foundation remains unissued and is not advertised by this slice.
+-- OAuth v1: explicit fresh installation; lmm readonly and opt-in lmm-pi model grants.
+-- The legacy Pi foundation remains unissued and never supplies normal model authority.
 CREATE SCHEMA core_oauth;
 REVOKE ALL ON SCHEMA core_oauth FROM PUBLIC;
 CREATE TABLE core_oauth.contract (
@@ -32,6 +32,26 @@ BEGIN
 EXCEPTION WHEN data_exception THEN RETURN FALSE;
 END $$;
 REVOKE ALL ON FUNCTION core_oauth.readonly_scope_set(TEXT[]) FROM PUBLIC;
+-- Pure format policy; actual user/consent/spending authority stays in Core.
+CREATE FUNCTION core_oauth.client_scope_set(client_ TEXT,values_ TEXT[],initial_ BOOLEAN) RETURNS BOOLEAN
+LANGUAGE plpgsql IMMUTABLE STRICT SET search_path=pg_catalog AS $$
+DECLARE filtered_ TEXT[];
+BEGIN
+ IF cardinality(values_)<>(SELECT count(DISTINCT v) FROM unnest(values_) v) THEN RETURN FALSE; END IF;
+ IF initial_ THEN
+  IF client_='lmm' THEN RETURN cardinality(values_)=2 AND values_ @> ARRAY['catalog:read','balance:read']::text[]; END IF;
+  RETURN client_='lmm-pi' AND cardinality(values_) BETWEEN 4 AND 7
+   AND values_ @> ARRAY['catalog:read','balance:read','usage:read','models:invoke']::text[]
+   AND values_ <@ ARRAY['catalog:read','balance:read','usage:read','models:invoke','mcp:bounties','mcp:drawing','remote:control']::text[];
+ END IF;
+ IF client_='lmm' THEN RETURN core_oauth.readonly_scope_set(values_); END IF;
+ IF client_<>'lmm-pi' OR cardinality(values_) NOT BETWEEN 2 AND 68
+    OR NOT (values_ && ARRAY['catalog:read','balance:read','usage:read','models:invoke']::text[]) THEN RETURN FALSE; END IF;
+ filtered_:=array_remove(array_remove(values_,'usage:read'),'models:invoke');
+ IF NOT (filtered_ && ARRAY['catalog:read','balance:read']::text[]) THEN filtered_:=filtered_||'catalog:read'::text; END IF;
+ RETURN core_oauth.readonly_scope_set(filtered_);
+END $$;
+REVOKE ALL ON FUNCTION core_oauth.client_scope_set(TEXT,TEXT[],BOOLEAN) FROM PUBLIC;
 CREATE TABLE core_oauth.families (
     id TEXT PRIMARY KEY CHECK (id ~ '^lmm_gr_[0-9a-f]{64}$'),
     user_id BIGINT NOT NULL REFERENCES core_identity.users(id),
@@ -41,7 +61,15 @@ CREATE TABLE core_oauth.families (
     issuer TEXT NOT NULL CHECK (octet_length(issuer) BETWEEN 1 AND 256),
     resource TEXT NOT NULL CHECK (resource = issuer || '/api/oauth2'),
     client_id TEXT NOT NULL CHECK (client_id IN ('lmm-pi','lmm')),
-    scopes TEXT[] NOT NULL CHECK ((client_id='lmm-pi' AND cardinality(scopes) BETWEEN 1 AND 7 AND scopes <@ ARRAY['catalog:read','balance:read','usage:read','models:invoke','mcp:bounties','mcp:drawing','remote:control']::text[]) OR (client_id='lmm' AND core_oauth.readonly_scope_set(scopes))),
+    issuance_kind TEXT NOT NULL DEFAULT 'foundation' CHECK(issuance_kind IN ('foundation','browser')),
+    purpose TEXT NOT NULL DEFAULT 'foundation' CHECK(purpose IN ('foundation','read_only','normal_model','honeypot_only')),
+    budget_credits BIGINT CHECK(budget_credits BETWEEN 1 AND 9007199254740991),
+    scopes TEXT[] NOT NULL CHECK (
+        (issuance_kind='foundation' AND purpose='foundation' AND budget_credits IS NULL AND client_id='lmm-pi'
+            AND cardinality(scopes) BETWEEN 1 AND 7 AND scopes <@ ARRAY['catalog:read','balance:read','usage:read','models:invoke','mcp:bounties','mcp:drawing','remote:control']::text[])
+        OR (issuance_kind='browser' AND client_id='lmm' AND purpose='read_only' AND budget_credits IS NULL AND core_oauth.readonly_scope_set(scopes))
+        OR (issuance_kind='browser' AND client_id='lmm-pi' AND core_oauth.client_scope_set(client_id,scopes,false)
+            AND ((purpose='normal_model' AND budget_credits IS NOT NULL) OR (purpose='honeypot_only' AND budget_credits IS NULL)))) ,
     created_at TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
     expires_at TIMESTAMPTZ NOT NULL,
     revoked_at TIMESTAMPTZ,
@@ -86,13 +114,13 @@ REVOKE ALL ON ALL TABLES IN SCHEMA core_oauth FROM PUBLIC;
 CREATE TABLE core_oauth.authorization_requests (
  binding_digest BYTEA PRIMARY KEY CHECK(octet_length(binding_digest)=32),
  csrf_digest BYTEA NOT NULL UNIQUE CHECK(octet_length(csrf_digest)=32),
- client_id TEXT NOT NULL CHECK(client_id='lmm'),
+ client_id TEXT NOT NULL CHECK(client_id IN ('lmm','lmm-pi')),
  issuer TEXT NOT NULL CHECK(octet_length(issuer) BETWEEN 1 AND 256),
  resource TEXT NOT NULL CHECK(resource=issuer||'/api/oauth2'),
  redirect_uri TEXT NOT NULL CHECK(octet_length(redirect_uri) BETWEEN 1 AND 256),
  state TEXT NOT NULL CHECK(octet_length(state) BETWEEN 1 AND 256),
  pkce_challenge TEXT NOT NULL CHECK(pkce_challenge ~ '^[A-Za-z0-9_-]{43}$'),
- requested_scopes TEXT[] NOT NULL CHECK(requested_scopes=ARRAY['catalog:read','balance:read']::TEXT[]),
+ requested_scopes TEXT[] NOT NULL CHECK(core_oauth.client_scope_set(client_id,requested_scopes,true)),
  user_id BIGINT REFERENCES core_identity.users(id),
  owner_account_id BIGINT REFERENCES core_identity.accounts(id),
  user_version BIGINT CHECK(user_version>0),
@@ -104,7 +132,8 @@ CREATE TABLE core_oauth.authorization_requests (
  CHECK(expires_at>created_at AND expires_at<=created_at+interval '300 seconds'),
  CHECK((user_id IS NULL AND owner_account_id IS NULL AND user_version IS NULL AND sid IS NULL AND cardinality(granted_scopes)=0)
   OR (user_id IS NOT NULL AND owner_account_id IS NOT NULL AND user_version IS NOT NULL AND sid IS NOT NULL
-      AND ARRAY['catalog:read','balance:read']::TEXT[] <@ granted_scopes AND core_oauth.readonly_scope_set(granted_scopes)))
+      AND ARRAY['catalog:read','balance:read']::TEXT[] <@ granted_scopes AND core_oauth.client_scope_set(client_id,granted_scopes,false)
+      AND (client_id='lmm' OR ARRAY['usage:read','models:invoke']::TEXT[] <@ granted_scopes)))
 );
 CREATE INDEX authorization_request_expiry ON core_oauth.authorization_requests(expires_at);
 CREATE TABLE core_oauth.authorization_codes (
@@ -116,11 +145,12 @@ CREATE TABLE core_oauth.authorization_codes (
  consent_version BIGINT NOT NULL CHECK(consent_version>0),
  issuer TEXT NOT NULL CHECK(octet_length(issuer) BETWEEN 1 AND 256),
  resource TEXT NOT NULL CHECK(resource=issuer||'/api/oauth2'),
- client_id TEXT NOT NULL CHECK(client_id='lmm'),
+ client_id TEXT NOT NULL CHECK(client_id IN ('lmm','lmm-pi')),
  redirect_uri TEXT NOT NULL CHECK(octet_length(redirect_uri) BETWEEN 1 AND 256),
  state TEXT NOT NULL CHECK(octet_length(state) BETWEEN 1 AND 256),
  pkce_challenge TEXT NOT NULL CHECK(pkce_challenge ~ '^[A-Za-z0-9_-]{43}$'),
- scopes TEXT[] NOT NULL CHECK(ARRAY['catalog:read','balance:read']::TEXT[] <@ scopes AND core_oauth.readonly_scope_set(scopes)),
+ scopes TEXT[] NOT NULL CHECK(ARRAY['catalog:read','balance:read']::TEXT[] <@ scopes AND core_oauth.client_scope_set(client_id,scopes,false)
+  AND (client_id='lmm' OR ARRAY['usage:read','models:invoke']::TEXT[] <@ scopes)),
  created_at TIMESTAMPTZ NOT NULL DEFAULT statement_timestamp(),
  expires_at TIMESTAMPTZ NOT NULL,
  consumed_at TIMESTAMPTZ,
@@ -142,3 +172,17 @@ CREATE TRIGGER authorization_code_immutable BEFORE UPDATE ON core_oauth.authoriz
  FOR EACH ROW EXECUTE FUNCTION core_oauth.immutable_browser_authorization();
 REVOKE ALL ON core_oauth.authorization_requests,core_oauth.authorization_codes FROM PUBLIC;
 REVOKE ALL ON FUNCTION core_oauth.immutable_browser_authorization() FROM PUBLIC;
+
+-- Explicit fresh installation only, after charging. Every OAuth authority
+-- component in a charge source binds the actual immutable browser grant.
+ALTER TABLE core_oauth.families ADD CONSTRAINT model_family_source UNIQUE
+    (id,user_id,owner_account_id,client_id,issuer,resource,user_version,consent_version,budget_credits,purpose);
+ALTER TABLE core_oauth.access_tokens ADD CONSTRAINT access_id_family UNIQUE(id,family_id,consent_version);
+ALTER TABLE core_charging.requests ADD CONSTRAINT requests_oauth_family
+    FOREIGN KEY (oauth_family_id,actor_user_id,owner_account_id,oauth_client_id,oauth_issuer,oauth_resource,
+        oauth_user_version,oauth_consent_version,oauth_budget_credits,oauth_purpose)
+    REFERENCES core_oauth.families(id,user_id,owner_account_id,client_id,issuer,resource,
+        user_version,consent_version,budget_credits,purpose);
+ALTER TABLE core_charging.requests ADD CONSTRAINT requests_oauth_access
+    FOREIGN KEY (oauth_access_id,oauth_family_id,oauth_consent_version)
+    REFERENCES core_oauth.access_tokens(id,family_id,consent_version);

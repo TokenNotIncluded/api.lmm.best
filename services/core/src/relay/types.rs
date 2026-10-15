@@ -215,12 +215,20 @@ impl Limits {
 pub struct RequestContext {
     pub request_id: String,
     pub actor_user_id: i64,
-    pub key_id: i64,
+    pub key_id: Option<i64>,
+    pub oauth_source: Option<crate::identity::grants::OAuthSource>,
 }
 impl RequestContext {
     pub(crate) fn validate(&self) -> Result<(), RelayError> {
+        let source_valid = match (&self.key_id, &self.oauth_source) {
+            (Some(key), None) => *key > 0,
+            (None, Some(source)) => {
+                source.user_id() == self.actor_user_id && source.validate_stored().is_ok()
+            }
+            _ => false,
+        };
         if self.actor_user_id <= 0
-            || self.key_id <= 0
+            || !source_valid
             || self.request_id.is_empty()
             || self.request_id.len() > 128
             || !self

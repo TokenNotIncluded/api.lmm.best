@@ -116,6 +116,7 @@ GRANT UPDATE (scopes, revoked_at) ON core_oauth.families TO :"runtime_role";
 GRANT UPDATE (consumed_at) ON core_oauth.authorization_requests,
     core_oauth.authorization_codes, core_oauth.refresh_tokens TO :"runtime_role";
 GRANT EXECUTE ON FUNCTION core_oauth.readonly_scope_set(text[]) TO :"runtime_role";
+GRANT EXECUTE ON FUNCTION core_oauth.client_scope_set(text,text[],boolean) TO :"runtime_role";
 \endif
 
 \if :enable_commerce

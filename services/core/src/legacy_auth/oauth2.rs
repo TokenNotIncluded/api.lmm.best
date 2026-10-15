@@ -80,8 +80,10 @@ fn escape(value: &str) -> String {
         .replace('\'', "&#39;")
 }
 fn page(page: ConsentPage, config: &LegacyAuthConfig) -> Response {
-    let mut body = String::from(
-        "<!doctype html><meta charset=utf-8><title>LMM CLI authorization</title><h1>LMM CLI</h1>",
+    let pi = page.client_id == "lmm-pi";
+    let mut body = format!(
+        "<!doctype html><meta charset=utf-8><title>LMM authorization</title><h1>{}</h1>",
+        if pi { "LMM Pi" } else { "LMM CLI" }
     );
     let action = if let Some(account) = &page.account {
         body.push_str(&format!("<p>Account: {}</p><p>Read the model catalog and your personal wallet balance.</p><p>Approved groups:</p><ul>",escape(account)));
@@ -89,6 +91,9 @@ fn page(page: ConsentPage, config: &LegacyAuthConfig) -> Response {
             body.push_str(&format!("<li>{}</li>", escape(group)));
         }
         body.push_str("</ul>");
+        if pi {
+            body.push_str("<p>Allow model calls and usage for this personal account. Optional MCP/remote scopes are unavailable and will not be granted.</p>");
+        }
         "/api/user/auth/oauth2/consent"
     } else {
         body.push_str("<p>Sign in, then explicitly continue here. This does not authorize LMM CLI.</p><p><a href=\"/sign-in?reauth=1\" target=\"_blank\" rel=\"noopener noreferrer\">Open sign in</a></p>");
@@ -99,7 +104,11 @@ fn page(page: ConsentPage, config: &LegacyAuthConfig) -> Response {
         escape(&page.csrf)
     ));
     if page.account.is_some() {
-        body.push_str("<button name=decision value=allow>Allow read-only access</button> <button name=decision value=deny>Deny</button>");
+        if let Some(maximum) = page.maximum_budget_credits {
+            body.push_str(&format!("<label>Lifetime budget in credits (500000 credits per USD, including pending holds)<input type=number name=budget_credits min=1 max={maximum} step=1 required></label><button name=decision value=allow>Allow scoped model access</button> <button name=decision value=deny formnovalidate>Deny</button>"));
+        } else {
+            body.push_str("<button name=decision value=allow>Allow read-only access</button> <button name=decision value=deny>Deny</button>");
+        }
     } else {
         body.push_str("<button>Continue after sign in</button>");
     }
@@ -175,7 +184,9 @@ async fn consent(
         };
         let binding = cookie(&headers, &state.config, &form.csrf)?;
         let refresh = refresh_cookie(&headers).ok().flatten();
-        issuer.consent(binding, &form.csrf, refresh, allow).await
+        issuer
+            .consent_with_budget(binding, &form.csrf, refresh, allow, form.budget_credits)
+            .await
     }
     .await;
     let response = match result {

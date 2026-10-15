@@ -269,6 +269,12 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
             }
         });
         if let Some(issuer) = &oauth2 {
+            if issuer.profile().pi_budget_limit().is_some() && model_gateway.is_none() {
+                return Err("Pi delegation requires actual model gateway".into());
+            }
+            if let Some(gateway) = &mut model_gateway {
+                *gateway = gateway.clone().with_oauth2_issuer(issuer.clone());
+            }
             routes = routes.merge(lmm_core::oauth2_http::router(issuer.clone()));
         }
         if let Some(mut config) = legacy_config {

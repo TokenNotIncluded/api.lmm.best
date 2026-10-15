@@ -72,7 +72,7 @@ async fn check_binding(c: &mut PgConnection, command: &LedgerCommand) -> Result<
     {
         return Err(LedgerError::Conflict);
     }
-    let row = sqlx::query("SELECT actor_user_id,key_id,owner_account_id,payer_account_id,price,source_subscription_id,source_start,source_end FROM core_charging.requests WHERE id=$1 FOR UPDATE")
+    let row = sqlx::query("SELECT actor_user_id,key_id,oauth_source,owner_account_id,payer_account_id,price,source_subscription_id,source_start,source_end FROM core_charging.requests WHERE id=$1 FOR UPDATE")
         .bind(&command.request_id).fetch_optional(c).await.map_err(database)?
         .ok_or(LedgerError::Conflict)?;
     let price: Value = row.try_get("price").map_err(database)?;
@@ -88,7 +88,16 @@ async fn check_binding(c: &mut PgConnection, command: &LedgerCommand) -> Result<
         None => Source::Wallet,
     };
     if row.try_get::<i64, _>("actor_user_id").map_err(database)? != command.actor_user_id
-        || row.try_get::<i64, _>("key_id").map_err(database)? != command.key_id
+        || row.try_get::<Option<i64>, _>("key_id").map_err(database)? != command.key_id
+        || row
+            .try_get::<Option<Value>, _>("oauth_source")
+            .map_err(database)?
+            != command
+                .oauth_source
+                .as_ref()
+                .map(serde_json::to_value)
+                .transpose()
+                .map_err(|_| LedgerError::Conflict)?
         || row
             .try_get::<i64, _>("owner_account_id")
             .map_err(database)?

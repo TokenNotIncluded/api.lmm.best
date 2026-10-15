@@ -219,6 +219,7 @@ pub(crate) async fn check_connection(
           AND NOT EXISTS(SELECT FROM (VALUES ('authorization_requests'),('authorization_codes'),('refresh_tokens')) t(name)
             WHERE NOT has_column_privilege('core_oauth.'||t.name,'consumed_at','UPDATE'))
           AND has_function_privilege('core_oauth.readonly_scope_set(text[])','EXECUTE')
+          AND has_function_privilege('core_oauth.client_scope_set(text,text[],boolean)','EXECUTE')
         "#).fetch_one(&mut *connection).await?;
         if !complete {
             return Err(RuntimeDatabaseError::MissingPrivileges);

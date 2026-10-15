@@ -30,7 +30,8 @@ fn context() -> RequestContext {
     RequestContext {
         request_id: format!("test_{}", IDS.fetch_add(1, Ordering::Relaxed)),
         actor_user_id: 7,
-        key_id: 9,
+        key_id: Some(9),
+        oauth_source: None,
     }
 }
 
@@ -242,7 +243,7 @@ impl Billing for Money {
     ) -> RelayFuture<'a, Reservation> {
         Box::pin(async move {
             self.reserves.fetch_add(1, Ordering::SeqCst);
-            assert_eq!((c.actor_user_id, c.key_id), (7, 9));
+            assert_eq!((c.actor_user_id, c.key_id), (7, Some(9)));
             self.pinned
                 .lock()
                 .unwrap()

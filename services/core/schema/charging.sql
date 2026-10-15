@@ -186,7 +186,39 @@ $$;
 CREATE TABLE core_charging.requests (
     id TEXT PRIMARY KEY CHECK (length(id) BETWEEN 1 AND 128),
     actor_user_id BIGINT NOT NULL REFERENCES core_identity.users(id),
-    key_id BIGINT NOT NULL REFERENCES core_identity.credentials(id),
+    key_id BIGINT REFERENCES core_identity.credentials(id),
+    oauth_source JSONB CHECK (oauth_source IS NULL OR ((jsonb_typeof(oauth_source)='object'
+        AND oauth_source ?& ARRAY['grant_id','access_id','client_id','issuer','resource','user_id','personal_account_id','user_version','consent_version','scopes','expires_at','budget_credits']
+        AND oauth_source - ARRAY['grant_id','access_id','client_id','issuer','resource','user_id','personal_account_id','user_version','consent_version','scopes','expires_at','budget_credits']='{}'::jsonb
+        AND oauth_source->>'client_id'='lmm-pi'
+        AND oauth_source->>'grant_id' ~ '^lmm_gr_[0-9a-f]{64}$'
+        AND oauth_source->>'access_id' ~ '^lmm_ac_[0-9a-f]{64}$'
+        AND jsonb_typeof(oauth_source->'scopes')='array'
+        AND jsonb_typeof(oauth_source->'grant_id')='string'
+        AND jsonb_typeof(oauth_source->'access_id')='string'
+        AND jsonb_typeof(oauth_source->'client_id')='string'
+        AND jsonb_typeof(oauth_source->'issuer')='string'
+        AND jsonb_typeof(oauth_source->'resource')='string'
+        AND (oauth_source->'scopes') ? 'models:invoke'
+        AND jsonb_array_length(oauth_source->'scopes') BETWEEN 2 AND 68
+        AND (oauth_source->>'expires_at') ~ '^[1-9][0-9]{0,11}$'
+        AND (oauth_source->>'expires_at')::numeric<=253402300799
+        AND jsonb_typeof(oauth_source->'budget_credits')='number'
+        AND jsonb_typeof(oauth_source->'user_id')='number'
+        AND jsonb_typeof(oauth_source->'personal_account_id')='number'
+        AND jsonb_typeof(oauth_source->'user_version')='number'
+        AND jsonb_typeof(oauth_source->'consent_version')='number'
+        AND jsonb_typeof(oauth_source->'expires_at')='number'
+        AND (oauth_source->>'budget_credits')::numeric BETWEEN 1 AND 9007199254740991) IS TRUE)),
+    oauth_family_id TEXT GENERATED ALWAYS AS (oauth_source->>'grant_id') STORED,
+    oauth_access_id TEXT GENERATED ALWAYS AS (oauth_source->>'access_id') STORED,
+    oauth_client_id TEXT GENERATED ALWAYS AS (oauth_source->>'client_id') STORED,
+    oauth_issuer TEXT GENERATED ALWAYS AS (oauth_source->>'issuer') STORED,
+    oauth_resource TEXT GENERATED ALWAYS AS (oauth_source->>'resource') STORED,
+    oauth_user_version BIGINT GENERATED ALWAYS AS ((oauth_source->>'user_version')::bigint) STORED,
+    oauth_consent_version BIGINT GENERATED ALWAYS AS ((oauth_source->>'consent_version')::bigint) STORED,
+    oauth_budget_credits BIGINT GENERATED ALWAYS AS ((oauth_source->>'budget_credits')::bigint) STORED,
+    oauth_purpose TEXT GENERATED ALWAYS AS (CASE WHEN oauth_source IS NULL THEN NULL ELSE 'normal_model'::text END) STORED,
     owner_account_id BIGINT NOT NULL REFERENCES core_identity.accounts(id),
     payer_account_id BIGINT NOT NULL REFERENCES core_identity.accounts(id),
     fingerprint BYTEA NOT NULL CHECK (octet_length(fingerprint) = 32),
@@ -208,6 +240,11 @@ CREATE TABLE core_charging.requests (
     refunded BIGINT NOT NULL DEFAULT 0 CHECK (refunded BETWEEN 0 AND settled),
     revision BIGINT NOT NULL DEFAULT 1 CHECK (revision > 0),
     outcome TEXT,
+    CHECK ((key_id IS NOT NULL AND oauth_source IS NULL)
+        OR (key_id IS NULL AND oauth_source IS NOT NULL
+            AND (oauth_source->>'user_id')::bigint=actor_user_id
+            AND (oauth_source->>'personal_account_id')::bigint=owner_account_id
+            AND payer_account_id=owner_account_id)),
     CHECK (lease_until <= hard_deadline),
     CHECK ((source_subscription_id IS NULL AND source_start IS NULL AND source_end IS NULL)
         OR (source_subscription_id IS NOT NULL AND source_start IS NOT NULL
@@ -216,6 +253,7 @@ CREATE TABLE core_charging.requests (
         OR (state <> 'settled' AND settled = 0 AND refunded = 0 AND outcome IS NULL))
 );
 CREATE INDEX requests_payer_window ON core_charging.requests(payer_account_id, authorized_at);
+CREATE INDEX requests_oauth_family ON core_charging.requests(oauth_family_id,authorized_at) WHERE oauth_family_id IS NOT NULL;
 CREATE INDEX requests_actor_window ON core_charging.requests(actor_user_id, authorized_at);
 CREATE INDEX requests_key_window ON core_charging.requests(key_id, authorized_at);
 CREATE INDEX requests_entitlement ON core_charging.requests(source_subscription_id, source_start);
@@ -342,11 +380,11 @@ CREATE TRIGGER subscription_identity BEFORE UPDATE ON core_charging.subscription
     FOR EACH ROW EXECUTE FUNCTION core_charging.guard_subscription();
 CREATE FUNCTION core_charging.guard_request() RETURNS TRIGGER LANGUAGE plpgsql AS $$
 BEGIN
-    IF (NEW.id, NEW.actor_user_id, NEW.key_id, NEW.owner_account_id, NEW.payer_account_id,
+    IF (NEW.id, NEW.actor_user_id, NEW.key_id, NEW.oauth_source, NEW.owner_account_id, NEW.payer_account_id,
         NEW.fingerprint, NEW.worker_digest, NEW.spec_digest, NEW.price, NEW.source_subscription_id,
         NEW.source_start, NEW.source_end, NEW.authorized_at, NEW.hard_deadline)
         IS DISTINCT FROM
-       (OLD.id, OLD.actor_user_id, OLD.key_id, OLD.owner_account_id, OLD.payer_account_id,
+       (OLD.id, OLD.actor_user_id, OLD.key_id, OLD.oauth_source, OLD.owner_account_id, OLD.payer_account_id,
         OLD.fingerprint, OLD.worker_digest, OLD.spec_digest, OLD.price, OLD.source_subscription_id,
         OLD.source_start, OLD.source_end, OLD.authorized_at, OLD.hard_deadline)
        OR NEW.reserved < OLD.reserved OR NEW.refunded < OLD.refunded
@@ -354,9 +392,14 @@ BEGIN
        OR NEW.output_tokens < OLD.output_tokens OR NEW.revision <> OLD.revision + 1 THEN
         RAISE EXCEPTION 'invalid charging mutation' USING ERRCODE = '23514';
     END IF;
+    -- Stored generated OAuth projections are NULL in NEW during BEFORE UPDATE.
+    -- Their immutable source is checked above; compare every remaining mutable
+    -- business column explicitly so a legitimate terminal refund stays possible.
     IF OLD.state IN ('settled', 'released') AND
-        (to_jsonb(NEW) - 'refunded' - 'revision') IS DISTINCT FROM
-        (to_jsonb(OLD) - 'refunded' - 'revision') THEN
+        (NEW.state, NEW.reserved, NEW.lease_until, NEW.input_tokens, NEW.cached_tokens,
+         NEW.output_tokens, NEW.settled, NEW.outcome) IS DISTINCT FROM
+        (OLD.state, OLD.reserved, OLD.lease_until, OLD.input_tokens, OLD.cached_tokens,
+         OLD.output_tokens, OLD.settled, OLD.outcome) THEN
         RAISE EXCEPTION 'request is terminal' USING ERRCODE = '23514';
     END IF;
     IF NEW.state <> OLD.state AND NOT

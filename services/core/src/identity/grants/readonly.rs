@@ -28,6 +28,8 @@ struct ReadAuthority {
     user: i64,
     account: i64,
     groups: Vec<String>,
+    grant_id: String,
+    client_id: String,
 }
 pub use crate::oauth2_balance::BalanceV2;
 impl LmmIssuer {
@@ -73,7 +75,22 @@ impl LmmIssuer {
             user: f.try_get("user_id")?,
             account: f.try_get("owner_account_id")?,
             groups,
+            grant_id: f.try_get("id")?,
+            client_id: f.try_get("client_id")?,
         })
+    }
+    pub async fn usage(&self, access: &str) -> std::result::Result<serde_json::Value, ReadError> {
+        let mut tx = transaction(&self.identity.pool).await?;
+        let actor = self.authorize_read(&mut tx, access, "usage:read").await?;
+        if actor.client_id != "lmm-pi" {
+            return Err(IdentityError::Forbidden.into());
+        }
+        let result =
+            crate::usage::read_oauth_usage(&mut tx, actor.user, actor.account, &actor.grant_id)
+                .await
+                .map_err(|_| ReadError::Unavailable)?;
+        tx.commit().await?;
+        Ok(result)
     }
     pub async fn balance(&self, access: &str) -> std::result::Result<BalanceV2, ReadError> {
         let mut tx = transaction(&self.identity.pool).await?;

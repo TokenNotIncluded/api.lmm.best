@@ -26,6 +26,7 @@ pub fn router(issuer: LmmIssuer) -> Router {
         .route("/api/oauth2/revoke", post(revoke))
         .route("/api/oauth2/catalog", get(catalog))
         .route("/api/oauth2/balance", get(balance))
+        .route("/api/oauth2/usage", get(usage))
         .layer(axum::extract::DefaultBodyLimit::max(16 * 1024))
         .layer(middleware::from_fn_with_state(issuer.clone(), security))
         .with_state(issuer)
@@ -70,9 +71,17 @@ async fn security(State(issuer): State<LmmIssuer>, request: Request, next: Next)
 async fn metadata(State(issuer): State<LmmIssuer>) -> Json<Value> {
     let p = issuer.profile();
     let resource = p.resource();
-    Json(
-        json!({"issuer":p.issuer(),"authorization_endpoint":format!("{resource}/authorize"),"token_endpoint":format!("{resource}/token"),"revocation_endpoint":format!("{resource}/revoke"),"response_types_supported":["code"],"grant_types_supported":["authorization_code","refresh_token"],"code_challenge_methods_supported":["S256"],"token_endpoint_auth_methods_supported":["none"],"authorization_response_iss_parameter_supported":true,"scopes_supported":["catalog:read","balance:read"],"lmm_client_ids_supported":["lmm"]}),
-    )
+    let mut document = json!({"issuer":p.issuer(),"authorization_endpoint":format!("{resource}/authorize"),"token_endpoint":format!("{resource}/token"),"revocation_endpoint":format!("{resource}/revoke"),"response_types_supported":["code"],"grant_types_supported":["authorization_code","refresh_token"],"code_challenge_methods_supported":["S256"],"token_endpoint_auth_methods_supported":["none"],"authorization_response_iss_parameter_supported":true,"scopes_supported":["catalog:read","balance:read"],"lmm_client_ids_supported":["lmm"]});
+    if p.pi_budget_limit().is_some() {
+        document["lmm_client_ids_supported"] = json!(["lmm", "lmm-pi"]);
+        document["scopes_supported"] = json!([
+            "catalog:read",
+            "balance:read",
+            "usage:read",
+            "models:invoke"
+        ]);
+    }
+    Json(document)
 }
 async fn resource_metadata(State(issuer): State<LmmIssuer>) -> Json<Value> {
     Json(
@@ -135,7 +144,7 @@ async fn revoke(
     if let Err(e) = form.validate() {
         return protocol_error(e);
     }
-    match issuer.revoke(&form.token).await {
+    match issuer.revoke_for_client(&form.client_id, &form.token).await {
         Ok(()) => (StatusCode::OK, Body::empty()).into_response(),
         Err(e) => protocol_error(e),
     }
@@ -222,6 +231,24 @@ async fn balance(
     };
     match issuer.balance(access).await {
         Ok(v) => Json(v).into_response(),
+        Err(e) => read_error(e),
+    }
+}
+
+async fn usage(
+    State(issuer): State<LmmIssuer>,
+    headers: HeaderMap,
+    uri: axum::http::Uri,
+) -> Response {
+    if uri.query().is_some() {
+        return read_error(ReadError::Identity(IdentityError::Unauthorized));
+    }
+    let access = match bearer(&headers) {
+        Ok(v) => v,
+        Err(e) => return read_error(ReadError::Identity(e)),
+    };
+    match issuer.usage(access).await {
+        Ok(value) => Json(value).into_response(),
         Err(e) => read_error(e),
     }
 }

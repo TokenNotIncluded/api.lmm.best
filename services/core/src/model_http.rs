@@ -57,6 +57,7 @@ struct Operation {
     selected: Option<routing::Selected>,
     output_token_ceiling: u32,
     peer: Option<IpAddr>,
+    oauth_issuer: Option<crate::identity::grants::LmmIssuer>,
 }
 
 struct Bridge {
@@ -79,6 +80,7 @@ pub struct ModelGateway {
     local_streaming: bool,
     honeypot: Option<HoneypotGateway>,
     catalog_surface: Arc<CatalogSurface>,
+    oauth2: Option<crate::identity::grants::LmmIssuer>,
 }
 
 impl ModelGateway {
@@ -146,6 +148,7 @@ impl ModelGateway {
             local_streaming: false,
             honeypot: None,
             catalog_surface,
+            oauth2: None,
         })
     }
 
@@ -179,6 +182,41 @@ impl ModelGateway {
         self.catalog_surface.clone()
     }
 
+    /// Host-supplied issuer bound to this same actual model gateway. It does
+    /// not make a general OAuth token a native credential or funding authority.
+    pub fn with_oauth2_issuer(mut self, issuer: crate::identity::grants::LmmIssuer) -> Self {
+        self.oauth2 = Some(issuer);
+        self
+    }
+    async fn authorize_request(
+        &self,
+        actor: &ModelIdentity,
+        secret: &str,
+        model: &str,
+        group: &str,
+        peer: Option<IpAddr>,
+    ) -> Result<(), IdentityError> {
+        if let ModelIdentity::OAuth(original) = actor {
+            let issuer = self.oauth2.as_ref().ok_or(IdentityError::Unauthorized)?;
+            let mut tx = self.bridge.pool.begin().await?;
+            let current = issuer
+                .authorize_model_in_transaction(&mut tx, secret, Some(model), Some(group))
+                .await?;
+            if current.grant_id() != original.grant_id()
+                || current.access_id() != original.access_id()
+                || current.user_id() != original.user_id()
+            {
+                return Err(IdentityError::Unauthorized);
+            }
+            tx.commit().await?;
+            Ok(())
+        } else {
+            self.identity
+                .authorize_model_request(secret, model, peer, group)
+                .await
+                .map(|_| ())
+        }
+    }
     pub fn router(&self) -> Router {
         Router::new()
             .route("/v1/models", get(models))
@@ -222,12 +260,44 @@ impl ModelGateway {
     async fn authenticate(
         &self,
         headers: &HeaderMap,
-    ) -> Result<(Principal, String, Vec<String>), RelayError> {
+    ) -> Result<(ModelIdentity, String, Vec<String>), RelayError> {
         let raw =
             one_header(headers, header::AUTHORIZATION.as_str())?.ok_or(RelayError::Unauthorized)?;
         let (scheme, secret) = raw.split_once(' ').ok_or(RelayError::Unauthorized)?;
         if !scheme.eq_ignore_ascii_case("Bearer") {
             return Err(RelayError::Unauthorized);
+        }
+        if secret.starts_with("lmm_at_") {
+            if ["x-api-key", "x-goog-api-key", "x-auth-session"]
+                .iter()
+                .any(|name| headers.contains_key(*name))
+            {
+                return Err(RelayError::Invalid("ambiguous credential headers"));
+            }
+            let issuer = self.oauth2.as_ref().ok_or(RelayError::Unauthorized)?;
+            let mut tx = self
+                .bridge
+                .pool
+                .begin()
+                .await
+                .map_err(|_| RelayError::BillingUnavailable)?;
+            let source = issuer
+                .authorize_model_in_transaction(&mut tx, secret, None, None)
+                .await
+                .map_err(identity_error)?;
+            let mut groups = source.groups().map_err(identity_error)?;
+            if let Some(selector) = one_header(headers, "x-lmm-group")? {
+                let selected = crate::identity::grants::decode_group_selector(selector)
+                    .map_err(identity_error)?;
+                if !groups.contains(&selected) {
+                    return Err(RelayError::Forbidden);
+                }
+                groups = vec![selected];
+            }
+            tx.commit()
+                .await
+                .map_err(|_| RelayError::BillingUnavailable)?;
+            return Ok((ModelIdentity::OAuth(source), secret.to_owned(), groups));
         }
         let principal = self.identity.authorize(secret).await.map_err(|e| match e {
             IdentityError::Unauthorized | IdentityError::Invalid => RelayError::Unauthorized,
@@ -254,10 +324,50 @@ impl ModelGateway {
         if groups.is_empty() {
             return Err(RelayError::Forbidden);
         }
-        Ok((principal, secret.to_owned(), groups))
+        Ok((ModelIdentity::Native(principal), secret.to_owned(), groups))
     }
 }
 
+enum ModelIdentity {
+    Native(Principal),
+    OAuth(crate::identity::grants::OAuthSource),
+}
+impl ModelIdentity {
+    fn user_id(&self) -> i64 {
+        match self {
+            Self::Native(p) => p.user_id,
+            Self::OAuth(p) => p.user_id(),
+        }
+    }
+    fn key_id(&self) -> Option<i64> {
+        match self {
+            Self::Native(p) => Some(p.credential_id),
+            Self::OAuth(_) => None,
+        }
+    }
+    fn oauth_source(&self) -> Option<&crate::identity::grants::OAuthSource> {
+        match self {
+            Self::Native(_) => None,
+            Self::OAuth(p) => Some(p),
+        }
+    }
+}
+fn identity_error(error: IdentityError) -> RelayError {
+    match error {
+        IdentityError::Unauthorized | IdentityError::Invalid => RelayError::Unauthorized,
+        IdentityError::Forbidden => RelayError::Forbidden,
+        _ => RelayError::BillingUnavailable,
+    }
+}
+fn oauth_header(headers: &HeaderMap) -> bool {
+    headers
+        .get(header::AUTHORIZATION)
+        .and_then(|h| h.to_str().ok())
+        .and_then(|h| h.split_once(' '))
+        .is_some_and(|(scheme, token)| {
+            scheme.eq_ignore_ascii_case("Bearer") && token.starts_with("lmm_at_")
+        })
+}
 fn one_header<'a>(headers: &'a HeaderMap, name: &str) -> Result<Option<&'a str>, RelayError> {
     if headers.get_all(name).iter().count() > 1 {
         return Err(RelayError::Invalid("duplicate header"));
@@ -298,7 +408,9 @@ async fn models(
     headers: HeaderMap,
     peer: Result<ConnectInfo<SocketAddr>, ExtensionRejection>,
 ) -> Response {
-    if let Some(honeypot) = &gateway.honeypot {
+    if let Some(honeypot) = &gateway.honeypot
+        && !oauth_header(&headers)
+    {
         match honeypot
             .models(&headers, peer.as_ref().ok().map(|p| p.0.ip()))
             .await
@@ -308,7 +420,7 @@ async fn models(
             Err(error) => return public_error(error),
         }
     }
-    let (_, secret, groups) = match gateway.authenticate(&headers).await {
+    let (principal, secret, groups) = match gateway.authenticate(&headers).await {
         Ok(v) => v,
         Err(e) => return public_error(e),
     };
@@ -321,8 +433,7 @@ async fn models(
         };
         for model in models {
             match gateway
-                .identity
-                .authorize_model_request(&secret, &model.name, peer, &group)
+                .authorize_request(&principal, &secret, &model.name, &group, peer)
                 .await
             {
                 Ok(_) => {
@@ -398,6 +509,28 @@ fn request_id(key_id: i64, headers: &HeaderMap) -> Result<String, RelayError> {
     Ok(format!("{:x}", digest.finalize()))
 }
 
+fn oauth_request_id(
+    source: &crate::identity::grants::OAuthSource,
+    headers: &HeaderMap,
+) -> Result<String, RelayError> {
+    let mut hash = Sha256::new();
+    hash.update(b"lmm-model-oauth-request-v1\0");
+    hash.update(source.client_id().as_bytes());
+    hash.update([0]);
+    hash.update(source.grant_id().as_bytes());
+    if let Some(key) = one_header(headers, "idempotency-key")? {
+        if key.is_empty() || key.len() > 128 || !key.bytes().all(|b| b.is_ascii_graphic()) {
+            return Err(RelayError::Invalid("invalid idempotency key"));
+        }
+        hash.update(key.as_bytes());
+    } else {
+        let mut random = [0; 32];
+        OsRng.fill_bytes(&mut random);
+        hash.update(random);
+    }
+    Ok(format!("{:x}", hash.finalize()))
+}
+
 async fn dispatch(
     gateway: ModelGateway,
     headers: HeaderMap,
@@ -405,7 +538,9 @@ async fn dispatch(
     client: ClientProtocol,
     peer: Option<IpAddr>,
 ) -> Response {
-    if let Some(honeypot) = &gateway.honeypot {
+    if let Some(honeypot) = &gateway.honeypot
+        && !oauth_header(&headers)
+    {
         match honeypot.dispatch(&headers, &body, client, peer).await {
             Ok(Some(response)) => return response,
             Ok(None) => (),
@@ -441,8 +576,7 @@ async fn dispatch(
         return public_error(RelayError::RouteUnavailable);
     };
     if let Err(error) = gateway
-        .identity
-        .authorize_model_request(&secret, &canonical, peer, &group)
+        .authorize_request(&principal, &secret, &canonical, &group, peer)
         .await
     {
         return public_error(match error {
@@ -456,7 +590,12 @@ async fn dispatch(
             "streaming requires durable output checkpoints",
         ));
     }
-    let id = match request_id(principal.credential_id, &headers) {
+    let id = match if let Some(key) = principal.key_id() {
+        request_id(key, &headers)
+    } else {
+        let source = principal.oauth_source().expect("verified OAuth variant");
+        oauth_request_id(source, &headers)
+    } {
         Ok(v) => v,
         Err(e) => return public_error(e),
     };
@@ -468,13 +607,25 @@ async fn dispatch(
     }
     let context = RequestContext {
         request_id: id.clone(),
-        actor_user_id: principal.user_id,
-        key_id: principal.credential_id,
+        actor_user_id: principal.user_id(),
+        key_id: principal.key_id(),
+        oauth_source: principal.oauth_source().cloned(),
     };
     let mut hash = Sha256::new();
     hash.update(b"lmm-model-fingerprint-v1\0");
-    hash.update(principal.user_id.to_be_bytes());
-    hash.update(principal.credential_id.to_be_bytes());
+    hash.update(principal.user_id().to_be_bytes());
+    if let Some(key) = principal.key_id() {
+        hash.update(key.to_be_bytes());
+    } else {
+        hash.update(b"oauth-grant\0");
+        hash.update(
+            principal
+                .oauth_source()
+                .expect("verified OAuth variant")
+                .grant_id()
+                .as_bytes(),
+        );
+    }
     hash.update(group.as_bytes());
     hash.update([client as u8]);
     hash.update(&body);
@@ -497,6 +648,11 @@ async fn dispatch(
                 group,
                 worker,
                 fingerprint: hash.finalize().into(),
+                oauth_issuer: if principal.oauth_source().is_some() {
+                    gateway.oauth2.clone()
+                } else {
+                    None
+                },
                 selected: None,
                 output_token_ceiling: request.max_output_tokens,
                 peer,

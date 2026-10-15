@@ -7,7 +7,7 @@ struct BudgetSubject<'a> {
     request_id: Option<&'a str>,
     external_id: Option<&'a str>,
     actor: i64,
-    key: i64,
+    key: Option<i64>,
     payer: i64,
     authorized_at: i64,
     total: i64,
@@ -116,6 +116,27 @@ async fn check_budgets(
 }
 
 pub(super) async fn budgets(c: &mut PgConnection, charge: &Charge, total: i64) -> Result<()> {
+    if let Some(source) = &charge.oauth_source {
+        source
+            .validate_stored()
+            .map_err(super::authority::identity_error)?;
+        if charge.key_id.is_some()
+            || source.user_id != charge.actor_user_id
+            || source.personal_account_id != charge.owner_account_id
+            || charge.payer_account_id != charge.owner_account_id
+        {
+            return Err(Error::Storage);
+        }
+        // The caller holds the family UPDATE lock. The predicate spans ALL
+        // refresh/access generations, pending holds and settled net usage.
+        let fits:bool=sqlx::query_scalar("SELECT coalesce(sum(core_charging.committed_credits(state,reserved,settled,refunded)),0)+$3::numeric <= $4::numeric FROM core_charging.requests WHERE oauth_family_id=$1 AND id<>$2")
+            .bind(&source.grant_id).bind(&charge.id).bind(total).bind(source.budget_credits).fetch_one(&mut *c).await?;
+        if !fits {
+            return Err(Error::BudgetExceeded);
+        }
+    } else if charge.key_id.is_none() {
+        return Err(Error::Storage);
+    }
     let snapshots = check_budgets(
         c,
         &BudgetSubject {

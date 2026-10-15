@@ -1,8 +1,8 @@
 # Core OAuth issuer and delegated authority boundary
 
 The unissued Pi foundation remains a separate internal adapter. Optional
-LmmIssuer implements real native-browser consent for the read-only public client
-`lmm`. Source presence does not prove production, HTTPS clients, Pi compatibility,
+LmmIssuer implements native-browser consent for readonly `lmm` and opt-in finite
+normal-model `lmm-pi` grants. Source presence does not prove production, HTTPS clients, Pi compatibility,
 existing-install upgrade, recovery, or independent acceptance.
 Operator guide: [Rust client authorization](../../docs/core-oauth2.md).
 
@@ -48,17 +48,44 @@ provenance and decimal conversion. Neither dispatches models or posts ledger.
 Pinned CLI b8eb0f1512855aaf8098c15cbd76201f9acead5c requests two read scopes.
 Pinned Pi 8a533140b0fb4470fc1ae195d52941891836f7d4 requires four application scopes
 catalog:read balance:read usage:read models:invoke, with optional built-in MCP and
-remote scopes. This issuer refuses lmm-pi; the CLI slice does not fulfill Pi.
+remote scopes. Optional MCP/remote scopes are requested but never issued here. Pi issuance
+requires explicit finite pi_max_credits, actual ModelGateway, real developer
+approval, and user-selected finite credits cap. The readonly CLI slice alone
+does not fulfill Pi. Even platform admin cannot substitute developer approval.
 
-core_charging.requests.key_id is NOT NULL FK to native credentials. Do not issue
-synthetic keys, map OAuth families to Session/APIKey, or bypass that proof merely
-to reuse charging. Real delegated spending needs an immutable source variant
-with grant/access/client identity, current user epoch, stable server-selected
-PERSONAL payer, group/model snapshot and grant budget/expiry. Reserve must hold
-and recheck that proof in the same transaction as revocation/funds, recording the
-original source/payer and preserving committed plus pending budgets through
-refresh. Honeypot/new-cost guards precede new dispatch; old holds/settle/refund
-must remain recoverable after revoke. Usage needs exact scoped source filtering.
+core_charging.requests now has a disjoint native/OAuth source: native key_id
+remains its integer FK, OAuth has key_id=NULL and immutable OAuthSource containing
+grant/access/client/issuer/resource/user/personal payer/epoch/consent/scopes/expiry/
+finite budget. Crate-private fields have no public constructor; deserialization
+validates Core persistence, never trusted HTTP/Go caller proof. Generated fields
+and composite FKs bind the real immutable browser family and access. Native
+LedgerCommand JSON retains exact old bytes by omitting optional source=None.
+
+Actual access verification and current developer/group/model authority run in the
+same SERIALIZABLE financial transaction: request advisory lock, family UPDATE,
+an immutable access read, canonical user/account SHARE NOWAIT, abuse guard,
+policy/budget/ledger locks. Runtime has no UPDATE/DELETE privilege on access tokens.
+Refresh/revocation serialize through the family lock; privileged offline token
+changes must coordinate that same lock. Wall-clock access/family expiry is checked
+again after the authority reads. Family cap counts pending plus committed net consumption over ALL access
+generations. Existing self/account/subscription constraints remain; only native
+key-specific limits are absent for OAuth. Personal payer is server-selected and
+fixed. Refresh never expands cap/payer/scope/lifetime. Start rechecks original
+source; increase requires a live token of the same original family and identity.
+Old holds/settle/refund/recovery remain valid after revoke, disable or mark.
+CommitUnknown never authorizes blind dispatch/retry; missing provider usage keeps
+a pending hold. Protocol source alone is not actual client compatibility proof.
+
+The same gateway handles real OAuth Chat/Responses JSON/SSE and stable grant-based
+idempotency. X-LMM-Group strictly decodes canonical base64url and must be in the
+verified consent/current policy. /api/oauth2/usage validates exact ledger receipts
+for the same family/user/personal payer, bounded complete 31-day history (1000 max;
+dense history is unavailable). OAuth usage has token_id=null with explicit source,
+not synthetic key 0. External model metadata/protocol coverage remains explicit.
+
+Honey-only purpose is schema preparation ONLY. Actual marked-L0 issuance, OAuth
+honey lease union and silent transport are not connected in this increment.
+Current native honeypot is preserved; rejecting marked Pi is not completion.
 
 Market OAuth requires separate explicit scopes and immutable tool version/price/
 payer/caps consent. Model/catalog scopes never imply market:invoke. CoreTools
@@ -81,5 +108,5 @@ still needs execution, not inference from manifest.
 
 Required: compile and owned PG/TCP, independent frozen combined verification,
 actual gateway/normal-provider/ledger negatives, real HTTPS CLI/keyring/browser/
-MFA, installation/upgrade/backup/restore, real Pi delegated model/usage and market/
+MFA, installation/upgrade/backup/restore, real Pi delegated model/usage, marked honey-only, and market/
 MCP, Google credentials/Passkey conditions. Failures/UNRUN remain incomplete.

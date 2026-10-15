@@ -8,7 +8,6 @@ use std::collections::BTreeSet;
 use zeroize::Zeroizing;
 
 pub(super) const CLIENT: &str = "lmm";
-pub(super) const REQUESTED_SCOPE: &str = "catalog:read balance:read";
 const MAX_GROUPS: usize = 64;
 
 /// Configured at startup; never inferred from a request or forwarding header.
@@ -17,6 +16,7 @@ pub struct LmmProfile {
     issuer: String,
     resource: String,
     groups: BTreeSet<String>,
+    pi_max_credits: Option<i64>,
 }
 impl LmmProfile {
     pub fn new(issuer: &str, groups: Vec<String>) -> Result<Self> {
@@ -47,10 +47,24 @@ impl LmmProfile {
             issuer: issuer.into(),
             resource: format!("{issuer}/api/oauth2"),
             groups: allowed,
+            pi_max_credits: None,
         })
     }
+    /// Explicit server ceiling, never a user privilege or default enabled client.
+    pub fn with_pi_budget_limit(mut self, maximum: i64) -> Result<Self> {
+        if !(1..=9_007_199_254_740_991).contains(&maximum) {
+            return Err(IdentityError::Invalid);
+        }
+        self.pi_max_credits = Some(maximum);
+        Ok(self)
+    }
+    pub fn pi_budget_limit(&self) -> Option<i64> {
+        self.pi_max_credits
+    }
     pub(super) fn binding(&self, client: &str, resource: &str) -> Result<()> {
-        if client != CLIENT || resource != self.resource {
+        if (client != CLIENT && !(client == "lmm-pi" && self.pi_max_credits.is_some()))
+            || resource != self.resource
+        {
             return Err(IdentityError::Unauthorized);
         }
         Ok(())
@@ -80,7 +94,23 @@ impl LmmProfile {
         super::redirect(&input.redirect_uri)?;
         let mut scopes: Vec<_> = input.scope.split(' ').collect();
         scopes.sort_unstable();
-        if scopes != ["balance:read", "catalog:read"] {
+        let unique: BTreeSet<_> = scopes.iter().copied().collect();
+        let valid = if input.client_id == CLIENT {
+            scopes == ["balance:read", "catalog:read"]
+        } else {
+            scopes.len() <= 7
+                && scopes.len() == unique.len()
+                && [
+                    "catalog:read",
+                    "balance:read",
+                    "usage:read",
+                    "models:invoke",
+                ]
+                .iter()
+                .all(|s| unique.contains(s))
+                && scopes.iter().all(|s| super::SCOPES.contains(s))
+        };
+        if !valid {
             return Err(IdentityError::Forbidden);
         }
         canonical(&input.code_challenge, "")?;
@@ -122,11 +152,13 @@ pub struct TokenForm {
 }
 pub enum TokenRequest {
     Code {
+        client_id: String,
         code: String,
         redirect: String,
         verifier: String,
     },
     Refresh {
+        client_id: String,
         refresh: String,
         scope: Option<String>,
     },
@@ -149,6 +181,7 @@ impl TokenForm {
                     return Err(IdentityError::Invalid);
                 }
                 Ok(TokenRequest::Code {
+                    client_id: self.client_id,
                     code,
                     redirect,
                     verifier,
@@ -167,6 +200,7 @@ impl TokenForm {
                     return Err(IdentityError::Invalid);
                 }
                 Ok(TokenRequest::Refresh {
+                    client_id: self.client_id,
                     refresh,
                     scope: self.scope,
                 })
@@ -184,7 +218,7 @@ pub struct RevokeForm {
 }
 impl RevokeForm {
     pub fn validate(&self) -> Result<()> {
-        if self.client_id != CLIENT
+        if !matches!(self.client_id.as_str(), CLIENT | "lmm-pi")
             || self
                 .token_type_hint
                 .as_ref()
@@ -210,6 +244,7 @@ pub struct ContinueForm {
 pub struct ConsentForm {
     pub csrf: String,
     pub decision: String,
+    pub budget_credits: Option<i64>,
 }
 
 #[derive(Serialize)]

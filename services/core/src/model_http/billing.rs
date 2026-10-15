@@ -53,7 +53,7 @@ impl Billing for Bridge {
             if local_input_bound(request)? > self.policy.input_token_ceiling as u64 {
                 return Err(RelayError::Limit("local model input budget"));
             }
-            let (secret, worker, fingerprint, selected, peer) = {
+            let (secret, worker, fingerprint, selected, peer, oauth_issuer) = {
                 let active = self
                     .active
                     .lock()
@@ -67,6 +67,7 @@ impl Billing for Bridge {
                     op.fingerprint,
                     op.selected.clone().ok_or(RelayError::RouteUnavailable)?,
                     op.peer,
+                    op.oauth_issuer.clone(),
                 )
             };
             if selected.route_id != route.id
@@ -98,13 +99,23 @@ impl Billing for Bridge {
                 lease_seconds: self.policy.lease_seconds,
                 maximum_seconds: self.policy.lease_seconds,
             };
-            let charge = retry(|| {
-                self.charging
-                    .reserve_with_context(&secret, &spec, &worker, peer)
+            let charge = retry(|| async {
+                if let Some(issuer) = &oauth_issuer {
+                    self.charging
+                        .reserve_oauth_with_context(issuer, &secret, &spec, &worker, peer)
+                        .await
+                } else {
+                    self.charging
+                        .reserve_with_context(&secret, &spec, &worker, peer)
+                        .await
+                }
             })
             .await
             .map_err(error)?;
-            if charge.actor_user_id != context.actor_user_id || charge.key_id != context.key_id {
+            if charge.actor_user_id != context.actor_user_id
+                || charge.key_id != context.key_id
+                || charge.oauth_source != context.oauth_source
+            {
                 return Err(RelayError::Forbidden);
             }
             if !selected.attempt.is_available() {
@@ -113,10 +124,16 @@ impl Billing for Bridge {
             }
             // A durable dispatch claim precedes any HTTP bytes. A false/unknown
             // result never dispatches; expiry recovery retains ambiguous holds.
-            if !retry(|| self.charging.start(&spec.id, &worker))
-                .await
-                .map_err(error)?
-            {
+            let started = retry(|| async {
+                if let Some(issuer) = &oauth_issuer {
+                    self.charging.start_oauth(issuer, &spec.id, &worker).await
+                } else {
+                    self.charging.start(&spec.id, &worker).await
+                }
+            })
+            .await
+            .map_err(error)?;
+            if !started {
                 return Err(RelayError::Conflict);
             }
             Ok(Reservation { id: spec.id })
@@ -137,7 +154,7 @@ impl Billing for Bridge {
         report: &'a Report,
     ) -> RelayFuture<'a, ()> {
         Box::pin(async move {
-            let (worker, output_ceiling, price, secret, peer) = {
+            let (worker, output_ceiling, price, secret, peer, oauth_issuer) = {
                 let active = self
                     .active
                     .lock()
@@ -155,6 +172,7 @@ impl Billing for Bridge {
                         .clone(),
                     op.secret.clone(),
                     op.peer,
+                    op.oauth_issuer.clone(),
                 )
             };
             let upstream_cost = price.upstream_cost_group_ppm.is_some();
@@ -218,14 +236,29 @@ impl Billing for Bridge {
                     .map_err(error)?
                     .ok_or(RelayError::SettlementPending)?;
                 if amount > charge.reserved {
-                    retry(|| {
-                        self.charging.increase_with_context(
-                            &secret,
-                            &reservation.id,
-                            &worker,
-                            amount,
-                            peer,
-                        )
+                    retry(|| async {
+                        if let Some(issuer) = &oauth_issuer {
+                            self.charging
+                                .increase_oauth_with_context(
+                                    issuer,
+                                    &secret,
+                                    &reservation.id,
+                                    &worker,
+                                    amount,
+                                    peer,
+                                )
+                                .await
+                        } else {
+                            self.charging
+                                .increase_with_context(
+                                    &secret,
+                                    &reservation.id,
+                                    &worker,
+                                    amount,
+                                    peer,
+                                )
+                                .await
+                        }
                     })
                     .await
                     .map_err(error)?;

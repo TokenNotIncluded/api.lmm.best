@@ -1,4 +1,4 @@
-//! Durable `lmm` issuer, isolated from the unissued Pi fixture profile.
+//! Durable native-browser issuer, isolated from the unissued Pi fixture adapter.
 use super::protocol::{self, AuthorizationRequest, LmmProfile, TokenRequest, TokenWire};
 use super::*;
 use std::collections::BTreeSet;
@@ -17,6 +17,8 @@ pub struct ConsentPage {
     pub csrf: String,
     pub expires_at: i64,
     pub account: Option<String>,
+    pub client_id: String,
+    pub maximum_budget_credits: Option<i64>,
     pub groups: Vec<String>,
 }
 pub struct AuthorizationRedirect {
@@ -96,16 +98,19 @@ impl LmmIssuer {
         let mut granted = Vec::new();
         if identity.is_some() {
             granted = vec!["catalog:read".into(), "balance:read".into()];
+            if request.client_id == "lmm-pi" {
+                granted.extend(["usage:read".into(), "models:invoke".into()]);
+            }
             for group in groups {
                 granted.push(protocol::group_scope(group)?);
             }
         }
-        let expires=sqlx::query_scalar("INSERT INTO core_oauth.authorization_requests(binding_digest,csrf_digest,client_id,issuer,resource,redirect_uri,state,pkce_challenge,requested_scopes,user_id,owner_account_id,user_version,sid,granted_scopes) SELECT $1,$2,'lmm',$3,$4,$5,$6,$7,ARRAY['catalog:read','balance:read']::text[],$8,$9,$10,$11,$12 WHERE $13::bytea IS NULL OR EXISTS(SELECT 1 FROM core_oauth.authorization_requests WHERE binding_digest=$13 AND consumed_at IS NOT NULL AND expires_at>clock_timestamp()) RETURNING floor(extract(epoch FROM expires_at))::bigint")
+        let expires=sqlx::query_scalar("INSERT INTO core_oauth.authorization_requests(binding_digest,csrf_digest,client_id,issuer,resource,redirect_uri,state,pkce_challenge,requested_scopes,user_id,owner_account_id,user_version,sid,granted_scopes) SELECT $1,$2,$14,$3,$4,$5,$6,$7,$15,$8,$9,$10,$11,$12 WHERE $13::bytea IS NULL OR EXISTS(SELECT 1 FROM core_oauth.authorization_requests WHERE binding_digest=$13 AND consumed_at IS NOT NULL AND expires_at>clock_timestamp()) RETURNING floor(extract(epoch FROM expires_at))::bigint")
             .bind(digest(&binding)?).bind(digest(&csrf)?).bind(self.profile.issuer()).bind(self.profile.resource())
             .bind(&request.redirect_uri).bind(&request.state).bind(&request.code_challenge)
             .bind(identity.map(|v|v.user)).bind(identity.map(|v|v.account)).bind(identity.map(|v|v.version))
             .bind(identity.map(|v|v.sid.as_str())).bind(granted)
-            .bind(predecessor.map(digest).transpose()?).fetch_optional(&mut *c).await?
+            .bind(predecessor.map(digest).transpose()?).bind(&request.client_id).bind(request.scope.split(' ').map(str::to_owned).collect::<Vec<_>>()).fetch_optional(&mut *c).await?
             .ok_or(IdentityError::Unauthorized)?;
         let account = if let Some(identity) = identity {
             Some(
@@ -124,6 +129,12 @@ impl LmmIssuer {
             csrf,
             expires_at: expires,
             account,
+            client_id: request.client_id.clone(),
+            maximum_budget_credits: if request.client_id == "lmm-pi" {
+                self.profile.pi_budget_limit()
+            } else {
+                None
+            },
             groups: groups.to_vec(),
         })
     }
@@ -146,7 +157,7 @@ impl LmmIssuer {
             response_type: "code".into(),
             client_id: row.try_get("client_id")?,
             redirect_uri: row.try_get("redirect_uri")?,
-            scope: protocol::REQUESTED_SCOPE.into(),
+            scope: row.try_get::<Vec<String>, _>("requested_scopes")?.join(" "),
             resource: row.try_get("resource")?,
             code_challenge: row.try_get("pkce_challenge")?,
             code_challenge_method: "S256".into(),
@@ -176,10 +187,19 @@ impl LmmIssuer {
             None => None,
         };
         let groups = if let Some(identity) = &identity {
-            match self
-                .current_groups(&mut tx, identity.user, identity.account, identity.version)
+            let result = if request.client_id == "lmm-pi" {
+                self.current_model_groups(
+                    &mut tx,
+                    identity.user,
+                    identity.account,
+                    identity.version,
+                )
                 .await
-            {
+            } else {
+                self.current_groups(&mut tx, identity.user, identity.account, identity.version)
+                    .await
+            };
+            match result {
                 Ok(groups) => groups,
                 Err(error @ (IdentityError::Unauthorized | IdentityError::Forbidden)) => {
                     tx.commit().await?;
@@ -214,6 +234,17 @@ impl LmmIssuer {
         cookie: Option<&str>,
         allow: bool,
     ) -> Result<AuthorizationRedirect> {
+        self.consent_with_budget(binding, csrf, cookie, allow, None)
+            .await
+    }
+    pub async fn consent_with_budget(
+        &self,
+        binding: &str,
+        csrf: &str,
+        cookie: Option<&str>,
+        allow: bool,
+        budget_credits: Option<i64>,
+    ) -> Result<AuthorizationRedirect> {
         let mut tx = transaction(&self.identity.pool).await?;
         let row = self.consume(&mut tx, binding, csrf).await?;
         let Some(cookie) = cookie else {
@@ -236,10 +267,15 @@ impl LmmIssuer {
             tx.commit().await?;
             return Err(IdentityError::Unauthorized);
         }
-        let current = match self
-            .current_groups(&mut tx, identity.user, identity.account, identity.version)
-            .await
-        {
+        let client: String = row.try_get("client_id")?;
+        let authority = if client == "lmm-pi" {
+            self.current_model_groups(&mut tx, identity.user, identity.account, identity.version)
+                .await
+        } else {
+            self.current_groups(&mut tx, identity.user, identity.account, identity.version)
+                .await
+        };
+        let current = match authority {
             Ok(groups) => groups,
             Err(error @ (IdentityError::Unauthorized | IdentityError::Forbidden)) => {
                 tx.commit().await?;
@@ -248,6 +284,23 @@ impl LmmIssuer {
             Err(error) => return Err(error),
         };
         let scopes: Vec<String> = row.try_get("granted_scopes")?;
+        let (purpose, budget) = if client == "lmm-pi" {
+            let maximum = self
+                .profile
+                .pi_budget_limit()
+                .ok_or(IdentityError::Forbidden)?;
+            if allow && budget_credits.is_none_or(|v| v <= 0 || v > maximum) {
+                tx.commit().await?;
+                return Err(IdentityError::Invalid);
+            }
+            ("normal_model", if allow { budget_credits } else { None })
+        } else {
+            if budget_credits.is_some() {
+                tx.commit().await?;
+                return Err(IdentityError::Invalid);
+            }
+            ("read_only", None)
+        };
         let groups = scope_groups(&scopes)?;
         if groups.iter().any(|group| !current.contains(group)) {
             tx.commit().await?;
@@ -265,8 +318,8 @@ impl LmmIssuer {
             .map_err(|_| IdentityError::Storage)?;
         if allow {
             let family = new_secret("lmm_gr_")?;
-            let inserted: Option<String> = sqlx::query_scalar("INSERT INTO core_oauth.families(id,user_id,owner_account_id,user_version,issuer,resource,client_id,scopes,created_at,expires_at) SELECT $1,$2,$3,$4,$5,$6,'lmm',$7,statement_timestamp(),statement_timestamp()+make_interval(secs=>$8::double precision) FROM core_oauth.authorization_requests WHERE binding_digest=$9 AND consumed_at IS NOT NULL AND expires_at>clock_timestamp() RETURNING id")
-                .bind(&family).bind(identity.user).bind(identity.account).bind(identity.version).bind(self.profile.issuer()).bind(self.profile.resource()).bind(&scopes).bind(self.family_ttl).bind(digest(binding)?).fetch_optional(&mut *tx).await?;
+            let inserted: Option<String> = sqlx::query_scalar("INSERT INTO core_oauth.families(id,user_id,owner_account_id,user_version,issuer,resource,client_id,scopes,issuance_kind,purpose,budget_credits,created_at,expires_at) SELECT $1,$2,$3,$4,$5,$6,$10,$7,'browser',$11,$12,statement_timestamp(),statement_timestamp()+make_interval(secs=>$8::double precision) FROM core_oauth.authorization_requests WHERE binding_digest=$9 AND consumed_at IS NOT NULL AND expires_at>clock_timestamp() RETURNING id")
+                .bind(&family).bind(identity.user).bind(identity.account).bind(identity.version).bind(self.profile.issuer()).bind(self.profile.resource()).bind(&scopes).bind(self.family_ttl).bind(digest(binding)?).bind(&client).bind(purpose).bind(budget).fetch_optional(&mut *tx).await?;
             if inserted.is_none() {
                 tx.commit().await?;
                 return Err(IdentityError::Unauthorized);
@@ -289,7 +342,26 @@ impl LmmIssuer {
             uri: redirect.into(),
         })
     }
-    async fn current_groups(
+    pub(super) async fn current_model_groups(
+        &self,
+        c: &mut PgConnection,
+        user: i64,
+        account: i64,
+        version: i64,
+    ) -> Result<Vec<String>> {
+        let groups = self.current_groups(c, user, account, version).await?;
+        let developer: Option<bool> = sqlx::query_scalar(
+            "SELECT granted FROM core_identity.developer_access WHERE user_id=$1",
+        )
+        .bind(user)
+        .fetch_optional(c)
+        .await?;
+        if developer != Some(true) {
+            return Err(IdentityError::Forbidden);
+        }
+        Ok(groups)
+    }
+    pub(super) async fn current_groups(
         &self,
         c: &mut PgConnection,
         user: i64,
@@ -362,18 +434,32 @@ impl LmmIssuer {
             &f.try_get::<String, _>("resource")?,
         )?;
         if f.try_get::<String, _>("issuer")? != self.profile.issuer()
+            || f.try_get::<String, _>("issuance_kind")? != "browser"
+            || !matches!(
+                f.try_get::<String, _>("purpose")?.as_str(),
+                "read_only" | "normal_model" | "honeypot_only"
+            )
             || f.try_get::<i64, _>("consent_version")? != version
         {
             return Err(IdentityError::Unauthorized);
         }
-        let current = self
-            .current_groups(
+        let current = if f.try_get::<String, _>("client_id")? == "lmm-pi" {
+            self.current_model_groups(
                 c,
                 f.try_get("user_id")?,
                 f.try_get("owner_account_id")?,
                 f.try_get("user_version")?,
             )
-            .await?;
+            .await?
+        } else {
+            self.current_groups(
+                c,
+                f.try_get("user_id")?,
+                f.try_get("owner_account_id")?,
+                f.try_get("user_version")?,
+            )
+            .await?
+        };
         let live:bool=sqlx::query_scalar("SELECT revoked_at IS NULL AND expires_at>clock_timestamp() FROM core_oauth.families WHERE id=$1")
             .bind(f.try_get::<String,_>("id")?).fetch_one(c).await?;
         if !live {
@@ -409,16 +495,25 @@ impl LmmIssuer {
     pub async fn token(&self, input: TokenRequest) -> Result<TokenWire> {
         match input {
             TokenRequest::Code {
+                client_id,
                 code,
                 redirect,
                 verifier,
-            } => self.exchange(&code, &redirect, &verifier).await,
-            TokenRequest::Refresh { refresh, scope } => {
-                self.refresh(&refresh, scope.as_deref()).await
-            }
+            } => self.exchange(&client_id, &code, &redirect, &verifier).await,
+            TokenRequest::Refresh {
+                client_id,
+                refresh,
+                scope,
+            } => self.refresh(&client_id, &refresh, scope.as_deref()).await,
         }
     }
-    async fn exchange(&self, code: &str, redirect: &str, verifier: &str) -> Result<TokenWire> {
+    async fn exchange(
+        &self,
+        client: &str,
+        code: &str,
+        redirect: &str,
+        verifier: &str,
+    ) -> Result<TokenWire> {
         protocol::canonical(code, "lmm_oc_")?;
         super::redirect(redirect)?;
         let hash = digest(code)?;
@@ -437,7 +532,9 @@ impl LmmIssuer {
             &code.try_get::<String, _>("client_id")?,
             &code.try_get::<String, _>("resource")?,
         )?;
-        if !code.try_get::<bool, _>("live")?
+        if code.try_get::<String, _>("client_id")? != client
+            || f.try_get::<String, _>("client_id")? != client
+            || !code.try_get::<bool, _>("live")?
             || code.try_get::<String, _>("redirect_uri")? != redirect
             || code.try_get::<String, _>("issuer")? != self.profile.issuer()
             || code.try_get::<i64, _>("user_id")? != f.try_get::<i64, _>("user_id")?
@@ -468,7 +565,7 @@ impl LmmIssuer {
         tx.commit().await?;
         Ok(issued)
     }
-    async fn refresh(&self, refresh: &str, scope: Option<&str>) -> Result<TokenWire> {
+    async fn refresh(&self, client: &str, refresh: &str, scope: Option<&str>) -> Result<TokenWire> {
         protocol::canonical(refresh, "lmm_rt_")?;
         let hash = digest(refresh)?;
         let mut tx = transaction(&self.identity.pool).await?;
@@ -484,7 +581,9 @@ impl LmmIssuer {
             &f.try_get::<String, _>("client_id")?,
             &f.try_get::<String, _>("resource")?,
         )?;
-        if f.try_get::<String, _>("issuer")? != self.profile.issuer() {
+        if f.try_get::<String, _>("issuer")? != self.profile.issuer()
+            || f.try_get::<String, _>("client_id")? != client
+        {
             return Err(IdentityError::Unauthorized);
         }
         let token=sqlx::query("SELECT *,consumed_at IS NOT NULL AS consumed FROM core_oauth.refresh_tokens WHERE digest=$1 FOR UPDATE").bind(&hash).fetch_one(&mut *tx).await?;
@@ -525,6 +624,14 @@ impl LmmIssuer {
         Ok(issued)
     }
     pub async fn revoke(&self, token: &str) -> Result<()> {
+        self.revoke_for_client(protocol::CLIENT, token).await
+    }
+    pub async fn revoke_for_client(&self, client: &str, token: &str) -> Result<()> {
+        // Revocation stays available if the operator disables new Pi issuance.
+        // Exact configured issuer/resource/client binding is checked below.
+        if !matches!(client, protocol::CLIENT | "lmm-pi") {
+            return Err(IdentityError::Invalid);
+        }
         let table = if token.starts_with("lmm_at_") {
             protocol::canonical(token, "lmm_at_")?;
             "access_tokens"
@@ -541,11 +648,12 @@ impl LmmIssuer {
         .await?;
         if let Some(id) = id {
             let f = family(&mut tx, &id, true).await?;
-            self.profile.binding(
-                &f.try_get::<String, _>("client_id")?,
-                &f.try_get::<String, _>("resource")?,
-            )?;
-            if f.try_get::<String, _>("issuer")? != self.profile.issuer() {
+            if f.try_get::<String, _>("resource")? != self.profile.resource() {
+                return Err(IdentityError::Unauthorized);
+            }
+            if f.try_get::<String, _>("issuer")? != self.profile.issuer()
+                || f.try_get::<String, _>("client_id")? != client
+            {
                 return Err(IdentityError::Unauthorized);
             }
             sqlx::query("UPDATE core_oauth.families SET revoked_at=COALESCE(revoked_at,clock_timestamp()) WHERE id=$1").bind(id).execute(&mut *tx).await?;
@@ -555,7 +663,7 @@ impl LmmIssuer {
     }
 }
 pub(super) fn scope_groups(scopes: &[String]) -> Result<Vec<String>> {
-    if scopes.is_empty() || scopes.len() > 66 {
+    if scopes.is_empty() || scopes.len() > 68 {
         return Err(IdentityError::Invalid);
     }
     let mut unique = BTreeSet::new();
@@ -565,7 +673,10 @@ pub(super) fn scope_groups(scopes: &[String]) -> Result<Vec<String>> {
         if !unique.insert(scope) {
             return Err(IdentityError::Invalid);
         }
-        if matches!(scope.as_str(), "catalog:read" | "balance:read") {
+        if matches!(
+            scope.as_str(),
+            "catalog:read" | "balance:read" | "usage:read" | "models:invoke"
+        ) {
             read = true;
         } else {
             groups.push(protocol::decode_group(scope)?);

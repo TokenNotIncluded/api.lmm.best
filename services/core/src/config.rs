@@ -142,6 +142,7 @@ impl Default for IdentityFile {
 #[serde(deny_unknown_fields)]
 struct OAuth2File {
     issuer: String,
+    pi_max_credits: Option<i64>,
     groups: Vec<String>,
     access_ttl_seconds: u32,
     family_ttl_seconds: u32,
@@ -367,6 +368,14 @@ fn parse_core_file(document: &[u8]) -> io::Result<BTreeMap<&'static str, OsStrin
             return Err(invalid_config(
                 "OAuth2 requires exact HTTPS Web issuer, groups and bounded lifetimes",
             ));
+        }
+        if let Some(maximum) = oauth2.pi_max_credits {
+            if file.model.is_none() || !(1..=9_007_199_254_740_991).contains(&maximum) {
+                return Err(invalid_config(
+                    "Pi delegation requires configured actual model service and finite budget ceiling",
+                ));
+            }
+            put("LMM_CORE_OAUTH2_PI_MAX_CREDITS", maximum.to_string());
         }
         put("LMM_CORE_OAUTH2_ISSUER", oauth2.issuer);
         put(
@@ -909,6 +918,7 @@ fn read_file_with_metadata(
 pub fn oauth2_configured() -> bool {
     [
         "LMM_CORE_OAUTH2_ISSUER",
+        "LMM_CORE_OAUTH2_PI_MAX_CREDITS",
         "LMM_CORE_OAUTH2_GROUPS",
         "LMM_CORE_OAUTH2_ACCESS_TTL_SECONDS",
         "LMM_CORE_OAUTH2_FAMILY_TTL_SECONDS",
@@ -938,8 +948,22 @@ pub async fn oauth2_issuer(
     }
     let groups: Vec<String> = serde_json::from_str(&required("LMM_CORE_OAUTH2_GROUPS")?)
         .map_err(|_| invalid_config("invalid OAuth2 group profile"))?;
-    let profile = crate::identity::grants::LmmProfile::new(&issuer, groups)
+    let mut profile = crate::identity::grants::LmmProfile::new(&issuer, groups)
         .map_err(|_| invalid_config("invalid OAuth2 issuer or group profile"))?;
+    if let Some(value) = setting_os("LMM_CORE_OAUTH2_PI_MAX_CREDITS") {
+        if setting_os("LMM_CORE_MODEL_CONFIG_FILE").is_none() {
+            return Err(invalid_config(
+                "Pi delegation requires configured model service",
+            ));
+        }
+        let maximum = value
+            .to_str()
+            .and_then(|v| v.parse::<i64>().ok())
+            .ok_or_else(|| invalid_config("invalid Pi budget ceiling"))?;
+        profile = profile
+            .with_pi_budget_limit(maximum)
+            .map_err(|_| invalid_config("invalid Pi budget ceiling"))?;
+    }
     let lifetime = |name, maximum| -> io::Result<i64> {
         required(name)?
             .parse::<i64>()

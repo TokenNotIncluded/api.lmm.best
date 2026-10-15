@@ -33,12 +33,15 @@ enabled = false
 
 # Optional read-only lmm CLI issuer; requires the exact HTTPS identity.web
 # origin and refresh key above, plus enable_oauth2=true runtime grants.
-# Does not enable Pi model spending or upgrade an existing database.
+# Pi model delegation additionally requires explicit finite pi_max_credits and
+# the actual [model] gateway; no developer upgrade or existing-db migration.
 # [identity.oauth2]
 # issuer = "https://api.example.invalid"
 # groups = ["default"]
 # access_ttl_seconds = 900
 # family_ttl_seconds = 2592000
+# Optional normal Pi consent ceiling in integer credits; no default/unlimited.
+# pi_max_credits = 1000000
 
 # Optional extension RPC; separately provision socket access and module grants.
 # [rpc]

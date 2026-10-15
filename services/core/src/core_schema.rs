@@ -13,7 +13,6 @@ pub use manifest::{
 
 const COMPONENTS: &[(&str, &str)] = &[
     ("identity", include_str!("../schema/identity.sql")),
-    ("oauth-grants", include_str!("../schema/oauth_grants.sql")),
     ("ledger", include_str!("../schema/ledger.sql")),
     ("payments", include_str!("../schema/payments.sql")),
     ("charging", include_str!("../schema/charging.sql")),
@@ -28,6 +27,7 @@ const COMPONENTS: &[(&str, &str)] = &[
     ("model-gateway", include_str!("../schema/model_gateway.sql")),
     ("commerce", include_str!("../schema/commerce.sql")),
     ("abuse", include_str!("../schema/abuse.sql")),
+    ("oauth-grants", include_str!("../schema/oauth_grants.sql")),
 ];
 
 /// The compiled fresh-install contract, including explicitly disabled modules.

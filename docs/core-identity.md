@@ -46,8 +46,10 @@ redirect_uri = "https://api.example.test/api/oauth/google/callback"
 
 可选的 Rust OAuth2 issuer 为 `lmm` CLI 提供明确同意后的只读目录和个人余额。
 协议、配置、限制和未完成验收见 [客户端授权](core-oauth2.md)。
-该授权不签发 API Key、不授予开发者资格，也不允许模型、MCP、团队或资金写入。
-Pi 的四项必需 scope 需要另行完成真实委托消费及 usage 接入，不能把 CLI 只读授权作为 Pi 可用证明。
+CLI 授权不签发 API Key、不授予开发者资格，也不允许模型、MCP、团队或资金写入。
+源码另提供显式配置的 Pi 模型委托：必须已有真实开发者资格，并由用户同意有限 credits 预算；
+固定使用本人个人账户，独立记录 OAuth 来源和 usage，不把 access token 伪装成 API Key。
+此候选的编译、数据库、实际 Pi 和恢复验收仍未完成；CLI 只读通过不能证明 Pi 可用。
 
 ## 可选 TOTP 二次验证（MFA）
 

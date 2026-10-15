@@ -31,13 +31,18 @@ fn decode(row: PgRow) -> Result<Stored> {
             end: row.try_get("source_end")?,
         },
     };
-    Ok(Stored {
+    let stored = Stored {
         worker: row.try_get("worker_digest")?,
         spec: row.try_get("spec_digest")?,
         charge: Charge {
             id: row.try_get("id")?,
             actor_user_id: row.try_get("actor_user_id")?,
             key_id: row.try_get("key_id")?,
+            oauth_source: row
+                .try_get::<Option<Value>, _>("oauth_source")?
+                .map(serde_json::from_value)
+                .transpose()
+                .map_err(|_| Error::Storage)?,
             owner_account_id: row.try_get("owner_account_id")?,
             payer_account_id: row.try_get("payer_account_id")?,
             price: serde_json::from_value(row.try_get("price")?).map_err(|_| Error::Storage)?,
@@ -61,7 +66,19 @@ fn decode(row: PgRow) -> Result<Stored> {
             revision: row.try_get("revision")?,
             outcome: row.try_get("outcome")?,
         },
-    })
+    };
+    match (&stored.charge.key_id, &stored.charge.oauth_source) {
+        (Some(key), None) if *key > 0 => (),
+        (None, Some(source))
+            if source.user_id == stored.charge.actor_user_id
+                && source.personal_account_id == stored.charge.owner_account_id
+                && source.personal_account_id == stored.charge.payer_account_id =>
+        {
+            source.validate_stored().map_err(|_| Error::Storage)?
+        }
+        _ => return Err(Error::Storage),
+    }
+    Ok(stored)
 }
 async fn now(c: &mut PgConnection) -> Result<i64> {
     Ok(
@@ -126,6 +143,7 @@ fn command(charge: &Charge, tag: &str, change: Change) -> Result<LedgerCommand> 
         request_id: charge.id.clone(),
         actor_user_id: charge.actor_user_id,
         key_id: charge.key_id,
+        oauth_source: charge.oauth_source.clone(),
         owner_account_id: charge.owner_account_id,
         payer_account_id: charge.payer_account_id,
         price_version: charge.price.version.clone(),
@@ -184,16 +202,59 @@ impl Charging {
         worker: &[u8; 32],
         peer: Option<IpAddr>,
     ) -> Result<Charge> {
+        self.reserve_authorized(secret, request, worker, peer, None)
+            .await
+    }
+    /// A real scoped OAuth access token, not a submitted DTO or a native key.
+    pub async fn reserve_oauth_with_context(
+        &self,
+        issuer: &crate::identity::grants::LmmIssuer,
+        secret: &str,
+        request: &Request,
+        worker: &[u8; 32],
+        peer: Option<IpAddr>,
+    ) -> Result<Charge> {
+        self.reserve_authorized(secret, request, worker, peer, Some(issuer))
+            .await
+    }
+    async fn reserve_authorized(
+        &self,
+        secret: &str,
+        request: &Request,
+        worker: &[u8; 32],
+        peer: Option<IpAddr>,
+        issuer: Option<&crate::identity::grants::LmmIssuer>,
+    ) -> Result<Charge> {
         request.validate()?;
         let worker_digest = authority::worker_digest(worker)?;
         let spec = hash(request)?;
         let mut tx = self.begin().await?;
         lock(&mut tx, &request.id).await?;
-        let actor = authority::authenticate(&mut tx, secret).await?;
-        if actor.kind != "api_key" {
-            return Err(Error::Forbidden);
-        }
-        authority::model_policy(&mut tx, secret, &request.price, peer).await?;
+        let (user, key, owner, oauth, native) = if let Some(issuer) = issuer {
+            let source = issuer
+                .authorize_model_in_transaction(
+                    &mut tx,
+                    secret,
+                    Some(&request.price.model),
+                    Some(&request.price.group),
+                )
+                .await
+                .map_err(authority::identity_error)?;
+            (
+                source.user_id,
+                None,
+                source.personal_account_id,
+                Some(source),
+                None,
+            )
+        } else {
+            let actor = authority::authenticate(&mut tx, secret).await?;
+            if actor.kind != "api_key" {
+                return Err(Error::Forbidden);
+            }
+            authority::model_policy(&mut tx, secret, &request.price, peer).await?;
+            (actor.user, Some(actor.key), actor.owner, None, Some(actor))
+        };
         if let Some(row) =
             sqlx::query("SELECT r.*, (SELECT max((e.detail #>> '{usage,upstream_cost_atto_usd}')::numeric)::text FROM core_charging.usage_events e WHERE e.request_id=r.id) AS upstream_cost_atto_usd FROM core_charging.requests r WHERE r.id=$1 FOR UPDATE")
                 .bind(&request.id)
@@ -202,9 +263,10 @@ impl Charging {
         {
             let stored = decode(row)?;
             worker_matches(&stored, worker)?;
-            if stored.charge.actor_user_id != actor.user
-                || stored.charge.key_id != actor.key
-                || stored.charge.owner_account_id != actor.owner
+            if stored.charge.actor_user_id != user
+                || stored.charge.key_id != key
+                || stored.charge.owner_account_id != owner
+                || stored.charge.oauth_source != oauth
                 || stored.spec != spec
             {
                 return Err(Error::Conflict);
@@ -214,8 +276,12 @@ impl Charging {
         }
         // Existing exact operation receipts above remain safely replayable.
         // Only a NEW reservation is excluded by the current abuse mark.
-        authority::reject_new_model(&mut tx, actor.user).await?;
-        let payers = authority::funding(&mut tx, &actor).await?;
+        authority::reject_new_model(&mut tx, user).await?;
+        let payers = match (&native, &oauth) {
+            (Some(actor), None) => authority::funding(&mut tx, actor).await?,
+            (None, Some(source)) => vec![authority::oauth_payer(&mut tx, source).await?],
+            _ => return Err(Error::Storage),
+        };
         let at = now(&mut tx).await?;
         let mut last_error = Error::NoFunds;
         for payer in payers {
@@ -229,14 +295,14 @@ impl Charging {
                 };
                 sqlx::query(
                     "INSERT INTO core_charging.requests(id,actor_user_id,key_id,owner_account_id,payer_account_id, \
-                     fingerprint,worker_digest,spec_digest,price,source_subscription_id,source_start,source_end, \
+                     oauth_source,fingerprint,worker_digest,spec_digest,price,source_subscription_id,source_start,source_end, \
                      authorized_at,lease_until,hard_deadline,state,reserved) \
-                     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'reserved',$16)",
+                     VALUES ($1,$2,$3,$4,$5,$17,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,'reserved',$16)",
                 )
-                .bind(&request.id).bind(actor.user).bind(actor.key).bind(actor.owner).bind(payer.id)
+                .bind(&request.id).bind(user).bind(key).bind(owner).bind(payer.id)
                 .bind(request.fingerprint.to_vec()).bind(&worker_digest).bind(&spec).bind(json(&request.price)?)
                 .bind(sub).bind(start).bind(end).bind(at).bind(at + request.lease_seconds)
-                .bind(at + request.maximum_seconds).bind(request.reserve).execute(&mut *tx).await
+                .bind(at + request.maximum_seconds).bind(request.reserve).bind(oauth.as_ref().map(json).transpose()?).execute(&mut *tx).await
                 .map_err(|error| {
                     // Waiting for the request advisory lock does not refresh a
                     // SERIALIZABLE snapshot. A concurrent identical ID may have
@@ -297,6 +363,22 @@ impl Charging {
     /// On false or CommitUnknown, do not dispatch upstream again. A provider
     /// request ID / status check is required to resolve an ambiguous dispatch.
     pub async fn start(&self, id: &str, worker: &[u8; 32]) -> Result<bool> {
+        self.start_authorized(id, worker, None).await
+    }
+    pub async fn start_oauth(
+        &self,
+        issuer: &crate::identity::grants::LmmIssuer,
+        id: &str,
+        worker: &[u8; 32],
+    ) -> Result<bool> {
+        self.start_authorized(id, worker, Some(issuer)).await
+    }
+    async fn start_authorized(
+        &self,
+        id: &str,
+        worker: &[u8; 32],
+        issuer: Option<&crate::identity::grants::LmmIssuer>,
+    ) -> Result<bool> {
         let mut tx = self.begin().await?;
         lock(&mut tx, id).await?;
         let stored = load(&mut tx, id).await?;
@@ -308,6 +390,22 @@ impl Charging {
         }
         if stored.charge.state != "reserved" {
             return Err(Error::WrongState);
+        }
+        match (&stored.charge.oauth_source, issuer) {
+            (Some(source), Some(issuer)) => {
+                issuer
+                    .recheck_model_source(
+                        &mut tx,
+                        source,
+                        &stored.charge.price.model,
+                        &stored.charge.price.group,
+                    )
+                    .await
+                    .map_err(authority::identity_error)?;
+                authority::reject_new_model(&mut tx, source.user_id).await?;
+            }
+            (None, None) if stored.charge.key_id.is_some() => (),
+            _ => return Err(Error::Forbidden),
         }
         sqlx::query(
             "UPDATE core_charging.requests SET state='streaming',revision=revision+1 WHERE id=$1",
@@ -345,6 +443,30 @@ impl Charging {
         total: i64,
         peer: Option<IpAddr>,
     ) -> Result<Charge> {
+        self.increase_authorized(secret, id, worker, total, peer, None)
+            .await
+    }
+    pub async fn increase_oauth_with_context(
+        &self,
+        issuer: &crate::identity::grants::LmmIssuer,
+        secret: &str,
+        id: &str,
+        worker: &[u8; 32],
+        total: i64,
+        peer: Option<IpAddr>,
+    ) -> Result<Charge> {
+        self.increase_authorized(secret, id, worker, total, peer, Some(issuer))
+            .await
+    }
+    async fn increase_authorized(
+        &self,
+        secret: &str,
+        id: &str,
+        worker: &[u8; 32],
+        total: i64,
+        peer: Option<IpAddr>,
+        issuer: Option<&crate::identity::grants::LmmIssuer>,
+    ) -> Result<Charge> {
         let mut tx = self.begin().await?;
         lock(&mut tx, id).await?;
         let stored = load(&mut tx, id).await?;
@@ -355,20 +477,54 @@ impl Charging {
         if !matches!(old.state.as_str(), "reserved" | "streaming") {
             return Err(Error::WrongState);
         }
-        let actor = authority::authenticate(&mut tx, secret).await?;
-        if actor.key != old.key_id
-            || actor.user != old.actor_user_id
-            || actor.owner != old.owner_account_id
-        {
-            return Err(Error::Forbidden);
-        }
-        authority::model_policy(&mut tx, secret, &old.price, peer).await?;
-        if !authority::funding(&mut tx, &actor)
-            .await?
-            .iter()
-            .any(|p| p.id == old.payer_account_id)
-        {
-            return Err(Error::Forbidden);
+        match (&old.oauth_source, issuer) {
+            (Some(original), Some(issuer)) => {
+                let current = issuer
+                    .authorize_model_in_transaction(
+                        &mut tx,
+                        secret,
+                        Some(&old.price.model),
+                        Some(&old.price.group),
+                    )
+                    .await
+                    .map_err(authority::identity_error)?;
+                if old.key_id.is_some()
+                    || current.grant_id != original.grant_id
+                    || current.client_id != original.client_id
+                    || current.issuer != original.issuer
+                    || current.resource != original.resource
+                    || current.user_id != old.actor_user_id
+                    || current.personal_account_id != old.payer_account_id
+                    || current.personal_account_id != old.owner_account_id
+                    || current.user_version != original.user_version
+                    || current.consent_version != original.consent_version
+                    || current.budget_credits != original.budget_credits
+                {
+                    return Err(Error::Forbidden);
+                }
+                let _ = authority::oauth_payer(&mut tx, &current).await?;
+                if total > old.reserved {
+                    authority::reject_new_model(&mut tx, current.user_id).await?;
+                }
+            }
+            (None, None) => {
+                let actor = authority::authenticate(&mut tx, secret).await?;
+                if Some(actor.key) != old.key_id
+                    || actor.user != old.actor_user_id
+                    || actor.owner != old.owner_account_id
+                {
+                    return Err(Error::Forbidden);
+                }
+                authority::model_policy(&mut tx, secret, &old.price, peer).await?;
+                if !authority::funding(&mut tx, &actor)
+                    .await?
+                    .iter()
+                    .any(|p| p.id == old.payer_account_id)
+                {
+                    return Err(Error::Forbidden);
+                }
+            }
+            _ => return Err(Error::Forbidden),
         }
         if total < old.reserved {
             return Err(Error::Invalid);

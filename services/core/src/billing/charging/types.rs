@@ -163,7 +163,9 @@ pub enum Source {
 pub struct Charge {
     pub id: String,
     pub actor_user_id: i64,
-    pub key_id: i64,
+    pub key_id: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oauth_source: Option<crate::identity::grants::OAuthSource>,
     pub owner_account_id: i64,
     pub payer_account_id: i64,
     pub price: Price,
@@ -217,7 +219,9 @@ pub struct LedgerCommand {
     pub operation_id: String,
     pub request_id: String,
     pub actor_user_id: i64,
-    pub key_id: i64,
+    pub key_id: Option<i64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oauth_source: Option<crate::identity::grants::OAuthSource>,
     pub owner_account_id: i64,
     pub payer_account_id: i64,
     pub price_version: String,
@@ -311,4 +315,29 @@ pub(super) fn valid_id(value: &str) -> bool {
         && value
             .bytes()
             .all(|b| b.is_ascii_alphanumeric() || b"-_.:/".contains(&b))
+}
+
+#[cfg(test)]
+mod delegated_source_tests {
+    use super::*;
+    #[test]
+    fn native_ledger_command_preserves_original_exact_json_bytes() {
+        let command = LedgerCommand {
+            operation_id: "a".repeat(64),
+            request_id: "request-1".into(),
+            actor_user_id: 7,
+            key_id: Some(9),
+            oauth_source: None,
+            owner_account_id: 17,
+            payer_account_id: 17,
+            price_version: "v1".into(),
+            source: Source::Wallet,
+            change: Change::Reserve { total: 25 },
+        };
+        let original = format!(
+            "{{\"operation_id\":\"{}\",\"request_id\":\"request-1\",\"actor_user_id\":7,\"key_id\":9,\"owner_account_id\":17,\"payer_account_id\":17,\"price_version\":\"v1\",\"source\":{{\"kind\":\"wallet\"}},\"change\":{{\"operation\":\"reserve\",\"total\":25}}}}",
+            "a".repeat(64)
+        );
+        assert_eq!(serde_json::to_vec(&command).unwrap(), original.into_bytes());
+    }
 }

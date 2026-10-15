@@ -11,18 +11,9 @@ fn profile() -> GrantProfile {
     GrantProfile::new(ISSUER, IssuerMode::Production).unwrap()
 }
 pub(crate) async fn fresh(pool: &PgPool) -> (IdentityStore, GrantStore, IssuedCredential) {
+    crate::core_schema::init(pool).await.unwrap();
     let identity = IdentityStore::from_pool(pool.clone());
-    identity.init_database().await.unwrap();
-    sqlx::raw_sql(crate::abuse::SCHEMA)
-        .execute(pool)
-        .await
-        .unwrap();
     let session = identity.bootstrap_user(1, 1).await.unwrap();
-    let mut tx = pool.begin().await.unwrap();
-    sqlx::raw_sql(SCHEMA).execute(&mut *tx).await.unwrap();
-    let fp = catalog(&mut tx).await.unwrap();
-    sqlx::query("INSERT INTO core_oauth.contract(version,ddl_fingerprint,catalog_fingerprint) VALUES (1,$1,$2)").bind(Sha256::digest(SCHEMA.as_bytes()).to_vec()).bind(fp).execute(&mut *tx).await.unwrap();
-    tx.commit().await.unwrap();
     let store = GrantStore::open(identity.clone(), profile()).await.unwrap();
     (identity, store, session)
 }

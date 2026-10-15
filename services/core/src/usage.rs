@@ -140,7 +140,7 @@ const MAX_REQUESTS: usize = 100_000;
 const MAX_RECEIPTS: usize = 2048;
 const JS_SAFE: i64 = 9_007_199_254_740_991;
 const SELECT_REQUESTS: &str = r#"
- SELECT r.*, a.kind AS payer_kind, coalesce(k.name,'') AS token_name,
+ SELECT r.*, a.kind AS payer_kind, coalesce(k.name,r.oauth_source->>'client_id','') AS token_name,
    e.detail AS final_event,
    (SELECT coalesce(jsonb_agg(to_jsonb(c)), '[]'::jsonb) FROM
       (SELECT operation_id,command FROM core_charging.ledger_commands
@@ -154,7 +154,7 @@ const SELECT_REQUESTS: &str = r#"
  LEFT JOIN core_charging.usage_events e ON e.request_id=r.id AND e.event_id='final'
  WHERE r.actor_user_id=$1 AND r.owner_account_id=$2 AND r.authorized_at BETWEEN $3 AND $4
    AND ($5=0 OR CASE WHEN r.state='settled' AND r.outcome='completed' THEN 2 ELSE 5 END=$5)
-   AND ($6='' OR r.price->>'model'=$6) AND ($7='' OR k.name=$7)
+   AND ($6='' OR r.price->>'model'=$6) AND ($7='' OR coalesce(k.name,r.oauth_source->>'client_id','')=$7)
    AND ($8='' OR r.price->>'group'=$8) AND ($9='' OR r.id=$9)
  ORDER BY r.authorized_at DESC,r.id DESC LIMIT 100001
 "#;
@@ -236,7 +236,8 @@ fn decode<T: serde::de::DeserializeOwned>(value: Value) -> Result<T, Error> {
 struct ValidatedRequest {
     id: String,
     user: i64,
-    key: i64,
+    key: Option<i64>,
+    oauth_source: Option<crate::identity::grants::OAuthSource>,
     at: i64,
     price: Price,
     token_name: String,
@@ -254,9 +255,28 @@ impl ValidatedRequest {
         let price: Price = decode(row.try_get("price")?)?;
         price.validate().map_err(|_| Error::Storage)?;
         let user = safe(row.try_get("actor_user_id")?)?;
-        let key = safe(row.try_get("key_id")?)?;
+        let key = row
+            .try_get::<Option<i64>, _>("key_id")?
+            .map(safe)
+            .transpose()?;
+        let oauth_source: Option<crate::identity::grants::OAuthSource> = row
+            .try_get::<Option<Value>, _>("oauth_source")?
+            .map(decode)
+            .transpose()?;
+        match (&key, &oauth_source) {
+            (Some(key), None) if *key > 0 => (),
+            (None, Some(source)) => source.validate_stored().map_err(|_| Error::Storage)?,
+            _ => return Err(Error::Storage),
+        }
         let owner: i64 = row.try_get("owner_account_id")?;
         let payer: i64 = row.try_get("payer_account_id")?;
+        if let Some(source) = &oauth_source
+            && (source.user_id != user
+                || source.personal_account_id != owner
+                || source.personal_account_id != payer)
+        {
+            return Err(Error::Storage);
+        }
         let source = match row.try_get::<Option<i64>, _>("source_subscription_id")? {
             None => Source::Wallet,
             Some(id) => Source::Subscription {
@@ -302,6 +322,7 @@ impl ValidatedRequest {
                 || command.request_id != id
                 || command.actor_user_id != user
                 || command.key_id != key
+                || command.oauth_source != oauth_source
                 || command.owner_account_id != owner
                 || command.payer_account_id != payer
                 || command.price_version != price.version
@@ -378,6 +399,7 @@ impl ValidatedRequest {
             id,
             user,
             key,
+            oauth_source,
             at: safe(row.try_get("authorized_at")?)?,
             price,
             token_name: row.try_get("token_name")?,
@@ -400,7 +422,7 @@ impl ValidatedRequest {
         matches!(self.source, Source::Subscription { .. })
     }
     fn log(&self) -> Value {
-        let mut other = json!({"request_state":self.state,"usage_status":if self.settled() {"settled"}else{"incomplete"},
+        let mut other = json!({"credential_source":if self.oauth_source.is_some(){"oauth_grant"}else{"api_key"},"request_state":self.state,"usage_status":if self.settled() {"settled"}else{"incomplete"},
             "reserved_credits":if self.held() {self.reserved}else{0},
             "cache_tokens":if self.settled() {Some(self.usage.cached)}else{None},
             "billing_source":if self.subscription() {"subscription"}else{"wallet"},
@@ -687,6 +709,63 @@ async fn data(
     q: Result<Query<UsageQuery>, axum::extract::rejection::QueryRejection>,
 ) -> Response {
     respond(s, h, q, Projection::Data).await
+}
+
+/// Scoped OAuth-family activity from real immutable, source-checked ledger
+/// receipts. Bounded complete recent window; excessive density is unavailable,
+/// never partial success or a fabricated zero. No other family/user or channel.
+pub(crate) async fn read_oauth_usage(
+    c: &mut sqlx::PgConnection,
+    user: i64,
+    account: i64,
+    grant: &str,
+) -> Result<Value, ()> {
+    let now: i64 =
+        sqlx::query_scalar("SELECT floor(extract(epoch FROM clock_timestamp()))::bigint")
+            .fetch_one(&mut *c)
+            .await
+            .map_err(|_| ())?;
+    let start = (now - WINDOW).max(0);
+    let query = SELECT_REQUESTS
+        .replace(
+            "WHERE r.actor_user_id=$1",
+            "WHERE r.oauth_family_id=$10 AND r.actor_user_id=$1",
+        )
+        .replace("LIMIT 100001", "LIMIT 1001");
+    let rows = sqlx::query(&query)
+        .bind(user)
+        .bind(account)
+        .bind(start)
+        .bind(now)
+        .bind(0i16)
+        .bind("")
+        .bind("")
+        .bind("")
+        .bind("")
+        .bind(grant)
+        .fetch_all(c)
+        .await
+        .map_err(|_| ())?;
+    if rows.len() > 1000 {
+        return Err(());
+    }
+    let mut summary = Summary::default();
+    let mut items = Vec::with_capacity(rows.len());
+    for row in rows {
+        let request = ValidatedRequest::from_row(row).map_err(|_| ())?;
+        if request.oauth_source.as_ref().is_none_or(|source| {
+            source.grant_id() != grant
+                || source.user_id() != user
+                || source.personal_account_id() != account
+        }) {
+            return Err(());
+        }
+        summary.include(&request, now).map_err(|_| ())?;
+        items.push(request.log());
+    }
+    Ok(
+        json!({"schema_version":1,"usage_scope":"oauth_family","start_timestamp":start,"end_timestamp":now,"items":items,"summary":summary.project()}),
+    )
 }
 
 #[cfg(test)]
