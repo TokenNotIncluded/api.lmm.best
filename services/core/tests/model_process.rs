@@ -25,7 +25,7 @@ mod model_fixture;
 use model_fixture::{Provider, fixture};
 use std::{
     fs,
-    os::unix::fs::{OpenOptionsExt, PermissionsExt},
+    os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     time::Instant,
@@ -102,6 +102,48 @@ fn record(label: &str, value: &Value) {
         serde_json::to_vec(value).unwrap().as_slice(),
     );
 }
+fn process_start_ticks(pid: u32) -> std::io::Result<String> {
+    let raw = fs::read_to_string(format!("/proc/{pid}/stat"))?;
+    let end = raw.rfind(')').ok_or(std::io::ErrorKind::InvalidData)?;
+    let value = raw[end + 1..]
+        .split_whitespace()
+        .nth(19)
+        .ok_or(std::io::ErrorKind::InvalidData)?;
+    value
+        .parse::<u64>()
+        .map_err(|_| std::io::ErrorKind::InvalidData)?;
+    Ok(value.to_owned())
+}
+fn executable_observation(pid: u32, expected: &str) -> Value {
+    use std::{io::Read, os::fd::AsRawFd};
+    let observe = || -> std::io::Result<Value> {
+        let path = PathBuf::from(format!("/proc/{pid}/exe"));
+        let mut file = fs::File::open(&path)?;
+        let metadata = file.metadata()?;
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes)?;
+        let sha256 = format!("{:x}", Sha256::digest(&bytes));
+        let current_proc_path = fs::read_link(&path);
+        Ok(json!({
+            "pid": pid,
+            "executed_path": fs::read_link(format!("/proc/self/fd/{}", file.as_raw_fd()))?,
+            "current_proc_path": current_proc_path.as_ref().ok(),
+            "current_proc_path_error": current_proc_path.as_ref().err().map(|error| format!("{:?}", error.kind())),
+            "executed_sha256": sha256,
+            "matches_expected_sha256": sha256 == expected,
+            "device": metadata.dev(),
+            "inode": metadata.ino()
+        }))
+    };
+    match observe() {
+        Ok(value) => value,
+        Err(error) => json!({
+            "pid": pid,
+            "error_kind": format!("{:?}", error.kind()),
+            "os_error": error.raw_os_error()
+        }),
+    }
+}
 struct Host {
     endpoint: String,
     config: PathBuf,
@@ -156,6 +198,9 @@ impl Host {
             .open(log)
             .unwrap();
         let binary = core_binary();
+        // Hold the verified target inode through the ready/identity boundary.
+        let target_file = fs::File::open(&binary).unwrap();
+        let target_metadata = target_file.metadata().unwrap();
         self.child = Some(
             Command::new(&binary)
                 .env_clear()
@@ -169,34 +214,20 @@ impl Host {
                 .unwrap(),
         );
         let pid = self.child.as_ref().unwrap().id();
-        let raw = fs::read_to_string(format!("/proc/{pid}/stat")).unwrap();
-        let tail = raw[raw.rfind(')').unwrap() + 2..]
-            .split_whitespace()
-            .collect::<Vec<_>>();
-        let executable = PathBuf::from(format!("/proc/{pid}/exe"));
-        let actual_sha256 = format!("{:x}", Sha256::digest(fs::read(&executable).unwrap()));
-        assert_eq!(
-            actual_sha256,
-            std::env::var("LMM_MODEL_PROCESS_CORE_SHA256").unwrap()
-        );
+        let expected = std::env::var("LMM_MODEL_PROCESS_CORE_SHA256").unwrap();
+        let startup = executable_observation(pid, &expected);
+        let started = process_start_ticks(pid);
         private(
-            &self
-                .directory
-                .join(format!("process-{}.json", self.generation)),
+            &self.directory.join(format!("startup-{}.json", self.generation)),
             &serde_json::to_vec(&json!({
                 "pid": pid,
-                "start_ticks": tail[19],
-                "boot_id": fs::read_to_string("/proc/sys/kernel/random/boot_id").unwrap().trim(),
-                "endpoint": self.endpoint,
-                "role": self.role.as_ref().unwrap().name,
-                "config": self.config,
-                "generation": self.generation,
-                "binary_path": binary,
-                "executed_path": fs::read_link(executable).unwrap(),
-                "executed_sha256": actual_sha256
+                "start_ticks": started.as_ref().ok(),
+                "start_ticks_error": started.as_ref().err().map(|error| format!("{:?}", error.kind())),
+                "executable_observation": startup
             }))
             .unwrap(),
         );
+        let start_ticks = started.unwrap();
         let client = reqwest::Client::builder()
             .no_proxy()
             .timeout(Duration::from_secs(2))
@@ -204,6 +235,8 @@ impl Host {
             .unwrap();
         let deadline = Instant::now() + Duration::from_secs(15);
         loop {
+            assert_eq!(self.child.as_ref().unwrap().id(), pid);
+            assert_eq!(process_start_ticks(pid).unwrap(), start_ticks);
             assert!(
                 self.child.as_mut().unwrap().try_wait().unwrap().is_none(),
                 "owned Core exited; inspect private log"
@@ -222,6 +255,58 @@ impl Host {
             assert!(Instant::now() < deadline, "owned Core readiness timeout");
             tokio::time::sleep(Duration::from_millis(25)).await;
         }
+        // Readiness never substitutes for executable identity. This is one
+        // strict final check, not a loop that waits for a hash to match.
+        use std::io::Read;
+        let executable = PathBuf::from(format!("/proc/{pid}/exe"));
+        let mut executed_file = fs::File::open(&executable).unwrap();
+        let executed_metadata = executed_file.metadata().unwrap();
+        let mut executed_bytes = Vec::new();
+        executed_file.read_to_end(&mut executed_bytes).unwrap();
+        let actual_sha256 = format!("{:x}", Sha256::digest(&executed_bytes));
+        assert_eq!(actual_sha256, expected);
+        let target_identity = (target_metadata.dev(), target_metadata.ino());
+        assert_eq!(
+            (executed_metadata.dev(), executed_metadata.ino()),
+            target_identity
+        );
+        let held_target = target_file.metadata().unwrap();
+        assert_eq!((held_target.dev(), held_target.ino()), target_identity);
+        let current_target = fs::metadata(&binary).unwrap();
+        assert_eq!(
+            (current_target.dev(), current_target.ino()),
+            target_identity
+        );
+        assert_eq!(fs::read_link(&executable).unwrap(), binary);
+        let current_executed = fs::metadata(&executable).unwrap();
+        assert_eq!(
+            (current_executed.dev(), current_executed.ino()),
+            target_identity
+        );
+        assert_eq!(self.child.as_ref().unwrap().id(), pid);
+        assert_eq!(process_start_ticks(pid).unwrap(), start_ticks);
+        assert!(self.child.as_mut().unwrap().try_wait().unwrap().is_none());
+        private(
+            &self
+                .directory
+                .join(format!("process-{}.json", self.generation)),
+            &serde_json::to_vec(&json!({
+                "pid": pid,
+                "start_ticks": start_ticks,
+                "boot_id": fs::read_to_string("/proc/sys/kernel/random/boot_id").unwrap().trim(),
+                "endpoint": self.endpoint,
+                "role": self.role.as_ref().unwrap().name,
+                "config": self.config,
+                "generation": self.generation,
+                "binary_path": binary,
+                "executed_path": fs::read_link(&executable).unwrap(),
+                "executed_sha256": actual_sha256,
+                "device": executed_metadata.dev(),
+                "inode": executed_metadata.ino(),
+                "startup_observation": format!("startup-{}.json", self.generation)
+            }))
+            .unwrap(),
+        );
     }
     async fn finish(mut self) {
         self.stop().await;

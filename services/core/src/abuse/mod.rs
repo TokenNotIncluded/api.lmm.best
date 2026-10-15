@@ -1,7 +1,7 @@
 //! Core-private abuse policy and resource isolation. Never changes financial truth.
 pub mod admin;
-pub mod registration;
 mod policy;
+pub mod registration;
 use crate::identity::{CredentialKind, IdentityError, Principal};
 pub use policy::{
     ClientProtocol, Limits, Mode, Policy, PolicyConfig, UpstreamProtocol, UpstreamTarget,

@@ -289,10 +289,18 @@ def main():
                     "/run/secrets/core_database_owner_url")
             compose("core", "run", "--rm", "-T", "core-init",
                     "--config", "/etc/lmm.conf.d/core.toml", "init-db")
+            compiled = json.loads(compose("core", "run", "--rm", "-T", "--no-deps",
+                                          "core-init", "schema-manifest"))
+            assert compiled["format_version"] == 1
+            assert compiled["scope"] == "compiled-core-schema-contract"
+            compiled_names = [item["name"] for item in compiled["components"]]
+            assert len(compiled_names) == len(set(compiled_names))
             components = json.loads(psql("SELECT json_agg(name ORDER BY name) FROM core_meta.component_contract;"))
-            assert set(components) == {"identity", "ledger", "payments", "charging", "routing",
+            assert len(components) == len(set(components))
+            assert set(components) == {"identity", "oauth-grants", "ledger", "payments", "charging", "routing",
                                       "events", "charging-ledger", "migration", "console",
                                       "model-gateway", "commerce", "abuse"}
+            assert set(compiled_names) == set(components)
             assert psql("SELECT bool_and(n.nspowner='lmm_core_owner'::regrole) FROM pg_namespace n WHERE n.nspname LIKE 'core\\_%' ESCAPE '\\';").strip() == "t"
             assert psql("""SELECT NOT EXISTS (
                 SELECT FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace

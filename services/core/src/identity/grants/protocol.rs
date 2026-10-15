@@ -85,7 +85,10 @@ impl LmmProfile {
         }
         canonical(&input.code_challenge, "")?;
         Pkce::required()
-            .challenge(Some("S256".into()), Some(input.code_challenge.clone().into()))
+            .challenge(
+                Some("S256".into()),
+                Some(input.code_challenge.clone().into()),
+            )
             .map_err(|_| IdentityError::Invalid)?;
         Ok(input)
     }

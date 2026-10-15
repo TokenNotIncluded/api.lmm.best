@@ -36,9 +36,9 @@ class PrivateFixtureTests(unittest.TestCase):
         self.assertEqual(len(check.comparators), 1)
         expected = check.comparators[0]
         self.assertIsInstance(expected, ast.Set)
-        self.assertEqual(len(expected.elts), 12)
+        self.assertEqual(len(expected.elts), 13)
         self.assertEqual(ast.literal_eval(expected), {
-            "identity", "ledger", "payments", "charging", "routing", "events",
+            "identity", "oauth-grants", "ledger", "payments", "charging", "routing", "events",
             "charging-ledger", "migration", "console", "model-gateway", "commerce",
             "abuse",
         })
