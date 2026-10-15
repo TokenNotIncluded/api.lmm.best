@@ -72,8 +72,8 @@ const defaultSourceConfig = (
 ): UpdateSourceConfig => ({
   github:
     target === 'backend'
-      ? 'https://github.com/TokenNotIncluded/api.lmm.best/releases'
-      : 'https://github.com/TokenNotIncluded/api.lmm.best/releases',
+      ? 'https://github.com/TokenNotIncluded/lmm-api/releases'
+      : 'https://github.com/TokenNotIncluded/lmm-api/releases',
   aur:
     target === 'backend'
       ? 'https://aur.archlinux.org/packages/lmm-api-go-bin'
@@ -314,7 +314,7 @@ export function UpdateCheckerSection({
       protocols: ['https:'],
       origins: ['https://github.com'],
       hosts: ['github.com'],
-      paths: { prefixes: ['/TokenNotIncluded/api.lmm.best/commit/'] },
+      paths: { prefixes: ['/TokenNotIncluded/lmm-api/commit/'] },
     })
     if (releaseUrl) {
       // Invariant: releaseUrl is HTTPS on github.com under this repository's commit path.

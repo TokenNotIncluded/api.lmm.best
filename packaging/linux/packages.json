@@ -2,7 +2,7 @@
   "schema_version": 1,
   "nfpm_version": "2.47.0",
   "maintainer": "LIghtJUNction <support@lmm.best>",
-  "homepage": "https://github.com/TokenNotIncluded/api.lmm.best",
+  "homepage": "https://github.com/TokenNotIncluded/lmm-api",
   "packages": {
     "core": {
       "name": "lmm-core",

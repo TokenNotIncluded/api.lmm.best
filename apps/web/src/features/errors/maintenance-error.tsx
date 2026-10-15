@@ -58,7 +58,7 @@ export function MaintenanceError() {
             className='error-editorial-action error-editorial-action-secondary'
             render={
               <a
-                href='https://github.com/TokenNotIncluded/api.lmm.best'
+                href='https://github.com/TokenNotIncluded/lmm-api'
                 target='_blank'
                 rel='noopener noreferrer'
               />

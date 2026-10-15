@@ -139,7 +139,7 @@ no Extore authorize/catalog backend. Browser callback cleanup does not prove
 server or proxy logs are protected, and a frontend update cannot enable the flow.
 
 Legacy `merchant_store_*` schemas, writer floors, native startup baselines and
-provider procedures are [fixed historical sources](https://github.com/TokenNotIncluded/api.lmm.best/tree/c33503f212cbcfab0695d554f57b5153cd4f3bfd/docs),
+provider procedures are [fixed historical sources](https://github.com/TokenNotIncluded/lmm-api/tree/c33503f212cbcfab0695d554f57b5153cd4f3bfd/docs),
 with their scope explained in the [archive guide](../../../../../docs/archive.md).
 They do not authorize this branch to upgrade an old database or recover a running
 service. Existing paid orders, delivery and refund obligations retain their frozen

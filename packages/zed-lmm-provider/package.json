@@ -28,7 +28,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/TokenNotIncluded/api.lmm.best.git",
+    "url": "https://github.com/TokenNotIncluded/lmm-api.git",
     "directory": "packages/zed-lmm-provider"
   },
   "keywords": [
