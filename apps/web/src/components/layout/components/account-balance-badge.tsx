@@ -47,12 +47,14 @@ export function AccountBalanceBadge({
       {compactMobile && (
         <Link
           to='/wallet'
-          className='border-border/70 bg-muted/40 hover:bg-accent focus-visible:ring-ring/50 inline-flex h-11 max-w-20 min-w-11 shrink-0 items-center justify-center gap-1 rounded-lg border px-2 text-sm font-medium tabular-nums outline-none focus-visible:ring-[3px] md:hidden'
+          className='border-border/70 bg-muted/40 hover:bg-accent focus-visible:ring-ring/50 inline-flex h-auto min-h-11 max-w-32 min-w-11 shrink-0 items-center justify-center gap-1 rounded-lg border px-2 py-1 text-sm font-medium tabular-nums outline-none focus-visible:ring-[3px] md:hidden'
           aria-label={`${t('Balance')}: ${balance} · ${walletAction}`}
           title={`${t('Balance')}: ${balance} · ${walletAction}`}
           data-testid='mobile-account-balance'
         >
-          <span className='min-w-0 truncate'>{balance}</span>
+          <span className='min-w-0 text-center leading-4 whitespace-normal wrap-anywhere'>
+            {balance}
+          </span>
           {!projection.native && (
             <span aria-hidden='true' className='text-muted-foreground shrink-0'>
               +
