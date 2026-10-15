@@ -99,10 +99,24 @@ func mountPaymentCallbacks(host callbackAdmission, callbacks http.Handler, next 
 			callbackFailure(w, http.StatusRequestEntityTooLarge, "payment_callback_too_large")
 			return
 		}
-		release, ok := host.Acquire()
-		if !ok {
+		var release func()
+		var admissionErr error
+		if typed, ok := host.(interface{ TryAcquire() (func(), error) }); ok {
+			release, admissionErr = typed.TryAcquire()
+		} else {
+			var ok bool
+			release, ok = host.Acquire()
+			if !ok {
+				admissionErr = modules.ErrNotAccepting
+			}
+		}
+		if admissionErr != nil {
 			w.Header().Set("Retry-After", "1")
-			callbackFailure(w, http.StatusServiceUnavailable, "extension_not_accepting")
+			label := "extension_not_accepting"
+			if errors.Is(admissionErr, modules.ErrSaturated) {
+				label = "extension_busy"
+			}
+			callbackFailure(w, http.StatusServiceUnavailable, label)
 			return
 		}
 		defer release()

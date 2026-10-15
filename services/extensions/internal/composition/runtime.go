@@ -93,8 +93,15 @@ func (r *Runtime) StartWorkers(parent context.Context, host *modules.Host) {
 					recovery = append(recovery, r.Store.RecoverDeliveries)
 				}
 				for _, recover := range recovery {
-					release, ok := host.Acquire()
-					if !ok {
+					if ctx.Err() != nil {
+						return
+					}
+					release, err := host.TryAcquire()
+					if errors.Is(err, modules.ErrSaturated) {
+						// Retry only on the next polling tick, without queueing or spinning.
+						break
+					}
+					if err != nil {
 						return
 					}
 					bounded, stop := context.WithTimeout(ctx, 20*time.Second)

@@ -252,3 +252,39 @@ func TestPaymentCallbackDeadlineInterruptsSlowBody(t *testing.T) {
 		t.Fatal("callback context expired without interrupting body read")
 	}
 }
+
+func TestCallbackSharesHostAdmissionBeforeSideEffects(t *testing.T) {
+	host, e := modules.NewHostWithLimit(nil, []byte(strings.Repeat("x", 32)), 1)
+	if e != nil {
+		t.Fatal(e)
+	}
+	_ = host.MarkReady()
+	release, e := host.TryAcquire()
+	if e != nil {
+		t.Fatal(e)
+	}
+	calls := 0
+	handler := mountPaymentCallbacks(host, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { calls++; w.WriteHeader(204) }), host)
+	request := func() *http.Request {
+		r := httptest.NewRequest("POST", "/callbacks/1", strings.NewReader("{}"))
+		r.Header.Set("Stripe-Signature", "synthetic")
+		return r
+	}
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, request())
+	if w.Code != 503 || !strings.Contains(w.Body.String(), "extension_busy") || calls != 0 {
+		t.Fatal(w, calls)
+	}
+	release()
+	accepted := paymentCallbackRecorder()
+	handler.ServeHTTP(accepted, request())
+	if accepted.Code != 204 || calls != 1 {
+		t.Fatal("callback capacity did not recover", accepted.Code, calls)
+	}
+	host.BeginDrain()
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, request())
+	if w.Code != 503 || !strings.Contains(w.Body.String(), "extension_not_accepting") || calls != 1 {
+		t.Fatal(w, calls)
+	}
+}

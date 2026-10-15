@@ -137,3 +137,108 @@ func TestRolloutWorkerPermitAndDrainRace(t *testing.T) {
 		cancel()
 	}
 }
+
+func TestGlobalAdmissionStrictBoundAndRelease(t *testing.T) {
+	for _, n := range []int{0, -1, MaximumMaxInFlight + 1} {
+		if _, err := NewHostWithLimit(nil, []byte(strings.Repeat("x", 32)), n); err == nil {
+			t.Fatal("invalid limit", n)
+		}
+	}
+	h, err := NewHostWithLimit(nil, []byte(strings.Repeat("x", 32)), 3)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = h.TryAcquire(); !errors.Is(err, ErrNotAccepting) {
+		t.Fatal(err)
+	}
+	if err = h.MarkReady(); err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	start := make(chan struct{})
+	releases := make(chan func(), 100)
+	for i := 0; i < 100; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			r, e := h.TryAcquire()
+			if e == nil {
+				releases <- r
+			} else if !errors.Is(e, ErrSaturated) {
+				t.Error(e)
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(releases)
+	if len(releases) != 3 {
+		t.Fatal("accepted", len(releases))
+	}
+	if status(h, "/health/live") != 200 || status(h, "/health/ready") != 200 {
+		t.Fatal("health admission")
+	}
+	w := httptest.NewRecorder()
+	h.ServeHTTP(w, httptest.NewRequest("GET", "/extensions/v1/unknown/", nil))
+	if w.Code != 503 || !strings.Contains(w.Body.String(), "extension_busy") || w.Header().Get("Retry-After") != "1" {
+		t.Fatal(w)
+	}
+	release := <-releases
+	release()
+	release()
+	replacement, e := h.TryAcquire()
+	if e != nil {
+		t.Fatal(e)
+	}
+	h.BeginDrain()
+	if _, e = h.TryAcquire(); !errors.Is(e, ErrNotAccepting) {
+		t.Fatal(e)
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if !errors.Is(h.Wait(ctx), context.Canceled) {
+		t.Fatal("drain lost outstanding ownership")
+	}
+	replacement()
+	for release = range releases {
+		release()
+	}
+	if e = h.Wait(context.Background()); e != nil {
+		t.Fatal(e)
+	}
+}
+func TestCanceledAndPanickingHandlerKeepPermitUntilReturn(t *testing.T) {
+	entered, finish := make(chan struct{}), make(chan struct{})
+	h, err := NewHostWithLimit([]Module{rolloutModule{http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(entered)
+		<-r.Context().Done()
+		<-finish
+		panic("synthetic")
+	})}}, []byte(strings.Repeat("x", 32)), 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = h.MarkReady()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		defer func() { _ = recover() }()
+		r := httptest.NewRequest("GET", "/extensions/v1/rollout/x", nil).WithContext(ctx)
+		r.Header.Set("Authorization", "Bearer "+strings.Repeat("x", 32))
+		h.ServeHTTP(httptest.NewRecorder(), r)
+	}()
+	<-entered
+	cancel()
+	if _, err = h.TryAcquire(); !errors.Is(err, ErrSaturated) {
+		t.Fatal("cancel released permit early", err)
+	}
+	close(finish)
+	<-done
+	release, err := h.TryAcquire()
+	if err != nil {
+		t.Fatal("panic leaked permit", err)
+	}
+	release()
+}

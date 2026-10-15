@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"strconv"
 
+	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules"
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/store"
 )
 
@@ -46,6 +47,10 @@ func Respond(w http.ResponseWriter, value any, err error) {
 func responseError(err error) (int, string, string) {
 	var terms *store.TermsUpdatedError
 	switch {
+	case errors.Is(err, modules.ErrSaturated):
+		return http.StatusServiceUnavailable, "EXTENSION_BUSY", "The extension service is busy. Retry shortly."
+	case errors.Is(err, modules.ErrNotAccepting):
+		return http.StatusServiceUnavailable, "EXTENSION_NOT_ACCEPTING", "The extension service is not accepting new work."
 	case errors.As(err, &terms):
 		return http.StatusConflict, "STORE_TERMS_UPDATED", "The seller terms changed before this order was created. Read and accept the current terms."
 	case errors.Is(err, store.ErrSellerTermsNotConfigured):

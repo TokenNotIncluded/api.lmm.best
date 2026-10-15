@@ -99,3 +99,28 @@ func TestStrictTypedConfig(t *testing.T) {
 		t.Fatal("explicit legacy mode rejected", err)
 	}
 }
+
+func TestHostAdmissionConfig(t *testing.T) {
+	base := "version=1\n[host]\ntoken_file='/tmp/host-token'\nmodules=['none']\n"
+	for _, tc := range []struct {
+		value string
+		want  int
+	}{{"", 16}, {"max_in_flight=1\n", 1}, {"max_in_flight=64\n", 64}, {"max_in_flight=0\n", 0}, {"max_in_flight=-1\n", 0}, {"max_in_flight=65\n", 0}, {"max_in_flight='16'\n", 0}, {"Max_In_Flight=16\n", 0}} {
+		p := filepath.Join(t.TempDir(), "extensions.toml")
+		if e := os.WriteFile(p, []byte(base+tc.value), 0600); e != nil {
+			t.Fatal(e)
+		}
+		cfg, e := LoadConfig(p)
+		if tc.want == 0 {
+			if e == nil {
+				t.Fatal("accepted", tc.value)
+			}
+		} else if e != nil || cfg.Host.MaxInFlight != tc.want {
+			t.Fatal(cfg, e)
+		}
+	}
+	cfg, e := legacyConfig(func(string) string { return "" })
+	if e != nil || cfg.Host.MaxInFlight != 16 {
+		t.Fatal(cfg, e)
+	}
+}

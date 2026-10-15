@@ -88,7 +88,7 @@ func Run() error {
 	if runtime.Operations != nil {
 		runtime.Modules = append(runtime.Modules, webcompat.NewOperationsModule(auth, runtime.Operations))
 	}
-	host, err := modules.NewHost(runtime.Modules, credential)
+	host, err := modules.NewHostWithLimit(runtime.Modules, credential, cfg.Host.MaxInFlight)
 	if err != nil {
 		return err
 	}

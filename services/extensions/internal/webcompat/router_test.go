@@ -39,7 +39,7 @@ func TestMountTransportPreparingAndDrainingRejectWebWhileHealthRemainsReadable(t
 		for _, route := range paths {
 			rec := mountTransportCall(handler, route.method, route.path, []string{"Bearer " + webToken})
 			body := supportEnvelope(t, rec)
-			if rec.Code != 503 || rec.Header().Get("Retry-After") != "1" || body["success"] != false || body["code"] != "STORE_UNAVAILABLE" {
+			if rec.Code != 503 || rec.Header().Get("Retry-After") != "1" || body["success"] != false || body["code"] != "EXTENSION_NOT_ACCEPTING" {
 				t.Fatalf("phase=%s path=%s status=%d body=%v", phase, route.path, rec.Code, body)
 			}
 		}
@@ -293,5 +293,108 @@ func TestMountTransportLegacyCatalogueAndConfigReachOnlyReadyHost(t *testing.T) 
 	}
 	if rec := mountTransportCall(handler, "GET", "/health/live", nil); rec.Code != 200 {
 		t.Fatal(rec.Code)
+	}
+}
+
+func TestCompatibilitySharesGlobalAdmission(t *testing.T) {
+	host, e := modules.NewHostWithLimit(nil, []byte(hostToken), 1)
+	if e != nil {
+		t.Fatal(e)
+	}
+	_ = host.MarkReady()
+	release, e := host.TryAcquire()
+	if e != nil {
+		t.Fatal(e)
+	}
+	handler := Mount(host, nil, nil, nil)
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, httptest.NewRequest("GET", "/api/store/items", nil))
+	if w.Code != 503 || !strings.Contains(w.Body.String(), "EXTENSION_BUSY") || w.Header().Get("Retry-After") != "1" {
+		t.Fatal(w)
+	}
+	host.BeginDrain()
+	release()
+	w = httptest.NewRecorder()
+	handler.ServeHTTP(w, httptest.NewRequest("GET", "/api/store/items", nil))
+	if w.Code != 503 || !strings.Contains(w.Body.String(), "EXTENSION_NOT_ACCEPTING") {
+		t.Fatal(w)
+	}
+}
+
+// No optional catalogue query port: this exercises the ordinary StoreService.
+type blockedCatalogue struct {
+	StoreService
+	enter  func()
+	leave  func()
+	finish <-chan struct{}
+}
+
+func (s blockedCatalogue) PublicCatalogue(context.Context, int64, string, int, int) ([]map[string]any, error) {
+	s.enter()
+	defer s.leave()
+	<-s.finish
+	return []map[string]any{}, nil
+}
+func TestNativeAndCompatibilityMixedGlobalBound(t *testing.T) {
+	var mu sync.Mutex
+	active, peak := 0, 0
+	entered := make(chan struct{}, 4)
+	finish := make(chan struct{})
+	var finishOnce sync.Once
+	unblock := func() { finishOnce.Do(func() { close(finish) }) }
+	t.Cleanup(unblock)
+	enter := func() {
+		mu.Lock()
+		active++
+		if active > peak {
+			peak = active
+		}
+		mu.Unlock()
+		entered <- struct{}{}
+	}
+	leave := func() { mu.Lock(); active--; mu.Unlock() }
+	native := mountTransportModule{http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { enter(); defer leave(); <-finish; w.WriteHeader(204) })}
+	host, e := modules.NewHostWithLimit([]modules.Module{native}, []byte(hostToken), 2)
+	if e != nil {
+		t.Fatal(e)
+	}
+	_ = host.MarkReady()
+	handler := Mount(host, newAuth(t, &authCore{}), blockedCatalogue{newStoreTransportFake(), enter, leave, finish}, &supportFake{})
+	done := make(chan int, 2)
+	go func() {
+		done <- mountTransportCall(handler, "GET", "/extensions/v1/transport/entry", []string{"Bearer " + hostToken}).Code
+	}()
+	go func() { done <- mountTransportCall(handler, "GET", "/api/store/products", nil).Code }()
+	for i := 0; i < 2; i++ {
+		select {
+		case <-entered:
+		case <-time.After(time.Second):
+			t.Fatal("mixed route did not enter")
+		}
+	}
+	for _, route := range []string{"/api/store/products", "/extensions/v1/transport/entry"} {
+		w := mountTransportCall(handler, "GET", route, []string{"Bearer " + hostToken})
+		if w.Code != 503 {
+			t.Fatal(route, w.Code, w.Body.String())
+		}
+	}
+	if release, e := host.TryAcquire(); !errors.Is(e, modules.ErrSaturated) {
+		if release != nil {
+			release()
+		}
+		t.Fatal("worker bypassed shared bound", e)
+	}
+	unblock()
+	a, b := <-done, <-done
+	if !((a == 200 && b == 204) || (a == 204 && b == 200)) {
+		t.Fatal(a, b)
+	}
+	if w := mountTransportCall(handler, "GET", "/api/store/products", nil); w.Code != 200 {
+		t.Fatal(w.Code, w.Body.String())
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if peak != 2 || active != 0 {
+		t.Fatal("mixed peak", peak, "active", active)
 	}
 }

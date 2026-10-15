@@ -7,6 +7,9 @@ listen = "127.0.0.1:8081"
 token_file = "/etc/lmm.conf.d/secrets/extensions/host-token"
 modules = ["none"]
 web_compat = false
+# Shared HTTP, compatibility, callback and recovery-worker admission.
+# Omit for 16; valid range 1..64. Tune using measured deployment capacity.
+max_in_flight = 16
 
 # Enable a module only after provisioning its narrow credentials and storage.
 # No core database credential belongs in this file or this service.

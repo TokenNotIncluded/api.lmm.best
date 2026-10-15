@@ -49,10 +49,10 @@ func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, supp
 			host.ServeHTTP(w, r)
 			return
 		}
-		release, ok := host.Acquire()
-		if !ok {
+		release, err := host.TryAcquire()
+		if err != nil {
 			w.Header().Set("Retry-After", "1")
-			Respond(w, nil, store.ErrUnavailable)
+			Respond(w, nil, err)
 			return
 		}
 		defer release()

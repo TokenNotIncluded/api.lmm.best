@@ -7,11 +7,18 @@ import (
 	"sync"
 )
 
+const DefaultMaxInFlight = 16
+const MaximumMaxInFlight = 64
+
+var ErrNotAccepting = errors.New("extension host not accepting")
+var ErrSaturated = errors.New("extension host busy")
+
 // Host adds process admission to the existing authenticated module router.
 // Readiness describes this Go host, not availability of Rust or payment APIs.
 // Construction is not readiness. Call MarkReady only after local preparation
 // and listener binding succeed. No runtime module loading is involved.
 type Host struct {
+	limit    int
 	handler  http.Handler
 	mu       sync.Mutex
 	phase    string
@@ -21,13 +28,22 @@ type Host struct {
 }
 
 func NewHost(registered []Module, credential []byte) (*Host, error) {
+	return NewHostWithLimit(registered, credential, DefaultMaxInFlight)
+}
+
+// NewHostWithLimit fixes a process-wide bound for this host lifetime.
+// This is an admission limit, not a measured machine capacity guarantee.
+func NewHostWithLimit(registered []Module, credential []byte, limit int) (*Host, error) {
+	if limit < 1 || limit > MaximumMaxInFlight {
+		return nil, errors.New("extension max_in_flight must be between 1 and 64")
+	}
 	handler, err := New(registered, credential)
 	if err != nil {
 		return nil, err
 	}
 	idle := make(chan struct{})
 	close(idle)
-	host := &Host{handler: handler, phase: "preparing", idle: idle}
+	host := &Host{handler: handler, phase: "preparing", idle: idle, limit: limit}
 	for _, module := range registered {
 		if drainer, ok := module.(interface{ BeginDrain() }); ok {
 			host.drainers = append(host.drainers, drainer)
@@ -64,10 +80,20 @@ func (h *Host) BeginDrain() {
 // must defer the returned release function. Keep the permit until the operation
 // has durably recorded its outcome, including an unknown external outcome.
 func (h *Host) Acquire() (release func(), ok bool) {
+	release, err := h.TryAcquire()
+	return release, err == nil
+}
+
+// TryAcquire rejects immediately without creating a waiter. Saturation is
+// temporary; callers must not confuse it with permanent lifecycle shutdown.
+func (h *Host) TryAcquire() (func(), error) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	if h.phase != "ready" {
-		return nil, false
+		return nil, ErrNotAccepting
+	}
+	if h.active >= h.limit {
+		return nil, ErrSaturated
 	}
 	if h.active == 0 {
 		h.idle = make(chan struct{})
@@ -83,7 +109,7 @@ func (h *Host) Acquire() (release func(), ok bool) {
 				close(h.idle)
 			}
 		})
-	}, true
+	}, nil
 }
 
 // Wait is valid after BeginDrain. It never releases ownership or reports success
@@ -122,10 +148,14 @@ func (h *Host) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, status, map[string]string{"service": "lmm-extensions", "status": phase})
 		return
 	}
-	release, ok := h.Acquire()
-	if !ok {
+	release, err := h.TryAcquire()
+	if err != nil {
 		w.Header().Set("Retry-After", "1")
-		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": "extension_not_accepting"})
+		label := "extension_not_accepting"
+		if errors.Is(err, ErrSaturated) {
+			label = "extension_busy"
+		}
+		writeJSON(w, http.StatusServiceUnavailable, map[string]string{"error": label})
 		return
 	}
 	defer release()

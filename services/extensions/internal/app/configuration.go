@@ -11,6 +11,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/BurntSushi/toml"
+	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules"
 )
 
 const defaultConfigPath = "/etc/lmm.conf.d/extensions.toml"
@@ -28,10 +29,11 @@ type GoConfig struct {
 	Scripts    ScriptConfig    `toml:"scripts"`
 }
 type HostConfig struct {
-	Listen    string   `toml:"listen"`
-	TokenFile string   `toml:"token_file"`
-	Modules   []string `toml:"modules"`
-	WebCompat bool     `toml:"web_compat"`
+	MaxInFlight int      `toml:"max_in_flight"`
+	Listen      string   `toml:"listen"`
+	TokenFile   string   `toml:"token_file"`
+	Modules     []string `toml:"modules"`
+	WebCompat   bool     `toml:"web_compat"`
 }
 type CoreConfig struct {
 	Socket            string `toml:"socket"`
@@ -86,7 +88,7 @@ func legacyConfig(getenv func(string) string) (GoConfig, error) {
 	if raw := getenv("LMM_EXTENSION_MODULES"); raw != "" {
 		selected = strings.Split(raw, ",")
 	}
-	return GoConfig{Version: 1, Host: HostConfig{Listen: getenv("LMM_EXTENSION_LISTEN"), TokenFile: getenv("LMM_EXTENSION_TOKEN_FILE"), Modules: selected, WebCompat: web == "true"}, Core: CoreConfig{Socket: getenv("LMM_CORE_RPC_SOCKET"), IdentityTokenFile: getenv("LMM_CORE_RPC_TOKEN_FILE"), CommerceTokenFile: getenv("LMM_CORE_COMMERCE_RPC_TOKEN_FILE")}, Store: DatabaseConfig{DatabaseName: getenv("LMM_STORE_DATABASE_NAME"), DatabaseURLFile: getenv("LMM_STORE_DATABASE_URL_FILE")}, Support: DatabaseConfig{DatabaseName: getenv("LMM_SUPPORT_DATABASE_NAME"), DatabaseURLFile: getenv("LMM_SUPPORT_DATABASE_URL_FILE")}, Legal: LegalConfig{ConfigFile: getenv("LMM_LEGAL_CONFIG_FILE")}}, nil
+	return GoConfig{Version: 1, Host: HostConfig{MaxInFlight: modules.DefaultMaxInFlight, Listen: getenv("LMM_EXTENSION_LISTEN"), TokenFile: getenv("LMM_EXTENSION_TOKEN_FILE"), Modules: selected, WebCompat: web == "true"}, Core: CoreConfig{Socket: getenv("LMM_CORE_RPC_SOCKET"), IdentityTokenFile: getenv("LMM_CORE_RPC_TOKEN_FILE"), CommerceTokenFile: getenv("LMM_CORE_COMMERCE_RPC_TOKEN_FILE")}, Store: DatabaseConfig{DatabaseName: getenv("LMM_STORE_DATABASE_NAME"), DatabaseURLFile: getenv("LMM_STORE_DATABASE_URL_FILE")}, Support: DatabaseConfig{DatabaseName: getenv("LMM_SUPPORT_DATABASE_NAME"), DatabaseURLFile: getenv("LMM_SUPPORT_DATABASE_URL_FILE")}, Legal: LegalConfig{ConfigFile: getenv("LMM_LEGAL_CONFIG_FILE")}}, nil
 }
 func absolutePath(path string) bool {
 	return path != "" && filepath.IsAbs(path) && filepath.Clean(path) == path && !strings.ContainsAny(path, "\x00\r\n")
@@ -116,7 +118,7 @@ func LoadConfig(path string) (GoConfig, error) {
 	}
 	// The decoder's struct matching also accepts case variants. Only canonical
 	// names belong to this versioned operator contract.
-	allowed := map[string]bool{"version": true, "host": true, "host.listen": true, "host.token_file": true, "host.modules": true, "host.web_compat": true, "core": true, "core.socket": true, "core.identity_token_file": true, "core.commerce_token_file": true, "store": true, "store.database_name": true, "store.database_url_file": true, "support": true, "support.database_name": true, "support.database_url_file": true, "legal": true, "legal.config_file": true}
+	allowed := map[string]bool{"version": true, "host": true, "host.listen": true, "host.token_file": true, "host.modules": true, "host.web_compat": true, "host.max_in_flight": true, "core": true, "core.socket": true, "core.identity_token_file": true, "core.commerce_token_file": true, "store": true, "store.database_name": true, "store.database_url_file": true, "support": true, "support.database_name": true, "support.database_url_file": true, "legal": true, "legal.config_file": true}
 	for _, key := range meta.Keys() {
 		if paymentConfigurationKey(key.String()) {
 			continue
@@ -133,6 +135,12 @@ func LoadConfig(path string) (GoConfig, error) {
 	}
 	if cfg.Version != 1 || !absolutePath(cfg.Host.TokenFile) {
 		return cfg, errors.New("extension TOML requires version 1 and an absolute host token_file")
+	}
+	if !meta.IsDefined("host", "max_in_flight") {
+		cfg.Host.MaxInFlight = modules.DefaultMaxInFlight
+	}
+	if cfg.Host.MaxInFlight < 1 || cfg.Host.MaxInFlight > modules.MaximumMaxInFlight {
+		return cfg, errors.New("extension max_in_flight must be between 1 and 64")
 	}
 	if cfg.Host.Listen == "" {
 		cfg.Host.Listen = "0.0.0.0:8081"
