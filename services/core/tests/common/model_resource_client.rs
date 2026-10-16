@@ -7,6 +7,10 @@ use serde_json::{Value, json};
 use sqlx::PgPool;
 use std::collections::HashSet;
 
+pub(super) fn valid_complete_body(bytes: &[u8], stream: bool, request_id: &str) -> bool {
+    response::valid_complete_body(bytes, stream, request_id)
+}
+
 #[derive(Clone)]
 pub(super) struct Outcome {
     pub(super) ordinal: usize,
@@ -102,7 +106,7 @@ pub(super) async fn complete(
                 let valid = result
                     .id
                     .as_deref()
-                    .is_some_and(|id| response::valid_complete_body(&bytes, stream, id));
+                    .is_some_and(|id| valid_complete_body(&bytes, stream, id));
                 result.success = valid && result.id.is_some();
                 if !result.success {
                     result.code = "invalid_complete_response".into();

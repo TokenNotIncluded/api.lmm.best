@@ -173,6 +173,14 @@ impl<S: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for PublicWriteIo<S
         self.checked(cx, result)
     }
 }
+impl PublicWriteIo<tokio::net::TcpStream> {
+    /// Drop kernel buffers only for rejected transports or connections that
+    /// never reached a parsed request. Healthy streams retain normal closing.
+    pub(crate) fn reject_unadmitted(&self) -> io::Result<()> {
+        self.inner.set_zero_linger()
+    }
+}
+
 /// Axum listener seam shared by the executable and exported integration fixtures.
 pub struct PublicWriteListener(tokio::net::TcpListener);
 impl axum::serve::Listener for PublicWriteListener {

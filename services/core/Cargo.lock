@@ -1296,6 +1296,8 @@ dependencies = [
  "hkdf",
  "hmac 0.12.1",
  "http-body",
+ "hyper",
+ "hyper-util",
  "ipnet",
  "jsonwebtoken",
  "oxide-auth",

@@ -8,7 +8,6 @@ use std::{
     error::Error,
     ffi::OsString,
     io,
-    net::SocketAddr,
     path::PathBuf,
     sync::{
         Arc,
@@ -480,11 +479,7 @@ async fn run_core() -> Result<(), Box<dyn Error>> {
     );
     let mut public_stop = stopped;
     // Deliberately no total timeout on a future model/SSE stream here.
-    let result = axum::serve(
-        lmm_core::remote_control::public_listener(listener),
-        app.into_make_service_with_connect_info::<SocketAddr>(),
-    )
-    .with_graceful_shutdown(async move {
+    let result = lmm_core::public_server::serve(listener, app, async move {
         if !*public_stop.borrow() {
             let _ = public_stop.changed().await;
         }

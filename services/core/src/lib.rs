@@ -25,6 +25,7 @@ pub mod oauth2_balance;
 pub mod oauth2_http;
 #[cfg(unix)]
 pub mod payments;
+pub mod public_server;
 pub mod relay;
 pub mod remote_control;
 pub mod routing;
