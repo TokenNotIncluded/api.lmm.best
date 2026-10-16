@@ -12,6 +12,18 @@
 覆盖预览、审核材料、整批写入、严格重放，以及真实 COMMIT 成功后丢弃 psql 确认的原 attempt 对账。
 验收只适用于记录中的源码、schema 和二进制；后续 Pi schema 的签字不能复用旧目标或旧 approval。
 
+## 先定位待处理的经济权利
+
+`--source-rights-preview` 只读取已经核验的冻结导出和身份映射，列出钱包、债务、affiliate、订阅、Key 额度、悬赏托管等来源事实，帮助逐项审核。它不查询来源或目标数据库，不生成 opening payload、approval 或零预留证明。
+
+该模式要求 `--reuse-export-proof`；不能同时选择三个 opening 模式，也不能传目标 receipt、预留审核或 opening approval/attempt。其他共用来源参数与 planner 一致，输出仍须为 `~/Backups` 下一个新的私有目录。凭据和用户事实不放进 argv 或仓库。
+
+详细结果保存在 `source-rights-reconciliation.private.json`，manifest 绑定它的实际文件 hash 和类型 hash，以及当前工具源码。汇总按表、字段、观察状态分别统计，不把重叠来源或不同币种相加。未知单位、缺失关联、未映射用户和未投影的表继续保留为待审核。核对范围仅限这份选定导出，来源 catalog 中未导出的表也不因此获得放行；`reserved_zero_proven=false`、`financial_rows_migrated=0` 是正常结果，命令成功不代表经济审核或迁移成功。
+
+非零托管金额必须单独保留其归属、原始单位和后续释放/退款权利；不能加入钱包余额、再扣一次钱包，或因为将其排除在 opening writer 之外就视为已处理。来源行定位、状态名称或代码版本本身都不能证明历史部署执行过某种扣款规则。
+
+源码定位入口：`markref context migration.financial-rights --max-bytes 8000`。同一标签串联 CLI、离线投影和测试，不能代替来源审核。
+
 ## 支持范围
 
 单位固定为整数 `credit_500k_usd`，`1 USD = 500000 credits`。

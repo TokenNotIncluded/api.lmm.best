@@ -773,13 +773,16 @@ def verify_plan_mapping(plan: dict) -> None:
             "financial_plan_summary_hash_mismatch")
 
 
-def tool_source_hashes() -> dict:
-    return {"importer_sha256": IDENTITY.sha256_file(Path(__file__)),
-            "identity_helper_sha256": IDENTITY.sha256_file(Path(IDENTITY.__file__))}
+def tool_source_hashes(*, source_rights=False) -> dict:
+    result = {"importer_sha256": IDENTITY.sha256_file(Path(__file__)),
+              "identity_helper_sha256": IDENTITY.sha256_file(Path(IDENTITY.__file__))}
+    if source_rights:
+        result["reconciliation_helper_sha256"] = IDENTITY.sha256_file(Path(__file__).with_name("legacy_financial_reconciliation.py"))
+    return result
 
 
 def verify_tool_source_hashes(expected: dict) -> None:
-    require(tool_source_hashes() == expected, "financial_tool_source_changed_during_run")
+    require(tool_source_hashes(source_rights="reconciliation_helper_sha256" in expected) == expected, "financial_tool_source_changed_during_run")
 
 
 def metadata(receipt: dict):
@@ -913,6 +916,8 @@ def main() -> int:
     parser.add_argument("--output", type=Path, required=True, help="New 0700 directory under ~/Backups")
     parser.add_argument("--migration-id", required=True)
     parser.add_argument("--apply", action="store_true")
+    # @mark migration.financial-rights role=cli
+    parser.add_argument("--source-rights-preview", action="store_true", help="Audit only a verified frozen export; produce source facts with unknown rights, never opening payloads or approval")
     opening_modes = parser.add_mutually_exclusive_group()
     opening_modes.add_argument("--opening-preview", action="store_true", help="Prepare only the reviewed-zero opening candidate; never apply other financial families")
     opening_modes.add_argument("--apply-opening", action="store_true", help="Apply one separately approved opening-only batch to a new owned offline target")
@@ -927,12 +932,16 @@ def main() -> int:
     try:
         require(not args.apply, "financial_apply_contract_not_frozen")
         opening_mode = args.opening_preview or args.apply_opening or args.reconcile_opening
+        if args.source_rights_preview:
+            require(args.reuse_export_proof is not None and not opening_mode and all(value is None for value in
+                (args.target_receipt, args.reservation_evidence, args.reservation_review, args.opening_approval, args.opening_attempt)),
+                "source_rights_preview_is_offline_only")
         if opening_mode:
             require(args.reuse_export_proof is not None and all(value is not None for value in
                     (args.target_receipt,args.reservation_evidence,args.reservation_review)), "opening_frozen_reviewed_inputs_required")
             require(not (args.apply_opening or args.reconcile_opening) or args.opening_approval is not None, "opening_approval_required")
         require(IDENTITY.MIGRATION_ID.fullmatch(args.migration_id) is not None, "migration_id_invalid")
-        tool_hashes = tool_source_hashes()
+        tool_hashes = tool_source_hashes(source_rights=args.source_rights_preview)
         IDENTITY.private_backup_path(args.output.parent, directory=True)
         args.output.mkdir(mode=0o700)
         output = IDENTITY.private_backup_path(args.output, directory=True)
@@ -960,8 +969,24 @@ def main() -> int:
                     "source_observation": source_observation(source),
                     **tool_hashes, "tool_source_hashes_unchanged_during_run": True,
                     "target_writes": 0, "target_runtime_contract_review_required": True}
+        if args.source_rights_preview:
+            helper_path = Path(__file__).with_name("legacy_financial_reconciliation.py")
+            helper_spec = importlib.util.spec_from_file_location("legacy_financial_reconciliation", helper_path)
+            helper = importlib.util.module_from_spec(helper_spec)
+            helper_spec.loader.exec_module(helper)
+            import types
+            financial = types.SimpleNamespace(**globals())
+            rights = helper.build(financial, tables=tables, identities=identities, plan=plan, proof=proof,
+                identity_map_file_sha256=manifest["identity_map_file_sha256"],
+                identity_manifest_file_sha256=manifest["identity_manifest_file_sha256"], tool_hashes=tool_hashes)
+            rights_path = IDENTITY.write_private(output, "source-rights-reconciliation.private.json", canonical(rights) + "\n")
+            manifest.update(scope="financial-source-rights-preview-only",
+                target_identity_contract_verified=False,
+                source_rights_reconciliation_file_sha256=IDENTITY.sha256_file(rights_path),
+                source_rights_reconciliation_typed_sha256=digest(rights), source_queries=0, target_queries=0)
+            verify_tool_source_hashes(tool_hashes)
         IDENTITY.write_private(output, "manifest.private.json", canonical(manifest) + "\n")
-        IDENTITY.write_private(output, "report.private.json", canonical(plan["public_summary"]) + "\n")
+        IDENTITY.write_private(output, "report.private.json", canonical(rights["public_summary"] if args.source_rights_preview else plan["public_summary"]) + "\n")
         if opening_mode:
             opening_path = Path(__file__).with_name("legacy_financial_opening.py")
             opening_spec = importlib.util.spec_from_file_location("legacy_financial_opening", opening_path)
@@ -979,7 +1004,7 @@ def main() -> int:
             IDENTITY.write_private(output, "opening-report.private.json", canonical(public)+"\n")
             print(canonical(public))
             return 0
-        print(canonical(plan["public_summary"]))
+        print(canonical(rights["public_summary"] if args.source_rights_preview else plan["public_summary"]))
         return 0
     except (MappingError, OSError, ValueError, KeyError, TypeError, RecursionError, subprocess.TimeoutExpired) as error:
         code = str(error) if isinstance(error, MappingError) else type(error).__name__
