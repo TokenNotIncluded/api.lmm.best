@@ -778,6 +778,7 @@ def tool_source_hashes(*, source_rights=False) -> dict:
               "identity_helper_sha256": IDENTITY.sha256_file(Path(IDENTITY.__file__))}
     if source_rights:
         result["reconciliation_helper_sha256"] = IDENTITY.sha256_file(Path(__file__).with_name("legacy_financial_reconciliation.py"))
+        result["bounty_basis_helper_sha256"] = IDENTITY.sha256_file(Path(__file__).with_name("legacy_bounty_basis.py"))
     return result
 
 

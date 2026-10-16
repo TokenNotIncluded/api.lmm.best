@@ -7,6 +7,8 @@ prove that the deployed application followed a particular economic policy.
 """
 
 from collections import Counter
+import importlib.util
+from pathlib import Path
 
 
 # Explicit projection, rather than a name heuristic that could copy secrets.
@@ -183,6 +185,10 @@ def build(F, *, tables, identities, plan, proof, identity_map_file_sha256,
                 "wallet_debit_already_applied": "unknown-until-source-model-provenance-and-policy-review",
                 "outstanding_right": "unknown-not-derived-from-state-name",
                 "blocking_reason": "source-model-provenance-and-full-economic-review-not-established"})
+    spec = importlib.util.spec_from_file_location("legacy_bounty_basis", Path(__file__).with_name("legacy_bounty_basis.py"))
+    helper = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(helper)
+    bounty = helper.build(F, tables=tables, identities=identities, plan=plan)
     return {"format_version": 1, "digest_format": F.DIGEST_FORMAT,
         "scope": "source-rights-reconciliation-only", "status": "blocked-for-opening-economic-review",
         "source_archive_sha256": proof["source_archive_sha256"], "source_export_sha256": proof["source_export_sha256"],
@@ -192,6 +198,7 @@ def build(F, *, tables, identities, plan, proof, identity_map_file_sha256,
         "table_evidence": table_evidence, "wallet_positions": wallets, "wallet_integer_totals": dict(totals),
         "wallet_totals_are_source_positions_not_new_credits": True,
         "wallet_positions_are_raw_integer_quota_not_usd_conversion": True,
+        "bounty_rebase_lineage": bounty,
         "observed_rights_records": records, "reference_counts": dict(sorted(reference_counts.items())),
         "integer_amount_groups": [grouped[key] for key in sorted(grouped)],
         "historical_counters_are_not_wallet_or_reward_lineage": True,
@@ -202,6 +209,7 @@ def build(F, *, tables, identities, plan, proof, identity_map_file_sha256,
         "unprojected_tables_are_not_proven_clear": True,
         "selected_export_is_not_full_database": True, "full_database_rights_cleared": False,
         "public_summary": {"status": "source-rights-preview-blocked-for-economic-review",
+            "bounty_rebase_lineage": bounty["public_summary"],
             "selected_export_is_not_full_database": True, "full_database_rights_cleared": False,
             "source_table_count": len(tables), "source_row_count": sum(map(len, tables.values())),
             "wallet_position_count": len(wallets), "projected_table_count": sum(t in tables for t in SPECS),
