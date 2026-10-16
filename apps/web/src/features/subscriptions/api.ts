@@ -17,6 +17,7 @@ along with this program. If not, see <https://www.gnu.org/licenses/>.
 For commercial licensing, please contact support@quantumnous.com
 */
 import { api } from '@/lib/api'
+import type { WaffoPancakeCheckoutLanguage } from '@/lib/waffo-pancake-checkout'
 
 import type {
   ApiResponse,
@@ -324,10 +325,16 @@ export async function redeemSubscriptionResetVoucher(
   return res.data
 }
 
+// The quote must use the same locale hint as the later checkout request.
+// @mark payments.settlement-locale role=transport
 export async function getPublicPlans(
-  signal?: AbortSignal
+  signal: AbortSignal | undefined,
+  checkoutLanguage: WaffoPancakeCheckoutLanguage
 ): Promise<ApiResponse<PlanRecord[]>> {
-  const res = await api.get('/api/subscription/plans', { signal })
+  const res = await api.get('/api/subscription/plans', {
+    signal,
+    headers: { 'Accept-Language': checkoutLanguage },
+  })
   return res.data
 }
 
