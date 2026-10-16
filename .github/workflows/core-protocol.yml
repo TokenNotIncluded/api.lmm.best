@@ -169,7 +169,14 @@ jobs:
           MK06_GO_FIXTURE="$RUNNER_TEMP/mk06-go-fixture" python3 contracts/proto/tests/process_recovery.py 2>&1 | tee "$RUNNER_TEMP/events-process.log"
       - name: Native protobuf round trips and failure recovery
         if: ${{ !cancelled() }}
-        run: python3 -B scripts/test-core-rpc-docker.py 2>&1 | tee "$RUNNER_TEMP/core-rpc-docker.log"
+        run: |
+          # Absolute, symlink-free, and absent: the fixture creates a private empty 0700 root.
+          evidence="$(realpath -m -- "$RUNNER_TEMP/core-rpc-docker-evidence")"
+          if [[ -e "$evidence" || -L "$evidence" ]]; then
+            echo "RPC evidence root must be absent before the fixture creates it" >&2
+            exit 1
+          fi
+          python3 -B scripts/test-core-rpc-docker.py --output-root "$evidence" 2>&1 | tee "$RUNNER_TEMP/core-rpc-docker.log"
       - name: Service boundary contracts
         if: ${{ !cancelled() }}
         run: python3 -B scripts/test-core-boundaries.py
@@ -184,6 +191,7 @@ jobs:
             ${{ runner.temp }}/core-tests.log
             ${{ runner.temp }}/extension-tests.jsonl
             ${{ runner.temp }}/core-rpc-docker.log
+            ${{ runner.temp }}/core-rpc-docker-evidence
             ${{ runner.temp }}/store-postgres.jsonl
             ${{ runner.temp }}/events-process.log
           if-no-files-found: warn
