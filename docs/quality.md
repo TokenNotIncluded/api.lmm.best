@@ -54,6 +54,13 @@ mise exec -- python3 -B scripts/quality-gate.py quick --base "$BASE" --output "$
 `mise exec -- go test -race -count=1 -run '^TestPostgresStorageDeadlines$' .`。
 未配置该专用实例时会跳过，不能计为通过；聚合工具不自动准备此实例。
 
+支付真实进程恢复另有[固定产物入口](../tests/payments/README.md)：默认验证入账COMMIT后
+丢失Go本地回执；`--case accepted-proof-expiry` 显式选择真实302秒过期、双产品OS重启
+及首次入账恢复。两项已分别独立通过；聚合工具通过不能替代其固定产物回执。过期的原事件
+仍被接纳接口拒绝，恢复读取的是Core此前持久接纳的原证明；必须核对原任务键、唯一
+回执、准确两腿账本和重放后资金不变。定位用 `markref context payments.proof-expiry`。
+这不覆盖真实供应商checkout/refund或支付独立资源验收，不能代替完整支付验收。
+
 Go 的 `go test ./...` 不跨嵌套模块；完整计划另检查现有 pgtest 和新增 Go 模块。
 缺工具、实例或产物需报告并处理，不能换成 mock 后宣称等价验收。外部供应商可以
 模拟，应用内部身份、权限、订单、路由和资金链路不能用固定成功对象替代。
@@ -238,6 +245,9 @@ agcc run --agent core-resource-run --root "$RESOURCE_OUTPUT" --root "$PROCESS_RO
 Core的 `model_resource_response` 测试目标，覆盖合法分片、转义、CRLF与多行data。
 这是压测证据检查，不代表真实供应商、全部模型协议或资金业务已经验收。
 定位入口：`markref context model.response-validation`。
+严格响应判定器的Core+Go联合540秒负载也已独立复验，覆盖2100个完整模型响应、480笔
+完整商城退款及重启分类。预算、阶段结果与未覆盖项见[联合验收说明](../tests/commerce/README.md)；
+产品共享1CPU/512MiB，不能把生成器、数据库的独立预算合算为整机通过。
 
 预热 60 秒、稳态 300 秒、过载 60 秒、恢复负载 60 秒、空闲排空 60 秒分别保留证据。
 正常阶段固定 5 RPS、80% JSON/20% SSE，完整成功率至少 99%，P95 不超过 1 秒、
