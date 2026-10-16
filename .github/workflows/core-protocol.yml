@@ -189,14 +189,18 @@ jobs:
             echo "No core RPC evidence directory to stage"
             exit 0
           fi
-          mkdir -m 0700 -- "$dest"
+          mkdir -- "$dest"
+          chmod 0700 -- "$dest"
           while IFS= read -r -d '' dir; do
             rel="${dir#"$src"/}"
-            mkdir -m 0700 -p -- "$dest/$rel"
+            mkdir -p -- "$dest/$rel"
+            chmod 0700 -- "$dest/$rel"
           done < <(find "$src" -mindepth 1 -type d -print0)
           while IFS= read -r -d '' file; do
             rel="${file#"$src"/}"
-            mkdir -m 0700 -p -- "$dest/$(dirname -- "$rel")"
+            parent="$dest/$(dirname -- "$rel")"
+            mkdir -p -- "$parent"
+            chmod 0700 -- "$parent"
             cp -p -- "$file" "$dest/$rel"
           done < <(find "$src" -type f -readable -print0)
       - name: Service boundary contracts
