@@ -8,6 +8,7 @@ UI code with new translations. References are not startup reading.
 | Skill | Trigger | Not for |
 | --- | --- | --- |
 | [docs-maintenance](docs-maintenance/SKILL.md) | Docs, AGENTS.md, skill text, links or examples | Every code edit |
+| [create-verification-skill](create-verification-skill/SKILL.md) | Explicit request to create or strengthen executable local verification | CI, production access, paid calls, publication or deployment |
 | [deployment](deployment/SKILL.md) | WIP packages, isolated installation or recovery planning | Ordinary source edits without packaging |
 | [home-sculpture](home-sculpture/SKILL.md) | Homepage particle scenes, geometry or motion | General UI or static artwork |
 | [i18n-translate](i18n-translate/SKILL.md) | UI copy or locale keys, including one-key fixes | Non-UI prose |
