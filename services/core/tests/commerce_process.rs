@@ -22,6 +22,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[path = "common/commerce_resources.rs"]
+mod resources;
 #[path = "common/runtime.rs"]
 mod runtime;
 
@@ -86,6 +88,7 @@ fn observation(pid: u32, expected: &str) -> Value {
 }
 
 fn record_identity(process: &Process, stage: &str) {
+    resources::verify(process);
     let actual = observation(
         process.0.id(),
         process.1["executed_sha256"].as_str().unwrap(),
@@ -135,7 +138,11 @@ fn spawn(binary: &Path, expected: &str, config: &Path, root: &Path, log: &str) -
         .mode(0o600)
         .open(root.join(log))
         .unwrap();
-    let mut command = Command::new(binary);
+    let plan = resources::Plan::from_environment();
+    let mut command = plan
+        .as_ref()
+        .map(|plan| plan.command(binary))
+        .unwrap_or_else(|| Command::new(binary));
     // Neither process inherits a core DSN, caller-selected runtime settings or
     // unrelated credentials. File mode exercises the production config boundary.
     command
@@ -154,6 +161,9 @@ fn spawn(binary: &Path, expected: &str, config: &Path, root: &Path, log: &str) -
         root.to_owned(),
         log.to_owned(),
     );
+    if let Some(plan) = plan {
+        plan.attach(&process, binary, expected);
+    }
     process.1 = observation(process.0.id(), expected);
     record_identity(&process, "spawn");
     process

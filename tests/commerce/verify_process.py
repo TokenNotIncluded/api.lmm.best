@@ -18,11 +18,13 @@ from pathlib import Path
 import subprocess
 import sys
 import time
+import threading
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO / "tests/architecture_completion"))
 from build_lease import private_directory
 from pg_fixture import Fixture, FixtureError, clean_environment, write_private
+from resource_group import Group, ResourceError
 
 
 def digest(path: Path) -> str:
@@ -166,7 +168,18 @@ def main() -> int:
     parser.add_argument(
         "--extension-sha256", help="expected SHA256 of --extension-binary"
     )
+    parser.add_argument(
+        "--shared-resources",
+        action="store_true",
+        help="run the two real products under a shared 1CPU/512MiB parent",
+    )
     args = parser.parse_args()
+    if args.shared_resources and not (
+        args.core_binary and args.test_binary and args.extension_binary
+    ):
+        parser.error(
+            "--shared-resources requires all three sealed executable/SHA pairs"
+        )
     if bool(args.core_binary) != bool(args.core_sha256):
         parser.error("--core-binary and --core-sha256 must be supplied together")
     if args.core_binary and (
@@ -262,19 +275,95 @@ def main() -> int:
             if args.test_binary
             else ["cargo", "test", "--locked", "--test", "commerce_process", "--"]
         )
-        run(
-            [
-                *command,
-                "real_core_and_go_store_replay_refund_and_restart_after_lost_ack",
-                "--exact",
-                "--nocapture",
-                "--test-threads=1",
-            ],
-            REPO / "services/core",
-            env,
-            fixture.root / "commerce-test.log",
-            900,
-        )
+        resources = None
+        sampler = None
+        sampling_stop = threading.Event()
+        samples = []
+        sampling_errors = []
+
+        def observe():
+            try:
+                while not sampling_stop.is_set():
+                    samples.append(resources.sample())
+                    sampling_stop.wait(0.25)
+            except Exception as error:
+                sampling_errors.append(type(error).__name__ + ": " + str(error))
+
+        try:
+            if args.shared_resources:
+                resource_root = fixture.root / "resources"
+                resource_root.mkdir(mode=0o700)
+                resources = Group(resource_root)
+                resources.start()
+                sampler = threading.Thread(
+                    target=observe, name="joint-resource-observer"
+                )
+                sampler.start()
+                env["LMM_COMMERCE_RESOURCE_READY"] = str(
+                    resource_root / "group-ready.json"
+                )
+                env["LMM_COMMERCE_RESOURCE_HELPER"] = str(
+                    REPO / "tests/commerce/resource_scope.py"
+                )
+            run(
+                [
+                    *command,
+                    "real_core_and_go_store_replay_refund_and_restart_after_lost_ack",
+                    "--exact",
+                    "--nocapture",
+                    "--test-threads=1",
+                ],
+                REPO / "services/core",
+                env,
+                fixture.root / "commerce-test.log",
+                900,
+            )
+            if resources:
+                resources.adopt_scopes()
+                allocations = list(resource_root.glob("scope-*-allocation.json"))
+                ready = list(resource_root.glob("scope-*-ready.json"))
+                roles = [json.loads(path.read_text())["role"] for path in allocations]
+                if (
+                    len(ready) != 4
+                    or len(resources.services) != 4
+                    or sorted(roles) != ["core", "core", "extensions", "extensions"]
+                ):
+                    raise FixtureError(
+                        "shared resource test must bind all four product starts"
+                    )
+        finally:
+            if resources:
+                sampling_stop.set()
+                if sampler:
+                    sampler.join(timeout=5)
+                try:
+                    if sampler and sampler.is_alive():
+                        raise FixtureError("resource observer did not stop")
+                    if resources.group is not None:
+                        samples.append(resources.sample())
+                    write_private(
+                        resource_root / "samples.json",
+                        json.dumps(
+                            {
+                                "scope": "short real commerce regression, not sustained-load acceptance",
+                                "samples": samples,
+                                "errors": sampling_errors,
+                            },
+                            sort_keys=True,
+                        )
+                        + "\n",
+                    )
+                    if sampling_errors:
+                        raise FixtureError("resource observations incomplete")
+                    if samples and any(
+                        samples[-1]["parent"]["memory_events"].get(key, 0)
+                        for key in ["oom", "oom_kill", "max"]
+                    ):
+                        raise FixtureError(
+                            "memory hard-limit event during commerce regression"
+                        )
+                finally:
+                    resources.close()
         if (
             "test result: ok. 1 passed; 0 failed; 0 ignored;"
             not in (fixture.root / "commerce-test.log").read_text()
@@ -304,6 +393,10 @@ def main() -> int:
             "process_evidence_root": str(process_root),
             "seconds": round(time.monotonic() - started, 2),
             "cluster_removed": True,
+            "shared_resources": args.shared_resources,
+            "shared_resource_receipt": str(resource_root / "group-closed.json")
+            if resources
+            else None,
             "scope": "synthetic credits; local product processes only",
         }
         write_private(
@@ -313,7 +406,7 @@ def main() -> int:
             f"PASS: real Store/Commerce processes; receipt {fixture.root / 'acceptance.json'}"
         )
         return 0
-    except (FixtureError, OSError, subprocess.SubprocessError) as error:
+    except (FixtureError, ResourceError, OSError, subprocess.SubprocessError) as error:
         # No optimistic cleanup/retry after an uncertain or failed check. The
         # fixture's immutable identity and local private logs remain inspectable.
         print(f"FAIL: {error}; retained local evidence {fixture.root}", file=sys.stderr)

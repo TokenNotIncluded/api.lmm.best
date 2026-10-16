@@ -7,9 +7,62 @@ The new output directory must not exist. No production services are modified.
 """
 
 import argparse
+import json
+import threading
 from pathlib import Path
 import time
 from resource_group import Group, LauncherExited, ResourceError, record, sha
+
+
+def verify_publication(root):
+    directory = root / "atomic-publication"
+    directory.mkdir(mode=0o700)
+    stopped = threading.Event()
+    errors = []
+    observed = set()
+    payload = {"payload": "x" * 16384, "role": "core"}
+
+    def reader():
+        while not stopped.is_set():
+            for path in directory.glob("scope-*-allocation.json"):
+                try:
+                    if json.loads(path.read_text()) != payload:
+                        raise ResourceError("published receipt changed")
+                    observed.add(path.name)
+                except Exception as error:
+                    errors.append(type(error).__name__)
+
+    worker = threading.Thread(target=reader)
+    worker.start()
+    try:
+        for index in range(64):
+            record(directory, f"scope-{index}-allocation.json", payload)
+    finally:
+        stopped.set()
+        worker.join(timeout=5)
+    if worker.is_alive() or errors or not observed:
+        raise ResourceError("concurrent receipt publication failed")
+    try:
+        record(directory, "scope-0-allocation.json", {"overwritten": True})
+    except FileExistsError:
+        pass
+    else:
+        raise ResourceError("receipt overwrite accepted")
+    if json.loads((directory / "scope-0-allocation.json").read_text()) != payload:
+        raise ResourceError("original receipt changed")
+    if list(directory.glob(".pending-*")):
+        raise ResourceError("pending receipt remains")
+    record(
+        directory,
+        "result.json",
+        {
+            "result": "PASS",
+            "receipts": 64,
+            "concurrently_read": len(observed),
+            "partial_json_errors": errors,
+            "overwrite_refused": True,
+        },
+    )
 
 
 def main():
@@ -21,7 +74,8 @@ def main():
         parser.error("absolute symlink-free output required")
     root.mkdir(mode=0o700)
     binary = Path("/usr/bin/python3").resolve()
-    checks = []
+    verify_publication(root)
+    checks = ["atomic-publication"]
     for case in ["shared-cpu", "early-exit", "missing-unit"]:
         directory = root / case
         directory.mkdir(mode=0o700)
@@ -106,7 +160,7 @@ def main():
         },
     )
     print(
-        "PASS: shared quota, early exit and missing-unit cleanup; synthetic probes only"
+        "PASS: atomic receipts, shared quota, early exit and missing-unit cleanup; synthetic probes only"
     )
 
 

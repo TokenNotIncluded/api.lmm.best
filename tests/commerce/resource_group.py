@@ -57,14 +57,37 @@ def private_root(path):
 
 def record(root, name, value):
     private_root(root)
-    fd = os.open(
-        root / name, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600
-    )
-    with os.fdopen(fd, "w") as output:
-        json.dump(value, output, sort_keys=True)
-        output.write("\n")
-        output.flush()
-        os.fsync(output.fileno())
+    if Path(name).name != name or name in {"", ".", ".."}:
+        raise ResourceError("receipt name must be a single filename")
+    directory = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
+    pending = ".pending-receipt-" + secrets.token_hex(16)
+    try:
+        fd = os.open(
+            pending,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW,
+            0o600,
+            dir_fd=directory,
+        )
+        try:
+            with os.fdopen(fd, "w") as output:
+                json.dump(value, output, sort_keys=True)
+                output.write("\n")
+                output.flush()
+                os.fsync(output.fileno())
+            # Hard-link publication is atomic and refuses to overwrite a receipt.
+            # Readers never observe a named allocation until its JSON is complete.
+            os.link(
+                pending,
+                name,
+                src_dir_fd=directory,
+                dst_dir_fd=directory,
+                follow_symlinks=False,
+            )
+        finally:
+            os.unlink(pending, dir_fd=directory)
+            os.fsync(directory)
+    finally:
+        os.close(directory)
 
 
 def bus_environment():
@@ -366,12 +389,99 @@ class Group:
         finally:
             held.close()
 
+    def sample(self):
+        """A bounded point observation; disappearing child scopes are recorded explicitly."""
+
+        def counters(path):
+            return dict(
+                (key, int(value))
+                for key, value in (
+                    line.split() for line in path.read_text().splitlines()
+                )
+            )
+
+        def metrics(path):
+            return {
+                "cpu": counters(path / "cpu.stat"),
+                "memory_current": int((path / "memory.current").read_text()),
+                "memory_peak": int((path / "memory.peak").read_text()),
+                "memory_events": counters(path / "memory.events"),
+                "pids": int((path / "pids.current").read_text()),
+            }
+
+        sample = {
+            "monotonic": time.monotonic(),
+            "parent": metrics(self.group),
+            "children": [],
+        }
+        for path in sorted(self.root.glob("scope-*-allocation.json")):
+            lease = json.loads(path.read_text())
+            child = self.group / lease["unit"]
+            item = {
+                "unit": lease["unit"],
+                "role": lease["role"],
+                "pid": lease["identity"]["pid"],
+            }
+            try:
+                item["metrics"] = metrics(child)
+                pid = item["pid"]
+                if identity(pid) != lease["identity"]:
+                    raise ResourceError("sampled child PID identity changed")
+                status = Path(f"/proc/{pid}/status").read_text().splitlines()
+                values = dict(line.split(":", 1) for line in status if ":" in line)
+                if "VmRSS" in values:
+                    item["rss_kib"] = int(values["VmRSS"].split()[0])
+                    item["state"] = "observed"
+                elif values.get("State", "").strip().startswith(("Z", "X")):
+                    item["state"] = "exited-during-sample"
+                else:
+                    raise ResourceError("live product RSS missing from observation")
+            except FileNotFoundError:
+                item["state"] = "disappeared-during-or-before-sample"
+            sample["children"].append(item)
+        return sample
+
+    def adopt_scopes(self):
+        """Register only allocation leases written under this controller's private root."""
+        known = {item["unit"] for item in self.services}
+        for path in sorted(self.root.glob("scope-*-allocation.json")):
+            data = json.loads(path.read_text())
+            unit = data["unit"]
+            nonce = self.nonce
+            if (
+                data.get("format") != "lmm-commerce-scope-allocation-v1"
+                or data.get("owner") != self.owner
+                or data.get("parent") != self.unit
+                or not re.fullmatch(
+                    r"lmmjoint-" + nonce + r"-(core|extensions)-[0-9]+\.scope", unit
+                )
+                or data.get("cgroup") != str(self.group / unit)
+                or data["identity"]["boot_id"] != self.owner["boot_id"]
+            ):
+                raise ResourceError("refuse foreign scope allocation")
+            if unit not in known:
+                self.services.append(
+                    {
+                        "unit": unit,
+                        "role": data["role"],
+                        "pid": data["identity"]["pid"],
+                        "identity": data["identity"],
+                        "launcher": None,
+                        "group": self.group / unit,
+                    }
+                )
+                known.add(unit)
+
     def close(self):
         if self.closed:
             return
         if identity(os.getpid()) != self.owner:
             raise ResourceError("cleanup is limited to this group owner")
         errors = []
+        try:
+            self.adopt_scopes()
+        except (ResourceError, OSError, ValueError, KeyError) as error:
+            errors.append({"unit": self.unit, "error": "scope lease: " + str(error)})
         foreign = False
         for item in reversed(self.services):
             try:
