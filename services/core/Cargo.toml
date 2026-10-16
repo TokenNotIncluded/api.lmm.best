@@ -12,6 +12,9 @@ publish = false
 name = "lmm-core"
 path = "src/main.rs"
 
+[features]
+resource-acceptance = []
+
 [dependencies]
 aes-gcm = { version = "=0.10.3", default-features = false, features = ["aes", "alloc"] }
 argon2 = "=0.5.3"

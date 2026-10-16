@@ -41,6 +41,9 @@ pub(super) struct Provider {
     task: JoinHandle<()>,
     pub(super) stream_gate: Arc<Semaphore>,
     pub(super) stream_closed: Arc<AtomicUsize>,
+    // Read by the opt-in process gate; other fixture importers need no counter.
+    #[allow(dead_code)]
+    pub(super) stream_finished: Arc<AtomicUsize>,
 }
 impl Drop for Provider {
     fn drop(&mut self) {
@@ -55,6 +58,14 @@ struct ProviderState {
     usage: bool,
     stream_gate: Arc<Semaphore>,
     stream_closed: Arc<AtomicUsize>,
+    stream_finished: Arc<AtomicUsize>,
+}
+// Observe producer exit independently from HTTP response body closure.
+struct ProducerFinished(Arc<AtomicUsize>);
+impl Drop for ProducerFinished {
+    fn drop(&mut self) {
+        self.0.fetch_add(1, Ordering::SeqCst);
+    }
 }
 struct ObservedStream {
     inner: ReceiverStream<Result<Bytes, std::io::Error>>,
@@ -119,7 +130,9 @@ async fn provider(
             .to_owned();
         let (tx, rx) = mpsc::channel::<Result<Bytes, std::io::Error>>(8);
         let stream_closed = state.stream_closed.clone();
+        let finished = ProducerFinished(state.stream_finished.clone());
         tokio::spawn(async move {
+            let _finished = finished;
             if tx.send(Ok(Bytes::from(content))).await.is_err() {
                 return;
             }
@@ -164,6 +177,7 @@ impl Provider {
         let auth = Arc::new(Mutex::new(Vec::new()));
         let stream_gate = Arc::new(Semaphore::new(0));
         let stream_closed = Arc::new(AtomicUsize::new(0));
+        let stream_finished = Arc::new(AtomicUsize::new(0));
         let app = Router::new()
             .route("/custom/v1/chat/completions", post(provider))
             .with_state(ProviderState {
@@ -172,6 +186,7 @@ impl Provider {
                 usage,
                 stream_gate: stream_gate.clone(),
                 stream_closed: stream_closed.clone(),
+                stream_finished: stream_finished.clone(),
             });
         let task = tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
@@ -183,6 +198,7 @@ impl Provider {
             task,
             stream_gate,
             stream_closed,
+            stream_finished,
         }
     }
 }

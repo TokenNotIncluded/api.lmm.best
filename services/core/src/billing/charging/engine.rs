@@ -757,6 +757,7 @@ impl Charging {
     }
     /// Bounded recovery. Expired streams retain the entire hold, even with zero
     /// locally observed output. A process crash is not proof of no provider use.
+    // @mark model.recovery role=authority
     pub async fn recover_expired(&self, limit: i64) -> Result<Vec<Charge>> {
         if !(1..=1000).contains(&limit) {
             return Err(Error::Invalid);

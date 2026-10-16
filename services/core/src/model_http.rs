@@ -240,6 +240,7 @@ impl ModelGateway {
 
     /// Trusted host recovery only; never an HTTP/client/Go action. Expired
     /// dispatches keep their holds pending authoritative provider evidence.
+    // @mark model.recovery role=host
     pub async fn recover_expired(&self, limit: i64) -> Result<usize, RelayError> {
         self.bridge
             .charging

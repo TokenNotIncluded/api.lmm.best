@@ -30,6 +30,9 @@ use std::{
     process::{Child, Command, Stdio},
     time::Instant,
 };
+#[cfg(feature = "resource-acceptance")]
+#[path = "../../../tests/model_process/resource_cases.rs"]
+mod resource_cases;
 #[path = "common/runtime.rs"]
 mod restricted_runtime;
 #[path = "../../../tests/model_process/stream_cases.rs"]
@@ -313,7 +316,7 @@ impl Host {
         self.role.take().unwrap().cleanup().await;
     }
 }
-async fn start_core(pool: &PgPool, provider: &Provider, keys: &[i64], label: &str) -> Host {
+async fn prepare_core(pool: &PgPool, provider: &Provider, keys: &[i64], label: &str) -> Host {
     let database = pool.connect_options().get_database().unwrap().to_owned();
     assert!(
         database
@@ -377,14 +380,17 @@ rules=[{{id=1,model='local-model',group='allowed',speed='standard',rates={{input
         .unwrap();
     let config = directory.join("core.toml");
     private(&config,format!("version=1\n[server]\nlisten='{address}'\nworker_threads=2\nmax_inflight=16\ndrain_timeout_seconds=3\n[database]\nurl_file='{}'\nmax_connections=2\n[model]\nconfig_file='{}'\nlocal_http=true\n",directory.join("runtime.url").display(),directory.join("model.toml").display()).as_bytes());
-    let mut host = Host {
+    Host {
         endpoint: format!("http://{address}"),
         config,
         directory,
         child: None,
         generation: 0,
         role: Some(role),
-    };
+    }
+}
+async fn start_core(pool: &PgPool, provider: &Provider, keys: &[i64], label: &str) -> Host {
+    let mut host = prepare_core(pool, provider, keys, label).await;
     host.restart().await;
     host
 }

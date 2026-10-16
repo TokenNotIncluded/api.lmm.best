@@ -200,6 +200,44 @@ Core 单独运行与 Core + Go 扩展分别验证；不能因为 Core 使用 Rus
 可继续处理；不靠调高保护阈值或删功能通过。资金终态、UNKNOWN、预扣保留及
 恢复重放仍按原业务断言核对，不能强制关池或丢任务来制造资源归零。
 
+当前 Core 局部资源回归入口为
+[`scripts/verify_model_resources.py`](../scripts/verify_model_resources.py)。它需要已安装的
+固定 Rust 工具链、本地固定 PostgreSQL 镜像、用户级 systemd 和可读回的 cgroup v2
+CPU/内存硬限制，不自动安装工具或连接外部数据库。默认模型流程的六项测试保持原范围；
+资源测试通过 `resource-acceptance` feature 和显式 ignored 用例单独运行。
+
+先准备私有、绝对路径且无符号链接的目录。`RESOURCE_OUTPUT` 是新的验收输出目录；
+`BUILD_RESOURCE` 和 `BUILD_REQUESTS` 复用现有重型构建租约目录。
+`CORE_BIN`、`SOURCE_BINDING`、`BUILD_RECEIPT` 必须来自同一次成功、无源码漂移的
+release 构建。`SOURCE_BINDING.files` 恰好覆盖资源入口的 `PRODUCT_TREES` 与
+`PRODUCT_FILES`，每项为仓库相对路径到 SHA-256 的映射；构建回执还须绑定该 manifest
+和二进制摘要。基本来源格式见[普通模型流程入口](../scripts/verify_model_process.py)。
+`PROCESS_ROOT` 须为空、权限 0700、路径长度不超过 35 字节。示例变量只指向自有测试目录：
+
+```sh
+agcc run --agent core-resource-prepare --root services/core/target \
+  --root "$RESOURCE_OUTPUT" --root "$BUILD_REQUESTS" -- \
+  python3 -B scripts/verify_model_resources.py prepare \
+  --output "$RESOURCE_OUTPUT" --resource "$BUILD_RESOURCE" --requests "$BUILD_REQUESTS" \
+  --core-binary "$CORE_BIN" --source-binding "$SOURCE_BINDING" --build-receipt "$BUILD_RECEIPT"
+
+agcc run --agent core-resource-run --root "$RESOURCE_OUTPUT" --root "$PROCESS_ROOT" -- \
+  python3 -B scripts/verify_model_resources.py run --output "$RESOURCE_OUTPUT" \
+  --process-root "$PROCESS_ROOT" --prepared-sha256 "$PREPARED_SHA256"
+```
+
+`PREPARED_SHA256` 使用 prepare 实际打印的摘要，prepare 成功不等于验收通过。
+该场景只限制 Core 为 1 CPU、256 MiB；PostgreSQL、负载生成器和模拟上游在其预算之外。
+它验证固定节拍 HTTP/SSE、过载拒绝、流取消、账本不变量和排空；不覆盖慢消费者的
+真实 socket 背压、Go 联合预算、真实上游或旧架构比较，也不能替代所有进程的独立资源测量。
+
+预热 60 秒、稳态 300 秒、过载 60 秒、恢复负载 60 秒、空闲排空 60 秒分别保留证据。
+正常阶段固定 5 RPS、80% JSON/20% SSE，完整成功率至少 99%，P95 不超过 1 秒、
+P99 不超过 2 秒。重启后的积压分类单独计时：现有后台恢复器每五秒处理至多 64 条，
+就绪不承诺同步处理全部积压。分类必须在实际剩余量推导的有限期限内完成，持续取得
+进展，并保留全部 UNKNOWN 预留款；不能将分类耗时混算成 120 秒流量恢复通过。
+失败保留自有数据库和原始回执，先确认自有 Core unit 停止，再调查；不将旧失败覆盖成通过。
+
 本项目的最终交付还要求相对旧架构有可复现的实质性能改善、更低内存和更好的稳定性。
 保留旧版官方产物及其源码、编译和配置证据；双方使用同等 CPU/内存、数据库数据规模、
 计费语义、预热与固定请求负载，分别报告吞吐、P50/P95/P99、常驻/峰值 RSS/PSS、
