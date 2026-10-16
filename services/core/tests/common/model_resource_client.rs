@@ -1,6 +1,8 @@
 //! Shared complete-response and ledger assertions for resource acceptance clients.
 //! Callers provide their real Core ledger balance assertion through `super::balanced`.
 use super::balanced;
+#[path = "model_resource_response.rs"]
+mod response;
 use serde_json::{Value, json};
 use sqlx::PgPool;
 use std::collections::HashSet;
@@ -97,26 +99,10 @@ pub(super) async fn complete(
             if !read_ok {
                 result.code = "incomplete_or_oversized_body".into();
             } else if result.status == 200 {
-                let text = String::from_utf8(bytes).unwrap();
-                let valid = if stream {
-                    text.ends_with("data: [DONE]\n\n")
-                        && text.contains("local stream answer")
-                        && text
-                            .lines()
-                            .filter_map(|line| line.strip_prefix("data: "))
-                            .filter_map(|line| serde_json::from_str::<Value>(line).ok())
-                            .any(|v| {
-                                v["usage"]["prompt_tokens"] == 10
-                                    && v["usage"]["completion_tokens"] == 20
-                                    && v["usage"]["prompt_tokens_details"]["cached_tokens"] == 2
-                            })
-                } else {
-                    let value: Value = serde_json::from_str(&text).unwrap();
-                    value["choices"][0]["message"]["content"] == "local synthetic answer"
-                        && value["usage"]["prompt_tokens"] == 10
-                        && value["usage"]["completion_tokens"] == 20
-                        && value["usage"]["prompt_tokens_details"]["cached_tokens"] == 2
-                };
+                let valid = result
+                    .id
+                    .as_deref()
+                    .is_some_and(|id| response::valid_complete_body(&bytes, stream, id));
                 result.success = valid && result.id.is_some();
                 if !result.success {
                     result.code = "invalid_complete_response".into();
