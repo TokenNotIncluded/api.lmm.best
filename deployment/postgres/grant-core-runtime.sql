@@ -54,7 +54,11 @@ SELECT EXISTS (
 \else
 \echo 'Refusing unsafe runtime role or login-enabled installation owner.'
 ROLLBACK;
-\quit 1
+-- psql \quit ignores an exit status, so a refused script would otherwise
+-- leave the process successful after this rollback. ON_ERROR_STOP is set above.
+DO $$ BEGIN
+    RAISE EXCEPTION 'Refusing unsafe runtime role or login-enabled installation owner.';
+END $$;
 \endif
 
 REVOKE CREATE, TEMPORARY ON DATABASE :"core_database" FROM PUBLIC;
