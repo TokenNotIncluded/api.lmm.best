@@ -36,7 +36,7 @@ CREATE TABLE core_billing.ledger_journals (
     id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
     scope TEXT NOT NULL,
     operation_key TEXT NOT NULL,
-    kind TEXT NOT NULL CHECK (kind IN ('credit', 'transfer', 'charge', 'reserve', 'capture', 'commerce_capture', 'claim_affiliate', 'opening', 'release', 'refund', 'refund_topup', 'refund_commerce', 'reverse')),
+    kind TEXT NOT NULL CHECK (kind IN ('credit', 'transfer', 'charge', 'reserve', 'capture', 'commerce_capture', 'claim_affiliate', 'opening', 'release', 'refund', 'refund_topup', 'refund_commerce', 'reverse', 'legacy_escrow_opening', 'legacy_escrow_payout', 'legacy_escrow_release')),
     payer_id BIGINT NOT NULL REFERENCES core_billing.ledger_accounts(id),
     payee_id BIGINT NOT NULL REFERENCES core_billing.ledger_accounts(id),
     amount_units BIGINT NOT NULL CHECK (amount_units >= 0 AND (amount_units > 0 OR kind = 'capture')),
@@ -50,7 +50,7 @@ CREATE TABLE core_billing.ledger_journals (
     CHECK (payer_id <> payee_id),
     CHECK ((kind = 'credit') = (payment_reference IS NOT NULL)),
     CHECK ((kind = 'refund_topup') = (refund_reference IS NOT NULL)),
-    CHECK ((kind IN ('capture', 'commerce_capture', 'release', 'refund', 'refund_topup', 'refund_commerce', 'reverse')) = (parent_journal_id IS NOT NULL)),
+    CHECK ((kind IN ('capture', 'commerce_capture', 'release', 'refund', 'refund_topup', 'refund_commerce', 'reverse', 'legacy_escrow_payout', 'legacy_escrow_release')) = (parent_journal_id IS NOT NULL)),
     UNIQUE (scope, operation_key),
     FOREIGN KEY (scope, operation_key) REFERENCES core_billing.ledger_operations(scope, operation_key)
         DEFERRABLE INITIALLY DEFERRED
@@ -669,3 +669,430 @@ REVOKE ALL ON core_billing.opening_import_runs,core_billing.opening_imports FROM
 REVOKE ALL ON FUNCTION core_billing.import_opening_balance(JSONB) FROM PUBLIC;
 REVOKE ALL ON core_billing.account_opening_counters FROM PUBLIC;
 REVOKE ALL ON FUNCTION core_billing.import_account_opening_counters(JSONB) FROM PUBLIC;
+
+-- Historical bounty custody, not a wallet Reserve or merchant order.
+-- @mark migration.bounty-custody role=implementation
+-- Lifecycle policy: project AGPL-3.0 revision
+-- 3948a0a1ee1cefdd016a7aa45a11851545bb4b85, apps/api-go/model/open_source_bounty.go.
+-- No source unit conversion, submission transition or dispute adjudication here.
+CREATE TABLE core_billing.legacy_escrow_batch_runs (
+    migration_id TEXT PRIMARY KEY,
+    source_archive_sha256 TEXT NOT NULL CHECK(source_archive_sha256 ~ '^[0-9a-f]{64}$'),
+    mapping_sha256 TEXT NOT NULL CHECK(mapping_sha256 ~ '^[0-9a-f]{64}$'),
+    review_proof_sha256 TEXT NOT NULL CHECK(review_proof_sha256 ~ '^[0-9a-f]{64}$'),
+    unit TEXT NOT NULL CHECK(unit='credit_500k_usd'),
+    observed_at BIGINT NOT NULL CHECK(observed_at>0),
+    request JSONB NOT NULL,
+    result JSONB NOT NULL
+);
+CREATE TABLE core_billing.legacy_escrow_projects (
+    migration_id TEXT NOT NULL REFERENCES core_billing.legacy_escrow_batch_runs(migration_id) DEFERRABLE INITIALLY DEFERRED,
+    source_project_id BIGINT NOT NULL CHECK(source_project_id>0),
+    source_archive_sha256 TEXT NOT NULL,
+    owner_user_id BIGINT NOT NULL REFERENCES core_identity.users(id),
+    payer_account_id BIGINT NOT NULL REFERENCES core_identity.accounts(id),
+    source_row_sha256 TEXT NOT NULL CHECK(source_row_sha256 ~ '^[0-9a-f]{64}$'),
+    source_parent_plan_sha256 TEXT NOT NULL CHECK(source_parent_plan_sha256 ~ '^[0-9a-f]{64}$'),
+    escrow_units BIGINT NOT NULL CHECK(escrow_units BETWEEN 1 AND 9007199254740991),
+    status TEXT NOT NULL CHECK(status IN ('published','paused')),
+    opening_journal_id BIGINT NOT NULL UNIQUE REFERENCES core_billing.ledger_journals(id),
+    source JSONB NOT NULL,
+    PRIMARY KEY(migration_id,source_project_id),
+    UNIQUE(source_archive_sha256,source_project_id)
+);
+CREATE TABLE core_billing.legacy_escrow_claims (
+    migration_id TEXT NOT NULL,
+    source_project_id BIGINT NOT NULL,
+    source_challenge_id BIGINT NOT NULL CHECK(source_challenge_id>0),
+    participant_user_id BIGINT NOT NULL REFERENCES core_identity.users(id),
+    recipient_account_id BIGINT NOT NULL REFERENCES core_identity.accounts(id),
+    source_row_sha256 TEXT NOT NULL CHECK(source_row_sha256 ~ '^[0-9a-f]{64}$'),
+    rights_status TEXT NOT NULL CHECK(rights_status IN ('active_future_reward','historical_rejection_guard_only')),
+    source_reward_quota BIGINT NOT NULL CHECK(source_reward_quota BETWEEN 0 AND 9007199254740991),
+    payout_units BIGINT CHECK(payout_units BETWEEN 1 AND 9007199254740991),
+    status TEXT NOT NULL CHECK(status IN ('accepted','submitted','approved','rejected','withdrawn','cancelled')),
+    rejected_at BIGINT NOT NULL CHECK(rejected_at>=0),
+    paid_at BIGINT NOT NULL CHECK(paid_at>=0),
+    source JSONB NOT NULL,
+    CHECK((rights_status='active_future_reward')=(payout_units IS NOT NULL)),
+    CHECK(rights_status<>'historical_rejection_guard_only' OR status='rejected'),
+    PRIMARY KEY(migration_id,source_challenge_id),
+    UNIQUE(migration_id,source_project_id,source_challenge_id),
+    FOREIGN KEY(migration_id,source_project_id) REFERENCES core_billing.legacy_escrow_projects(migration_id,source_project_id)
+);
+CREATE TABLE core_billing.legacy_escrow_disputes (
+    migration_id TEXT NOT NULL,
+    source_project_id BIGINT NOT NULL,
+    source_dispute_id BIGINT NOT NULL CHECK(source_dispute_id>0),
+    source_challenge_id BIGINT NOT NULL,
+    source_row_sha256 TEXT NOT NULL CHECK(source_row_sha256 ~ '^[0-9a-f]{64}$'),
+    status TEXT NOT NULL CHECK(status IN ('open','resolved_paid','resolved_denied')),
+    source JSONB NOT NULL,
+    PRIMARY KEY(migration_id,source_dispute_id),
+    FOREIGN KEY(migration_id,source_project_id,source_challenge_id)
+        REFERENCES core_billing.legacy_escrow_claims(migration_id,source_project_id,source_challenge_id)
+);
+CREATE TABLE core_billing.legacy_escrow_state (
+    migration_id TEXT NOT NULL,
+    source_project_id BIGINT NOT NULL,
+    remaining_units BIGINT NOT NULL CHECK(remaining_units>=0),
+    revision BIGINT NOT NULL CHECK(revision>0),
+    closed BOOLEAN NOT NULL DEFAULT FALSE,
+    PRIMARY KEY(migration_id,source_project_id),
+    FOREIGN KEY(migration_id,source_project_id) REFERENCES core_billing.legacy_escrow_projects(migration_id,source_project_id),
+    CHECK(NOT closed OR remaining_units=0)
+);
+CREATE TABLE core_billing.legacy_escrow_operations (
+    operation_key TEXT PRIMARY KEY CHECK(operation_key ~ '^[A-Za-z0-9._:/-]{1,128}$'),
+    migration_id TEXT NOT NULL,
+    source_project_id BIGINT NOT NULL,
+    source_challenge_id BIGINT,
+    kind TEXT NOT NULL CHECK(kind IN ('payout','close')),
+    actor_user_id BIGINT NOT NULL REFERENCES core_identity.users(id),
+    request JSONB NOT NULL,
+    result JSONB NOT NULL,
+    FOREIGN KEY(migration_id,source_project_id) REFERENCES core_billing.legacy_escrow_projects(migration_id,source_project_id),
+    FOREIGN KEY(migration_id,source_project_id,source_challenge_id)
+        REFERENCES core_billing.legacy_escrow_claims(migration_id,source_project_id,source_challenge_id),
+    CHECK((kind='payout')=(source_challenge_id IS NOT NULL))
+);
+CREATE UNIQUE INDEX legacy_escrow_claim_paid_once ON core_billing.legacy_escrow_operations(migration_id,source_challenge_id)
+    WHERE kind='payout' AND result->>'status'='posted';
+CREATE UNIQUE INDEX legacy_escrow_close_once ON core_billing.legacy_escrow_operations(migration_id,source_project_id)
+    WHERE kind='close' AND result->>'status'='posted';
+
+CREATE TRIGGER legacy_escrow_batch_immutable BEFORE UPDATE OR DELETE ON core_billing.legacy_escrow_batch_runs FOR EACH ROW EXECUTE FUNCTION core_billing.ledger_immutable();
+CREATE TRIGGER legacy_escrow_batch_no_truncate BEFORE TRUNCATE ON core_billing.legacy_escrow_batch_runs FOR EACH STATEMENT EXECUTE FUNCTION core_billing.ledger_immutable();
+CREATE TRIGGER legacy_escrow_projects_immutable BEFORE UPDATE OR DELETE ON core_billing.legacy_escrow_projects FOR EACH ROW EXECUTE FUNCTION core_billing.ledger_immutable();
+CREATE TRIGGER legacy_escrow_projects_no_truncate BEFORE TRUNCATE ON core_billing.legacy_escrow_projects FOR EACH STATEMENT EXECUTE FUNCTION core_billing.ledger_immutable();
+CREATE TRIGGER legacy_escrow_claims_immutable BEFORE UPDATE OR DELETE ON core_billing.legacy_escrow_claims FOR EACH ROW EXECUTE FUNCTION core_billing.ledger_immutable();
+CREATE TRIGGER legacy_escrow_claims_no_truncate BEFORE TRUNCATE ON core_billing.legacy_escrow_claims FOR EACH STATEMENT EXECUTE FUNCTION core_billing.ledger_immutable();
+CREATE TRIGGER legacy_escrow_disputes_immutable BEFORE UPDATE OR DELETE ON core_billing.legacy_escrow_disputes FOR EACH ROW EXECUTE FUNCTION core_billing.ledger_immutable();
+CREATE TRIGGER legacy_escrow_disputes_no_truncate BEFORE TRUNCATE ON core_billing.legacy_escrow_disputes FOR EACH STATEMENT EXECUTE FUNCTION core_billing.ledger_immutable();
+CREATE TRIGGER legacy_escrow_operations_immutable BEFORE UPDATE OR DELETE ON core_billing.legacy_escrow_operations FOR EACH ROW EXECUTE FUNCTION core_billing.ledger_immutable();
+CREATE TRIGGER legacy_escrow_operations_no_truncate BEFORE TRUNCATE ON core_billing.legacy_escrow_operations FOR EACH STATEMENT EXECUTE FUNCTION core_billing.ledger_immutable();
+CREATE FUNCTION core_billing.legacy_escrow_guard_state() RETURNS TRIGGER
+LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+BEGIN
+    IF TG_OP IN ('DELETE','TRUNCATE') THEN RAISE EXCEPTION 'escrow state cannot be removed' USING ERRCODE='55000'; END IF;
+    IF NEW.migration_id IS DISTINCT FROM OLD.migration_id OR NEW.source_project_id<>OLD.source_project_id
+        OR NEW.revision<>OLD.revision+1 OR NEW.remaining_units>OLD.remaining_units OR OLD.closed THEN
+        RAISE EXCEPTION 'invalid escrow state transition' USING ERRCODE='23514';
+    END IF;
+    RETURN NEW;
+END $$;
+CREATE TRIGGER legacy_escrow_state_guard BEFORE UPDATE OR DELETE ON core_billing.legacy_escrow_state FOR EACH ROW EXECUTE FUNCTION core_billing.legacy_escrow_guard_state();
+CREATE TRIGGER legacy_escrow_state_no_truncate BEFORE TRUNCATE ON core_billing.legacy_escrow_state FOR EACH STATEMENT EXECUTE FUNCTION core_billing.legacy_escrow_guard_state();
+CREATE FUNCTION core_billing.legacy_escrow_check_remaining() RETURNS TRIGGER
+LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+DECLARE expected NUMERIC; actual BIGINT;
+BEGIN
+    SELECT p.escrow_units-COALESCE((SELECT sum(j.amount_units) FROM core_billing.ledger_journals j
+        WHERE j.parent_journal_id=p.opening_journal_id AND j.kind IN ('legacy_escrow_payout','legacy_escrow_release')),0),s.remaining_units
+        INTO STRICT expected,actual FROM core_billing.legacy_escrow_projects p JOIN core_billing.legacy_escrow_state s USING(migration_id,source_project_id)
+        WHERE p.migration_id=NEW.migration_id AND p.source_project_id=NEW.source_project_id;
+    IF expected IS DISTINCT FROM actual::NUMERIC THEN RAISE EXCEPTION 'escrow journal/state mismatch' USING ERRCODE='23514'; END IF;
+    RETURN NULL;
+END $$;
+CREATE CONSTRAINT TRIGGER legacy_escrow_remaining_balanced AFTER INSERT OR UPDATE ON core_billing.legacy_escrow_state
+    DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION core_billing.legacy_escrow_check_remaining();
+
+CREATE FUNCTION core_billing.legacy_escrow_keys(value JSONB, expected TEXT[]) RETURNS BOOLEAN
+LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+    SELECT CASE WHEN jsonb_typeof(value)='object' THEN
+        (SELECT array_agg(k ORDER BY k) FROM jsonb_object_keys(value) k)=(SELECT array_agg(k ORDER BY k) FROM unnest(expected) k)
+        ELSE FALSE END
+$$;
+CREATE FUNCTION core_billing.legacy_escrow_uint(value JSONB, positive BOOLEAN DEFAULT FALSE) RETURNS BIGINT
+LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
+BEGIN
+    IF NOT COALESCE(jsonb_typeof(value)='number' AND value::TEXT ~ '^(0|[1-9][0-9]*)$'
+        AND (value::TEXT)::NUMERIC BETWEEN 0 AND 9007199254740991
+        AND (NOT positive OR (value::TEXT)::NUMERIC>0),FALSE) THEN
+        RAISE EXCEPTION 'escrow requires exact nonnegative integer' USING ERRCODE='P1000';
+    END IF;
+    RETURN (value::TEXT)::BIGINT;
+END $$;
+CREATE FUNCTION core_billing.legacy_escrow_id(value JSONB) RETURNS BIGINT
+LANGUAGE plpgsql IMMUTABLE SET search_path=pg_catalog AS $$
+BEGIN
+    -- IDs are exact positive BIGINT, not monetary JS-safe quota values.
+    IF jsonb_typeof(value) IS DISTINCT FROM 'number' THEN
+        RAISE EXCEPTION 'escrow requires exact positive BIGINT identifier' USING ERRCODE='P1000';
+    END IF;
+    IF value::TEXT !~ '^[1-9][0-9]*$' THEN
+        RAISE EXCEPTION 'escrow requires exact positive BIGINT identifier' USING ERRCODE='P1000';
+    END IF;
+    IF (value::TEXT)::NUMERIC>9223372036854775807 THEN
+        RAISE EXCEPTION 'escrow identifier exceeds BIGINT' USING ERRCODE='P1000';
+    END IF;
+    RETURN (value::TEXT)::BIGINT;
+END $$;
+CREATE FUNCTION core_billing.legacy_escrow_hash(value JSONB) RETURNS BOOLEAN
+LANGUAGE sql IMMUTABLE SET search_path=pg_catalog AS $$
+    SELECT COALESCE(jsonb_typeof(value)='string' AND (value#>>'{}') ~ '^[0-9a-f]{64}$',FALSE)
+$$;
+
+-- OFFLINE owner only. Entire reviewed batch is one identity, not an append API.
+CREATE FUNCTION core_billing.import_legacy_escrow_batch(p_request JSONB) RETURNS JSONB
+LANGUAGE plpgsql SET search_path=pg_catalog AS $$
+DECLARE migration TEXT:=p_request->>'migration_id'; archive TEXT:=p_request->>'source_archive_sha256';
+    mapping TEXT:=p_request->>'mapping_sha256'; observed BIGINT; prior core_billing.legacy_escrow_batch_runs%ROWTYPE;
+    project JSONB; claim JSONB; dispute JSONB; project_id BIGINT; owner_id BIGINT; payer_account_id_var BIGINT; amount BIGINT;
+    challenge_id BIGINT; participant BIGINT; recipient BIGINT; paid BIGINT; rejected BIGINT; now_units BIGINT;
+    owed NUMERIC; held BIGINT; clearing BIGINT; journal BIGINT; op_key TEXT; result JSONB; item_result JSONB; results JSONB:='[]'::JSONB;
+BEGIN
+    IF current_user<>pg_get_userbyid((SELECT nspowner FROM pg_namespace WHERE nspname='core_billing')) THEN
+        RAISE EXCEPTION 'escrow import requires offline schema owner' USING ERRCODE='42501';
+    END IF;
+    IF current_setting('transaction_isolation')<>'serializable' OR current_setting('synchronous_commit')<>'on' THEN
+        RAISE EXCEPTION 'escrow import requires durable serializable transaction' USING ERRCODE='25001';
+    END IF;
+    IF NOT COALESCE(core_billing.legacy_escrow_keys(p_request,ARRAY['migration_id','source_archive_sha256','mapping_sha256','review_proof_sha256','unit','observed_at','projects'])
+        AND octet_length(p_request::TEXT)<=1048576 AND jsonb_typeof(p_request->'migration_id')='string'
+        AND migration ~ '^[A-Za-z0-9._:/-]{1,128}$' AND p_request->>'unit'='credit_500k_usd'
+        AND core_billing.legacy_escrow_hash(p_request->'source_archive_sha256') AND core_billing.legacy_escrow_hash(p_request->'mapping_sha256')
+        AND core_billing.legacy_escrow_hash(p_request->'review_proof_sha256') AND jsonb_typeof(p_request->'projects')='array'
+        AND jsonb_array_length(p_request->'projects') BETWEEN 1 AND 128,FALSE) THEN
+        RAISE EXCEPTION 'invalid escrow import batch' USING ERRCODE='P1000';
+    END IF;
+    observed:=core_billing.legacy_escrow_uint(p_request->'observed_at',TRUE);
+    IF observed>253402300799 THEN RAISE EXCEPTION 'invalid escrow observation time' USING ERRCODE='P1000'; END IF;
+    PERFORM pg_advisory_xact_lock(hashtextextended('lmm-opening-import-v1',0));
+    SELECT * INTO prior FROM core_billing.legacy_escrow_batch_runs WHERE migration_id=migration;
+    IF FOUND THEN
+        IF prior.request IS DISTINCT FROM p_request THEN RAISE EXCEPTION 'escrow batch parameters changed' USING ERRCODE='P1001'; END IF;
+        RETURN prior.result;
+    END IF;
+    IF NOT EXISTS(SELECT FROM core_billing.opening_import_runs r WHERE r.migration_id=migration
+        AND r.source_archive_sha256=archive AND r.mapping_sha256=mapping AND r.observed_at=observed) THEN
+        RAISE EXCEPTION 'escrow requires same reviewed wallet opening run' USING ERRCODE='P1001';
+    END IF;
+    -- Validate the WHOLE batch before opening wallets, nextval or money writes.
+    FOR project IN SELECT value FROM jsonb_array_elements(p_request->'projects') LOOP
+        IF NOT COALESCE(core_billing.legacy_escrow_keys(project,ARRAY['source_project_id','owner_user_id','payer_account_id','source_row_sha256','source_parent_plan_sha256','escrow_units','status','claims','disputes'])
+            AND core_billing.legacy_escrow_hash(project->'source_row_sha256') AND core_billing.legacy_escrow_hash(project->'source_parent_plan_sha256')
+            AND project->>'status' IN ('published','paused') AND jsonb_typeof(project->'claims')='array' AND jsonb_typeof(project->'disputes')='array'
+            AND jsonb_array_length(project->'claims')<=2048 AND jsonb_array_length(project->'disputes')<=2048,FALSE) THEN
+            RAISE EXCEPTION 'invalid frozen escrow project' USING ERRCODE='P1000';
+        END IF;
+        project_id:=core_billing.legacy_escrow_id(project->'source_project_id');
+        owner_id:=core_billing.legacy_escrow_id(project->'owner_user_id');
+        payer_account_id_var:=core_billing.legacy_escrow_id(project->'payer_account_id');
+        amount:=core_billing.legacy_escrow_uint(project->'escrow_units',TRUE);
+        PERFORM u.id FROM core_identity.users u JOIN core_identity.accounts a ON a.id=u.personal_account_id
+            WHERE u.id=owner_id AND u.personal_account_id=payer_account_id_var AND a.kind='personal' FOR SHARE OF u,a;
+        IF NOT FOUND THEN RAISE EXCEPTION 'escrow original payer identity mismatch' USING ERRCODE='P1001'; END IF;
+        IF NOT EXISTS(SELECT FROM core_billing.opening_imports i WHERE i.migration_id=migration AND i.account_id=payer_account_id_var
+            AND i.request->>'source_archive_sha256'=archive AND i.request->>'mapping_sha256'=mapping
+            AND i.request->>'reserved_units'='0') OR EXISTS(SELECT FROM core_billing.legacy_escrow_projects p WHERE p.payer_account_id=payer_account_id_var) THEN
+            RAISE EXCEPTION 'escrow payer opening absent, nonzero reserves or prior escrow batch' USING ERRCODE='P1001';
+        END IF;
+        IF EXISTS(SELECT FROM core_billing.ledger_entries e JOIN core_billing.ledger_accounts a ON a.id=e.ledger_account_id
+            JOIN core_billing.ledger_journals j ON j.id=e.journal_id WHERE a.owner_account_id=payer_account_id_var AND j.kind<>'opening') THEN
+            RAISE EXCEPTION 'escrow import target already has runtime financial activity' USING ERRCODE='P1001';
+        END IF;
+        IF EXISTS(SELECT FROM core_billing.legacy_escrow_projects p WHERE p.source_archive_sha256=archive AND p.source_project_id=project_id) THEN
+            RAISE EXCEPTION 'escrow source project already imported' USING ERRCODE='P1001';
+        END IF;
+        owed:=0;
+        FOR claim IN SELECT value FROM jsonb_array_elements(project->'claims') LOOP
+            IF NOT COALESCE(core_billing.legacy_escrow_keys(claim,ARRAY['source_challenge_id','participant_user_id','recipient_account_id','source_row_sha256','rights_status','source_reward_quota','payout_units','status','rejected_at','paid_at'])
+                AND core_billing.legacy_escrow_hash(claim->'source_row_sha256') AND claim->>'status' IN ('accepted','submitted','rejected')
+                AND claim->>'rights_status' IN ('active_future_reward','historical_rejection_guard_only'),FALSE) THEN
+                RAISE EXCEPTION 'invalid frozen escrow claim' USING ERRCODE='P1000';
+            END IF;
+            challenge_id:=core_billing.legacy_escrow_id(claim->'source_challenge_id');
+            participant:=core_billing.legacy_escrow_id(claim->'participant_user_id');
+            recipient:=core_billing.legacy_escrow_id(claim->'recipient_account_id');
+            PERFORM core_billing.legacy_escrow_uint(claim->'source_reward_quota');
+            IF claim->>'rights_status'='active_future_reward' THEN
+                now_units:=core_billing.legacy_escrow_uint(claim->'payout_units',TRUE);
+            ELSE
+                IF jsonb_typeof(claim->'payout_units') IS DISTINCT FROM 'null' OR claim->>'status'<>'rejected' THEN
+                    RAISE EXCEPTION 'historical rejection evidence is not current-unit payout money' USING ERRCODE='P1000';
+                END IF;
+                now_units:=NULL;
+            END IF;
+            paid:=core_billing.legacy_escrow_uint(claim->'paid_at'); rejected:=core_billing.legacy_escrow_uint(claim->'rejected_at');
+            IF participant=owner_id OR recipient=payer_account_id_var OR paid>observed OR rejected>observed
+                OR (claim->>'status' IN ('accepted','submitted','rejected') AND paid<>0)
+                OR (claim->>'status'='rejected' AND rejected=0)
+                OR (claim->>'status' IN ('accepted','submitted') AND claim->>'rights_status'<>'active_future_reward') THEN
+                RAISE EXCEPTION 'invalid frozen escrow claim state' USING ERRCODE='P1000';
+            END IF;
+            PERFORM u.id FROM core_identity.users u JOIN core_identity.accounts a ON a.id=u.personal_account_id
+                WHERE u.id=participant AND u.personal_account_id=recipient AND a.kind='personal' FOR SHARE OF u,a;
+            IF NOT FOUND THEN RAISE EXCEPTION 'escrow recipient identity mismatch' USING ERRCODE='P1001'; END IF;
+            IF (SELECT count(*) FROM core_billing.ledger_accounts a WHERE a.owner_account_id=recipient AND a.bucket IN ('wallet','debt'))<>2 THEN
+                RAISE EXCEPTION 'escrow recipient wallet must be prepared before import' USING ERRCODE='P1001';
+            END IF;
+            IF claim->>'status' IN ('accepted','submitted') THEN owed:=owed+now_units; END IF;
+        END LOOP;
+        FOR dispute IN SELECT value FROM jsonb_array_elements(project->'disputes') LOOP
+            IF NOT COALESCE(core_billing.legacy_escrow_keys(dispute,ARRAY['source_dispute_id','source_challenge_id','source_row_sha256','status','reward_quota_snapshot','project_escrow_quota_snapshot','tip_quota_snapshot'])
+                AND core_billing.legacy_escrow_hash(dispute->'source_row_sha256') AND dispute->>'status' IN ('open','resolved_paid','resolved_denied'),FALSE) THEN
+                RAISE EXCEPTION 'invalid frozen escrow dispute' USING ERRCODE='P1000';
+            END IF;
+            PERFORM core_billing.legacy_escrow_id(dispute->'source_dispute_id');
+            challenge_id:=core_billing.legacy_escrow_id(dispute->'source_challenge_id');
+            PERFORM core_billing.legacy_escrow_uint(dispute->'reward_quota_snapshot');
+            PERFORM core_billing.legacy_escrow_uint(dispute->'project_escrow_quota_snapshot');
+            PERFORM core_billing.legacy_escrow_uint(dispute->'tip_quota_snapshot');
+            IF NOT EXISTS(SELECT FROM jsonb_array_elements(project->'claims') c WHERE c->>'source_challenge_id'=challenge_id::TEXT) THEN
+                RAISE EXCEPTION 'escrow dispute does not bind frozen project claim' USING ERRCODE='P1001';
+            END IF;
+        END LOOP;
+        FOR claim IN SELECT value FROM jsonb_array_elements(project->'claims') LOOP
+            IF EXISTS(SELECT FROM jsonb_array_elements(project->'disputes') d
+                WHERE d->>'source_challenge_id'=claim->>'source_challenge_id' AND d->>'status'='resolved_paid') THEN
+                RAISE EXCEPTION 'resolved paid dispute cannot bind an unpaid imported claim' USING ERRCODE='P1001';
+            END IF;
+            IF claim->>'rights_status'='historical_rejection_guard_only' AND
+                (EXISTS(SELECT FROM jsonb_array_elements(project->'disputes') d WHERE d->>'source_challenge_id'=claim->>'source_challenge_id' AND d->>'status'='open') OR
+                 (core_billing.legacy_escrow_uint(claim->'rejected_at')>observed-604800 AND NOT EXISTS(
+                    SELECT FROM jsonb_array_elements(project->'disputes') d WHERE d->>'source_challenge_id'=claim->>'source_challenge_id' AND d->>'status'='resolved_denied'))) THEN
+                RAISE EXCEPTION 'active appeal/dispute requires reviewed current-unit payout basis' USING ERRCODE='P1001';
+            END IF;
+        END LOOP;
+        -- Rejected rights remain protected by an open dispute or the exact
+        -- historical seven-day appeal window. Never count historical snapshots.
+        SELECT owed+COALESCE(sum(core_billing.legacy_escrow_uint(c->'payout_units',TRUE)),0) INTO owed
+            FROM jsonb_array_elements(project->'claims') c WHERE c->>'status'='rejected' AND c->>'rights_status'='active_future_reward' AND
+            (EXISTS(SELECT FROM jsonb_array_elements(project->'disputes') d WHERE d->>'source_challenge_id'=c->>'source_challenge_id' AND d->>'status'='open')
+             OR (core_billing.legacy_escrow_uint(c->'rejected_at')>observed-604800 AND NOT EXISTS(SELECT FROM jsonb_array_elements(project->'disputes') d
+                WHERE d->>'source_challenge_id'=c->>'source_challenge_id' AND d->>'status' IN ('resolved_paid','resolved_denied'))));
+        IF owed>amount THEN RAISE EXCEPTION 'escrow cannot cover frozen unpaid rights' USING ERRCODE='P1001'; END IF;
+    END LOOP;
+    IF EXISTS(SELECT FROM jsonb_array_elements(p_request->'projects') p GROUP BY p->>'source_project_id' HAVING count(*)>1)
+        OR EXISTS(SELECT FROM jsonb_array_elements(p_request->'projects') p CROSS JOIN LATERAL jsonb_array_elements(p->'claims') c GROUP BY c->>'source_challenge_id' HAVING count(*)>1)
+        OR EXISTS(SELECT FROM jsonb_array_elements(p_request->'projects') p CROSS JOIN LATERAL jsonb_array_elements(p->'disputes') d GROUP BY d->>'source_dispute_id' HAVING count(*)>1) THEN
+        RAISE EXCEPTION 'duplicate escrow source identity in batch' USING ERRCODE='P1001';
+    END IF;
+    SELECT id INTO STRICT clearing FROM core_billing.ledger_accounts WHERE bucket='clearing';
+    -- Sorted project and balance order, with the global offline opening lock.
+    FOR project IN SELECT value FROM jsonb_array_elements(p_request->'projects') ORDER BY (value->>'source_project_id')::BIGINT LOOP
+        project_id:=(project->>'source_project_id')::BIGINT; payer_account_id_var:=(project->>'payer_account_id')::BIGINT; amount:=(project->>'escrow_units')::BIGINT;
+        SELECT id INTO STRICT held FROM core_billing.ledger_accounts WHERE owner_account_id=payer_account_id_var AND bucket='reserved';
+        PERFORM b.ledger_account_id FROM core_billing.balance_state b WHERE b.ledger_account_id IN(held,clearing) ORDER BY b.ledger_account_id FOR NO KEY UPDATE;
+        op_key:=encode(sha256(convert_to(jsonb_build_array(migration,project_id)::TEXT,'UTF8')),'hex');
+        INSERT INTO core_billing.ledger_journals(scope,operation_key,kind,payer_id,payee_id,amount_units,reason)
+            VALUES('legacy-escrow-opening',op_key,'legacy_escrow_opening',clearing,held,amount,'Reviewed historical bounty escrow; no new wallet debit') RETURNING id INTO journal;
+        INSERT INTO core_billing.ledger_entries(journal_id,ledger_account_id,delta_units)
+            SELECT journal,id,units FROM (VALUES(clearing,-amount),(held,amount)) AS legs(id,units) ORDER BY id;
+        item_result:=jsonb_build_object('status','posted','source_project_id',project_id,'journal_id',journal,'remaining_units',amount,'revision',1);
+        INSERT INTO core_billing.ledger_operations(scope,operation_key,request,result) VALUES('legacy-escrow-opening',op_key,project,item_result);
+        INSERT INTO core_billing.legacy_escrow_projects VALUES(migration,project_id,archive,(project->>'owner_user_id')::BIGINT,payer_account_id_var,
+            project->>'source_row_sha256',project->>'source_parent_plan_sha256',amount,project->>'status',journal,project);
+        INSERT INTO core_billing.legacy_escrow_state VALUES(migration,project_id,amount,1,FALSE);
+        FOR claim IN SELECT value FROM jsonb_array_elements(project->'claims') LOOP
+            INSERT INTO core_billing.legacy_escrow_claims VALUES(migration,project_id,(claim->>'source_challenge_id')::BIGINT,
+                (claim->>'participant_user_id')::BIGINT,(claim->>'recipient_account_id')::BIGINT,claim->>'source_row_sha256',
+                claim->>'rights_status',(claim->>'source_reward_quota')::BIGINT,(claim->>'payout_units')::BIGINT,claim->>'status',(claim->>'rejected_at')::BIGINT,(claim->>'paid_at')::BIGINT,claim);
+        END LOOP;
+        FOR dispute IN SELECT value FROM jsonb_array_elements(project->'disputes') LOOP
+            INSERT INTO core_billing.legacy_escrow_disputes VALUES(migration,project_id,(dispute->>'source_dispute_id')::BIGINT,
+                (dispute->>'source_challenge_id')::BIGINT,dispute->>'source_row_sha256',dispute->>'status',dispute);
+        END LOOP;
+        results:=results||jsonb_build_array(item_result);
+    END LOOP;
+    result:=jsonb_build_object('status','posted','migration_id',migration,'unit','credit_500k_usd','projects',results);
+    INSERT INTO core_billing.legacy_escrow_batch_runs VALUES(migration,archive,mapping,p_request->>'review_proof_sha256','credit_500k_usd',observed,p_request,result);
+    RETURN result;
+EXCEPTION WHEN unique_violation THEN
+    RAISE EXCEPTION 'retry complete escrow import transaction with original batch' USING ERRCODE='40001';
+END $$;
+
+-- Trusted Core-only function. Rust authenticates/locks current Session authority
+-- in THIS transaction. IDs here are derived from that principal, not HTTP/Go.
+CREATE FUNCTION core_billing.legacy_escrow_finalize(p_request JSONB,p_actor_user_id BIGINT,p_actor_account_id BIGINT) RETURNS JSONB
+LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$
+DECLARE migration TEXT:=p_request->>'migration_id'; project_id BIGINT; op_key TEXT:=p_request->>'operation_key'; kind TEXT:=p_request->>'kind';
+    project core_billing.legacy_escrow_projects%ROWTYPE; state core_billing.legacy_escrow_state%ROWTYPE;
+    claim core_billing.legacy_escrow_claims%ROWTYPE; prior core_billing.legacy_escrow_operations%ROWTYPE;
+    challenge_id BIGINT; journal BIGINT; amount BIGINT; held BIGINT; original_wallet BIGINT; recipient_wallet BIGINT; recipient_debt BIGINT;
+    debt_balance BIGINT; repayment BIGINT:=0; rejection TEXT; now_at BIGINT; result JSONB; request JSONB;
+BEGIN
+    IF current_setting('transaction_isolation')<>'serializable' OR current_setting('synchronous_commit')<>'on' THEN
+        RAISE EXCEPTION 'escrow finalize requires durable serializable transaction' USING ERRCODE='25001';
+    END IF;
+    IF NOT COALESCE(octet_length(p_request::TEXT)<=8192 AND jsonb_typeof(p_request->'migration_id')='string'
+        AND migration ~ '^[A-Za-z0-9._:/-]{1,128}$' AND jsonb_typeof(p_request->'operation_key')='string'
+        AND op_key ~ '^[A-Za-z0-9._:/-]{1,128}$' AND
+        ((kind='payout' AND core_billing.legacy_escrow_keys(p_request,ARRAY['kind','migration_id','source_project_id','source_challenge_id','operation_key']))
+        OR (kind='close' AND core_billing.legacy_escrow_keys(p_request,ARRAY['kind','migration_id','source_project_id','operation_key']))),FALSE) THEN
+        RAISE EXCEPTION 'invalid escrow command' USING ERRCODE='P1000';
+    END IF;
+    project_id:=core_billing.legacy_escrow_id(p_request->'source_project_id');
+    IF kind='payout' THEN challenge_id:=core_billing.legacy_escrow_id(p_request->'source_challenge_id'); END IF;
+    PERFORM pg_advisory_xact_lock(hashtextextended(jsonb_build_array('core-legacy-escrow',op_key)::TEXT,0));
+    SELECT * INTO project FROM core_billing.legacy_escrow_projects WHERE migration_id=migration AND source_project_id=project_id;
+    IF NOT FOUND THEN RAISE EXCEPTION 'escrow project not found' USING ERRCODE='P1002'; END IF;
+    IF (project.owner_user_id,project.payer_account_id) IS DISTINCT FROM (p_actor_user_id,p_actor_account_id) THEN
+        RAISE EXCEPTION 'escrow original owner required' USING ERRCODE='42501';
+    END IF;
+    request:=jsonb_build_object('command',p_request,'actor_user_id',p_actor_user_id,'actor_account_id',p_actor_account_id);
+    SELECT * INTO prior FROM core_billing.legacy_escrow_operations WHERE operation_key=op_key;
+    IF FOUND THEN
+        IF prior.request IS DISTINCT FROM request THEN RAISE EXCEPTION 'escrow operation parameters changed' USING ERRCODE='P1001'; END IF;
+        RETURN prior.result;
+    END IF;
+    SELECT * INTO STRICT state FROM core_billing.legacy_escrow_state WHERE migration_id=migration AND source_project_id=project_id FOR UPDATE;
+    -- New commands preserve the first rejection; prior exact-key replays returned above.
+    IF state.closed THEN rejection:='already_closed'; END IF;
+    IF rejection IS NULL AND EXISTS(SELECT FROM core_billing.legacy_escrow_disputes d WHERE d.migration_id=migration AND d.source_project_id=project_id AND d.status='open') THEN
+        rejection:='open_dispute';
+    END IF;
+    now_at:=floor(extract(epoch FROM clock_timestamp()))::BIGINT;
+    IF kind='payout' THEN
+        SELECT * INTO claim FROM core_billing.legacy_escrow_claims c WHERE c.migration_id=migration AND c.source_project_id=project_id AND c.source_challenge_id=challenge_id;
+        IF NOT FOUND THEN RAISE EXCEPTION 'escrow frozen claim not found' USING ERRCODE='P1002'; END IF;
+        IF rejection IS NULL AND (claim.status<>'submitted' OR claim.paid_at<>0 OR claim.rights_status<>'active_future_reward' OR claim.payout_units IS NULL) THEN rejection:='claim_not_submitted'; END IF;
+        IF rejection IS NULL AND EXISTS(SELECT FROM core_billing.legacy_escrow_operations o WHERE o.migration_id=migration AND o.source_challenge_id=challenge_id
+            AND o.kind='payout' AND o.result->>'status'='posted') THEN rejection:='claim_already_paid'; END IF;
+        amount:=COALESCE(claim.payout_units,0);
+        IF rejection IS NULL AND (amount<=0 OR amount>state.remaining_units) THEN rejection:='insufficient_escrow'; END IF;
+        SELECT id INTO STRICT recipient_wallet FROM core_billing.ledger_accounts WHERE owner_account_id=claim.recipient_account_id AND bucket='wallet';
+    ELSE
+        IF rejection IS NULL AND EXISTS(SELECT FROM core_billing.legacy_escrow_claims c WHERE c.migration_id=migration AND c.source_project_id=project_id
+            AND c.paid_at=0 AND c.status IN ('accepted','submitted') AND NOT EXISTS(SELECT FROM core_billing.legacy_escrow_operations o
+                WHERE o.migration_id=migration AND o.source_challenge_id=c.source_challenge_id AND o.kind='payout' AND o.result->>'status'='posted')) THEN
+            rejection:='active_claim';
+        END IF;
+        IF rejection IS NULL AND EXISTS(SELECT FROM core_billing.legacy_escrow_claims c WHERE c.migration_id=migration AND c.source_project_id=project_id AND c.status='rejected'
+            AND c.rejected_at>now_at-604800 AND NOT EXISTS(SELECT FROM core_billing.legacy_escrow_disputes d WHERE d.migration_id=migration
+                AND d.source_challenge_id=c.source_challenge_id AND d.status IN ('resolved_paid','resolved_denied'))) THEN rejection:='appeal_window'; END IF;
+        amount:=state.remaining_units;
+        SELECT id INTO STRICT recipient_wallet FROM core_billing.ledger_accounts WHERE owner_account_id=project.payer_account_id AND bucket='wallet';
+    END IF;
+    IF rejection IS NULL THEN
+        SELECT id INTO STRICT held FROM core_billing.ledger_accounts WHERE owner_account_id=project.payer_account_id AND bucket='reserved';
+        SELECT id INTO STRICT original_wallet FROM core_billing.ledger_accounts WHERE owner_account_id=project.payer_account_id AND bucket='wallet';
+        SELECT id INTO STRICT recipient_debt FROM core_billing.ledger_accounts WHERE owner_account_id=(CASE WHEN kind='payout' THEN claim.recipient_account_id ELSE project.payer_account_id END) AND bucket='debt';
+        PERFORM b.ledger_account_id FROM core_billing.balance_state b WHERE b.ledger_account_id IN(held,recipient_wallet,recipient_debt) ORDER BY b.ledger_account_id FOR NO KEY UPDATE;
+        SELECT balance_units INTO STRICT debt_balance FROM core_billing.balance_state WHERE ledger_account_id=recipient_debt;
+        repayment:=least(amount::NUMERIC,greatest(-debt_balance::NUMERIC,0))::BIGINT;
+        IF amount>0 THEN
+            INSERT INTO core_billing.ledger_journals(scope,operation_key,kind,payer_id,payee_id,amount_units,parent_journal_id,actor_user_id,reason)
+                VALUES('core-legacy-escrow',op_key,CASE WHEN kind='payout' THEN 'legacy_escrow_payout' ELSE 'legacy_escrow_release' END,
+                    CASE WHEN kind='payout' THEN original_wallet ELSE held END,recipient_wallet,amount,project.opening_journal_id,p_actor_user_id,
+                    CASE WHEN kind='payout' THEN 'Original owner approved frozen historical bounty claim' ELSE 'Historical bounty remainder returned to original payer' END) RETURNING id INTO journal;
+            INSERT INTO core_billing.ledger_entries(journal_id,ledger_account_id,delta_units)
+                SELECT journal,id,units FROM (VALUES(held,-amount),(recipient_wallet,amount-repayment),(recipient_debt,repayment)) AS legs(id,units) WHERE units<>0 ORDER BY id;
+        END IF;
+        UPDATE core_billing.legacy_escrow_state SET remaining_units=remaining_units-amount,revision=revision+1,closed=(kind='close')
+            WHERE migration_id=migration AND source_project_id=project_id RETURNING * INTO state;
+    END IF;
+    result:=jsonb_build_object('status',CASE WHEN rejection IS NULL THEN 'posted' ELSE 'rejected' END,'code',rejection,
+        'operation_key',op_key,'journal_id',journal,'remaining_units',state.remaining_units,'revision',state.revision);
+    IF journal IS NOT NULL THEN INSERT INTO core_billing.ledger_operations(scope,operation_key,request,result) VALUES('core-legacy-escrow',op_key,request,result); END IF;
+    INSERT INTO core_billing.legacy_escrow_operations VALUES(op_key,migration,project_id,challenge_id,kind,p_actor_user_id,request,result);
+    RETURN result;
+EXCEPTION WHEN unique_violation THEN
+    RAISE EXCEPTION 'retry complete escrow finalize transaction with original key' USING ERRCODE='40001';
+END $$;
+REVOKE ALL ON core_billing.legacy_escrow_batch_runs,core_billing.legacy_escrow_projects,core_billing.legacy_escrow_claims,
+    core_billing.legacy_escrow_disputes,core_billing.legacy_escrow_state,core_billing.legacy_escrow_operations FROM PUBLIC;
+REVOKE ALL ON FUNCTION core_billing.import_legacy_escrow_batch(JSONB),core_billing.legacy_escrow_finalize(JSONB,BIGINT,BIGINT),
+    core_billing.legacy_escrow_keys(JSONB,TEXT[]),core_billing.legacy_escrow_uint(JSONB,BOOLEAN),core_billing.legacy_escrow_id(JSONB),core_billing.legacy_escrow_hash(JSONB),
+    core_billing.legacy_escrow_guard_state(),core_billing.legacy_escrow_check_remaining() FROM PUBLIC;

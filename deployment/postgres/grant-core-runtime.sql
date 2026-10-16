@@ -66,10 +66,14 @@ GRANT SELECT ON core_meta.schema_contract, core_meta.component_contract,
 GRANT SELECT ON core_billing.ledger_accounts, core_billing.balance_state,
     core_billing.ledger_operations, core_billing.ledger_journals,
     core_billing.ledger_entries, core_billing.opening_import_runs,
-    core_billing.opening_imports, core_billing.account_opening_counters TO :"runtime_role";
+    core_billing.opening_imports, core_billing.account_opening_counters,
+    core_billing.legacy_escrow_batch_runs, core_billing.legacy_escrow_projects,
+    core_billing.legacy_escrow_claims, core_billing.legacy_escrow_disputes,
+    core_billing.legacy_escrow_state, core_billing.legacy_escrow_operations TO :"runtime_role";
 GRANT SELECT, INSERT, UPDATE ON core_billing.account_policies TO :"runtime_role";
 GRANT EXECUTE ON FUNCTION core_billing.open_ledger_wallet(bigint),
-    core_billing.post_ledger(jsonb) TO :"runtime_role";
+    core_billing.post_ledger(jsonb),
+    core_billing.legacy_escrow_finalize(jsonb,bigint,bigint) TO :"runtime_role";
 
 -- Abuse administration is checked against canonical superadmin Sessions in Rust.
 -- Secrets are host-private references; audit/operations/previews are append-only.

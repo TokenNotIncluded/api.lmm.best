@@ -143,3 +143,30 @@ writer 在同一 psql 连接中临时 `SET ROLE NONE`，以实际 LOGIN 读取�
 
 确认业务回滚后，旧 sequence envelope 也不能直接重用；若要另一次执行，必须保留原经济 payload 和 ID，重新测量并审核执行前态。
 所有路径均无自动重试。重启导致 boot 身份变化时，需资源 owner 审核恢复证据链，不能把重启当成回滚证明。
+
+
+## 历史悬赏资金托管
+
+Core 的 `billing::legacy_escrow` 为历史悬赏提供单独的资金池：一个项目可逐个支付冻结的挑战奖励，
+关闭时只退还剩余款给原付款账户。它不能用普通钱包 Reserve 或商户订单代替；平台费不重复收取。
+
+离线安装 owner 调用 `core_billing.import_legacy_escrow_batch(jsonb)`。整批材料绑定同一 wallet opening 的
+migration、来源 archive、身份 mapping、观察时间及独立审核 proof；函数要求原 wallet opening 的预留为零，
+并拒绝已有运行期资金活动。导入把项目金额从 clearing 记入原付款账户的 reserved，不再扣钱包。
+这是独立的 owner-only SQL 原语，当前 financial CLI 尚未把钱包与悬赏编排为一个完整、已验收的迁移流程。
+proof hash 仅绑定审核材料，不能代替原单位、经济权利和完整批次的人工独立审核。
+
+运行期 `LegacyEscrowStore` 在同一事务中重新校验原项目 owner 的个人账户 Session。
+付款命令只指定冻结项目、挑战和操作 key，金额与收款账户来自不可变导入记录；不接受调用方指定。
+每个挑战最多付款一次，同一项目可多次部分付款；普通 Capture、Release 和 Reverse 不能使用此 opening。
+收款及退款优先归还账户欠款，再进入钱包。相同 key、相同材料可重放；改材料或重复支付拒绝。
+超时或无法确认 COMMIT 时结果为 UNKNOWN，须核对或重放原 key，不能换 key 补付。
+
+accepted/submitted 挑战、未解决争议和仍在七日申诉期的拒绝记录会保护项目余额。
+历史拒绝记录的原始 reward quota 不自动视为当前单位的可付金额；没有已审核 payout basis 的记录不可付款。
+存在尚未解决的近期权利但缺少 payout basis 时，整批导入拒绝。开放争议没有原生裁决接口，仍保持冻结。
+
+当前模块没有 HTTP 或 Go 入口，也没有新悬赏的提交、裁决完整生命周期；不能据此宣告悬赏功能全部迁移完成。
+新增表仅授 runtime SELECT，只有 finalize 函数有 EXECUTE；导入、直接表写入和账本序列不授 runtime。
+DDL 参与现有 ledger 组件指纹，仅适用于新离线目标。旧 receipt、旧镜像及旧数据库不能通过更改版本字符串沿用，
+现有站点升级仍须独立演练和审核。

@@ -40,7 +40,7 @@ impl RuntimeRole {
             GRANT SELECT ON core_identity.developer_access,core_identity.user_routing_groups TO {name};
             GRANT USAGE ON ALL SEQUENCES IN SCHEMA core_identity TO {name};
             GRANT SELECT,INSERT,UPDATE ON core_billing.account_policies TO {name};
-            GRANT EXECUTE ON FUNCTION core_billing.open_ledger_wallet(bigint),core_billing.post_ledger(jsonb) TO {name};
+            GRANT EXECUTE ON FUNCTION core_billing.open_ledger_wallet(bigint),core_billing.post_ledger(jsonb),core_billing.legacy_escrow_finalize(jsonb,bigint,bigint) TO {name};
         "#)).execute(owner).await.unwrap();
         // Identity/ledger-only fixtures intentionally omit optional components.
         // Complete runtime provisioning/checking remains strict in production.

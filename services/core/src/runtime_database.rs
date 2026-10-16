@@ -108,7 +108,7 @@ pub(crate) async fn check_connection(
               OR (n.nspname='core_identity' AND c.relname IN ('developer_access','user_routing_groups'))
               OR (n.nspname='public' AND c.relname IN ('routing_active_release','routing_groups','routing_routes'))
               OR (n.nspname='core_charging' AND c.relname IN ('budget_opening_consumption','subscription_opening_consumption'))
-              OR (n.nspname='core_billing' AND c.relname IN ('ledger_accounts','balance_state','ledger_operations','ledger_journals','ledger_entries','opening_import_runs','opening_imports','account_opening_counters')))
+              OR (n.nspname='core_billing' AND c.relname<>'account_policies'))
              AND (has_table_privilege(c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,TRIGGER,REFERENCES,MAINTAIN')
                OR has_any_column_privilege(c.oid,'INSERT,UPDATE,REFERENCES')))
             OR ((n.nspname='core_console' AND c.relname='announcement_reads'
@@ -152,6 +152,7 @@ pub(crate) async fn check_connection(
           AND has_column_privilege(c.oid,a.attname,'UPDATE'))
         OR has_function_privilege('core_billing.import_opening_balance(jsonb)','EXECUTE')
         OR has_function_privilege('core_billing.import_account_opening_counters(jsonb)','EXECUTE')
+        OR has_function_privilege('core_billing.import_legacy_escrow_batch(jsonb)','EXECUTE')
         OR EXISTS(SELECT FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
           WHERE n.nspname='core_billing' AND CASE WHEN c.relkind='S'
             THEN has_sequence_privilege(c.oid,'USAGE,SELECT,UPDATE') ELSE FALSE END)
@@ -203,6 +204,7 @@ pub(crate) async fn check_connection(
           AND has_table_privilege('core_billing.account_policies','UPDATE')
           AND has_function_privilege('core_billing.open_ledger_wallet(bigint)','EXECUTE')
           AND has_function_privilege('core_billing.post_ledger(jsonb)','EXECUTE')
+          AND has_function_privilege('core_billing.legacy_escrow_finalize(jsonb,bigint,bigint)','EXECUTE')
     "#).fetch_one(&mut *connection).await?;
     if !identity_complete {
         return Err(RuntimeDatabaseError::MissingPrivileges);

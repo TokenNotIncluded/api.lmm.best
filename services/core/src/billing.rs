@@ -3,6 +3,7 @@
 //! No extension may perform these transitions directly.
 pub mod charging;
 pub mod ledger;
+pub mod legacy_escrow;
 pub mod transactional_ledger;
 
 use serde::{Deserialize, Serialize};
