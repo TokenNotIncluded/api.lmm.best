@@ -177,6 +177,28 @@ jobs:
             exit 1
           fi
           python3 -B scripts/test-core-rpc-docker.py --output-root "$evidence" 2>&1 | tee "$RUNNER_TEMP/core-rpc-docker.log"
+      - name: Stage readable core RPC evidence
+        if: ${{ always() }}
+        run: |
+          # Secret files are chowned to container uid 65532 and mode 0400.
+          # upload-artifact fails the whole zip if any selected file is unreadable.
+          src="$RUNNER_TEMP/core-rpc-docker-evidence"
+          dest="$RUNNER_TEMP/core-rpc-docker-evidence-readable"
+          rm -rf -- "$dest"
+          if [[ ! -d "$src" ]]; then
+            echo "No core RPC evidence directory to stage"
+            exit 0
+          fi
+          mkdir -m 0700 -- "$dest"
+          while IFS= read -r -d '' dir; do
+            rel="${dir#"$src"/}"
+            mkdir -m 0700 -p -- "$dest/$rel"
+          done < <(find "$src" -mindepth 1 -type d -print0)
+          while IFS= read -r -d '' file; do
+            rel="${file#"$src"/}"
+            mkdir -m 0700 -p -- "$dest/$(dirname -- "$rel")"
+            cp -p -- "$file" "$dest/$rel"
+          done < <(find "$src" -type f -readable -print0)
       - name: Service boundary contracts
         if: ${{ !cancelled() }}
         run: python3 -B scripts/test-core-boundaries.py
@@ -191,7 +213,7 @@ jobs:
             ${{ runner.temp }}/core-tests.log
             ${{ runner.temp }}/extension-tests.jsonl
             ${{ runner.temp }}/core-rpc-docker.log
-            ${{ runner.temp }}/core-rpc-docker-evidence
+            ${{ runner.temp }}/core-rpc-docker-evidence-readable
             ${{ runner.temp }}/store-postgres.jsonl
             ${{ runner.temp }}/events-process.log
           if-no-files-found: warn

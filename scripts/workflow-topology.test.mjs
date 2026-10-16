@@ -142,6 +142,9 @@ test('manual checks reuse the exact core and extension verification pipeline', (
     'contracts/proto/tests/process_recovery.py', 'LMM_RELAY_EXTENSION_BIN']) {
     assert.ok(source.includes(command), command);
   }
+  assert.match(source, /python3 -B scripts\/test-core-rpc-docker\.py --output-root "\$evidence"/);
+  assert.match(source, /core-rpc-docker-evidence-readable/);
+  assert.doesNotMatch(source, /runner\.temp \}\}\/core-rpc-docker-evidence\n/);
   assert.match(source, /services:\n      postgres:/);
   assert.match(source, /DATABASE_URL: postgres:\/\/postgres:postgres@127\.0\.0\.1:5432\/postgres/);
   assert.match(source, /working-directory: services\/extensions/);

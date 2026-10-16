@@ -338,6 +338,80 @@ class PrivateFixtureTests(unittest.TestCase):
                     self.assertEqual(stat.S_IMODE(path.stat().st_mode), 0o400)
 
 
+class HttpReadinessTests(unittest.TestCase):
+    def test_execute_wait_delegates_to_http_200_helper(self):
+        source = ast.parse(SOURCE.read_text())
+        waits = [
+            node
+            for node in ast.walk(source)
+            if isinstance(node, ast.FunctionDef) and node.name == "wait"
+        ]
+        self.assertEqual(len(waits), 1)
+        calls = [
+            node
+            for node in ast.walk(waits[0])
+            if isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id == "wait_for_http"
+        ]
+        self.assertEqual(len(calls), 1)
+
+    def test_proxy_error_json_is_not_readiness(self):
+        calls = []
+
+        def call():
+            calls.append(1)
+            if len(calls) < 3:
+                return 503, b'{"error":"core_unavailable"}'
+            return 200, b'{"user_id":"1"}'
+
+        ready = []
+        with mock.patch.object(FIXTURE.time, "sleep") as sleep:
+            body = FIXTURE.wait_for_http(
+                call, lambda: ready.append(True), pause=0
+            )
+        self.assertEqual(body, {"user_id": "1"})
+        self.assertEqual(ready, [True])
+        self.assertEqual(len(calls), 3)
+        self.assertGreaterEqual(sleep.call_count, 2)
+
+    def test_connection_errors_retry_until_http_200(self):
+        state = {"n": 0}
+
+        def call():
+            state["n"] += 1
+            if state["n"] < 2:
+                raise TimeoutError("not listening")
+            return 200, b'{"ok":true}'
+
+        with mock.patch.object(FIXTURE.time, "sleep"):
+            body = FIXTURE.wait_for_http(call, lambda: None, pause=0)
+        self.assertEqual(body, {"ok": True})
+        self.assertEqual(state["n"], 2)
+
+    def test_persistent_gateway_error_is_not_success(self):
+        def call():
+            return 502, b'{"error":"core_unavailable"}'
+
+        with mock.patch.object(FIXTURE.time, "sleep"):
+            with self.assertRaises(AssertionError):
+                FIXTURE.wait_for_http(
+                    call, lambda: self.fail("ready"), attempts=3, pause=0
+                )
+
+    def test_readiness_observation_failure_is_not_retried(self):
+        def call():
+            return 200, b'{"ok":true}'
+
+        def on_ready():
+            raise FIXTURE.FixtureError("product executable changed across restart")
+
+        with mock.patch.object(FIXTURE.time, "sleep") as sleep:
+            with self.assertRaises(FIXTURE.FixtureError):
+                FIXTURE.wait_for_http(call, on_ready, pause=0)
+        sleep.assert_not_called()
+
+
 # @mark deployment.database-authority role=test
 class DurableOutputTests(unittest.TestCase):
     def test_cli_requires_explicit_output_before_any_docker_operation(self):
