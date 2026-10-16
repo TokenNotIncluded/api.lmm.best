@@ -3,7 +3,8 @@
 
 Prepare requires a successfully source-bound release build. Run uses only its
 sealed binaries and a fresh owned PostgreSQL fixture. Core alone is constrained;
-combined Go/node capacity and slow socket backpressure remain outside this gate.
+combined Go/node capacity remains outside this gate. The socket-backpressure
+case is a separate opt-in regression, not the sustained throughput gate.
 Wrap prepare/run in agcc with explicit output and Core target roots.
 """
 from __future__ import annotations
@@ -21,11 +22,38 @@ import verify_model_process as v
 from pg_fixture import Fixture, FixtureError, private_directory
 
 CASE = "resource_cases::independent_process_constrained_resources"
+CASES = {
+    "sustained": CASE,
+    "socket-backpressure": "socket_cases::independent_process_socket_backpressure",
+}
 SELF = Path(__file__).resolve()
 
 
+def reviewed_tests(discovered):
+    expected = v.PROCESS_TESTS | set(CASES.values())
+    if (not isinstance(discovered, list)
+            or any(not isinstance(name, str) for name in discovered)
+            or len(discovered) != len(expected) or set(discovered) != expected):
+        raise FixtureError("test discovery differs from the unique reviewed cases")
+
+
+def selected_command(binary, selection):
+    if selection not in CASES:
+        raise FixtureError("unknown resource case")
+    return [str(binary), CASES[selection], "--exact", "--ignored",
+            "--nocapture", "--test-threads=1"]
+
+
+def require_selected_success(text, discovered):
+    reviewed_tests(discovered)
+    counts = re.findall(r"^test result: ok\. (\d+) passed; (\d+) failed; (\d+) ignored; (\d+) measured; (\d+) filtered out;", text, re.M)
+    if counts != [("1", "0", "0", "0", str(len(discovered) - 1))]:
+        raise FixtureError("exactly one selected resource case must pass; all other reviewed cases filtered")
+
+
 def inputs():
-    return {**v.inputs(), "resource_runner_sha256": v.sha(SELF)}
+    return {**v.inputs(), "resource_runner_sha256": v.sha(SELF),
+            "resource_runner_tests_sha256": v.sha(v.REPO / "tests/architecture_completion/test_verify_model_resources.py")}
 
 
 def check(frozen):
@@ -110,8 +138,7 @@ def prepare(args):
     for name, source in {"lmm-core": binary, "model_process": executables[0]}.items():
         v.copy_binary(source, artifacts / name)
     discovered = v.test_list(artifacts / "model_process", environment, args.output / "test-list.log")
-    if set(discovered) != v.PROCESS_TESTS | {CASE}:
-        raise FixtureError("opt-in test discovery changed ordinary six reviewed cases")
+    reviewed_tests(discovered)
     check(frozen)
     if (build["binary_sha256"] != v.sha(binary)
             or build["binary_sha256"] != v.sha(artifacts / "lmm-core")
@@ -214,10 +241,13 @@ def run(args):
     if not v.HEX.fullmatch(args.prepared_sha256) or v.sha(v.regular(prepared)) != args.prepared_sha256:
         raise FixtureError("prepared SHA256 mismatch")
     data = v.read_json(prepared)
+    command = selected_command(args.output / "artifacts/model_process", args.case)
+    case = command[1]
     if data.get("format") != "lmm-resource-prepared-v1":
         raise FixtureError("unsupported resource preparation")
     check(data["inputs"])
     artifacts_check(args.output, data["artifacts"])
+    reviewed_tests(data.get("test_list"))
     attempt = args.output / ("run-" + secrets.token_hex(8))
     attempt.mkdir(mode=0o700)
     environment = env()
@@ -237,16 +267,13 @@ def run(args):
         config = dict(line.split("=",1) for line in (fixture.root/"postgres.env").read_text().splitlines())
         environment["DATABASE_URL"] = ("postgresql://a09_admin:"+config["POSTGRES_PASSWORD"]+
             "@127.0.0.1:"+str(fixture.binding["port"])+"/postgres")
-        result = execute_test([str(args.output/"artifacts/model_process"), CASE,
-            "--exact", "--ignored", "--nocapture", "--test-threads=1"], environment,
+        result = execute_test(command, environment,
             attempt/"resource-test.log", 1000)
         if result["interrupted"]:
             raise FixtureError("resource test interrupted; preserve failed fixture")
         v.require_success(result)
         text = (attempt/"resource-test.log").read_text()
-        counts = re.findall(r"^test result: ok\. (\d+) passed; (\d+) failed; (\d+) ignored; (\d+) measured; (\d+) filtered out;", text, re.M)
-        if counts != [("1","0","0","0","6")]:
-            raise FixtureError("exactly one explicit resource case must pass; six ordinary cases filtered")
+        require_selected_success(text, data["test_list"])
         check(data["inputs"])
         artifacts_check(args.output, data["artifacts"])
         if v.sha(prepared) != args.prepared_sha256:
@@ -271,9 +298,11 @@ def run(args):
         "failed_fixture_retained":bool(error and fixture.container),
         "fixture_root":str(fixture.root), "prepared_sha256":args.prepared_sha256,
         "seconds":time.monotonic()-started, "process_evidence_root":str(args.process_root),
+        "case":args.case, "test_case":case,
         "scope":"Core-only1CPU256MiB; synthetic upstream/credits; fresh ownedPG",
-        "not_verified":["whole repository", "Core plus Go", "slow-consumer socket backpressure",
-                        "real providers", "old architecture comparison"], "not_acceptance_signoff":True})
+        "not_verified":["whole repository", "Core plus Go", "real providers", "old architecture comparison"]
+            + (["slow-consumer socket backpressure"] if args.case == "sustained"
+               else ["sustained mixed traffic with slow consumers"]), "not_acceptance_signoff":True})
     print(("PASS" if passed else "FAIL")+": "+str(attempt/"result.json"))
     return 0 if passed else 1
 
@@ -289,6 +318,7 @@ def main():
     execute.add_argument("--output", type=Path, required=True)
     execute.add_argument("--process-root", type=Path, required=True)
     execute.add_argument("--prepared-sha256", required=True)
+    execute.add_argument("--case", choices=tuple(CASES), default="sustained")
     args = parser.parse_args()
     try:
         return prepare(args) if args.mode == "prepare" else run(args)

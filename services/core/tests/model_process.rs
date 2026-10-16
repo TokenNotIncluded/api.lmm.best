@@ -35,6 +35,9 @@ use std::{
 mod resource_cases;
 #[path = "common/runtime.rs"]
 mod restricted_runtime;
+#[cfg(feature = "resource-acceptance")]
+#[path = "../../../tests/model_process/socket_cases.rs"]
+mod socket_cases;
 #[path = "../../../tests/model_process/stream_cases.rs"]
 mod stream_cases;
 struct Seed {

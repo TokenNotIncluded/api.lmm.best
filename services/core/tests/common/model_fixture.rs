@@ -38,6 +38,10 @@ pub(super) struct Provider {
     pub(super) endpoint: String,
     pub(super) hits: Arc<AtomicUsize>,
     pub(super) auth: Arc<Mutex<Vec<String>>>,
+    #[allow(dead_code)]
+    pub(super) socket_produced: Arc<AtomicUsize>,
+    #[allow(dead_code)]
+    pub(super) socket_polled: Arc<AtomicUsize>,
     task: JoinHandle<()>,
     pub(super) stream_gate: Arc<Semaphore>,
     pub(super) stream_closed: Arc<AtomicUsize>,
@@ -55,6 +59,8 @@ impl Drop for Provider {
 struct ProviderState {
     hits: Arc<AtomicUsize>,
     auth: Arc<Mutex<Vec<String>>>,
+    socket_produced: Arc<AtomicUsize>,
+    socket_polled: Arc<AtomicUsize>,
     usage: bool,
     stream_gate: Arc<Semaphore>,
     stream_closed: Arc<AtomicUsize>,
@@ -70,6 +76,7 @@ impl Drop for ProducerFinished {
 struct ObservedStream {
     inner: ReceiverStream<Result<Bytes, std::io::Error>>,
     closed: Arc<AtomicUsize>,
+    socket_polled: Option<Arc<AtomicUsize>>,
 }
 impl tokio_stream::Stream for ObservedStream {
     type Item = Result<Bytes, std::io::Error>;
@@ -77,7 +84,14 @@ impl tokio_stream::Stream for ObservedStream {
         self: std::pin::Pin<&mut Self>,
         cx: &mut std::task::Context<'_>,
     ) -> std::task::Poll<Option<Self::Item>> {
-        tokio_stream::Stream::poll_next(std::pin::Pin::new(&mut self.get_mut().inner), cx)
+        let this = self.get_mut();
+        let next = tokio_stream::Stream::poll_next(std::pin::Pin::new(&mut this.inner), cx);
+        if let std::task::Poll::Ready(Some(Ok(bytes))) = &next
+            && let Some(counter) = &this.socket_polled
+        {
+            counter.fetch_add(bytes.len(), Ordering::SeqCst);
+        }
+        next
     }
 }
 impl Drop for ObservedStream {
@@ -128,12 +142,31 @@ async fn provider(
             .as_str()
             .unwrap()
             .to_owned();
+        let socket_mode = prompt == "socket-backpressure";
+        let socket_polled = socket_mode.then(|| state.socket_polled.clone());
         let (tx, rx) = mpsc::channel::<Result<Bytes, std::io::Error>>(8);
         let stream_closed = state.stream_closed.clone();
         let finished = ProducerFinished(state.stream_finished.clone());
         tokio::spawn(async move {
             let _finished = finished;
-            if tx.send(Ok(Bytes::from(content))).await.is_err() {
+            // @mark model.socket-backpressure role=provider
+            if socket_mode {
+                // Decoded text remains 896 KiB; JSON escaping makes actual wire
+                // bytes exceed the kernel send buffer without raising any Core limit.
+                // Construct only one bounded frame at a time, never one giant body.
+                for _ in 0..56 {
+                    let packet = format!(
+                        "data: {}\n\n",
+                        json!({"id":"synthetic-stream",
+                        "choices":[{"index":0,"delta":{"content":"\u{1}".repeat(16*1024)},"finish_reason":null}]})
+                    );
+                    let length = packet.len();
+                    if tx.send(Ok(Bytes::from(packet))).await.is_err() {
+                        return;
+                    }
+                    state.socket_produced.fetch_add(length, Ordering::SeqCst);
+                }
+            } else if tx.send(Ok(Bytes::from(content))).await.is_err() {
                 return;
             }
             if prompt == "stream-pause" {
@@ -158,6 +191,7 @@ async fn provider(
             Body::from_stream(ObservedStream {
                 inner: ReceiverStream::new(rx),
                 closed: stream_closed,
+                socket_polled,
             }),
         )
             .into_response();
@@ -178,12 +212,16 @@ impl Provider {
         let stream_gate = Arc::new(Semaphore::new(0));
         let stream_closed = Arc::new(AtomicUsize::new(0));
         let stream_finished = Arc::new(AtomicUsize::new(0));
+        let socket_produced = Arc::new(AtomicUsize::new(0));
+        let socket_polled = Arc::new(AtomicUsize::new(0));
         let app = Router::new()
             .route("/custom/v1/chat/completions", post(provider))
             .with_state(ProviderState {
                 hits: hits.clone(),
                 auth: auth.clone(),
                 usage,
+                socket_produced: socket_produced.clone(),
+                socket_polled: socket_polled.clone(),
                 stream_gate: stream_gate.clone(),
                 stream_closed: stream_closed.clone(),
                 stream_finished: stream_finished.clone(),
@@ -196,6 +234,8 @@ impl Provider {
             hits,
             auth,
             task,
+            socket_produced,
+            socket_polled,
             stream_gate,
             stream_closed,
             stream_finished,

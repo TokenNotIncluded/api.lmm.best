@@ -38,7 +38,7 @@ fn fields(raw: &str) -> Value {
     Value::Object(value)
 }
 
-fn sample(pid: u32, cgroup: &Path, started: Instant, phase: u8) -> Value {
+pub(super) fn sample(pid: u32, cgroup: &Path, started: Instant, phase: u8) -> Value {
     let tasks = fs::read_dir(format!("/proc/{pid}/task"))
         .unwrap()
         .map(|entry| {
@@ -66,13 +66,13 @@ fn sample(pid: u32, cgroup: &Path, started: Instant, phase: u8) -> Value {
     })
 }
 
-struct ResourceHost {
-    prepared: Host,
+pub(super) struct ResourceHost {
+    pub(super) prepared: Host,
     unit: String,
     launcher: Option<Child>,
-    pid: u32,
+    pub(super) pid: u32,
     start_ticks: String,
-    cgroup: PathBuf,
+    pub(super) cgroup: PathBuf,
     generation: usize,
 }
 
@@ -91,7 +91,7 @@ impl Drop for ResourceHost {
 }
 
 impl ResourceHost {
-    async fn start(prepared: Host, client: &reqwest::Client) -> Self {
+    pub(super) async fn start(prepared: Host, client: &reqwest::Client) -> Self {
         assert!(prepared.child.is_none());
         // Exclude the provisioning helper's connections from the runtime-role census.
         prepared.role.as_ref().unwrap().pool.close().await;
@@ -297,7 +297,7 @@ impl ResourceHost {
                 "database_in_core_cgroup":false,"upstream_and_generator_in_core_cgroup":false})).unwrap());
     }
 
-    fn alive(&mut self) {
+    pub(super) fn alive(&mut self) {
         assert!(
             self.launcher
                 .as_mut()
@@ -346,7 +346,7 @@ impl ResourceHost {
         );
     }
 
-    async fn finish(mut self) {
+    pub(super) async fn finish(mut self) {
         self.stop().await;
         self.prepared.role.take().unwrap().cleanup().await;
     }
