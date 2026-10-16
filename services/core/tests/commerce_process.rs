@@ -12,10 +12,11 @@ use lmm_core::{
 };
 use reqwest::{Client, StatusCode};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use sqlx::{PgPool, postgres::PgPoolOptions};
 use std::{
     fs,
-    os::unix::fs::{OpenOptionsExt, PermissionsExt},
+    os::unix::fs::{MetadataExt, OpenOptionsExt, PermissionsExt},
     path::{Path, PathBuf},
     process::{Child, Command, Stdio},
     time::{Duration, Instant},
@@ -24,7 +25,83 @@ use std::{
 #[path = "common/runtime.rs"]
 mod runtime;
 
-struct Process(Child);
+// The child remains the direct product PID; Drop still injects real SIGKILL.
+struct Process(Child, Value, PathBuf, String);
+
+fn binary_sha(binary: &Path, variable: &str, required: bool) -> String {
+    assert!(binary.is_absolute() && binary.is_file());
+    let actual = format!("{:x}", Sha256::digest(fs::read(binary).unwrap()));
+    match std::env::var(variable) {
+        Ok(expected) => {
+            assert!(expected.len() == 64 && expected.bytes().all(|b| b.is_ascii_hexdigit()));
+            assert_eq!(
+                actual,
+                expected.to_ascii_lowercase(),
+                "binary digest differs from frozen input"
+            );
+        }
+        Err(std::env::VarError::NotPresent) => {
+            assert!(!required, "external Core requires its frozen SHA256")
+        }
+        Err(error) => panic!("invalid binary digest environment: {error}"),
+    }
+    actual
+}
+
+fn observation(pid: u32, expected: &str) -> Value {
+    use std::io::Read;
+    let stat = || {
+        let text = fs::read_to_string(format!("/proc/{pid}/stat")).unwrap();
+        text.rsplit_once(") ")
+            .unwrap()
+            .1
+            .split_whitespace()
+            .nth(19)
+            .unwrap()
+            .parse::<u64>()
+            .unwrap()
+    };
+    let startticks = stat();
+    let path = PathBuf::from(format!("/proc/{pid}/exe"));
+    let mut file = fs::File::open(&path).unwrap();
+    let metadata = file.metadata().unwrap();
+    let mut bytes = Vec::new();
+    file.read_to_end(&mut bytes).unwrap();
+    let digest = format!("{:x}", Sha256::digest(&bytes));
+    assert_eq!(
+        digest, expected,
+        "actual product executable differs from frozen input"
+    );
+    let after = fs::metadata(&path).unwrap();
+    assert_eq!((metadata.dev(), metadata.ino()), (after.dev(), after.ino()));
+    assert_eq!(
+        startticks,
+        stat(),
+        "product identity changed during observation"
+    );
+    json!({"pid":pid,"startticks":startticks,"executed_sha256":digest,
+        "device":metadata.dev(),"inode":metadata.ino(),
+        "executed_path":fs::read_link(&path).unwrap(),
+        "boot_id":fs::read_to_string("/proc/sys/kernel/random/boot_id").unwrap().trim()})
+}
+
+fn record_identity(process: &Process, stage: &str) {
+    let actual = observation(
+        process.0.id(),
+        process.1["executed_sha256"].as_str().unwrap(),
+    );
+    assert_eq!(
+        actual, process.1,
+        "product identity changed before/after readiness"
+    );
+    private(
+        &process.2,
+        &format!("{}.identity.{stage}.json", process.3),
+        &serde_json::to_vec(&json!({"format":"lmm-commerce-process-identity-v1",
+            "stage":stage,"identity":actual}))
+        .unwrap(),
+    );
+}
 impl Drop for Process {
     fn drop(&mut self) {
         let _ = self.0.kill();
@@ -46,7 +123,12 @@ fn private(root: &Path, name: &str, bytes: &[u8]) -> PathBuf {
     path
 }
 
-fn spawn(binary: &Path, config: &Path, root: &Path, log: &str) -> Process {
+fn spawn(binary: &Path, expected: &str, config: &Path, root: &Path, log: &str) -> Process {
+    assert_eq!(
+        format!("{:x}", Sha256::digest(fs::read(binary).unwrap())),
+        expected,
+        "product binary changed before spawn"
+    );
     let output = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -65,7 +147,16 @@ fn spawn(binary: &Path, config: &Path, root: &Path, log: &str) -> Process {
         .stdin(Stdio::null())
         .stdout(output.try_clone().unwrap())
         .stderr(output);
-    Process(command.spawn().expect("product process must start"))
+    // Install the kill/wait guard before any fallible /proc observation.
+    let mut process = Process(
+        command.spawn().expect("product process must start"),
+        Value::Null,
+        root.to_owned(),
+        log.to_owned(),
+    );
+    process.1 = observation(process.0.id(), expected);
+    record_identity(&process, "spawn");
+    process
 }
 
 fn address() -> std::net::SocketAddr {
@@ -76,6 +167,7 @@ fn address() -> std::net::SocketAddr {
 }
 
 async fn ready(client: &Client, endpoint: &str, process: &mut Process) -> Value {
+    record_identity(process, "before-ready");
     let deadline = Instant::now() + Duration::from_secs(15);
     loop {
         assert!(
@@ -85,7 +177,13 @@ async fn ready(client: &Client, endpoint: &str, process: &mut Process) -> Value 
         if let Ok(response) = client.get(format!("{endpoint}/health/ready")).send().await
             && response.status() == StatusCode::OK
         {
-            return response.json().await.unwrap();
+            let body = response.json().await.unwrap();
+            record_identity(process, "ready");
+            assert!(
+                process.0.try_wait().unwrap().is_none(),
+                "product exited at readiness"
+            );
+            return body;
         }
         assert!(Instant::now() < deadline, "product readiness timed out");
         tokio::time::sleep(Duration::from_millis(25)).await;
@@ -139,13 +237,24 @@ async fn balanced(pool: &PgPool) {
     assert_eq!(n, 0, "all real ledger journals must balance");
 }
 
+// @mark commerce.money-flow role=test
 #[sqlx::test(migrations = false)]
 async fn real_core_and_go_store_replay_refund_and_restart_after_lost_ack(pool: PgPool) {
     let extension = PathBuf::from(
         std::env::var_os("LMM_RELAY_EXTENSION_BIN")
             .expect("build lmm-extensions and set LMM_RELAY_EXTENSION_BIN; no silent skip"),
     );
-    assert!(extension.is_absolute() && extension.is_file());
+    let extension_sha = binary_sha(&extension, "LMM_RELAY_EXTENSION_SHA256", false);
+    let external_core = std::env::var_os("LMM_COMMERCE_CORE_BIN");
+    let core_path = external_core
+        .as_ref()
+        .map(PathBuf::from)
+        .unwrap_or_else(|| PathBuf::from(env!("CARGO_BIN_EXE_lmm-core")));
+    let core_sha = binary_sha(
+        &core_path,
+        "LMM_COMMERCE_CORE_SHA256",
+        external_core.is_some(),
+    );
     let root = std::env::temp_dir().join(format!(
         "lmm-commerce-process-{}-{:016x}",
         std::process::id(),
@@ -287,13 +396,13 @@ async fn real_core_and_go_store_replay_refund_and_restart_after_lost_ack(pool: P
         .unwrap();
     let core_endpoint = format!("http://{core_address}");
     let endpoint = format!("http://{extension_address}");
-    let core_binary = Path::new(env!("CARGO_BIN_EXE_lmm-core"));
-    let mut core = spawn(core_binary, &core_config, &root, "core.log");
+    let core_binary = core_path.as_path();
+    let mut core = spawn(core_binary, &core_sha, &core_config, &root, "core.log");
     assert_eq!(
         ready(&client, &core_endpoint, &mut core).await["capabilities"]["commerce"],
         true
     );
-    let mut go = spawn(&extension, &go_config, &root, "go.log");
+    let mut go = spawn(&extension, &extension_sha, &go_config, &root, "go.log");
     ready(&client, &endpoint, &mut go).await;
 
     let shop = success(&client, &endpoint, host, &seller, "/catalog", json!({"action":"create_shop","owner":{"kind":"personal","id":9},"title":"Synthetic shop","key":"shop"})).await;
@@ -497,9 +606,21 @@ async fn real_core_and_go_store_replay_refund_and_restart_after_lost_ack(pool: P
     identity.logout(&seller).await.unwrap();
     sqlx::raw_sql("DROP TRIGGER reject_refund_ack ON lmm_store.money_operations; DROP FUNCTION lmm_store.reject_refund_ack()")
         .execute(&store_owner).await.unwrap();
-    core = spawn(core_binary, &core_config, &root, "core-restart.log");
+    core = spawn(
+        core_binary,
+        &core_sha,
+        &core_config,
+        &root,
+        "core-restart.log",
+    );
     ready(&client, &core_endpoint, &mut core).await;
-    go = spawn(&extension, &go_config, &root, "go-restart.log");
+    go = spawn(
+        &extension,
+        &extension_sha,
+        &go_config,
+        &root,
+        "go-restart.log",
+    );
     ready(&client, &endpoint, &mut go).await;
     // The production worker must use read-only service reconciliation, not a
     // stored user bearer or permission to issue another refund after logout.

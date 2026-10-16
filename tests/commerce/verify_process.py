@@ -5,129 +5,320 @@ No production URL, existing database or image pull is accepted. Invoke through
 agcc with roots for this repository's outputs and Cargo/Go caches. Private logs,
 synthetic credentials and receipts stay in .local-tests, never in Git.
 """
+
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
 import os
+import signal
+import shutil
 from pathlib import Path
 import subprocess
 import sys
 import time
 
 REPO = Path(__file__).resolve().parents[2]
-sys.path.insert(0, str(REPO / 'tests/architecture_completion'))
+sys.path.insert(0, str(REPO / "tests/architecture_completion"))
 from build_lease import private_directory
 from pg_fixture import Fixture, FixtureError, clean_environment, write_private
 
 
 def digest(path: Path) -> str:
-    with path.open('rb') as stream:
-        value = hashlib.file_digest(stream, 'sha256')
+    with path.open("rb") as stream:
+        value = hashlib.file_digest(stream, "sha256")
     return value.hexdigest()
 
 
 def sources() -> dict:
-    roots = [REPO / 'services/core/src', REPO / 'services/core/tests',
-             REPO / 'services/core/schema', REPO / 'contracts/proto',
-             REPO / 'services/extensions/internal', REPO / 'services/extensions/cmd',
-             REPO / 'tests/commerce', REPO / 'tests/architecture_completion']
-    files = [root / name for root, names in [
-        (REPO / 'services/core', ['Cargo.toml', 'Cargo.lock', 'build.rs']),
-        (REPO / 'services/extensions', ['go.mod', 'go.sum']),
-        (REPO, ['mise.toml', 'rust-toolchain.toml']),
-    ] for name in names]
+    roots = [
+        REPO / "services/core/src",
+        REPO / "services/core/tests",
+        REPO / "services/core/schema",
+        REPO / "contracts/proto",
+        REPO / "services/extensions/internal",
+        REPO / "services/extensions/cmd",
+        REPO / "tests/commerce",
+        REPO / "tests/architecture_completion",
+    ]
+    files = [
+        root / name
+        for root, names in [
+            (REPO / "services/core", ["Cargo.toml", "Cargo.lock", "build.rs"]),
+            (REPO / "services/extensions", ["go.mod", "go.sum"]),
+            (REPO, ["mise.toml", "rust-toolchain.toml"]),
+        ]
+        for name in names
+    ]
     for root in roots:
-        files.extend(path for path in root.rglob('*')
-                     if path.is_file() and not path.is_symlink()
-                     and '__pycache__' not in path.parts)
-    return {str(path.relative_to(REPO)): digest(path) for path in sorted(files)
-            if path.is_file()}
+        files.extend(
+            path
+            for path in root.rglob("*")
+            if path.is_file()
+            and not path.is_symlink()
+            and "__pycache__" not in path.parts
+        )
+    return {
+        str(path.relative_to(REPO)): digest(path)
+        for path in sorted(files)
+        if path.is_file()
+    }
+
+
+def group_exists(pgid: int) -> bool:
+    try:
+        os.killpg(pgid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+
+
+def stop_group(process: subprocess.Popen) -> None:
+    # start_new_session gives this invocation its own group, including products.
+    for sig in (signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(process.pid, sig)
+        except ProcessLookupError:
+            pass
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            process.poll()  # reap the direct child before checking the group
+            if not group_exists(process.pid):
+                process.wait(timeout=1)
+                return
+            time.sleep(0.025)
+    raise FixtureError("owned command group cleanup unconfirmed; inspect private logs")
 
 
 def run(command: list[str], cwd: Path, env: dict, output: Path, timeout: int) -> None:
     # Logs can contain driver errors; never forward them to a remote service.
-    with output.open('xb') as log:
+    with output.open("xb") as log:
         os.chmod(output, 0o600)
-        result = subprocess.run(command, cwd=cwd, env=env, stdout=log,
-                                stderr=subprocess.STDOUT, timeout=timeout)
-    if result.returncode:
-        raise FixtureError(f'local check failed ({result.returncode}); inspect {output}')
+        process = subprocess.Popen(
+            command,
+            cwd=cwd,
+            env=env,
+            stdout=log,
+            stderr=subprocess.STDOUT,
+            start_new_session=True,
+        )
+        status = {"pid": process.pid, "pgid": process.pid, "result": "incomplete"}
+        try:
+            code = process.wait(timeout=timeout)
+            if group_exists(process.pid):
+                raise FixtureError("command exited but left live descendants")
+            status.update(exit_code=code, result="passed" if code == 0 else "failed")
+            if code:
+                raise FixtureError(f"local check failed ({code}); inspect {output}")
+        except BaseException as error:
+            status.update(result="failed", error_type=type(error).__name__)
+            stop_group(process)
+            raise
+        finally:
+            status["process_group_removed"] = not group_exists(process.pid)
+            write_private(
+                output.with_suffix(output.suffix + ".result.json"),
+                json.dumps(status, sort_keys=True) + "\n",
+            )
+
+
+def interrupted(signum, frame):
+    raise KeyboardInterrupt("local acceptance interrupted")
 
 
 def main() -> int:
+    signal.signal(signal.SIGTERM, interrupted)
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--output-root', type=Path, required=True,
-                        help='absolute bounded directory under this repo/.local-tests')
-    parser.add_argument('--process-root', type=Path, required=True,
-                        help='short absolute private directory for Unix sockets and process logs')
-    parser.add_argument('--rust-toolchain',
-                        help='explicit local fallback only; absent uses the repository pin')
+    parser.add_argument(
+        "--output-root",
+        type=Path,
+        required=True,
+        help="absolute bounded directory under this repo/.local-tests",
+    )
+    parser.add_argument(
+        "--process-root",
+        type=Path,
+        required=True,
+        help="short absolute private directory for Unix sockets and process logs",
+    )
+    parser.add_argument(
+        "--rust-toolchain",
+        help="explicit local fallback only; absent uses the repository pin",
+    )
+    parser.add_argument(
+        "--core-binary",
+        type=Path,
+        help="sealed local Core executable, paired with --core-sha256",
+    )
+    parser.add_argument("--core-sha256", help="expected SHA256 of --core-binary")
+    parser.add_argument(
+        "--test-binary",
+        type=Path,
+        help="previously compiled commerce_process test, paired with --test-sha256",
+    )
+    parser.add_argument("--test-sha256", help="expected SHA256 of --test-binary")
+    parser.add_argument(
+        "--extension-binary",
+        type=Path,
+        help="sealed Go executable, paired with --extension-sha256",
+    )
+    parser.add_argument(
+        "--extension-sha256", help="expected SHA256 of --extension-binary"
+    )
     args = parser.parse_args()
+    if bool(args.core_binary) != bool(args.core_sha256):
+        parser.error("--core-binary and --core-sha256 must be supplied together")
+    if args.core_binary and (
+        not args.core_binary.is_absolute()
+        or not args.core_binary.is_file()
+        or digest(args.core_binary) != args.core_sha256
+    ):
+        parser.error("Core executable does not match the declared frozen input")
+    if bool(args.test_binary) != bool(args.test_sha256):
+        parser.error("--test-binary and --test-sha256 must be supplied together")
+    if args.test_binary and (
+        not args.test_binary.is_absolute()
+        or not args.test_binary.is_file()
+        or digest(args.test_binary) != args.test_sha256
+    ):
+        parser.error("test executable does not match the declared frozen input")
+    if bool(args.extension_binary) != bool(args.extension_sha256):
+        parser.error(
+            "--extension-binary and --extension-sha256 must be supplied together"
+        )
+    if args.extension_binary and (
+        not args.extension_binary.is_absolute()
+        or not args.extension_binary.is_file()
+        or digest(args.extension_binary) != args.extension_sha256
+    ):
+        parser.error("Go executable does not match the declared frozen input")
     if not args.output_root.is_absolute():
-        parser.error('output root must be absolute')
+        parser.error("output root must be absolute")
     output = args.output_root.resolve()
-    if not output.is_relative_to(REPO / '.local-tests'):
-        parser.error('output must be inside this repo/.local-tests')
+    if not output.is_relative_to(REPO / ".local-tests"):
+        parser.error("output must be inside this repo/.local-tests")
     private_directory(output)
     process_root = args.process_root
     private_directory(process_root)
     if len(os.fsencode(process_root)) > 35:
-        parser.error('process root must be short enough for the Unix socket limit')
+        parser.error("process root must be short enough for the Unix socket limit")
     env = clean_environment()
     # Avoid inherited product settings and unrelated test endpoints/credentials.
-    env = {key: value for key, value in env.items()
-           if not key.startswith(('LMM_', 'SQLX_', 'RUSTUP_TOOLCHAIN'))}
+    env = {
+        key: value
+        for key, value in env.items()
+        if not key.startswith(("LMM_", "SQLX_", "RUSTUP_TOOLCHAIN"))
+    }
     if args.rust_toolchain:
-        env['RUSTUP_TOOLCHAIN'] = args.rust_toolchain
+        env["RUSTUP_TOOLCHAIN"] = args.rust_toolchain
     before = sources()
     fixture = Fixture(output)
     try:
-        binary = fixture.root / 'lmm-extensions'
-        # `mise exec` may auto-install unrelated configured tools. Resolve the
-        # existing pinned Go tool only; a missing installation is a blocker.
-        go_home = subprocess.check_output(['mise', 'where', 'go'], cwd=REPO,
-                                          env=env, text=True).strip()
-        go = Path(go_home) / 'bin/go'
-        if not go.is_absolute() or not go.is_file():
-            raise FixtureError('repository-pinned Go installation is unavailable')
-        run([str(go), 'build', '-o', str(binary), './cmd/extensions'],
-            REPO / 'services/extensions', env, fixture.root / 'go-build.log', 300)
+        binary = fixture.root / "lmm-extensions"
+        if args.extension_binary:
+            shutil.copyfile(args.extension_binary, binary)
+            binary.chmod(0o500)
+            if digest(binary) != args.extension_sha256:
+                raise FixtureError("sealed Go copy differs from frozen input")
+        else:
+            # `mise exec` may auto-install unrelated configured tools. Resolve the
+            # existing pinned Go tool only; a missing installation is a blocker.
+            go_home = subprocess.check_output(
+                ["mise", "where", "go"], cwd=REPO, env=env, text=True
+            ).strip()
+            go = Path(go_home) / "bin/go"
+            if not go.is_absolute() or not go.is_file():
+                raise FixtureError("repository-pinned Go installation is unavailable")
+            run(
+                [str(go), "build", "-o", str(binary), "./cmd/extensions"],
+                REPO / "services/extensions",
+                env,
+                fixture.root / "go-build.log",
+                300,
+            )
         fixture.start()
         # Only this freshly created, identity-checked loopback cluster is passed
         # to SQLx. No externally supplied DATABASE_URL is ever consumed.
-        config = dict(line.split('=', 1) for line in
-                      (fixture.root / 'postgres.env').read_text().splitlines())
-        env['DATABASE_URL'] = (f'postgresql://a09_admin:{config["POSTGRES_PASSWORD"]}'
-                               f'@127.0.0.1:{fixture.binding["port"]}/postgres')
-        env['LMM_RELAY_EXTENSION_BIN'] = str(binary)
-        env['TMPDIR'] = str(process_root)
-        env['CARGO_BUILD_JOBS'] = '2'
+        config = dict(
+            line.split("=", 1)
+            for line in (fixture.root / "postgres.env").read_text().splitlines()
+        )
+        env["DATABASE_URL"] = (
+            f"postgresql://a09_admin:{config['POSTGRES_PASSWORD']}"
+            f"@127.0.0.1:{fixture.binding['port']}/postgres"
+        )
+        env["LMM_RELAY_EXTENSION_BIN"] = str(binary)
+        extension_sha256 = digest(binary)
+        env["LMM_RELAY_EXTENSION_SHA256"] = extension_sha256
+        if args.core_binary:
+            env["LMM_COMMERCE_CORE_BIN"] = str(args.core_binary)
+            env["LMM_COMMERCE_CORE_SHA256"] = args.core_sha256
+        env["TMPDIR"] = str(process_root)
+        env["CARGO_BUILD_JOBS"] = "2"
         started = time.monotonic()
-        run(['cargo', 'test', '--locked', '--test', 'commerce_process', '--',
-             '--nocapture', '--test-threads=1'], REPO / 'services/core', env,
-            fixture.root / 'commerce-test.log', 900)
+        command = (
+            [str(args.test_binary)]
+            if args.test_binary
+            else ["cargo", "test", "--locked", "--test", "commerce_process", "--"]
+        )
+        run(
+            [
+                *command,
+                "real_core_and_go_store_replay_refund_and_restart_after_lost_ack",
+                "--exact",
+                "--nocapture",
+                "--test-threads=1",
+            ],
+            REPO / "services/core",
+            env,
+            fixture.root / "commerce-test.log",
+            900,
+        )
+        if (
+            "test result: ok. 1 passed; 0 failed; 0 ignored;"
+            not in (fixture.root / "commerce-test.log").read_text()
+        ):
+            raise FixtureError("expected real commerce case did not pass exactly once")
+        if args.test_binary and digest(args.test_binary) != args.test_sha256:
+            raise FixtureError("frozen test executable changed during acceptance")
+        if args.core_binary and digest(args.core_binary) != args.core_sha256:
+            raise FixtureError("frozen Core executable changed during acceptance")
+        if digest(binary) != extension_sha256:
+            raise FixtureError("frozen Go executable changed during acceptance")
         if sources() != before:
-            raise FixtureError('tested sources changed during acceptance; result not frozen')
+            raise FixtureError(
+                "tested sources changed during acceptance; result not frozen"
+            )
         fixture.cleanup()
         receipt = {
-            'format': 'lmm-commerce-process-acceptance-v1', 'result': 'PASS',
-            'source_sha256': before, 'extension_sha256': digest(binary),
-            'rust_toolchain_override': args.rust_toolchain,
-            'process_evidence_root': str(process_root),
-            'seconds': round(time.monotonic() - started, 2),
-            'cluster_removed': True, 'scope': 'synthetic credits; local product processes only',
+            "format": "lmm-commerce-process-acceptance-v1",
+            "result": "PASS",
+            "source_sha256": before,
+            "extension_sha256": extension_sha256,
+            "rust_toolchain_override": args.rust_toolchain,
+            "external_extension_sha256": args.extension_sha256,
+            "external_test_sha256": args.test_sha256,
+            "external_core_sha256": args.core_sha256,
+            "external_core_binary": str(args.core_binary) if args.core_binary else None,
+            "process_evidence_root": str(process_root),
+            "seconds": round(time.monotonic() - started, 2),
+            "cluster_removed": True,
+            "scope": "synthetic credits; local product processes only",
         }
-        write_private(fixture.root / 'acceptance.json', json.dumps(receipt, sort_keys=True) + '\n')
-        print(f'PASS: real Store/Commerce processes; receipt {fixture.root / "acceptance.json"}')
+        write_private(
+            fixture.root / "acceptance.json", json.dumps(receipt, sort_keys=True) + "\n"
+        )
+        print(
+            f"PASS: real Store/Commerce processes; receipt {fixture.root / 'acceptance.json'}"
+        )
         return 0
     except (FixtureError, OSError, subprocess.SubprocessError) as error:
         # No optimistic cleanup/retry after an uncertain or failed check. The
         # fixture's immutable identity and local private logs remain inspectable.
-        print(f'FAIL: {error}; retained local evidence {fixture.root}', file=sys.stderr)
+        print(f"FAIL: {error}; retained local evidence {fixture.root}", file=sys.stderr)
         return 1
 
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     raise SystemExit(main())
