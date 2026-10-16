@@ -22,6 +22,8 @@ use std::{
     time::{Duration, Instant},
 };
 
+#[path = "../../../tests/commerce/mixed_cases.rs"]
+mod mixed_cases;
 #[path = "common/commerce_resources.rs"]
 mod resources;
 #[path = "common/runtime.rs"]
@@ -238,8 +240,7 @@ async fn success(
 
 async fn balanced(pool: &PgPool) {
     let n: i64 = sqlx::query_scalar(
-        "SELECT count(*) FROM (SELECT journal_id FROM core_billing.ledger_entries \
-         GROUP BY journal_id HAVING sum(delta_units)<>0) unbalanced",
+        "SELECT count(*) FROM (SELECT j.id FROM core_billing.ledger_journals j LEFT JOIN core_billing.ledger_entries e ON e.journal_id=j.id GROUP BY j.id HAVING count(e.journal_id)<2 OR sum(e.delta_units)<>0) unbalanced",
     )
     .fetch_one(pool)
     .await
@@ -272,9 +273,13 @@ async fn real_core_and_go_store_replay_refund_and_restart_after_lost_ack(pool: P
     ));
     fs::create_dir(&root).unwrap();
     fs::set_permissions(&root, fs::Permissions::from_mode(0o700)).unwrap();
-    core_schema::init(&pool).await.unwrap();
+    let mut mixed = mixed_cases::prepare(&pool).await;
+    if mixed.is_none() {
+        core_schema::init(&pool).await.unwrap();
+    }
+    let buyer_id = if mixed.is_some() { 17 } else { 7 };
     let identity = IdentityStore::from_pool(pool.clone());
-    let buyer = identity.bootstrap_user(7, 1).await.unwrap().secret;
+    let buyer = identity.bootstrap_user(buyer_id, 1).await.unwrap().secret;
     let seller = identity.bootstrap_user(9, 1).await.unwrap().secret;
     let outsider = identity.bootstrap_user(11, 6).await.unwrap().secret;
     let buyer_account = identity.authorize(&buyer).await.unwrap().owner_account_id;
@@ -287,7 +292,7 @@ async fn real_core_and_go_store_replay_refund_and_restart_after_lost_ack(pool: P
             .execute(&LedgerRequest {
                 scope: "commerce-process-test".into(),
                 operation_key: "synthetic-opening".into(),
-                actor_user_id: Some(7),
+                actor_user_id: Some(buyer_id),
                 reason: "Synthetic credits in an owned disposable PostgreSQL cluster".into(),
                 action: Action::Credit {
                     account_id: buyer_account,
@@ -312,6 +317,9 @@ async fn real_core_and_go_store_replay_refund_and_restart_after_lost_ack(pool: P
     .await
     .unwrap();
     let role = runtime::RuntimeRole::create(&pool).await;
+    if mixed.is_some() {
+        role.optional("core_model").await;
+    }
     for schema in ["core_charging", "core_events", "core_commerce"] {
         role.optional(schema).await;
     }
@@ -391,8 +399,28 @@ async fn real_core_and_go_store_replay_refund_and_restart_after_lost_ack(pool: P
     let socket = root.join("core.sock");
     let core_address = address();
     let extension_address = address();
+    let model_config = mixed.as_ref().map(|mixed| mixed.config(&root));
+    let model_settings = model_config
+        .as_ref()
+        .map(|path| {
+            format!(
+                "[model]\nconfig_file='{}'\nlocal_http=true\n",
+                path.display()
+            )
+        })
+        .unwrap_or_default();
+    let server_settings = if mixed.is_some() {
+        "worker_threads=2\nmax_inflight=16\ndrain_timeout_seconds=3\n"
+    } else {
+        ""
+    };
+    let database_settings = if mixed.is_some() {
+        "max_connections=2\n"
+    } else {
+        ""
+    };
     let core_config = private(&root, "core.toml", format!(
-        "version=1\n[server]\nlisten='{core_address}'\n[database]\nurl_file='{}'\n[rpc]\nsocket='{}'\ntoken_file='{}'\n[commerce]\nconfig_file='{}'\ntoken_file='{}'\n",
+        "version=1\n[server]\nlisten='{core_address}'\n{server_settings}[database]\nurl_file='{}'\n{database_settings}[rpc]\nsocket='{}'\ntoken_file='{}'\n[commerce]\nconfig_file='{}'\ntoken_file='{}'\n{model_settings}",
         core_url.display(), socket.display(), control.display(), permissions.display(), money.display()
     ).as_bytes());
     let go_config = private(&root, "go.toml", format!(
@@ -407,6 +435,7 @@ async fn real_core_and_go_store_replay_refund_and_restart_after_lost_ack(pool: P
     let core_endpoint = format!("http://{core_address}");
     let endpoint = format!("http://{extension_address}");
     let core_binary = core_path.as_path();
+    role.pool.close().await;
     let mut core = spawn(core_binary, &core_sha, &core_config, &root, "core.log");
     assert_eq!(
         ready(&client, &core_endpoint, &mut core).await["capabilities"]["commerce"],
@@ -420,7 +449,47 @@ async fn real_core_and_go_store_replay_refund_and_restart_after_lost_ack(pool: P
     let product = success(&client, &endpoint, host, &seller, "/catalog", json!({"action":"create_product","shop_id":shop_id,"title":"Synthetic item","key":"product"})).await;
     success(&client, &endpoint, host, &seller, "/catalog", json!({"action":"product_status","shop_id":shop_id,"id":product["id"],"published":true,"key":"publish"})).await;
     let variant = success(&client, &endpoint, host, &seller, "/catalog", json!({"action":"create_variant","shop_id":shop_id,"product_id":product["id"],"title":"Synthetic USD variant","price":{"amount_minor":1,"currency":"USD"},"quota":10,"key":"variant"})).await;
-    let purchase = json!({"shop_id":shop_id,"variant_id":variant["id"],"buyer":{"kind":"personal","id":7},"quantity":1,"key":"purchase"});
+    if let Some(mixed) = mixed.as_mut() {
+        let health: Value = client
+            .get(format!("{core_endpoint}/health/ready"))
+            .send()
+            .await
+            .unwrap()
+            .json()
+            .await
+            .unwrap();
+        assert_eq!(health["capabilities"]["models"], true);
+        assert_eq!(health["capabilities"]["models_streaming"], true);
+        let load_variant=success(&client,&endpoint,host,&seller,"/catalog",json!({"action":"create_variant","shop_id":shop_id,"product_id":product["id"],"title":"Joint load USD variant","price":{"amount_minor":1,"currency":"USD"},"quota":1000000,"key":"joint-variant"})).await;
+        let store = mixed_cases::Store {
+            client: client.clone(),
+            endpoint: endpoint.clone(),
+            host: host.into(),
+            buyer: buyer.clone(),
+            buyer_id,
+            buyer_account,
+            seller: seller.clone(),
+            seller_account,
+            outsider: outsider.clone(),
+            shop: shop_id.into(),
+            variant: load_variant["id"].as_str().unwrap().into(),
+            pool: pool.clone(),
+            owner: store_owner.clone(),
+            core_pid: core.0.id(),
+            go_pid: go.0.id(),
+            core_role: role.name.clone(),
+            store_role: store_role.clone(),
+        };
+        mixed.run(&store, &core_endpoint, &root).await;
+        record_identity(&core, "after-mixed");
+        record_identity(&go, "after-mixed");
+    }
+    let commerce_baseline: i64 =
+        sqlx::query_scalar("SELECT count(*) FROM core_commerce.operations")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let purchase = json!({"shop_id":shop_id,"variant_id":variant["id"],"buyer":{"kind":"personal","id":buyer_id},"quantity":1,"key":"purchase"});
     let order = success(
         &client,
         &endpoint,
@@ -568,7 +637,7 @@ async fn real_core_and_go_store_replay_refund_and_restart_after_lost_ack(pool: P
         .fetch_one(&pool)
         .await
         .unwrap();
-    assert_eq!(receipts, 3);
+    assert_eq!(receipts, commerce_baseline + 3);
     // A live, authorized caller may retry after losing an acknowledgement too.
     // This is distinct from the later revoked-credential denial.
     assert_eq!(
@@ -684,6 +753,9 @@ async fn real_core_and_go_store_replay_refund_and_restart_after_lost_ack(pool: P
         .0,
         StatusCode::UNAUTHORIZED
     );
+    if let Some(mixed) = mixed.as_ref() {
+        mixed.after_restart(&pool, &root, &core_endpoint).await;
+    }
     balanced(&pool).await;
     drop(go);
     drop(core);

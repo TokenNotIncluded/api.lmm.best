@@ -411,9 +411,13 @@ class Group:
 
         sample = {
             "monotonic": time.monotonic(),
+            "unix_ns": time.time_ns(),
             "parent": metrics(self.group),
             "children": [],
         }
+        sample["host_stat"] = Path("/proc/stat").read_text()
+        sample["host_meminfo"] = Path("/proc/meminfo").read_text()
+        sample["observer_status"] = Path("/proc/self/status").read_text()
         for path in sorted(self.root.glob("scope-*-allocation.json")):
             lease = json.loads(path.read_text())
             child = self.group / lease["unit"]
@@ -431,12 +435,20 @@ class Group:
                 values = dict(line.split(":", 1) for line in status if ":" in line)
                 if "VmRSS" in values:
                     item["rss_kib"] = int(values["VmRSS"].split()[0])
+                    item["fd_count"] = len(list(Path(f"/proc/{pid}/fd").iterdir()))
+                    item["pss_kib"] = next(
+                        int(line.split()[1])
+                        for line in Path(f"/proc/{pid}/smaps_rollup")
+                        .read_text()
+                        .splitlines()
+                        if line.startswith("Pss:")
+                    )
                     item["state"] = "observed"
                 elif values.get("State", "").strip().startswith(("Z", "X")):
                     item["state"] = "exited-during-sample"
                 else:
                     raise ResourceError("live product RSS missing from observation")
-            except FileNotFoundError:
+            except (FileNotFoundError, ProcessLookupError):
                 item["state"] = "disappeared-during-or-before-sample"
             sample["children"].append(item)
         return sample

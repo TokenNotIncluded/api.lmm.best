@@ -42,6 +42,7 @@ def sources() -> dict:
         REPO / "services/extensions/internal",
         REPO / "services/extensions/cmd",
         REPO / "tests/commerce",
+        REPO / "tests/model_process",
         REPO / "tests/architecture_completion",
     ]
     files = [
@@ -173,7 +174,14 @@ def main() -> int:
         action="store_true",
         help="run the two real products under a shared 1CPU/512MiB parent",
     )
+    parser.add_argument(
+        "--mixed-load",
+        action="store_true",
+        help="run frozen 540s model and complete commerce traffic together",
+    )
     args = parser.parse_args()
+    if args.mixed_load and not args.shared_resources:
+        parser.error("--mixed-load requires --shared-resources")
     if args.shared_resources and not (
         args.core_binary and args.test_binary and args.extension_binary
     ):
@@ -267,6 +275,8 @@ def main() -> int:
         if args.core_binary:
             env["LMM_COMMERCE_CORE_BIN"] = str(args.core_binary)
             env["LMM_COMMERCE_CORE_SHA256"] = args.core_sha256
+        if args.mixed_load:
+            env["LMM_COMMERCE_MIXED"] = "1"
         env["TMPDIR"] = str(process_root)
         env["CARGO_BUILD_JOBS"] = "2"
         started = time.monotonic()
@@ -379,6 +389,25 @@ def main() -> int:
             raise FixtureError(
                 "tested sources changed during acceptance; result not frozen"
             )
+        if args.mixed_load:
+            results = list(
+                process_root.glob("lmm-commerce-process-*/mixed-result.json")
+            )
+            if (
+                len(results) != 1
+                or json.loads(results[0].read_text()).get("result") != "PASS"
+            ):
+                raise FixtureError(
+                    "frozen mixed load did not produce its own final result"
+                )
+            observed = json.loads((resource_root / "samples.json").read_text())
+            times = [sample["monotonic"] for sample in observed["samples"]]
+            if (
+                len(times) < 2
+                or times[-1] - times[0] < 540
+                or max(b - a for a, b in zip(times, times[1:])) > 2.5
+            ):
+                raise FixtureError("mixed sampling missed full frozen interval")
         fixture.cleanup()
         receipt = {
             "format": "lmm-commerce-process-acceptance-v1",
@@ -393,6 +422,8 @@ def main() -> int:
             "process_evidence_root": str(process_root),
             "seconds": round(time.monotonic() - started, 2),
             "cluster_removed": True,
+            "mixed_load": args.mixed_load,
+            "mixed_result": str(results[0]) if args.mixed_load else None,
             "shared_resources": args.shared_resources,
             "shared_resource_receipt": str(resource_root / "group-closed.json")
             if resources
