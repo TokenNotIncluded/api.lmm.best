@@ -140,6 +140,16 @@ jobs:
           LMM_MODEL_PROCESS_CORE_SHA256="$(sha256sum "$LMM_MODEL_PROCESS_CORE_BIN" | cut -d ' ' -f1)"
           LMM_MODEL_PROCESS_ROOT="$(mktemp -d /tmp/lmm-model-XXXXXXXX)"
           export LMM_MODEL_PROCESS_CORE_BIN LMM_MODEL_PROCESS_CORE_SHA256 LMM_MODEL_PROCESS_ROOT
+          # The non-ignored payment recovery case requires sealed Core, Go host
+          # and bootstrap binaries. The 302-second case stays ignored.
+          CGO_ENABLED=0 go test -C ../extensions -mod=readonly -c -o "$RUNNER_TEMP/lmm-payment-bootstrap" ./internal/modules/payments
+          LMM_PAYMENT_CORE_BIN="$LMM_MODEL_PROCESS_CORE_BIN"
+          LMM_PAYMENT_CORE_SHA256="$LMM_MODEL_PROCESS_CORE_SHA256"
+          LMM_PAYMENT_GO_BIN="$(realpath "$LMM_RELAY_EXTENSION_BIN")"
+          LMM_PAYMENT_GO_SHA256="$(sha256sum "$LMM_PAYMENT_GO_BIN" | cut -d ' ' -f1)"
+          LMM_PAYMENT_BOOTSTRAP_BIN="$(realpath "$RUNNER_TEMP/lmm-payment-bootstrap")"
+          LMM_PAYMENT_BOOTSTRAP_SHA256="$(sha256sum "$LMM_PAYMENT_BOOTSTRAP_BIN" | cut -d ' ' -f1)"
+          export LMM_PAYMENT_CORE_BIN LMM_PAYMENT_CORE_SHA256 LMM_PAYMENT_GO_BIN LMM_PAYMENT_GO_SHA256 LMM_PAYMENT_BOOTSTRAP_BIN LMM_PAYMENT_BOOTSTRAP_SHA256
           cargo test --locked --all-targets --no-fail-fast 2>&1 | tee "$RUNNER_TEMP/core-tests.log"
       - name: Go contract and race tests
         if: ${{ !cancelled() }}
