@@ -18,7 +18,7 @@ the build slot first.
   scripts/verify_model_process.py run --output-root ... --process-root ... \
     --prepared-sha256 <SHA printed by prepare>
 
-run uses no Cargo and accepts no database URL. It executes all six process cases
+run uses no Cargo and accepts no database URL. It executes all seven process cases
 and all model_http cases in one fresh, identity-checked local fixture. Failure
 keeps the cluster and private evidence; success fences and removes only that
 fixture. These are development checks until a separate acceptance owner reviews
@@ -55,6 +55,7 @@ PROCESS_TESTS = {
     'stream_cases::independent_process_missing_usage_preserves_hold_through_natural_expiry',
     'stream_cases::independent_process_sse_paid_and_partial_disconnect_stays_reserved',
     'stream_cases::independent_process_terminal_evidence_recovers_final_transaction_once',
+    'stream_cases::independent_process_settlement_retry_without_redispatch',
 }
 PRODUCT_TREES = ('services/core/src', 'services/core/schema', 'contracts/proto')
 PRODUCT_FILES = ('services/core/Cargo.toml', 'services/core/Cargo.lock',
@@ -369,7 +370,7 @@ def prepare(args) -> int:
     lists = {name: test_list(artifacts_dir / name, env, args.output_root / (name + '-list.log'))
              for name in ('model_process', 'model_http')}
     if set(lists['model_process']) != PROCESS_TESTS:
-        raise FixtureError('model_process must contain exactly the six reviewed cases')
+        raise FixtureError('model_process must contain exactly the seven reviewed cases')
     check_inputs(frozen)
     artifact_check(args.output_root, artifacts)
     reference_check(reference)

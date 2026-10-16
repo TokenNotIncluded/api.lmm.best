@@ -416,3 +416,166 @@ async fn independent_process_terminal_evidence_recovers_final_transaction_once(p
         }),
     );
 }
+
+// @mark model.settlement-retry role=test
+#[sqlx::test(migrations = false)]
+async fn independent_process_settlement_retry_without_redispatch(pool: PgPool) {
+    let seed = seed(&pool, 1000).await;
+    let provider = Provider::start(true).await;
+    let mut host = start_core(&pool, &provider, &[seed.key_id], "settlement-retry").await;
+    // Install only after the real runtime has validated its accepted schema.
+    // nextval deliberately survives rollback: this is deterministic injected
+    // SQLSTATE 40001, not proof of an actual PostgreSQL SSI conflict.
+    sqlx::raw_sql(&format!(
+        "CREATE SCHEMA independent_settlement_retry; \
+         REVOKE ALL ON SCHEMA independent_settlement_retry FROM PUBLIC; \
+         CREATE SEQUENCE independent_settlement_retry.attempts; \
+         REVOKE ALL ON SEQUENCE independent_settlement_retry.attempts FROM PUBLIC; \
+         CREATE FUNCTION independent_settlement_retry.reject_first_three() RETURNS trigger \
+         LANGUAGE plpgsql SECURITY DEFINER SET search_path=pg_catalog AS $$ \
+         DECLARE attempt bigint; BEGIN \
+         attempt := pg_catalog.nextval('independent_settlement_retry.attempts'::pg_catalog.regclass); \
+         IF attempt <= 3 THEN RAISE EXCEPTION USING ERRCODE='40001', \
+         MESSAGE='synthetic independent settlement retry'; END IF; RETURN NEW; END $$; \
+         REVOKE ALL ON FUNCTION independent_settlement_retry.reject_first_three() FROM PUBLIC; \
+         CREATE TRIGGER independent_settlement_retry BEFORE UPDATE OF state ON core_charging.requests \
+         FOR EACH ROW WHEN (OLD.state='streaming' AND NEW.state='settled' AND NEW.key_id={}) \
+         EXECUTE FUNCTION independent_settlement_retry.reject_first_three()",
+        seed.key_id
+    ))
+    .execute(&pool).await.unwrap();
+    let runtime = &host.role.as_ref().unwrap().name;
+    let privileges: (bool, bool, bool) = sqlx::query_as(
+        "SELECT has_schema_privilege($1,'independent_settlement_retry','USAGE'), \
+         has_sequence_privilege($1,'independent_settlement_retry.attempts','USAGE,SELECT,UPDATE'), \
+         has_function_privilege($1,'independent_settlement_retry.reject_first_three()','EXECUTE')",
+    )
+    .bind(runtime)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        privileges,
+        (false, false, false),
+        "runtime gained fixture authority"
+    );
+    let response = http(
+        &host,
+        Some(&seed.key),
+        "/v1/chat/completions",
+        "hello",
+        "independent-settlement-retry",
+        false,
+    )
+    .await;
+    let status = response.status();
+    let id = request_id(&response);
+    let body: Value = response.json().await.unwrap();
+    let attempts: i64 =
+        sqlx::query_scalar("SELECT last_value FROM independent_settlement_retry.attempts")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    let request: Value = sqlx::query_scalar(
+        "SELECT jsonb_build_object('id',id,'state',state,'reserved',reserved,'settled',settled, \
+         'payer',payer_account_id,'input',input_tokens,'cached',cached_tokens,'output',output_tokens) \
+         FROM core_charging.requests WHERE id=$1"
+    ).bind(&id).fetch_one(&pool).await.unwrap();
+    let holds: Vec<Value> = sqlx::query_scalar(
+        "SELECT jsonb_build_object('reserved',reserved,'captured',captured,'closed',closed, \
+         'reservation_journal',reservation_journal_id,'capture_journal',capture_journal_id) \
+         FROM core_charging.ledger_holds WHERE request_id=$1",
+    )
+    .bind(&id)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    let events: Vec<(String, Value)> = sqlx::query_as(
+        "SELECT event_id,detail FROM core_charging.usage_events WHERE request_id=$1 ORDER BY event_id"
+    ).bind(&id).fetch_all(&pool).await.unwrap();
+    let wallet = seed.ledger.balance(seed.account).await.unwrap();
+    let capture_count = captures(&pool).await;
+    let journal_count = journals(&pool).await;
+    let command_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core_charging.ledger_commands WHERE request_id=$1",
+    )
+    .bind(&id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let output_checkpoint_count: i64 = sqlx::query_scalar(
+        "SELECT count(*) FROM core_model.output_checkpoints WHERE request_id=$1",
+    )
+    .bind(&id)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    // Persist actual state before the desired-success assertion. The old three
+    // attempts must fail RED while retaining its committed provider-final usage,
+    // sole 140-credit reservation and no capture; never rewrite RED into PASS.
+    record(
+        "settlement-retry-observed",
+        &json!({
+            "desired_result":"PASS","expected_http_status":200,"actual_http_status":status.as_u16(),
+            "error_code":body["error"]["code"],"request_id":id,"attempts":attempts,
+            "fault":"private owner trigger injects SQLSTATE40001 on first three settle updates",
+            "actual_ssi_proven":false,"runtime_fixture_privileges":privileges,
+            "request":request,"holds":holds,"usage_events":events,
+            "available":wallet.available_units,"reserved":wallet.reserved_units,
+            "captures":capture_count,"journals":journal_count,"ledger_commands":command_count,
+            "output_checkpoints":output_checkpoint_count,"provider_dispatches":provider.hits.load(Ordering::SeqCst)
+        }),
+    );
+    assert_eq!(
+        status,
+        reqwest::StatusCode::OK,
+        "settlement must survive three rolled-back retries without redispatch"
+    );
+    assert_eq!(
+        attempts, 4,
+        "the fourth same-operation settlement must succeed"
+    );
+    paid(&pool, seed.account, &id).await; // Includes the exact 91-credit wallet surplus.
+    balance(&seed.ledger, seed.account, 951, 0).await;
+    assert_eq!(capture_count, 1);
+    assert_eq!(journal_count, 3); // Opening credit, reservation and capture only.
+    assert_eq!(command_count, 2); // Failed attempts left no durable settle commands.
+    assert_eq!(
+        output_checkpoint_count, 0,
+        "non-streaming output is not an SSE checkpoint"
+    );
+    assert_eq!(provider.hits.load(Ordering::SeqCst), 1);
+    provider_auth_is_private(&provider, 1);
+    let final_usage = events
+        .iter()
+        .filter(|(name, _)| name == "usage:provider-final")
+        .collect::<Vec<_>>();
+    assert_eq!(final_usage.len(), 1);
+    assert_eq!(
+        final_usage[0].1["usage"],
+        json!({"input":10,"cached":2,"output":20})
+    );
+    assert_eq!(events.iter().filter(|(name, _)| name == "final").count(), 1);
+    balanced(&pool).await;
+    // No client replay, second provider call or privileged manual reconciliation.
+    // On RED the Host Drop kills/reaps its child and the owned failed DB retains
+    // the sequence and trigger as evidence. Success removes only these objects.
+    host.stop().await;
+    sqlx::raw_sql(
+        "DROP TRIGGER independent_settlement_retry ON core_charging.requests; \
+         DROP FUNCTION independent_settlement_retry.reject_first_three(); \
+         DROP SEQUENCE independent_settlement_retry.attempts; \
+         DROP SCHEMA independent_settlement_retry",
+    )
+    .execute(&pool)
+    .await
+    .unwrap();
+    host.finish().await;
+    record(
+        "settlement-retry-result",
+        &json!({"result":"PASS","request_id":id,
+        "settlement_attempts":4,"injected_40001":3,"provider_dispatches":1,
+        "captured":49,"wallet_surplus":91,"available":951,"reserved":0,
+        "fixture_objects_removed":true,"scope":"synthetic rolled-back settlement retry; not actual SSI proof"}),
+    );
+}

@@ -38,16 +38,128 @@ where
     unreachable!()
 }
 
-/// Retry only an explicitly rolled-back reservation, preserving its ID/spec/worker.
-/// The monotonic window limits when another attempt may START; it does not
-/// interrupt an in-flight transaction or change the enclosing hook timeout.
-// @mark model.reservation-retry role=implementation
-async fn retry_reserve<T, F, Fut>(mut operation: F) -> charging::Result<T>
+#[derive(Clone, Copy, Debug)]
+struct RetryObservation {
+    attempt: u8,
+    duration: Duration,
+    error: Option<charging::Error>,
+    final_result: bool,
+}
+
+/// Observe the selected existing retry policy without broadening replayable errors.
+async fn retry_observed<T, F, Fut, O>(
+    deadline: Option<tokio::time::Instant>,
+    mut operation: F,
+    observe: O,
+) -> charging::Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = charging::Result<T>>,
+    O: Fn(RetryObservation),
+{
+    let mut attempts = 0u8;
+    let started = tokio::time::Instant::now();
+    let observed = || {
+        attempts += 1;
+        let attempt = attempts;
+        let operation = operation();
+        let observe = &observe;
+        async move {
+            let started = tokio::time::Instant::now();
+            let result = operation.await;
+            observe(RetryObservation {
+                attempt,
+                duration: started.elapsed(),
+                error: result.as_ref().err().copied(),
+                final_result: false,
+            });
+            result
+        }
+    };
+    let result = match deadline {
+        Some(deadline) => retry_bounded(deadline, observed).await,
+        None => retry(observed).await,
+    };
+    observe(RetryObservation {
+        attempt: attempts,
+        duration: started.elapsed(),
+        error: result.as_ref().err().copied(),
+        final_result: true,
+    });
+    result
+}
+
+#[derive(Clone, Copy)]
+enum FinalizeStage {
+    ProviderFinal,
+    Settle,
+}
+
+// @mark model.settlement-retry role=implementation
+async fn retry_finalize<T, F, Fut>(
+    deadline: tokio::time::Instant,
+    request_id: &str,
+    stage: FinalizeStage,
+    operation: F,
+) -> charging::Result<T>
 where
     F: FnMut() -> Fut,
     Fut: Future<Output = charging::Result<T>>,
 {
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+    // Never interpolate unchecked identifiers or database error descriptions.
+    let request_id =
+        if request_id.len() == 64 && request_id.bytes().all(|byte| byte.is_ascii_hexdigit()) {
+            request_id
+        } else {
+            "invalid_request_id"
+        };
+    let stage = match stage {
+        FinalizeStage::ProviderFinal => "provider-final",
+        FinalizeStage::Settle => "settle",
+    };
+    retry_observed(Some(deadline), operation, |observation| {
+        if observation.error.is_none()
+            && (!observation.final_result || observation.attempt == 1)
+        {
+            return;
+        }
+        // charging::Error is a payload-free enum, unlike an underlying SQL error.
+        let category = observation.error.map_or_else(|| "Ok".to_owned(), |error| format!("{error:?}"));
+        eprintln!(
+            "model_finalize request_id={request_id} stage={stage} attempt={} duration_ms={} final={} category={category}",
+            observation.attempt,
+            observation.duration.as_millis(),
+            observation.final_result,
+        );
+    })
+    .await
+}
+
+/// Retry only an explicitly rolled-back reservation, preserving its ID/spec/worker.
+/// The monotonic window limits when another attempt may START; it does not
+/// interrupt an in-flight transaction or change the enclosing hook timeout.
+// @mark model.reservation-retry role=implementation
+async fn retry_reserve<T, F, Fut>(operation: F) -> charging::Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = charging::Result<T>>,
+{
+    retry_bounded(
+        tokio::time::Instant::now() + Duration::from_secs(2),
+        operation,
+    )
+    .await
+}
+
+/// Shared rollback-only policy: at most eight starts in the supplied monotonic window.
+async fn retry_bounded<T, F, Fut>(
+    deadline: tokio::time::Instant,
+    mut operation: F,
+) -> charging::Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: Future<Output = charging::Result<T>>,
+{
     for attempt in 0..8 {
         if tokio::time::Instant::now() >= deadline {
             return Err(charging::Error::Retry);
@@ -291,17 +403,26 @@ impl Billing for Bridge {
             }
             // Non-streaming relay exposes the body only after this durable final
             // transaction. The checkpoint records the provider observation.
-            retry(|| {
-                self.charging
-                    .checkpoint(&reservation.id, &worker, "provider-final", usage)
-            })
+            // Both finalization stages share one start window; neither stage
+            // cancels an in-flight transaction or replays an unknown commit.
+            let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+            retry_finalize(
+                deadline,
+                &reservation.id,
+                FinalizeStage::ProviderFinal,
+                || {
+                    self.charging
+                        .checkpoint(&reservation.id, &worker, "provider-final", usage)
+                },
+            )
             .await
             .map_err(error)?;
-            let settlement = retry(|| {
-                self.charging
-                    .settle(&reservation.id, &worker, usage, outcome)
-            })
-            .await;
+            let settlement =
+                retry_finalize(deadline, &reservation.id, FinalizeStage::Settle, || {
+                    self.charging
+                        .settle(&reservation.id, &worker, usage, outcome)
+                })
+                .await;
             match settlement {
                 Ok(_) => Ok(()),
                 Err(charging::Error::CommitUnknown) => {
@@ -519,5 +640,210 @@ mod reserve_retry_tests {
         .await;
         assert_eq!(result, Err(charging::Error::Retry));
         assert_eq!(calls.get(), 3);
+    }
+}
+
+#[cfg(test)]
+mod finalize_diagnostic_tests {
+    use super::*;
+    use std::{
+        cell::{Cell, RefCell},
+        future,
+    };
+
+    async fn observed_case(original: charging::Result<&'static str>, expected_attempts: u8) {
+        let calls = Cell::new(0u8);
+        let observations = RefCell::new(Vec::new());
+        let result = retry_observed(
+            None,
+            || {
+                calls.set(calls.get() + 1);
+                future::ready(original)
+            },
+            |observation| observations.borrow_mut().push(observation),
+        )
+        .await;
+        assert_eq!(result, original);
+        assert_eq!(calls.get(), expected_attempts);
+        let observations = observations.into_inner();
+        assert_eq!(observations.len(), usize::from(expected_attempts) + 1);
+        for (index, observation) in observations[..usize::from(expected_attempts)]
+            .iter()
+            .enumerate()
+        {
+            assert_eq!(observation.attempt, index as u8 + 1);
+            assert!(!observation.final_result);
+            assert_eq!(observation.error, original.err());
+        }
+        let final_result = observations.last().unwrap();
+        assert!(final_result.final_result);
+        assert_eq!(final_result.attempt, expected_attempts);
+        assert_eq!(final_result.error, original.err());
+    }
+
+    #[tokio::test]
+    async fn retry_exhaustion_is_observed_after_exactly_three_attempts() {
+        observed_case(Err(charging::Error::Retry), 3).await;
+    }
+
+    #[tokio::test]
+    async fn commit_unknown_is_observed_without_replaying() {
+        observed_case(Err(charging::Error::CommitUnknown), 1).await;
+    }
+
+    #[tokio::test]
+    async fn non_retry_errors_are_observed_without_replaying() {
+        use charging::Error::*;
+        for error in [
+            Invalid,
+            Unauthorized,
+            Forbidden,
+            Conflict,
+            BudgetExceeded,
+            NoFunds,
+            NeedReservation,
+            StaleWorker,
+            WrongState,
+            NotFound,
+            Storage,
+            Ledger,
+        ] {
+            observed_case(Err(error), 1).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn success_preserves_the_original_return_value() {
+        observed_case(Ok("original-settlement"), 1).await;
+    }
+}
+
+#[cfg(test)]
+mod settlement_retry_tests {
+    use super::*;
+    use std::{cell::Cell, future};
+    const REQUEST: &str = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+
+    #[tokio::test]
+    async fn three_explicit_rollbacks_then_success_preserves_the_original_value() {
+        let calls = Cell::new(0);
+        let deadline = tokio::time::Instant::now() + Duration::from_secs(2);
+        let result = retry_finalize(deadline, REQUEST, FinalizeStage::Settle, || {
+            calls.set(calls.get() + 1);
+            future::ready(if calls.get() <= 3 {
+                Err(charging::Error::Retry)
+            } else {
+                Ok("original-settlement")
+            })
+        })
+        .await;
+        assert_eq!(result, Ok("original-settlement"));
+        assert_eq!(calls.get(), 4);
+    }
+
+    #[tokio::test]
+    async fn every_non_retry_error_including_unknown_commit_never_replays() {
+        use charging::Error::*;
+        for error in [
+            Invalid,
+            Unauthorized,
+            Forbidden,
+            Conflict,
+            BudgetExceeded,
+            NoFunds,
+            NeedReservation,
+            StaleWorker,
+            WrongState,
+            NotFound,
+            Storage,
+            Ledger,
+            CommitUnknown,
+        ] {
+            let calls = Cell::new(0);
+            let result = retry_finalize(
+                tokio::time::Instant::now() + Duration::from_secs(2),
+                REQUEST,
+                FinalizeStage::Settle,
+                || {
+                    calls.set(calls.get() + 1);
+                    future::ready(Err::<(), _>(error))
+                },
+            )
+            .await;
+            assert_eq!(result, Err(error));
+            assert_eq!(calls.get(), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn permanent_rollbacks_have_exactly_eight_attempts() {
+        let calls = Cell::new(0);
+        let result = retry_finalize(
+            tokio::time::Instant::now() + Duration::from_secs(2),
+            REQUEST,
+            FinalizeStage::Settle,
+            || {
+                calls.set(calls.get() + 1);
+                future::ready(Err::<(), _>(charging::Error::Retry))
+            },
+        )
+        .await;
+        assert_eq!(result, Err(charging::Error::Retry));
+        assert_eq!(calls.get(), 8);
+    }
+
+    #[tokio::test]
+    async fn expired_shared_window_does_not_start_settle_after_checkpoint() {
+        let deadline = tokio::time::Instant::now() + Duration::from_millis(20);
+        let checkpoint =
+            retry_finalize(deadline, REQUEST, FinalizeStage::ProviderFinal, || async {
+                tokio::time::sleep(Duration::from_millis(40)).await;
+                Ok("checkpoint-committed")
+            })
+            .await;
+        assert_eq!(checkpoint, Ok("checkpoint-committed"));
+        let calls = Cell::new(0);
+        let settlement = retry_finalize(deadline, REQUEST, FinalizeStage::Settle, || {
+            calls.set(calls.get() + 1);
+            future::ready(Ok(()))
+        })
+        .await;
+        assert_eq!(settlement, Err(charging::Error::Retry));
+        assert_eq!(calls.get(), 0);
+    }
+
+    #[tokio::test]
+    async fn an_inflight_settlement_is_not_cancelled_by_the_start_window() {
+        let result = retry_finalize(
+            tokio::time::Instant::now() + Duration::from_millis(20),
+            REQUEST,
+            FinalizeStage::Settle,
+            || async {
+                tokio::time::sleep(Duration::from_millis(40)).await;
+                Ok("settlement-committed-after-start-window")
+            },
+        )
+        .await;
+        assert_eq!(result, Ok("settlement-committed-after-start-window"));
+    }
+
+    #[tokio::test]
+    async fn rollback_after_the_window_cannot_start_a_second_settlement() {
+        let calls = Cell::new(0);
+        let result = retry_finalize(
+            tokio::time::Instant::now() + Duration::from_millis(20),
+            REQUEST,
+            FinalizeStage::Settle,
+            || {
+                calls.set(calls.get() + 1);
+                async {
+                    tokio::time::sleep(Duration::from_millis(40)).await;
+                    Err::<(), _>(charging::Error::Retry)
+                }
+            },
+        )
+        .await;
+        assert_eq!(result, Err(charging::Error::Retry));
+        assert_eq!(calls.get(), 1);
     }
 }
