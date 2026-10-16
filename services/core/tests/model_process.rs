@@ -31,13 +31,22 @@ use std::{
     time::Instant,
 };
 #[cfg(feature = "resource-acceptance")]
+#[path = "../../../tests/model_process/h2_socket_cases.rs"]
+mod h2_socket_cases;
+#[cfg(feature = "resource-acceptance")]
 #[path = "../../../tests/model_process/resource_cases.rs"]
 mod resource_cases;
+#[cfg(feature = "resource-acceptance")]
+#[path = "common/model_resource_client.rs"]
+mod resource_client;
 #[path = "common/runtime.rs"]
 mod restricted_runtime;
 #[cfg(feature = "resource-acceptance")]
 #[path = "../../../tests/model_process/socket_cases.rs"]
 mod socket_cases;
+#[cfg(feature = "resource-acceptance")]
+#[path = "../../../tests/model_process/socket_pressure_cases.rs"]
+mod socket_pressure_cases;
 #[path = "../../../tests/model_process/stream_cases.rs"]
 mod stream_cases;
 struct Seed {

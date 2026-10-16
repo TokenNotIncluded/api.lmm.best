@@ -58,13 +58,25 @@ const UPSTREAM_BYTE_IDLE_TIMEOUT: Duration = Duration::from_secs(20);
 pub struct PublicWriteIo<S> {
     inner: S,
     pending: Option<Pin<Box<tokio::time::Sleep>>>,
+    timeout_abort: Option<fn(&S) -> io::Result<()>>,
+    failed: Option<(io::ErrorKind, Option<i32>)>,
 }
 impl<S> PublicWriteIo<S> {
     fn new(inner: S) -> Self {
         Self {
             inner,
             pending: None,
+            timeout_abort: None,
+            failed: None,
         }
+    }
+    fn with_timeout_abort(mut self, abort: fn(&S) -> io::Result<()>) -> Self {
+        self.timeout_abort = Some(abort);
+        self
+    }
+    fn failure(&self) -> Option<io::Error> {
+        self.failed
+            .map(|(kind, errno)| errno.map_or_else(|| kind.into(), io::Error::from_raw_os_error))
     }
     fn checked<T>(
         &mut self,
@@ -79,6 +91,23 @@ impl<S> PublicWriteIo<S> {
                     .get_or_insert_with(|| Box::pin(tokio::time::sleep(PUBLIC_WRITE_TIMEOUT)));
                 if timer.as_mut().poll(cx).is_ready() {
                     self.pending = None;
+                    self.failed = Some((io::ErrorKind::TimedOut, None));
+                    // Abort only this already failed transport. Normal FIN and
+                    // healthy shared HTTP/2 connections keep their original behavior.
+                    // Tokio 1.53.2 set_zero_linger is nonblocking; positive linger is not used.
+                    // @mark model.socket-pressure role=implementation
+                    if let Some(abort) = self.timeout_abort
+                        && let Err(error) = abort(&self.inner)
+                    {
+                        self.failed = Some((error.kind(), error.raw_os_error()));
+                        // Payload-free fields only: no peer, request, raw error description or credentials.
+                        eprintln!(
+                            "core_socket_abort_failed kind={:?} os_error={:?}",
+                            error.kind(),
+                            error.raw_os_error()
+                        );
+                        return Poll::Ready(Err(error));
+                    }
                     Poll::Ready(Err(io::ErrorKind::TimedOut.into()))
                 } else {
                     Poll::Pending
@@ -97,6 +126,9 @@ impl<S: tokio::io::AsyncRead + Unpin> tokio::io::AsyncRead for PublicWriteIo<S> 
         cx: &mut Context<'_>,
         buf: &mut tokio::io::ReadBuf<'_>,
     ) -> Poll<io::Result<()>> {
+        if let Some(error) = self.failure() {
+            return Poll::Ready(Err(error));
+        }
         Pin::new(&mut self.inner).poll_read(cx, buf)
     }
 }
@@ -106,6 +138,9 @@ impl<S: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for PublicWriteIo<S
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
+        if let Some(error) = self.failure() {
+            return Poll::Ready(Err(error));
+        }
         let result = Pin::new(&mut self.inner).poll_write(cx, buf);
         self.checked(cx, result)
     }
@@ -114,6 +149,9 @@ impl<S: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for PublicWriteIo<S
         cx: &mut Context<'_>,
         bufs: &[io::IoSlice<'_>],
     ) -> Poll<io::Result<usize>> {
+        if let Some(error) = self.failure() {
+            return Poll::Ready(Err(error));
+        }
         let result = Pin::new(&mut self.inner).poll_write_vectored(cx, bufs);
         self.checked(cx, result)
     }
@@ -121,10 +159,16 @@ impl<S: tokio::io::AsyncWrite + Unpin> tokio::io::AsyncWrite for PublicWriteIo<S
         self.inner.is_write_vectored()
     }
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        if let Some(error) = self.failure() {
+            return Poll::Ready(Err(error));
+        }
         let result = Pin::new(&mut self.inner).poll_flush(cx);
         self.checked(cx, result)
     }
     fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        if let Some(error) = self.failure() {
+            return Poll::Ready(Err(error));
+        }
         let result = Pin::new(&mut self.inner).poll_shutdown(cx);
         self.checked(cx, result)
     }
@@ -136,7 +180,10 @@ impl axum::serve::Listener for PublicWriteListener {
     type Addr = std::net::SocketAddr;
     async fn accept(&mut self) -> (Self::Io, Self::Addr) {
         let (stream, addr) = axum::serve::Listener::accept(&mut self.0).await;
-        (PublicWriteIo::new(stream), addr)
+        (
+            PublicWriteIo::new(stream).with_timeout_abort(tokio::net::TcpStream::set_zero_linger),
+            addr,
+        )
     }
     fn local_addr(&self) -> io::Result<Self::Addr> {
         self.0.local_addr()
@@ -753,6 +800,191 @@ mod tests {
         }
         tokio::join!(pending(0), pending(1), pending(2), pending(3));
     }
+    #[derive(Default)]
+    struct AbortProbe {
+        polls: std::sync::atomic::AtomicUsize,
+        aborts: std::sync::atomic::AtomicUsize,
+        ready: std::sync::atomic::AtomicBool,
+        abort_fails: bool,
+    }
+    impl AbortProbe {
+        fn poll(&self) -> Poll<io::Result<usize>> {
+            use std::sync::atomic::Ordering;
+            self.polls.fetch_add(1, Ordering::SeqCst);
+            if self.ready.load(Ordering::SeqCst) {
+                Poll::Ready(Ok(1))
+            } else {
+                Poll::Pending
+            }
+        }
+        fn abort(&self) -> io::Result<()> {
+            self.aborts
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if self.abort_fails {
+                Err(io::Error::from_raw_os_error(13))
+            } else {
+                Ok(())
+            }
+        }
+    }
+    impl tokio::io::AsyncRead for AbortProbe {
+        fn poll_read(
+            self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+            _: &mut tokio::io::ReadBuf<'_>,
+        ) -> Poll<io::Result<()>> {
+            self.poll().map(|result| result.map(|_| ()))
+        }
+    }
+    impl tokio::io::AsyncWrite for AbortProbe {
+        fn poll_write(
+            self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+            _: &[u8],
+        ) -> Poll<io::Result<usize>> {
+            self.poll()
+        }
+        fn poll_write_vectored(
+            self: Pin<&mut Self>,
+            _: &mut Context<'_>,
+            _: &[io::IoSlice<'_>],
+        ) -> Poll<io::Result<usize>> {
+            self.poll()
+        }
+        fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
+            self.poll().map(|result| result.map(|_| ()))
+        }
+        fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
+            self.poll().map(|result| result.map(|_| ()))
+        }
+    }
+    async fn sticky_abort_case(mode: usize, abort_fails: bool) {
+        use std::sync::atomic::Ordering;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let mut stream = PublicWriteIo::new(AbortProbe {
+            abort_fails,
+            ..Default::default()
+        })
+        .with_timeout_abort(AbortProbe::abort);
+        // Test the transition without sleeping five seconds in every matrix cell.
+        // Existing public_write_timeout_bounds_each_pending_operation verifies the real budget.
+        stream.pending = Some(Box::pin(tokio::time::sleep(Duration::ZERO)));
+        let error = tokio::time::timeout(Duration::from_secs(1), async {
+            match mode {
+                0 => stream.write(b"x").await.map(|_| ()),
+                1 => stream
+                    .write_vectored(&[io::IoSlice::new(b"x")])
+                    .await
+                    .map(|_| ()),
+                2 => stream.flush().await,
+                _ => stream.shutdown().await,
+            }
+        })
+        .await
+        .unwrap()
+        .unwrap_err();
+        if abort_fails {
+            assert_eq!(error.raw_os_error(), Some(13));
+        } else {
+            assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+        }
+        assert_eq!(stream.inner.aborts.load(Ordering::SeqCst), 1);
+        let polls = stream.inner.polls.load(Ordering::SeqCst);
+        stream.inner.ready.store(true, Ordering::SeqCst);
+        let mut byte = [0u8; 1];
+        for error in [
+            stream.write(b"x").await.unwrap_err(),
+            stream
+                .write_vectored(&[io::IoSlice::new(b"x")])
+                .await
+                .unwrap_err(),
+            stream.flush().await.unwrap_err(),
+            stream.shutdown().await.unwrap_err(),
+            stream.read(&mut byte).await.unwrap_err(),
+        ] {
+            if abort_fails {
+                assert_eq!(error.raw_os_error(), Some(13));
+            } else {
+                assert_eq!(error.kind(), io::ErrorKind::TimedOut);
+            }
+        }
+        assert_eq!(
+            stream.inner.polls.load(Ordering::SeqCst),
+            polls,
+            "failed socket must short circuit before touching inner IO"
+        );
+        assert_eq!(
+            stream.inner.aborts.load(Ordering::SeqCst),
+            1,
+            "abort is invoked only once"
+        );
+    }
+    #[tokio::test]
+    async fn public_write_abort_is_sticky_for_every_pending_operation() {
+        tokio::join!(
+            sticky_abort_case(0, false),
+            sticky_abort_case(1, false),
+            sticky_abort_case(2, false),
+            sticky_abort_case(3, false)
+        );
+    }
+    #[tokio::test]
+    async fn public_write_abort_failure_preserves_errno_and_prevents_more_io() {
+        tokio::join!(
+            sticky_abort_case(0, true),
+            sticky_abort_case(1, true),
+            sticky_abort_case(2, true),
+            sticky_abort_case(3, true)
+        );
+    }
+    #[tokio::test]
+    async fn public_write_progress_never_invokes_abort() {
+        use std::sync::atomic::Ordering;
+        use tokio::io::AsyncWriteExt;
+        let mut stream =
+            PublicWriteIo::new(AbortProbe::default()).with_timeout_abort(AbortProbe::abort);
+        stream.inner.ready.store(true, Ordering::SeqCst);
+        assert_eq!(stream.write(b"x").await.unwrap(), 1);
+        assert_eq!(
+            stream
+                .write_vectored(&[io::IoSlice::new(b"x")])
+                .await
+                .unwrap(),
+            1
+        );
+        stream.flush().await.unwrap();
+        stream.shutdown().await.unwrap();
+        assert_eq!(stream.inner.aborts.load(Ordering::SeqCst), 0);
+        assert!(stream.failed.is_none());
+        assert!(stream.pending.is_none());
+    }
+    #[tokio::test]
+    async fn public_listener_installs_abort_only_for_an_expired_write() {
+        use axum::serve::Listener;
+        use tokio::io::AsyncReadExt;
+        let socket = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let address = socket.local_addr().unwrap();
+        let mut listener = PublicWriteListener(socket);
+        let mut client = tokio::net::TcpStream::connect(address).await.unwrap();
+        let (mut accepted, _) = listener.accept().await;
+        assert_eq!(
+            accepted.inner.linger().unwrap(),
+            None,
+            "normal socket must retain FIN semantics"
+        );
+        accepted.pending = Some(Box::pin(tokio::time::sleep(Duration::ZERO)));
+        let result = std::future::poll_fn(|cx| accepted.checked::<()>(cx, Poll::Pending)).await;
+        assert_eq!(result.unwrap_err().kind(), io::ErrorKind::TimedOut);
+        assert_eq!(accepted.inner.linger().unwrap(), Some(Duration::ZERO));
+        drop(accepted);
+        let mut byte = [0u8; 1];
+        let error = tokio::time::timeout(Duration::from_secs(1), client.read(&mut byte))
+            .await
+            .unwrap()
+            .unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::ConnectionReset);
+    }
+
     #[tokio::test]
     async fn public_listener_keeps_progressing_stream_beyond_write_timeout() {
         use axum::routing::get;

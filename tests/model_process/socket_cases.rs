@@ -14,7 +14,7 @@ const PROMPT: &str = "socket-backpressure";
 const DECODED_BYTES: usize = 56 * 16 * 1024;
 const OPENING: i64 = 100_000;
 
-struct Evidence(fs::File);
+pub(super) struct Evidence(pub(super) fs::File);
 impl Evidence {
     fn new(directory: &Path) -> Self {
         Self(
@@ -26,7 +26,7 @@ impl Evidence {
                 .unwrap(),
         )
     }
-    fn write(&mut self, value: Value) {
+    pub(super) fn write(&mut self, value: Value) {
         serde_json::to_writer(&mut self.0, &value).unwrap();
         self.0.write_all(b"\n").unwrap();
         self.0.flush().unwrap();
@@ -106,13 +106,18 @@ fn queue(server: SocketAddr, client: SocketAddr) -> Value {
         "bytes_acked":number("bytes_acked:"),"snd_wnd":number("snd_wnd:"),
         "notsent":number("notsent:"),"ss":text})
 }
-struct Raw {
+pub(super) struct Raw {
     stream: TcpStream,
-    server: SocketAddr,
-    client: SocketAddr,
-    request_id: String,
+    pub(super) server: SocketAddr,
+    pub(super) client: SocketAddr,
+    pub(super) request_id: String,
 }
-async fn raw(host: &ResourceHost, key: &str, label: &str, evidence: &mut Evidence) -> Raw {
+pub(super) async fn raw(
+    host: &ResourceHost,
+    key: &str,
+    label: &str,
+    evidence: &mut Evidence,
+) -> Raw {
     let server: SocketAddr = host
         .prepared
         .endpoint
@@ -157,6 +162,39 @@ async fn raw(host: &ResourceHost, key: &str, label: &str, evidence: &mut Evidenc
     .await
     .unwrap();
     let header = String::from_utf8(header).unwrap();
+    evidence.write(json!({"stage":"raw-status","case":label,
+        "status_line":header.lines().next(),"server":server,"client":client}));
+    if !header.starts_with("HTTP/1.1 200 ") {
+        let mut bytes = Vec::new();
+        let read = tokio::time::timeout(Duration::from_millis(500), async {
+            let mut chunk = [0_u8; 1024];
+            while bytes.len() < 16_384 {
+                let count = stream.read(&mut chunk).await?;
+                if count == 0 {
+                    break;
+                }
+                bytes.extend_from_slice(&chunk[..count]);
+            }
+            Ok::<(), std::io::Error>(())
+        })
+        .await;
+        // This bounded failure-only body may contain HTTP chunk framing. Keep
+        // its raw bytes and decode the first JSON object when one is present.
+        let error_code = bytes
+            .iter()
+            .position(|byte| *byte == b'{')
+            .and_then(|start| {
+                serde_json::Deserializer::from_slice(&bytes[start..])
+                    .into_iter::<Value>()
+                    .next()
+                    .and_then(Result::ok)
+            })
+            .and_then(|value| value["error"]["code"].as_str().map(str::to_owned));
+        evidence.write(json!({"stage":"raw-rejected-before-assert","case":label,
+            "status_line":header.lines().next(),"error_code":error_code,
+            "bounded_body":String::from_utf8_lossy(&bytes),"bytes":bytes.len(),
+            "body_read_finished":matches!(read,Ok(Ok(()))),"body_limit":16_384}));
+    }
     assert!(header.starts_with("HTTP/1.1 200 "));
     assert!(
         header

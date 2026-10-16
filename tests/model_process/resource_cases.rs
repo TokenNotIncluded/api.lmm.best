@@ -56,6 +56,7 @@ pub(super) fn sample(pid: u32, cgroup: &Path, started: Instant, phase: u8) -> Va
         "smaps_rollup_kib":fields(&fs::read_to_string(format!("/proc/{pid}/smaps_rollup")).unwrap()),
         "fd_count":fs::read_dir(format!("/proc/{pid}/fd")).unwrap().count(), "threads":tasks,
         "cpu_stat":fields(&fs::read_to_string(cgroup.join("cpu.stat")).unwrap()),
+        "memory_stat":fields(&fs::read_to_string(cgroup.join("memory.stat")).unwrap()),
         "memory_current":fs::read_to_string(cgroup.join("memory.current")).unwrap().trim().parse::<u64>().unwrap(),
         "memory_peak":fs::read_to_string(cgroup.join("memory.peak")).unwrap().trim().parse::<u64>().unwrap(),
         "memory_events":fields(&fs::read_to_string(cgroup.join("memory.events")).unwrap()),
@@ -352,9 +353,7 @@ impl ResourceHost {
     }
 }
 
-#[path = "../../services/core/tests/common/model_resource_client.rs"]
-mod model_client;
-use model_client::*;
+use super::resource_client::*;
 
 // @mark model.resource-acceptance role=load
 async fn load_phase(

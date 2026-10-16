@@ -25,6 +25,8 @@ CASE = "resource_cases::independent_process_constrained_resources"
 CASES = {
     "sustained": CASE,
     "socket-backpressure": "socket_cases::independent_process_socket_backpressure",
+    "socket-pressure": "socket_pressure_cases::independent_process_sustained_socket_backpressure",
+    "socket-h2": "h2_socket_cases::independent_process_h2_stream_backpressure",
 }
 SELF = Path(__file__).resolve()
 

@@ -15,7 +15,7 @@ class ResourceSelectionTests(unittest.TestCase):
     def setUp(self):
         self.discovered = sorted(runner.v.PROCESS_TESTS | set(runner.CASES.values()))
 
-    def summary(self, passed=1, failed=0, ignored=0, measured=0, filtered=8):
+    def summary(self, passed=1, failed=0, ignored=0, measured=0, filtered=10):
         return (f"test result: ok. {passed} passed; {failed} failed; "
                 f"{ignored} ignored; {measured} measured; {filtered} filtered out; finished in 1s\n")
 
@@ -25,7 +25,7 @@ class ResourceSelectionTests(unittest.TestCase):
 
     def test_reviewed_discovery_accepts_exact_current_list(self):
         runner.reviewed_tests(self.discovered)
-        self.assertEqual(len(self.discovered), 9)
+        self.assertEqual(len(self.discovered), 11)
 
     def test_missing_extra_old_duplicate_and_malformed_discovery_rejected(self):
         variants = [self.discovered[:-1], self.discovered + ["foreign_case"],
@@ -52,6 +52,11 @@ class ResourceSelectionTests(unittest.TestCase):
         self.assertEqual(command, ["sealed-test", runner.CASES["socket-backpressure"],
                          "--exact", "--ignored", "--nocapture", "--test-threads=1"])
         self.assertNotIn(runner.CASE, command)
+        for selection in ("socket-pressure", "socket-h2"):
+            selected = runner.selected_command("sealed-test", selection)
+            self.assertEqual(selected[1], runner.CASES[selection])
+            self.assertEqual(selected[2:], command[2:])
+            self.assertNotIn(runner.CASE, selected)
 
     def test_sustained_command_preserves_existing_case(self):
         self.assertEqual(runner.selected_command("sealed-test", "sustained")[1], runner.CASE)
@@ -63,7 +68,7 @@ class ResourceSelectionTests(unittest.TestCase):
         variants = [self.summary(passed=0), self.summary(passed=0, ignored=1),
                     self.summary(ignored=1), self.summary(failed=1),
                     self.summary(passed=2), self.summary(measured=1),
-                    self.summary(filtered=7), self.summary(filtered=9), "",
+                    self.summary(filtered=7), self.summary(filtered=11), "",
                     self.summary() + self.summary(), self.summary().replace("ok.", "FAILED.")]
         for text in variants:
             with self.subTest(text=text), self.assertRaises(runner.FixtureError):
