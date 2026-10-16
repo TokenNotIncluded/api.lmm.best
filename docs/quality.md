@@ -284,8 +284,11 @@ systemd独立记录oom-kill；该轮未完成240秒，保留为失败证据。
 HTTP/2用例持有一个未读取的流，在同一条已核对的TCP连接上完成12次正常请求及取消后
 的一次请求，核对资金和原键重放；当前修复产物独立通过。它证明流控制隔离，
 不等于TCP零窗口实验，也不要求取消时上游恰好仍在生产数据。
-上述检查仍不覆盖Core+Go同时承受持续停读客户端、真实供应商计量、整机资源门槛
-或旧架构性能对照。定位入口：`markref context model.socket-pressure`。
+上述Core单进程检查不能代替Core+Go联合停读验证。后续共享1CPU/512MiB的
+240秒联合门槛已独立通过900个完整模型响应、180笔完整退款及120个停读客户端，
+证据和限制见[联合验收说明](../tests/commerce/README.md)。真实供应商计量、整机资源
+门槛、请求头之前的连接保护及旧架构性能对照仍未验收。
+定位入口：`markref context model.socket-pressure`、`markref context commerce.socket-pressure`。
 
 
 本项目的最终交付还要求相对旧架构有可复现的实质性能改善、更低内存和更好的稳定性。
