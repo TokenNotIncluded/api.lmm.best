@@ -262,7 +262,10 @@ async fn revoked_expired_stream_retains_original_hold_until_authoritative_reconc
         assert!(f.charging.start_oauth(&f.issuer,&held.id,&[1;32]).await.unwrap());
         f.issuer.revoke_for_client("lmm-pi",&token.access_token).await.unwrap();
         sqlx::query("UPDATE core_identity.users SET active=false WHERE id=$1").bind(f.user).execute(&f.owner).await.unwrap();
-        sqlx::query("UPDATE core_charging.requests SET lease_until=floor(extract(epoch FROM clock_timestamp()))::bigint-1,revision=revision+1 WHERE id=$1").bind(&held.id).execute(&f.owner).await.unwrap();
+        let mut expiry=f.owner.begin().await.unwrap();
+        sqlx::query("SET TRANSACTION ISOLATION LEVEL SERIALIZABLE").execute(&mut *expiry).await.unwrap();
+        sqlx::query("UPDATE core_charging.requests SET lease_until=floor(extract(epoch FROM clock_timestamp()))::bigint-1,revision=revision+1 WHERE id=$1").bind(&held.id).execute(&mut *expiry).await.unwrap();
+        expiry.commit().await.unwrap();
         let recovered=f.charging.recover_expired(10).await.unwrap();assert_eq!(recovered.len(),1);let recovered=&recovered[0];assert_eq!(recovered.state,"reconcile");assert_eq!(recovered.oauth_source,held.oauth_source);
         assert_eq!(f.ledger.balance(f.account).await.unwrap().reserved_units,60);
         let usage=Usage{input:25,..Default::default()};
