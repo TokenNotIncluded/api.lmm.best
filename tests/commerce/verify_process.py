@@ -130,6 +130,117 @@ def interrupted(signum, frame):
     raise KeyboardInterrupt("local acceptance interrupted")
 
 
+def select_profile(*, mixed_load, mixed_slow_sockets, shared_resources, sealed):
+    if mixed_load and mixed_slow_sockets:
+        raise FixtureError("--mixed-load and --mixed-slow-sockets are mutually exclusive")
+    profile = "socket-pressure" if mixed_slow_sockets else "sustained" if mixed_load else None
+    if profile and not shared_resources:
+        raise FixtureError("mixed profiles require --shared-resources")
+    if shared_resources and not sealed:
+        raise FixtureError("--shared-resources requires all three sealed executable/SHA pairs")
+    return profile
+
+
+# Independent parent check prevents an older sustained binary from passing this profile.
+# @mark commerce.socket-pressure role=verification
+
+def verify_joint_socket_result(mixed, result, offered, recovery):
+    def require(condition, message):
+        if not condition:
+            raise FixtureError("joint socket evidence: " + message)
+
+    def exact(obj, key, expected):
+        require(type(obj.get(key)) is type(expected) and obj[key] == expected, key)
+
+    for obj in (mixed, result):
+        require(type(obj) is dict, "result object")
+        for key, expected in (("result", "PASS"), ("profile", "socket-pressure"),
+                              ("commerce_complete_refunded", 180), ("unknown_holds", 120),
+                              ("full_project_complete", False)):
+            exact(obj, key, expected)
+    exact(mixed, "model_successes", 900)
+    for key, expected in (("slow_offered", 120), ("slow_accepted", 120),
+                          ("retained_at_recovery", 120), ("arrival_period_ms", 500),
+                          ("all_120_nonzero_sendq_witness", True),
+                          ("retained_recovery_nonzero_sendq", 0),
+                          ("clients_dropped_before_recovery", False),
+                          ("replayed_original_keys", 120), ("provider_hits_before", 1020),
+                          ("provider_hits_after", 1020), ("model_complete", 900)):
+        exact(result, key, expected)
+    duration = result.get("minimum_duration_ms")
+    elapsed = recovery.get("elapsed_ms")
+    require(type(duration) is int and duration >= 240000, "duration")
+    require(type(elapsed) is int and elapsed >= 180000 and duration >= elapsed + 60000,
+            "retained recovery and idle duration")
+    for obj, values in ((offered, {"offered": 120, "accepted": 120}),
+                        (recovery, {"retained_clients": 120, "clients_dropped": False,
+                                    "nonzero_send_queue": 0})):
+        for key, expected in values.items():
+            exact(obj, key, expected)
+    peers = offered.get("peers")
+    require(type(peers) is list and len(peers) == 120, "offered peer count")
+    by_id = {}
+    tuples = set()
+    for peer in peers:
+        require(type(peer) is dict, "peer object")
+        request_id = peer.get("id")
+        require(type(request_id) is str and len(request_id) == 64 and
+                all(c in "0123456789abcdefABCDEF" for c in request_id), "request id")
+        require(request_id not in by_id, "duplicate request id")
+        require(all(type(peer.get(k)) is str and peer[k] for k in ("server", "client", "label")),
+                "peer binding")
+        pair = (peer["server"], peer["client"])
+        require(pair not in tuples, "duplicate socket tuple")
+        tuples.add(pair)
+        by_id[request_id] = peer
+    proved = result.get("proved_ids")
+    require(type(proved) is list and all(type(x) is str for x in proved) and
+            len(proved) == 120 and len(set(proved)) == 120 and set(proved) == set(by_id),
+            "all offered peers must have pressure witnesses")
+    recovered = recovery.get("peers")
+    require(type(recovered) is list and len(recovered) == 120, "recovery peer count")
+    seen = set()
+    for peer in recovered:
+        request_id = peer.get("request_id")
+        require(type(request_id) is str and request_id in by_id and request_id not in seen,
+                "recovery request binding")
+        seen.add(request_id)
+        original = by_id[request_id]
+        require(all(peer.get(k) == original[k] for k in ("server", "client", "label")),
+                "recovery socket binding")
+        require(type(peer.get("socket")) is dict, "recovery socket observation")
+        exact(peer["socket"], "send_queue", 0)
+
+
+    witnesses = recovery.get("retention_witnesses")
+    require(type(witnesses) is list and len(witnesses) == 120, "retention witnesses")
+    seen = set()
+    socket_ids = set()
+    for witness in witnesses:
+        request_id = witness.get("request_id")
+        require(type(request_id) is str and request_id in by_id and request_id not in seen,
+                "retention request binding")
+        seen.add(request_id)
+        exact(witness, "same_open_fd", True)
+        for key in ("fd", "device", "inode"):
+            require(type(witness.get(key)) is int and witness[key] >= (1 if key == "inode" else 0),
+                    "retained socket identity")
+        identity = (witness["device"], witness["inode"])
+        require(identity not in socket_ids, "duplicate retained socket identity")
+        socket_ids.add(identity)
+        original = by_id[request_id]
+        require(witness.get("original_server") == original["server"] and
+                witness.get("original_client") == original["client"], "retained tuple")
+        status = witness.get("peer_status")
+        require(type(status) is dict, "retained peer status")
+        if status.get("state") == "connected":
+            exact(status, "peer", original["server"])
+        else:
+            exact(status, "state", "reset-or-disconnected-fd-still-open")
+            require(type(status.get("errno")) is int and status["errno"] in (107, 104),
+                    "retained reset status")
+
+
 def main() -> int:
     signal.signal(signal.SIGTERM, interrupted)
     parser = argparse.ArgumentParser(description=__doc__)
@@ -179,15 +290,19 @@ def main() -> int:
         action="store_true",
         help="run frozen 540s model and complete commerce traffic together",
     )
+    parser.add_argument(
+        "--mixed-slow-sockets", action="store_true",
+        help="run separate 240s model/commerce gate with 120 retained unread TCP clients",
+    )
     args = parser.parse_args()
-    if args.mixed_load and not args.shared_resources:
-        parser.error("--mixed-load requires --shared-resources")
-    if args.shared_resources and not (
-        args.core_binary and args.test_binary and args.extension_binary
-    ):
-        parser.error(
-            "--shared-resources requires all three sealed executable/SHA pairs"
+    try:
+        profile = select_profile(
+            mixed_load=args.mixed_load, mixed_slow_sockets=args.mixed_slow_sockets,
+            shared_resources=args.shared_resources,
+            sealed=bool(args.core_binary and args.test_binary and args.extension_binary),
         )
+    except FixtureError as error:
+        parser.error(str(error))
     if bool(args.core_binary) != bool(args.core_sha256):
         parser.error("--core-binary and --core-sha256 must be supplied together")
     if args.core_binary and (
@@ -275,8 +390,9 @@ def main() -> int:
         if args.core_binary:
             env["LMM_COMMERCE_CORE_BIN"] = str(args.core_binary)
             env["LMM_COMMERCE_CORE_SHA256"] = args.core_sha256
-        if args.mixed_load:
+        if profile:
             env["LMM_COMMERCE_MIXED"] = "1"
+            env["LMM_COMMERCE_MIXED_PROFILE"] = profile
         env["TMPDIR"] = str(process_root)
         env["CARGO_BUILD_JOBS"] = "2"
         started = time.monotonic()
@@ -326,7 +442,7 @@ def main() -> int:
                 REPO / "services/core",
                 env,
                 fixture.root / "commerce-test.log",
-                900,
+                600 if profile == "socket-pressure" else 900,
             )
             if resources:
                 resources.adopt_scopes()
@@ -389,7 +505,7 @@ def main() -> int:
             raise FixtureError(
                 "tested sources changed during acceptance; result not frozen"
             )
-        if args.mixed_load:
+        if profile:
             results = list(
                 process_root.glob("lmm-commerce-process-*/mixed-result.json")
             )
@@ -400,11 +516,20 @@ def main() -> int:
                 raise FixtureError(
                     "frozen mixed load did not produce its own final result"
                 )
+            if profile == "socket-pressure":
+                evidence_root = results[0].parent
+                try:
+                    evidence = [json.loads((evidence_root / name).read_text()) for name in (
+                        "joint-socket-result.json", "joint-socket-offered.json",
+                        "joint-socket-retained-recovery.json")]
+                    verify_joint_socket_result(json.loads(results[0].read_text()), *evidence)
+                except (OSError, ValueError, KeyError, TypeError) as error:
+                    raise FixtureError("joint socket proof missing or malformed") from error
             observed = json.loads((resource_root / "samples.json").read_text())
             times = [sample["monotonic"] for sample in observed["samples"]]
             if (
                 len(times) < 2
-                or times[-1] - times[0] < 540
+                or times[-1] - times[0] < (240 if profile == "socket-pressure" else 540)
                 or max(b - a for a, b in zip(times, times[1:])) > 2.5
             ):
                 raise FixtureError("mixed sampling missed full frozen interval")
@@ -423,7 +548,9 @@ def main() -> int:
             "seconds": round(time.monotonic() - started, 2),
             "cluster_removed": True,
             "mixed_load": args.mixed_load,
-            "mixed_result": str(results[0]) if args.mixed_load else None,
+            "mixed_slow_sockets": args.mixed_slow_sockets,
+            "mixed_profile": profile,
+            "mixed_result": str(results[0]) if profile else None,
             "shared_resources": args.shared_resources,
             "shared_resource_receipt": str(resource_root / "group-closed.json")
             if resources

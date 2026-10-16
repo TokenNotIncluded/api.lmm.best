@@ -14,6 +14,16 @@ mod store_load;
 use store_load::{store_phase, verify_store};
 const OPENING: i64 = 10_000_000;
 const CAPACITY: usize = 16;
+#[path = "socket_pressure.rs"]
+mod socket_pressure;
+
+fn socket_profile() -> bool {
+    match std::env::var("LMM_COMMERCE_MIXED_PROFILE").as_deref() {
+        Err(std::env::VarError::NotPresent) | Ok("sustained") => false,
+        Ok("socket-pressure") => true,
+        _ => panic!("unknown mixed acceptance profile"),
+    }
+}
 
 pub(super) struct Mixed {
     pub(super) key_id: i64,
@@ -65,6 +75,7 @@ pub(super) async fn prepare(pool: &PgPool) -> Option<Mixed> {
         std::env::var_os("LMM_COMMERCE_RESOURCE_READY").is_some(),
         "mixed gate requires shared limits"
     );
+    let _ = socket_profile();
     let (_identity, ledger, _session, key, key_id, account) = fixture(pool, OPENING).await;
     Some(Mixed {
         key_id,
@@ -105,6 +116,17 @@ rules=[{{id=1,model='local-model',group='allowed',speed='standard',rates={{input
             self.key_id,
             self.provider.endpoint
         );
+        let model = if socket_profile() {
+            for needle in ["lease_seconds=20", "timeout_seconds=3", "timeout_ms=5000"] {
+                assert_eq!(model.matches(needle).count(), 1);
+            }
+            model
+                .replace("lease_seconds=20", "lease_seconds=60")
+                .replace("timeout_seconds=3", "timeout_seconds=30")
+                .replace("timeout_ms=5000", "timeout_ms=30000")
+        } else {
+            model
+        };
         private(root, "mixed-model.toml", model.as_bytes())
     }
 
@@ -292,6 +314,10 @@ rules=[{{id=1,model='local-model',group='allowed',speed='standard',rates={{input
 
     // @mark runtime.joint-resource role=load
     pub(super) async fn run(&mut self, store: &Store, endpoint: &str, root: &Path) {
+        if socket_profile() {
+            socket_pressure::run(self, store, endpoint, root).await;
+            return;
+        }
         let started = Instant::now();
         let (stop_observer, mut stopping) = tokio::sync::oneshot::channel();
         let pool = store.pool.clone();
@@ -431,7 +457,7 @@ rules=[{{id=1,model='local-model',group='allowed',speed='standard',rates={{input
         private(root,"mixed-load-complete.json",&serde_json::to_vec(&json!({"scope":"540s real model+commerce traffic under shared product budget; synthetic provider","model_successes":self.normal.iter().filter(|row|row.success).count(),"unknown_holds":self.unknown.len(),"commerce_complete_refunded":self.orders.len(),"elapsed_ms":started.elapsed().as_millis(),"model_payer":self.account,"model_upstream_dispatches":self.provider.hits.load(Ordering::SeqCst)})).unwrap());
     }
 
-    async fn verify(&self, pool: &PgPool) {
+    async fn verify_finances(&self, pool: &PgPool) {
         let ids = self
             .normal
             .iter()
@@ -475,6 +501,17 @@ rules=[{{id=1,model='local-model',group='allowed',speed='standard',rates={{input
             .await
             .unwrap();
         assert_eq!(all as usize, ids.len() + self.unknown.len());
+        balanced(pool).await;
+    }
+
+    async fn verify(&self, pool: &PgPool) {
+        self.verify_finances(pool).await;
+        let ids = self
+            .normal
+            .iter()
+            .filter(|row| row.success)
+            .map(|row| row.id.clone().unwrap())
+            .collect::<Vec<_>>();
         let streams = self
             .normal
             .iter()
@@ -498,7 +535,6 @@ rules=[{{id=1,model='local-model',group='allowed',speed='standard',rates={{input
                 .iter()
                 .all(|value| value == "Bearer synthetic-upstream-key")
         );
-        balanced(pool).await;
     }
 
     pub(super) async fn after_restart(&self, pool: &PgPool, root: &Path, endpoint: &str) {
@@ -567,7 +603,14 @@ rules=[{{id=1,model='local-model',group='allowed',speed='standard',rates={{input
                 .post(format!("{endpoint}/v1/chat/completions"))
                 .bearer_auth(&self.key)
                 .header("idempotency-key", label)
-                .json(&body("stream-pause", true))
+                .json(&body(
+                    if socket_profile() {
+                        "socket-backpressure"
+                    } else {
+                        "stream-pause"
+                    },
+                    true,
+                ))
                 .send()
                 .await
                 .unwrap();
@@ -576,6 +619,9 @@ rules=[{{id=1,model='local-model',group='allowed',speed='standard',rates={{input
                 StatusCode::CONFLICT,
                 "UNKNOWN replay must remain bound to original request"
             );
+            if socket_profile() {
+                assert_eq!(valid_id(&response).as_ref(), Some(id));
+            }
             let _ = response.bytes().await.unwrap();
         }
         assert_eq!(
@@ -585,7 +631,7 @@ rules=[{{id=1,model='local-model',group='allowed',speed='standard',rates={{input
         );
         self.verify(pool).await;
         private(root,"mixed-restart-classification.json",&serde_json::to_vec(&json!({"initial_streaming":initial,"bounded_deadline_seconds":seconds,"progress_deadline_seconds":15,"samples":samples,"elapsed_ms":start.elapsed().as_millis(),"funds_unchanged":true,"unknown_replays":self.labels.len(),"provider_hits_before_replay":hits,"provider_hits_after_replay":self.provider.hits.load(Ordering::SeqCst)})).unwrap());
-        private(root,"mixed-result.json",&serde_json::to_vec(&json!({"result":"PASS","scope":"shared-budget real model+commerce sustained regression and bounded restart classification","model_successes":self.normal.iter().filter(|row|row.success).count(),"unknown_holds":self.unknown.len(),"commerce_complete_refunded":self.orders.len(),"full_project_complete":false})).unwrap());
+        private(root,"mixed-result.json",&serde_json::to_vec(&json!({"result":"PASS","profile":if socket_profile(){"socket-pressure"}else{"sustained"},"scope":"shared-budget real model+commerce regression and bounded restart classification","model_successes":self.normal.iter().filter(|row|row.success).count(),"unknown_holds":self.unknown.len(),"commerce_complete_refunded":self.orders.len(),"full_project_complete":false})).unwrap());
     }
 }
 
