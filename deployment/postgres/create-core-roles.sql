@@ -2,6 +2,7 @@
 -- Run as its database administrator before lmm-core init-db. No startup hook.
 -- Existing roles reject the transaction; this is not a role repair/reset tool.
 \set ON_ERROR_STOP on
+-- @mark deployment.database-authority role=installer
 BEGIN;
 SET LOCAL statement_timeout = '5s';
 SELECT current_database() AS core_database \gset

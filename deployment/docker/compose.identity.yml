@@ -36,6 +36,7 @@ services:
       retries: 10
     networks: [identity]
 
+  # @mark deployment.database-authority role=configuration
   core-init:
     profiles: [tools]
     image: lmm-core:${LMM_DOCKER_CORE_IMAGE_TAG:-dev}

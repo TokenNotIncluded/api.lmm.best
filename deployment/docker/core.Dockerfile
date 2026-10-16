@@ -1,4 +1,4 @@
-FROM rust:1.99.0-bookworm AS build
+FROM rust:1.99.0-bookworm@sha256:114c7a4425406451c2866b6aafe69fe29b1b298832db1277d411ac73c82d04d6 AS build
 WORKDIR /src/services/core
 COPY services/core/Cargo.toml services/core/Cargo.lock services/core/build.rs ./
 COPY contracts/proto /src/contracts/proto
@@ -10,7 +10,7 @@ RUN AWS_LC_SYS_USE_SYSTEM=0 cargo build --locked --release --jobs 2 --bin lmm-co
 FROM scratch AS binaries
 COPY --from=build /src/services/core/target/release/lmm-core /lmm-core
 
-FROM debian:bookworm-slim AS runtime
+FROM debian:bookworm-slim@sha256:7c7b2c966bc9ee8cedfeef67e0e279108992c77681fa595db4a9d65c06ccc587 AS runtime
 RUN apt-get update && apt-get install --no-install-recommends -y ca-certificates curl \
     && rm -rf /var/lib/apt/lists/* \
     && mkdir -p /run/lmm-core-rpc \

@@ -39,6 +39,7 @@ impl From<sqlx::Error> for RuntimeDatabaseError {
 /// No DDL or probe writes: inspect effective privileges, including inherited and
 /// SET ROLE paths. PostgreSQL 18 pg_has_role(...,'SET') accounts for membership
 /// SET options rather than assuming every membership allows impersonation.
+// @mark deployment.database-authority role=authority
 pub async fn check(
     pool: &PgPool,
     required: RequiredCapabilities,

@@ -35,6 +35,7 @@
 \set enable_oauth2 false
 \endif
 
+-- @mark deployment.database-authority role=permissions
 BEGIN;
 SET LOCAL statement_timeout = '5s';
 SELECT current_database() AS core_database \gset

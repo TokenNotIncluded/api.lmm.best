@@ -2,7 +2,7 @@
 
 本栈只用于全新、隔离的本地安装，不升级或清空旧站点数据库，不部署生产。产品只有 `lmm`、`lmm-core`、`lmm-extensions` 三个可执行程序；`core-init` 调用同一个 Rust 核心的离线子命令，不是第四个产品。
 
-Compose 已拆开安装 owner 与运行时凭据，并提供[显式离线授权步骤](../postgres/README.md)。**本轮实际 Docker 集成验收尚待执行，不能把配置或文档检查当成容器部署通过。** 旧的单一 owner URL 初始化和运行方案已移除；运行时仍拒绝 owner 或权限不足的账户。
+Compose 已拆开安装 owner 与运行时凭据，并提供[显式离线授权步骤](../postgres/README.md)。**本机全新隔离 Docker 安装和身份 RPC 场景已独立实际通过；已有站点升级、完整业务及生产部署仍未验收。** 旧的单一 owner URL 初始化和运行方案已移除；运行时仍拒绝 owner 或权限不足的账户。
 
 真实快照的身份 ETL 曾在隔离克隆库与独立本地核心目标库之间验证，完成时覆盖 888 位旧用户；资金、API Key 和 session 未迁移，生产未写入。这是当时的身份迁移基线，不是当前用户总数或完整业务迁移。
 
@@ -87,7 +87,7 @@ curl --fail http://127.0.0.1:${LMM_DOCKER_CORE_PORT:-18080}/health/ready
 curl -i http://127.0.0.1:${LMM_DOCKER_CORE_PORT:-18080}/health/model-ready
 ```
 
-`init-db` 一次事务安装当前完整契约的 11 个组件：identity、ledger、payments、charging、routing、events、charging-ledger、migration、console、model-gateway、commerce。已有应用对象或重复安装拒绝，不删表、不清库。普通启动校验运行账户权限、完整组件契约及实时 catalog 指纹，不创建角色、不 GRANT、不安装或升级 schema。安装组件不等于其 HTTP 业务已启用。
+`init-db` 一次事务安装当前完整契约的 13 个组件：identity、oauth-grants、ledger、payments、charging、routing、events、charging-ledger、migration、console、model-gateway、commerce、abuse。已有应用对象或重复安装拒绝，不删表、不清库。普通启动校验运行账户权限、完整组件契约及实时 catalog 指纹，不创建角色、不 GRANT、不安装或升级 schema。安装组件不等于其 HTTP 业务已启用。
 
 配置完整身份和数据库后，`/health/ready` 可以返回 200，即使 `models` 为 `false`；模型默认关闭时 `/health/model-ready` 返回 503。这不证明供应商健康、支付已启用或功能对齐 main。
 
@@ -105,9 +105,22 @@ curl -i http://127.0.0.1:${LMM_DOCKER_CORE_PORT:-18080}/health/model-ready
 mise exec -- python3 -B scripts/test-core-boundaries.py
 mise exec -- python3 -B -m unittest discover -s scripts -p test_core_rpc_fixture.py
 # 仅在最终源码冻结后运行，避免重复冷构建：
-mise exec -- python3 -B scripts/test-core-rpc-docker.py
+mise exec -- python3 -B scripts/test-core-rpc-docker.py \
+  --output-root "${LMM_DOCKER_TEST_OUTPUT:?Set a new empty private output directory}"
 ```
 
-离线 fixture 验证私有文件创建、精确单文件挂载参数、原 inode 轮换及可捕获信号退出后恢复 `0400`。Compose 客户端检查另验证八种覆盖组合中的 TOML、命令和凭据隔离；这些检查不证明真实容器挂载或二进制能启动。Docker 脚本只连接本机 Docker socket，创建随机项目、合成凭据、隔离端口及自有卷，验证安装、owner/缺权限拒绝、受限身份 readiness、RPC 和恢复，并仅清理本次创建的资源。本指南尚不声称新增容器断言已经通过。
+测试输出目录须为绝对路径、无符号链接、属于当前用户且为空的 `0700` 目录；
+创建目录、构建与测试前按 [工作指南](../../docs/agent-workflows.md) 用 agcc 覆盖源码和输出目录。
+两程序的正式 Dockerfile 构建共用同一个重构建租约，串行完成；Docker daemon 的层、卷与
+CPU/内存不属于本机文件 watcher 或客户端租约的覆盖范围。基础镜像已固定到摘要，
+实际生成镜像仍需按回执中的 image ID 核对，不能把版本标签当成已测试字节。
+
+脚本持久保存分配记录、源码及文件权限绑定、私有命令日志、镜像和容器身份以及结果。
+失败只停止已核实归属的本次容器，保留卷、配置、秘密文件和日志；构建超时记录为未知，
+不能据此认定 daemon 工作已经结束或盲目重试。成功须先完成业务断言，再清理并读回
+本次容器、卷和网络；本次镜像作为测试产物保留，不执行全局清理。
+定位入口：`markref context deployment.database-authority --max-bytes 8000`。
+
+离线 fixture 验证私有文件创建、精确单文件挂载参数、原 inode 轮换及可捕获信号退出后恢复 `0400`。Compose 客户端检查另验证八种覆盖组合中的 TOML、命令和凭据隔离；这些检查不证明真实容器挂载或二进制能启动。Docker 脚本只连接本机 Docker socket，创建随机项目、合成凭据、隔离端口及自有卷，验证安装、owner/缺权限拒绝、受限身份 readiness、RPC 和恢复，并仅清理本次创建的资源。本轮冻结412项源码和496项文件/目录权限，实际构建两程序的正式镜像并通过上述场景；原59条断言完整执行。另有36项离线反例、私有目录构建正负控和同一镜像中非root读取许可证/法律模板的实际验证。八种配置解析检查不计为八次真实安装。
 
 手工栈只停止对应随机项目，保留数据；不要顺手增加 `--volumes`，不清理其他人的项目或卷。可选协议默认关闭，按[模板指南](../../docs/legal/README.md)配置 `/etc/lmm.conf.d/legal.toml`、明确的绝对 `template_root` 与 `compose.legal.yml`，运营方 TOML 不打包。只读模板位于 `/usr/share/lmm/legal/`。进程运行设置使用 TOML，Compose 的路径插值变量只决定挂载；完整路径约定见[配置与文件路径](../../docs/filesystem-layout.md)。`--target binaries` 只导出程序，不是运行镜像；预览归档见[独立分发](../../docs/release-architecture.md)。本栈不接生产反向代理、自动发布或生产部署。
