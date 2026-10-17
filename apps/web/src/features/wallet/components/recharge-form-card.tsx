@@ -220,6 +220,7 @@ export function RechargeFormCard({
     (amount: number) => currency.quotaToInput(amount),
     [currency]
   )
+  const amountInputRef = useRef<HTMLInputElement>(null)
   const [amountEditing, setAmountEditing] = useState(false)
   const [amountInput, setAmountInput] = useState(() => ({
     sourceAmount: topupAmount,
@@ -777,7 +778,7 @@ export function RechargeFormCard({
                         <SelectTrigger
                           size='sm'
                           aria-label={t('Recharge display currency')}
-                          className='min-w-22'
+                          className='min-h-11 min-w-22 sm:min-h-8'
                         >
                           <SelectValue />
                         </SelectTrigger>
@@ -800,6 +801,7 @@ export function RechargeFormCard({
                       <div className='flex min-w-0 items-center gap-2'>
                         <InputGroup className='h-11 min-w-0 flex-1'>
                           <InputGroupInput
+                            ref={amountInputRef}
                             id='topup-amount'
                             type='text'
                             inputMode='decimal'
@@ -1182,7 +1184,7 @@ export function RechargeFormCard({
                         >
                           <SelectTrigger
                             id='waffo-pancake-checkout-region'
-                            className='w-full min-w-0'
+                            className='min-h-11 w-full min-w-0 sm:min-h-9'
                           >
                             <SelectValue>
                               {effectiveWaffoPancakeCheckoutRegion === 'china'
@@ -1337,14 +1339,45 @@ export function RechargeFormCard({
                 )}
                 {(hasStandardPaymentMethods || hasWaffoPaymentMethods) &&
                   effectivePaymentMethod && (
-                    <div className='bg-primary/5 border-primary/20 mt-2 rounded-xl border p-4'>
+                    <div
+                      data-slot='wallet-payment-summary'
+                      className='bg-primary/5 border-primary/20 mt-2 min-w-0 rounded-xl border p-4'
+                    >
                       <div className='flex flex-col gap-4'>
+                        <div className='flex min-w-0 flex-wrap items-center justify-between gap-2 border-b pb-3'>
+                          <div className='min-w-0'>
+                            <p className='text-muted-foreground text-xs font-medium'>
+                              {t('Top-up amount')}
+                            </p>
+                            <p
+                              data-slot='wallet-selected-topup'
+                              className='text-foreground font-semibold wrap-anywhere tabular-nums'
+                            >
+                              {formatCreditQuota(topupAmount)}
+                            </p>
+                          </div>
+                          <Button
+                            type='button'
+                            variant='outline'
+                            className='min-h-11 shrink-0 sm:min-h-9'
+                            aria-label={`${t('Edit')} · ${t('Top-up amount')}`}
+                            aria-controls='topup-amount'
+                            disabled={Boolean(paymentLoading)}
+                            onClick={() => {
+                              const input = amountInputRef.current
+                              input?.scrollIntoView({ block: 'center' })
+                              input?.focus({ preventScroll: true })
+                            }}
+                          >
+                            {t('Edit')}
+                          </Button>
+                        </div>
                         <div className='flex min-w-0 flex-col'>
                           <span className='text-muted-foreground text-xs font-medium'>
                             {t('Total')}
                           </span>
                           <div className='flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1'>
-                            <span className='text-primary text-2xl font-semibold tracking-tight break-words tabular-nums'>
+                            <span className='text-primary min-w-0 max-w-full text-2xl font-semibold tracking-tight wrap-anywhere tabular-nums'>
                               {paymentAmountLabel}
                             </span>
                             {discount &&
@@ -1379,7 +1412,7 @@ export function RechargeFormCard({
                         <Button
                           type='button'
                           size='default'
-                          className='h-11 w-full font-semibold'
+                          className='h-auto min-h-11 w-full min-w-0 py-2 font-semibold whitespace-normal wrap-anywhere'
                           disabled={
                             isUpdatingQuote ||
                             !hasCurrentPaymentAmount ||
@@ -1455,19 +1488,19 @@ export function RechargeFormCard({
               {t('Have a Code?')}
             </Label>
           </div>
-          <div className='grid grid-cols-[minmax(0,1fr)_auto] gap-2'>
+          <div className='grid grid-cols-1 gap-2 sm:grid-cols-[minmax(0,1fr)_auto]'>
             <Input
               id='redemption-code'
               value={redemptionCode}
               onChange={(e) => onRedemptionCodeChange(e.target.value)}
               placeholder={t('Enter your redemption code')}
-              className='h-9 min-w-0'
+              className='h-11 min-w-0 text-base sm:h-9 sm:text-sm'
             />
             <Button
               onClick={onRedeem}
               disabled={redeeming}
               variant='outline'
-              className='h-9 px-4'
+              className='h-auto min-h-11 px-4 py-2 whitespace-normal sm:min-h-9'
             >
               {redeeming && (
                 <HugeiconsIcon
