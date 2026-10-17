@@ -30,6 +30,8 @@ const serverErrorMessageKeys = {
     'The service is temporarily unavailable. Please try again later.',
   'oauth.github_migration_declined':
     'GitHub account ownership could not be verified. Sign in another way and relink GitHub in account settings.',
+  AUTH_REGISTRATION_FEATURE_UNAVAILABLE:
+    'This server does not support registration with these options. No account was created.',
   AUTH_SESSION_LIMIT:
     'Too many active login sessions. On a device where you are already signed in, open Login sessions and use “Sign out other sessions” to revoke them. If you cannot access a signed-in device, reset your password to sign out all sessions.',
   AUTH_SESSION_ISSUANCE_LIMIT:
@@ -80,7 +82,7 @@ export function getServerErrorMessageKey(value: unknown): string | null {
       : isRecord(payload.error) && typeof payload.error.code === 'string'
         ? payload.error.code
         : null
-  if (!code) return null
+  if (!code || !Object.hasOwn(serverErrorMessageKeys, code)) return null
 
   return (
     serverErrorMessageKeys[code as keyof typeof serverErrorMessageKeys] ?? null

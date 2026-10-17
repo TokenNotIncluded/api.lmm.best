@@ -41,6 +41,7 @@ import {
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { login, startWechatLogin, wechatLoginByCode } from '@/features/auth/api'
+import { HumanGrantButton } from '@/features/auth/components/humangrant-button'
 import { LegalConsent } from '@/features/auth/components/legal-consent'
 import { OAuthProviders } from '@/features/auth/components/oauth-providers'
 import { loginFormSchema } from '@/features/auth/constants'
@@ -365,6 +366,9 @@ export function UserAuthForm({
         className={cn('grid gap-5', className)}
         {...props}
       >
+        <HumanGrantButton
+          disabled={isLoading || (requiresLegalConsent && !agreedToLegal)}
+        />
         {hasAlternativeLogin && alternativeLoginMethods}
 
         {hasAlternativeLogin && passwordLoginEnabled ? (
