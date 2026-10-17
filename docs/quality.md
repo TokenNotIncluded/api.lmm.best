@@ -207,6 +207,25 @@ Core 单独运行与 Core + Go 扩展分别验证；不能因为 Core 使用 Rus
 可继续处理；不靠调高保护阈值或删功能通过。资金终态、UNKNOWN、预扣保留及
 恢复重放仍按原业务断言核对，不能强制关池或丢任务来制造资源归零。
 
+本地并行测试可用 [`scripts/test-resource-lease.py`](../scripts/test-resource-lease.py)
+分配合作式资源。`run --root` 要求已有、绝对路径、当前用户所有且权限 0700 的私有
+目录；每次生成独立的 task/nonce 输出、target 与追加回执。子命令必须以
+`mise exec --` 开始，stdout/stderr 不转发；测试应将经过检查的诊断写入
+`LMM_TEST_OUTPUT`，凭据不得放入命令参数。
+
+`--heavy` 使用已有的当前用户私有目录 `/tmp/lmm-delegate` 中的共享 flock，
+不删除锁、不按超时抢占。SIGTERM/SIGINT 取消及写回执失败都会等自有子孙进程退出
+再放锁；合作进程不退出时会继续等待，不承诺取消期限。`--socket` 传递已监听的
+`LMM_TEST_LISTEN_FD`，子进程须接管该 FD，不能关闭后重新绑定。`--postgres` 只创建
+新的固定镜像测试库并核对物理身份、owner NOLOGIN 和低权限 runtime，不接收已有
+DSN；runtime 凭据仅给子进程。它不是服务维护锁、沙箱或部署验收结论。
+
+脚本回归使用已有私有目录 `LMM_A09_TEST_ROOT` 执行
+`python3 -B scripts/test_test_resource_lease.py`；只有显式设置
+`LMM_A09_TEST_POSTGRES=1` 才运行真实新建 PostgreSQL，未设置时该项为 SKIP。
+这组测试不替代下述应用资源验收。工具链是否符合 mise 固定版本仍须独立核对，
+不能从 wrapper 中设置的构建环境推断。
+
 当前 Core 局部资源回归入口为
 [`scripts/verify_model_resources.py`](../scripts/verify_model_resources.py)。它需要已安装的
 固定 Rust 工具链、本地固定 PostgreSQL 镜像、用户级 systemd 和可读回的 cgroup v2
