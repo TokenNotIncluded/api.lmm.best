@@ -104,3 +104,74 @@ ignored case, then actually report one passed, zero failed/ignored, one filtered
 The explicit expiry run has a 480-second harness deadline. Ordinary quick
 regression, production Stripe callbacks/checkout/refunds, and payment resource
 acceptance remain separate scopes. Existing failed fixtures must remain intact.
+
+## Explicit host Web status read acceptance
+
+The normal Go host can explicitly assemble `payments` and
+`host.web_compat = true` with `NewPaymentStatusReader`. Its read-only `GET` / `HEAD`
+`/api/user/payments/orders/{top_id}` route goes through `Mount` admission and
+drain, then passes the original user bearer through `Service.Get` to Rust order
+and account authorization. A mounted route without the reader authenticates
+before `503 PAYMENT_DISABLED`; write methods remain forbidden.
+
+The independent [status runner](verify_web_status.py) archives an explicit
+committed Core revision, overlays the independent Rust test, freezes current Go
+and helper inputs, and compiles offline under the shared heavy-build lease. It
+uses a fresh owned PostgreSQL fixture and restricted module runtime credentials;
+no external DSN, image pull or provider request is accepted. Installed pinned
+tools, cached crates/modules and the pinned PostgreSQL image are prerequisites.
+
+Prepare existing, owned 0700 absolute output and short socket directories without
+symlink components. Set `PAYMENT_STATUS_OUTPUT`, `PAYMENT_STATUS_SOCKET_ROOT` and
+`PAYMENT_STATUS_CORE_REVISION` to those directories and an immutable Core commit.
+Track the real Cargo cache, shared target and selected output/socket roots with
+agcc. The runner keeps its temporary and Go/mise caches under the output root:
+
+```sh
+agcc run --agent payment-web-status --root services/core/target \
+  --root "$HOME/.cargo" --root "$HOME/go/pkg/mod" --root /tmp/lmm-delegate \
+  --root "${PAYMENT_STATUS_OUTPUT:?Set an existing private absolute output root}" \
+  --root "${PAYMENT_STATUS_SOCKET_ROOT:?Set an existing private short socket root}" -- \
+  env MISE_DISABLE_TOOLS=rust MISE_AUTO_INSTALL=false RUSTUP_TOOLCHAIN=1.99.0 \
+  PYTHONDONTWRITEBYTECODE=1 MISE_CACHE_DIR="$PAYMENT_STATUS_OUTPUT/cache/mise" \
+  mise exec -- python3 -B tests/payments/verify_web_status.py \
+  --output "$PAYMENT_STATUS_OUTPUT" --socket-root "$PAYMENT_STATUS_SOCKET_ROOT" \
+  --core-revision "${PAYMENT_STATUS_CORE_REVISION:?Set an immutable Core commit}" \
+  --min-free-gib 100
+```
+
+`--min-free-gib` defaults to 10; the accepted local rerun explicitly used 100.
+This is a local build-protection budget, not a product capacity acceptance
+threshold. A first run omits `--reuse-build` and gets a unique run name. An
+optional `--reuse-build <previous-private-run>` must match the frozen committed
+Core/contracts/schema inputs; it still binds the current test and creates a
+fresh PostgreSQL fixture. Keep all previous failed runs and private receipts.
+
+The final independent run passed against Core commit
+`5e8053e2c42536244c57e793bf048c3f9db98097`, using `--run-name run06` and an eligible
+prior `run05` archive for reuse. One real Rust test, both Go phases and the actual
+`app.Run` subprocess helper executed successfully without skips. The path used
+real CoreControl/CorePayments Unix RPC, isolated PostgreSQL and actual loopback
+HTTP. A team administrator who did not create the order could read it; removing
+membership denied the same URL with 403 while the personal session remained
+valid, and logout then returned 401. Foreign-account, rotated credential, API
+Key, host-token and anonymous reads were refused.
+
+The run also checked the disabled reader, forbidden methods, admission,
+saturation/recovery/drain, `HEAD`, `no-store`, redacted DTOs and malformed local
+projections. Stopped/rejected work and `unknown` dispatch were synthetic local
+projection cases. Reads and app lifecycle left the checked Go rows unchanged;
+Core billing/payment tables and sequences stayed unchanged with zero journals,
+zero provider adapters and no queued money work. This is a real Rust-authorized
+`PREPARED` status-read acceptance, not real credit or refund settlement. The
+module `Service.Step` tests for historical stopped refund review use development
+Core/provider fixtures and remain a separate level of evidence.
+
+Each run keeps `inputs.json`, `runner-result.json` and `result.json` with the
+source/binary bindings and observed scope. The final run verified stable full
+inputs, physical PostgreSQL identity and no remaining client backends before
+removing its own fresh fixture. Private logs and credentials must not be
+committed. Checkout, actual provider/webhook compatibility, complete refund/hold
+release recovery, browser/Caddy flows, sustained payment resource acceptance and
+server deployment remain open gates. `core_credit_confirmed` records only the
+original completed credit, never the current balance or spendable value.

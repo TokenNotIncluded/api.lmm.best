@@ -48,7 +48,7 @@ docs/            # 文档
 | 模型入口 | 默认关闭；受控数字回环上游的 Chat/Responses 入口、非流式结算、流式输出前持久化 checkpoint、断流保留预留款及完成后恢复已有真实账本与 PostgreSQL 测试 | 外部真实渠道、缓存写入与按请求计费、旧渠道全量兼容及实际供应商验收 |
 | Go 商店与客服 | 显式启用模块，独立受限数据库持久化；旧 Web 商品和订单适配已有测试，身份走核心 RPC，购买资金适配独立 Commerce RPC；真实 Core+Go 进程已独立通过购买、结算、完整退款及故障重启，并通过共享预算的540秒负载和240秒慢TCP联合验收 | 真实外部支付供应商、客户资料与历史消息迁移、浏览器完整业务验收及其它运营模块；范围见[联合验收说明](../tests/commerce/README.md) |
 | 助手 | 预设、会话、脱敏历史与所有者归档已持久化并有独立数据库测试；未装配模型执行时明确返回不可用 | 原会话与平台赞助付款方的安全模型委托、真实对话、平台支持客服和完整管理员历史权限 |
-| 支付 | 合成供应商的真实 Rust/Go 进程已独立验证回调证明持久接纳、真实过期后的消费、两产品SIGKILL与重启后首次入账及原键唯一账本；测试显式启用支付RPC，正常宿主仍未开放该能力 | 正常宿主接线、真实供应商、完整退款和扣款恢复联合验收；失败退款释放仍缺可信dispatch绑定，范围见[支付验收说明](../tests/payments/README.md) |
+| 支付 | 正常宿主可显式装配 `payments` 与 `host.web_compat`；本轮真实 Rust RPC、隔离 PostgreSQL 和实际 `app.Run` 已独立验证 `PREPARED` 订单读取、团队非创建者授权及撤权、注销、禁写和准入/排空，读取期间资金表与序列不变、账本 journal 为 0；默认不启用支付。此前合成供应商的真实 Rust/Go 进程已独立验证回调证明持久接纳、真实过期后的消费、两产品SIGKILL与重启后首次入账及原键唯一账本 | 真实供应商、完整退款和扣款恢复联合验收、浏览器支付与支付资源验收；失败退款释放仍缺可信dispatch绑定，历史 review 恢复仍只有开发 fixture 测试，范围见[支付验收说明](../tests/payments/README.md) |
 
 13 个安装组件为 identity、oauth-grants、ledger、payments、charging、routing、events、charging-ledger、migration、console、model-gateway、commerce、abuse。安装 schema 不等于启用对应业务；普通启动不创建角色、不授权、不执行 DDL，也不自动升级已有库。
 

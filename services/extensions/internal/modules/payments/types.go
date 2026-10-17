@@ -228,6 +228,13 @@ type Adapter interface {
 	ReplayWindow(operation string) time.Duration // Zero means NEVER retry an ambiguous provider write.
 }
 
+const (
+	// DispatchUnknown means provider IO was started and its result is not known.
+	// It is not permission to release the hold or to mint a new request key.
+	DispatchUnknown   = "unknown"
+	DispatchResponded = "responded"
+)
+
 type Refund struct {
 	ID            string `json:"id"`
 	AmountMinor   int64  `json:"amount_minor"`
@@ -236,6 +243,9 @@ type Refund struct {
 	HoldReceipt   string `json:"hold_receipt,omitempty"`
 	State         string `json:"state"`
 	ProviderState string `json:"provider_state,omitempty"`
+	// Dispatch is unknown from the moment a refund write is claimed until the
+	// provider response is stored. A timeout keeps this value.
+	Dispatch string `json:"dispatch,omitempty"`
 }
 type Job struct {
 	Key          string    `json:"key"`
@@ -286,6 +296,34 @@ func (o Order) State() string {
 	}
 	if refunded == o.Intent.AmountMinor {
 		return "refunded"
+	}
+	// These jobs will not retry automatically. Keep their stopped state visible
+	// instead of promising checkout, credit or refund progress indefinitely.
+	if o.CreditState == "rejected" {
+		return "review"
+	}
+	for _, job := range o.Jobs {
+		if job.State != "review" {
+			continue
+		}
+		switch job.Kind {
+		case "checkout":
+			if o.ProviderPaid || o.Credited() {
+				continue
+			}
+		case "credit":
+			if o.Credited() {
+				continue
+			}
+		case "lookup_hold", "refund_submit", "commit", "release", "external_refund":
+			refund, exists := o.Refunds[job.RefundID]
+			// Signed provider status alone cannot free a hold. Only the
+			// completed Core result makes an older stopped job irrelevant.
+			if exists && (refund.State == "committed" || refund.State == "released" || refund.State == "rejected") {
+				continue
+			}
+		}
+		return "review"
 	}
 	if pending || o.RefundFence && !o.Credited() {
 		return "refund_pending"

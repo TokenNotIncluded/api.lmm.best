@@ -4,9 +4,11 @@ This is the financial safety boundary for the fresh-install microservice WIP, no
 an assertion that payments are enabled. Rust owns identity, authorization, payer
 selection, balances and ledger receipts. Go owns provider orders, evidence and
 module-local business state; it never chooses credit amounts or accesses the core
-database. The assembled Go host registers only `identity`; the core still keeps
-public billing/model readiness unavailable. See [architecture](core-migration.md)
-and the [payment module](../services/extensions/internal/modules/payments/README.md).
+database. The Go host supports explicit `payments` assembly and, with
+`host.web_compat = true`, a read-only Web payment status route. Payments remain
+opt-in; host readiness does not prove provider readiness or full financial
+acceptance. See [architecture](core-migration.md) and the
+[payment module](../services/extensions/internal/modules/payments/README.md).
 
 ## Units and compatibility
 
@@ -84,6 +86,43 @@ amount cap. Hold funds before a provider refund; independently verified terminal
 success commits it, verified terminal failure releases the hold. Timeout, missing
 callback or unsigned success proves neither. A pre-credit refund must fence later
 stale credit replay. Ledger refund and external provider payout are separate steps.
+
+## Account-authorized payment status reads
+
+With `payments` and Web compatibility explicitly assembled, `GET` and `HEAD`
+`/api/user/payments/orders/{top_id}` use the host's admission and drain lifecycle.
+The Web reader forwards the original authenticated user bearer to `Service.Get`;
+Rust rechecks current access to the order's payment intent and economic account.
+The host token, order creator or a caller-supplied user/account ID cannot replace
+that authorization. A mounted Web route without the reader authenticates first,
+then returns `503 PAYMENT_DISABLED`. Other methods are forbidden; this route
+cannot create an order, post a credit or request a refund.
+
+The status handler sends `Cache-Control: no-store`. Its data contains only
+`order_id`, `state`, `currency`, `amount_minor`, `provider_paid`,
+`core_credit_confirmed` and optional `refund_dispatch`. It exposes no checkout
+URL, provider identifiers, signatures, jobs, receipts or credentials.
+`amount_minor` is fiat in the named currency, not wallet credits.
+
+A rejected credit or unresolved stopped work awaiting `review` is shown as
+`review`, rather than promising indefinite progress. A historical review job
+must not hide later authoritative credit or refund completion. If any refund
+dispatch is `unknown`, that value takes precedence over `responded` from another
+refund. A missing `refund_dispatch`, including a historical row without dispatch
+evidence, proves neither that no provider write occurred nor that a retry is
+safe. Current workers record `unknown` when claiming a refund send, persist
+`responded` after a provider response, and retain `unknown` for uncertain results.
+These fields are read-only observations, not new financial authority.
+
+`provider_paid` alone does not establish a posted core credit.
+`core_credit_confirmed` records only the original completed credit; refunds or
+spending may have removed that value, so it is not the current balance, spendable
+funds or a new spending authorization.
+
+This read path does not enable checkout, provider callbacks or refund writes,
+and is not evidence of production payment or deployment acceptance. Independent
+joint coverage and its remaining limits are recorded in the
+[payment acceptance guide](../tests/payments/README.md).
 
 ## Funding, transfers and subscription lifecycle
 

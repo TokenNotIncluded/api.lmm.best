@@ -118,6 +118,16 @@ func (s *Service) Step(ctx context.Context, id string) error {
 				j.FirstAttempt = now
 			}
 			o.Jobs[key] = j
+			// Persist UNKNOWN before provider IO. A crash after this commit and
+			// before the response must not look like a refund that was never sent.
+			// @mark payments.refund-dispatch role=implementation
+			if j.Kind == "refund_submit" {
+				r := o.Refunds[j.RefundID]
+				if r.Dispatch != DispatchResponded {
+					r.Dispatch = DispatchUnknown
+					o.Refunds[r.ID] = r
+				}
+			}
 			chosen = j
 			snapshot = *o
 			return nil
@@ -285,6 +295,7 @@ func (s *Service) Step(ctx context.Context, id string) error {
 			if r.State == "held" {
 				r.State = "awaiting_evidence"
 			}
+			r.Dispatch = DispatchResponded
 			o.Refunds[r.ID] = r
 		case "commit", "external_refund":
 			r := o.Refunds[j.RefundID]

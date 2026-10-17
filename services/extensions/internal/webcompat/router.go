@@ -17,6 +17,7 @@ type AdditionalServices struct {
 	Assistant  AssistantHistory
 	ToolMarket ToolMarketService
 	Operations *operations.Service
+	Payments   PaymentStatusReader
 }
 
 // @mark extensions.admission role=consumer
@@ -25,8 +26,10 @@ func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, supp
 	RegisterStore(mux, auth, catalogue)
 	RegisterSupport(mux, auth, support)
 	var operationsService *operations.Service
+	var paymentReader PaymentStatusReader
 	if len(optional) == 1 {
 		operationsService = optional[0].Operations
+		paymentReader = optional[0].Payments
 		if !store.Missing(optional[0].Assistant) {
 			RegisterAssistant(mux, auth, optional[0].Assistant)
 		}
@@ -35,6 +38,7 @@ func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, supp
 		}
 	}
 	RegisterOperations(mux, auth, operationsService)
+	RegisterPayments(mux, auth, paymentReader)
 	// Unassembled old routes are explicit failures, never a successful empty DTO.
 	mux.HandleFunc("/api/store/", func(w http.ResponseWriter, r *http.Request) {
 		if _, err := auth.Verify(r.Context(), r); err != nil {
@@ -44,7 +48,7 @@ func Mount(host *modules.Host, auth *Authenticator, catalogue StoreService, supp
 		Respond(w, nil, store.ErrUnavailable)
 	})
 	return OperationsGuard(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !strings.HasPrefix(r.URL.Path, "/api/store/") && !strings.HasPrefix(r.URL.Path, "/api/assistant/") && !strings.HasPrefix(r.URL.Path, "/api/tool-market/") && !strings.HasPrefix(r.URL.Path, "/api/user/auth/store-claim/") &&
+		if !strings.HasPrefix(r.URL.Path, "/api/store/") && !strings.HasPrefix(r.URL.Path, "/api/assistant/") && !strings.HasPrefix(r.URL.Path, "/api/tool-market/") && !strings.HasPrefix(r.URL.Path, "/api/user/auth/store-claim/") && !strings.HasPrefix(r.URL.Path, "/api/user/payments/") &&
 			!strings.HasPrefix(r.URL.Path, "/api/release-notes/") && r.URL.Path != "/api/scripts" &&
 			!strings.HasPrefix(r.URL.Path, "/api/scripts/") && !strings.HasPrefix(r.URL.Path, "/scripts/") {
 			host.ServeHTTP(w, r)

@@ -221,7 +221,7 @@ func TestA05UnknownRefundKeepsOriginalDispatchHistory(t *testing.T) {
 	h.work()
 	key := stableKey("submit", r.ID)
 	before := h.get(o.ID).Jobs[key]
-	if before.Attempts != 1 || h.a.refundCalls.Load() != 1 {
+	if before.Attempts != 1 || h.a.refundCalls.Load() != 1 || h.get(o.ID).Refunds[r.ID].Dispatch != DispatchUnknown {
 		t.Fatal("fixture did not produce an ambiguous dispatch")
 	}
 	h.advance()
@@ -237,7 +237,8 @@ func TestA05UnknownRefundKeepsOriginalDispatchHistory(t *testing.T) {
 	h.s = a05Service(t, h, h.a)
 	h.work()
 	if h.a.refundCalls.Load() != 1 || h.c.count("release") != 0 || h.c.count("commit") != 0 ||
-		h.get(o.ID).Jobs[key].State != "review" || h.get(o.ID).Refunds[r.ID].State != "held" {
+		h.get(o.ID).Jobs[key].State != "review" || h.get(o.ID).Refunds[r.ID].State != "held" ||
+		h.get(o.ID).Refunds[r.ID].Dispatch != DispatchUnknown {
 		t.Fatal("unknown send-once refund was repeated or its hold released")
 	}
 }
