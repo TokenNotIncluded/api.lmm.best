@@ -216,6 +216,20 @@ def request(url, token=None, method="GET", body=None, user=None):
         return error.code, error.read()
 
 
+def wait_for_http(call, on_ready, *, attempts=100, pause=0.3):
+    """Retry until HTTP 200. A live proxy's 502/503 JSON is not readiness."""
+    for _ in range(attempts):
+        try:
+            status, body = call()
+            if status == 200:
+                on_ready()
+                return json.loads(body)
+        except (OSError, TimeoutError):
+            pass
+        time.sleep(pause)
+    raise AssertionError("test endpoint did not become available")
+
+
 class FixtureError(RuntimeError):
     """Safe public description; raw Docker/SQL output stays in private files."""
 
@@ -1085,16 +1099,9 @@ def execute(temp, projects, context):
         )
 
     def wait(call):
-        for _ in range(100):
-            try:
-                status, body = call()
-                if status == 200:
-                    context.capture_owned("ready", runtime=True)
-                return json.loads(body)
-            except (OSError, TimeoutError):
-                pass
-            time.sleep(0.3)
-        raise AssertionError("test endpoint did not become available")
+        return wait_for_http(
+            call, lambda: context.capture_owned("ready", runtime=True)
+        )
 
     def snapshot(service):
         data = json.loads(

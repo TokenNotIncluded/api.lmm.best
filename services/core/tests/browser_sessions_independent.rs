@@ -28,6 +28,20 @@ impl RuntimeRole {
         let database = owner.connect_options().get_database().unwrap().to_owned();
         let mut admin = reqwest::Url::parse(&std::env::var("DATABASE_URL").unwrap()).unwrap();
         assert_eq!(admin.host_str(), Some("127.0.0.1"));
+        // The official grant script refuses, and rolls back, unless the NOLOGIN
+        // installation owner already exists. That role is cluster-wide.
+        sqlx::raw_sql(
+            "DO $$ BEGIN \
+                CREATE ROLE lmm_core_owner NOLOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS; \
+             EXCEPTION WHEN duplicate_object THEN \
+                IF EXISTS (SELECT FROM pg_roles r WHERE r.rolname='lmm_core_owner' AND r.rolcanlogin) THEN \
+                    RAISE EXCEPTION 'installation owner must not log in'; \
+                END IF; \
+             END $$;",
+        )
+        .execute(owner)
+        .await
+        .unwrap();
         let grants = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("../../deployment/postgres/grant-core-runtime.sql");
         let output = std::process::Command::new("/usr/bin/psql")
@@ -55,7 +69,9 @@ impl RuntimeRole {
             .unwrap();
         assert!(
             output.status.success(),
-            "official runtime grants failed before session behavior"
+            "official runtime grants failed before session behavior\nstdout: {}\nstderr: {}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
         );
         admin.set_path(&database);
         admin.set_username(&name).unwrap();
