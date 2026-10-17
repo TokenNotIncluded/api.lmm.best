@@ -71,7 +71,8 @@ bash scripts/generate-core-protocol.sh --check
 # DATABASE_URL 必须指向可创建临时测试数据库的独立 PostgreSQL。
 (cd services/core && cargo fmt --all --check && cargo clippy --locked --all-targets -- -D warnings && cargo test --locked --all-targets)
 python3 -B scripts/test-core-boundaries.py
-python3 -B scripts/test-core-rpc-docker.py
+mise exec -- just test-docker \
+  "${LMM_DOCKER_TEST_OUTPUT:?Set a new empty private absolute output directory}"
 ```
 
 不得复用已有字段编号，不能悄悄改变类型、枚举或 RPC 名称。增加字段不能让旧调用者无故失效；破坏性改动应使用新主版本。契约测试覆盖已有字段、大整数、未知字段和损坏消息。

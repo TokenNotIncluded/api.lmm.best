@@ -171,7 +171,8 @@ HTTP 的 `owner` 输入仍使用明确类型的公开标识：个人为用户 ID
 (cd services/core && cargo fmt --all --check)
 (cd services/core && cargo clippy --locked --all-targets -- -D warnings)
 (cd services/core && cargo test --locked --all-targets)
-python3 -B scripts/test-core-rpc-docker.py
+mise exec -- just test-docker \
+  "${LMM_DOCKER_TEST_OUTPUT:?Set a new empty private absolute output directory}"
 ```
 
 测试覆盖非空库保护、并发安装、结构版本不匹配、账号关系、付款规则、权限分离、并发邀请、退出重入、审计回滚、凭证过期/撤销及数据库故障。

@@ -104,8 +104,9 @@ docker-core:
 docker-extensions:
     docker compose -f deployment/docker/compose.extensions.yml build extensions
 
-test-docker:
-    python3 -B scripts/test-core-rpc-docker.py
+# Use a new empty, private absolute directory; retain receipts on failure.
+test-docker $output_root:
+    python3 -B scripts/test-core-rpc-docker.py --output-root "$output_root"
 
 # Remove generated build output only, never database volumes.
 clean-generated:
