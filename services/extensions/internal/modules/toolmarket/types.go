@@ -26,6 +26,7 @@ var (
 	ErrUpstream    = errors.New("upstream_error")
 	ErrLimit       = errors.New("rate_limited")
 	ErrPending     = errors.New("execution_in_doubt")
+	ErrConsent     = errors.New("execution_consent_required")
 )
 
 // Authority is implemented by the integration layer using the Rust control RPC.
@@ -151,9 +152,12 @@ type OAuthState struct {
 type Execution struct {
 	Owner       Principal       `json:"owner"`
 	Fingerprint string          `json:"fingerprint"`
+	RequestHash string          `json:"request_hash,omitempty"`
+	Grant       string          `json:"grant,omitempty"`
 	State       string          `json:"state"`
 	Charge      Charge          `json:"charge"`
 	Result      json.RawMessage `json:"result,omitempty"`
+	Resume      *StreamResume   `json:"resume,omitempty"`
 }
 type Audit struct {
 	At      int64     `json:"at"`
@@ -163,15 +167,16 @@ type Audit struct {
 	Outcome string    `json:"outcome"`
 }
 type database struct {
-	Version    int                     `json:"version"`
-	Servers    map[string]Server       `json:"servers"`
-	Releases   map[string]Release      `json:"releases"`
-	Installs   map[string]Installation `json:"installs"`
-	Secrets    map[string]Secret       `json:"secrets"`
-	States     map[string]OAuthState   `json:"states"`
-	Executions map[string]Execution    `json:"executions"`
-	Audit      []Audit                 `json:"audit"`
-	Web        *webDatabase            `json:"web_compat,omitempty"`
+	Version    int                       `json:"version"`
+	Servers    map[string]Server         `json:"servers"`
+	Releases   map[string]Release        `json:"releases"`
+	Installs   map[string]Installation   `json:"installs"`
+	Secrets    map[string]Secret         `json:"secrets"`
+	States     map[string]OAuthState     `json:"states"`
+	Executions map[string]Execution      `json:"executions"`
+	Grants     map[string]ExecutionGrant `json:"execution_grants,omitempty"`
+	Audit      []Audit                   `json:"audit"`
+	Web        *webDatabase              `json:"web_compat,omitempty"`
 }
 
 func emptyDB() database {

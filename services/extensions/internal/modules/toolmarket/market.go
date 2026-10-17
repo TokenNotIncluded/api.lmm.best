@@ -3,6 +3,7 @@ package toolmarket
 import (
 	"context"
 	"encoding/json"
+	"reflect"
 	"sort"
 	"strings"
 	"sync"
@@ -38,7 +39,7 @@ type bucket struct {
 }
 
 func New(store *Store, authority Authority, cfg Config) (*Module, error) {
-	if store == nil || authority == nil {
+	if store == nil || missingInterface(authority) || cfg.Funds != nil && missingInterface(cfg.Funds) {
 		return nil, ErrInvalid
 	}
 	n := newNetwork()
@@ -63,6 +64,20 @@ func New(store *Store, authority Authority, cfg Config) (*Module, error) {
 	}
 	return &Module{store: store, authority: authority, funds: cfg.Funds, net: n, callback: cfg.CallbackURL, timeout: cfg.Timeout, perMinute: cfg.CallsPerMinute, now: time.Now, buckets: map[string]bucket{}, active: make(chan struct{}, 8), webOnly: cfg.WebOnly}, nil
 }
+
+// Interfaces containing a nil pointer must not pass construction checks.
+func missingInterface(v any) bool {
+	if v == nil {
+		return true
+	}
+	switch value := reflect.ValueOf(v); value.Kind() {
+	case reflect.Chan, reflect.Func, reflect.Interface, reflect.Map, reflect.Pointer, reflect.Slice:
+		return value.IsNil()
+	default:
+		return false
+	}
+}
+
 func (*Module) Name() string { return "toolmarket" }
 func (m *Module) admit(p Principal) error {
 	m.mu.Lock()
@@ -138,6 +153,7 @@ type ExecuteInput struct {
 	Handle         string          `json:"handle"`
 	Quote          string          `json:"quote"`
 	IdempotencyKey string          `json:"idempotency_key"`
+	Grant          string          `json:"grant"`
 	Arguments      json.RawMessage `json:"arguments"`
 }
 type Quote struct {

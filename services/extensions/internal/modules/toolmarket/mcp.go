@@ -1,15 +1,15 @@
 package toolmarket
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"io"
 	"mime"
 	"net/http"
 	"strings"
+	"time"
 )
 
 type rpcEnvelope struct {
@@ -20,13 +20,16 @@ type rpcEnvelope struct {
 	Error   json.RawMessage `json:"error,omitempty"`
 }
 type mcpSession struct {
-	net      *network
-	endpoint string
-	headers  http.Header
-	next     int
+	net          *network
+	endpoint     string
+	headers      http.Header
+	next         int
+	checkpoint   func(json.RawMessage, string, time.Duration) error
+	beforeResume func() error
+	preserve     bool
 }
 
-func (m *Module) connect(ctx context.Context, s Server, secret Secret) (*mcpSession, error) {
+func (m *Module) connectionHeaders(s Server, secret Secret) (http.Header, error) {
 	h := http.Header{"Accept": []string{"application/json, text/event-stream"}, "Content-Type": []string{"application/json"}, "Mcp-Protocol-Version": []string{ProtocolVersion}}
 	if s.Auth != "none" {
 		if secret.Access == "" || secret.Expires > 0 && secret.Expires <= m.now().Unix() {
@@ -38,7 +41,21 @@ func (m *Module) connect(ctx context.Context, s Server, secret Secret) (*mcpSess
 			h.Set(s.Header, secret.Access)
 		}
 	}
+	return h, nil
+}
+
+func (m *Module) connect(ctx context.Context, s Server, secret Secret) (*mcpSession, error) {
+	h, e := m.connectionHeaders(s, secret)
+	if e != nil {
+		return nil, e
+	}
 	c := &mcpSession{net: m.net, endpoint: s.Endpoint, headers: h}
+	connected := false
+	defer func() {
+		if !connected {
+			c.close(ctx)
+		}
+	}()
 	b, e := c.rpc(ctx, "initialize", map[string]any{"protocolVersion": ProtocolVersion, "capabilities": map[string]any{}, "clientInfo": map[string]string{"name": "lmm-toolmarket", "version": "1"}})
 	if e != nil {
 		return nil, e
@@ -55,13 +72,20 @@ func (m *Module) connect(ctx context.Context, s Server, secret Secret) (*mcpSess
 	if _, e = c.rpc(ctx, "notifications/initialized", map[string]any{}); e != nil {
 		return nil, e
 	}
+	connected = true
 	return c, nil
 }
 func (c *mcpSession) close(ctx context.Context) {
 	if c.headers.Get("Mcp-Session-Id") == "" {
 		return
 	}
-	r, e := c.net.request(ctx, "DELETE", c.endpoint, nil, c.headers)
+	// Cleanup has its own small deadline, including after request cancellation.
+	// It never retries a model/tool operation or resets its durable state.
+	cleanup, cancel := context.WithTimeout(context.WithoutCancel(ctx), time.Second)
+	defer cancel()
+	headers := c.headers.Clone()
+	c.headers.Del("Mcp-Session-Id")
+	r, e := c.net.request(cleanup, "DELETE", c.endpoint, nil, headers)
 	if e == nil {
 		r.Body.Close()
 	}
@@ -93,6 +117,9 @@ func (c *mcpSession) rpc(ctx context.Context, method string, params any) (json.R
 		return nil, ErrUpstream
 	}
 	if method == "initialize" {
+		if len(r.Header.Values("Mcp-Session-Id")) > 1 {
+			return nil, ErrUpstream
+		}
 		sid := r.Header.Get("Mcp-Session-Id")
 		if len(sid) > 512 {
 			return nil, ErrUpstream
@@ -126,39 +153,22 @@ func (c *mcpSession) rpc(ctx context.Context, method string, params any) (json.R
 	if kind != "text/event-stream" {
 		return nil, ErrUpstream
 	}
-	// Bound both each event and the entire stream, including endless comments.
-	scan := bufio.NewScanner(io.LimitReader(r.Body, maxBody+1))
-	scan.Buffer(make([]byte, 4096), maxBody)
-	var data []string
-	total := 0
-	for scan.Scan() {
-		line := scan.Text()
-		total += len(line) + 1
-		if total > maxBody {
-			return nil, ErrUpstream
-		}
-		if line == "" {
-			if len(data) > 0 {
-				b := []byte(strings.Join(data, "\n"))
-				data = nil
-				if uniqueJSON(b) != nil {
-					return nil, ErrUpstream
-				}
-				var env rpcEnvelope
-				if json.Unmarshal(b, &env) != nil {
-					return nil, ErrUpstream
-				}
-				if len(env.ID) > 0 {
-					return checkedRPCResult(env, id)
-				}
-			}
-			continue
-		}
-		if strings.HasPrefix(line, "data:") {
-			data = append(data, strings.TrimPrefix(strings.TrimPrefix(line, "data:"), " "))
+	stream := newMCPStream(id, nil)
+	if c.checkpoint != nil {
+		stream.checkpoint = func(cursor string, retry time.Duration) error {
+			// A failed store acknowledgement may already have committed a cursor.
+			// Do not delete the session while that outcome remains uncertain.
+			c.preserve = true
+			return c.checkpoint(id, cursor, retry)
 		}
 	}
-	return nil, ErrUpstream // Never retry an uncertain tools/call automatically.
+	result, err := stream.read(r)
+	if !errors.Is(err, errStreamEnded) {
+		return result, err
+	}
+	// Release the old TCP response before trying a read-only reconnection.
+	r.Body.Close()
+	return c.resumeStream(ctx, stream)
 }
 func rpcResult(b []byte, id json.RawMessage) (json.RawMessage, error) {
 	if uniqueJSON(b) != nil {
@@ -197,7 +207,7 @@ func (c *mcpSession) tools(ctx context.Context) ([]Tool, error) {
 			Tools      []Tool `json:"tools"`
 			NextCursor string `json:"nextCursor"`
 		}
-		if json.Unmarshal(b, &list) != nil || len(list.Tools) == 0 && list.NextCursor != "" {
+		if json.Unmarshal(b, &list) != nil || list.Tools == nil || len(list.Tools) == 0 && list.NextCursor != "" {
 			return nil, ErrUpstream
 		}
 		for _, t := range list.Tools {

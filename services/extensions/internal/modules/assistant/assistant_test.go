@@ -166,12 +166,12 @@ func TestTeamPreferencesNeedOwnerOrAdminAndStayInScope(t *testing.T) {
 			}
 			readSession := start(t, s, other, team)
 			v := invoke(t, s, readSession, other, "get", "preferences.get", `{}`)
-			if v.Value.(Preferences).Currency != "CNY" {
+			if preferenceCurrency(t, v) != "CNY" {
 				t.Fatal(v)
 			}
 			ownSession := start(t, s, other, self)
 			own := invoke(t, s, ownSession, other, "own", "preferences.get", `{}`)
-			if own.Value.(Preferences).Currency != "USD" {
+			if preferenceCurrency(t, own) != "USD" {
 				t.Fatal("team preference leaked", own)
 			}
 			identity.Set(user, 1, 6, &pb.Team{Id: 7, Role: pb.TeamRole_TEAM_ROLE_MEMBER})
@@ -467,4 +467,14 @@ func TestPromotionToolsExposeNoAmountOrTeamGrant(t *testing.T) {
 	if _, e := s.Invoke(ctx, user, team, session.ID, "grant", "promotions.coupon.apply", json.RawMessage(`{"campaign":"welcome"}`)); !errors.Is(e, access.ErrForbidden) {
 		t.Fatal(e)
 	}
+}
+
+func preferenceCurrency(t *testing.T, result Result) string {
+	t.Helper()
+	var prefs Preferences
+	data, err := json.Marshal(result.Value)
+	if err != nil || json.Unmarshal(data, &prefs) != nil {
+		t.Fatal("invalid preference result")
+	}
+	return prefs.Currency
 }

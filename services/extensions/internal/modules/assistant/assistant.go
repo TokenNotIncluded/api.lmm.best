@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/assistant/access"
+	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/assistant/redaction"
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/assistant/storage"
 	"github.com/TokenNotIncluded/api.lmm.best/extensions/internal/modules/promotions"
 )
@@ -119,6 +120,12 @@ func (s *Service) check(ctx context.Context, token string, account access.Accoun
 	if p.UserID <= 0 || p.Level < 0 || p.Level > 6 || !p.Account.Valid() {
 		return p, access.ErrUnavailable
 	}
+	if account == (access.Account{}) {
+		account = access.Account{Kind: "personal", ID: p.UserID}
+	}
+	if p.Account != account || p.Account.Kind == "personal" && p.Account.ID != p.UserID {
+		return access.Principal{}, access.ErrForbidden
+	}
 	return p, nil
 }
 func (s *Service) Start(ctx context.Context, token string, account access.Account) (Session, error) {
@@ -213,16 +220,30 @@ func (s *Service) Invoke(ctx context.Context, token string, account access.Accou
 	bounded, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	value, runErr := execute(bounded, t, Invocation{token, p, args})
+	_, rewardPending := value.(promotions.PendingClaim)
 	resultBytes, marshalErr := json.Marshal(value)
 	if marshalErr != nil || len(resultBytes) > 8<<10 {
 		value = nil
 		runErr = access.ErrLimit
 	}
+	// Filter at the common call boundary, not only in Chat. Direct /invoke
+	// responses must never expose a handler's credentials either.
+	if runErr == nil {
+		value, runErr = redaction.JSON(resultBytes, token)
+		if clean, ok := value.(json.RawMessage); ok && len(clean) > 8<<10 {
+			runErr = access.ErrLimit
+		}
+	}
 	// Do not expose arbitrary handler error text (which may contain secrets).
 	if runErr != nil {
 		value = nil
+		runErr = safeToolError(runErr)
 	}
-	saveErr := s.repo.Within(ctx, scope(p), func(tx storage.Tx) error {
+	// A caller disconnect cannot erase a received tool outcome. Keep this
+	// bounded local receipt write separate from the caller's cancellation.
+	saveCtx, saveCancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer saveCancel()
+	saveErr := s.repo.Within(saveCtx, scope(p), func(tx storage.Tx) error {
 		current, e := sessionFor(tx, p, sessionID)
 		if e != nil {
 			return e
@@ -233,11 +254,12 @@ func (s *Service) Invoke(ctx context.Context, token string, account access.Accou
 		current.ActiveCall = ""
 		record.Status = "done"
 		if runErr != nil {
-			record.Status = "failed"
+			// An execution error does not prove an external side effect failed.
+			record.Status = "unknown"
 			current.Closed = true
 			current.Reason = "tool_error"
 		}
-		if _, pending := value.(promotions.PendingClaim); pending && !current.Closed {
+		if rewardPending && runErr == nil && !current.Closed {
 			current.Closed = true
 			current.Reason = "reward_pending"
 		}
@@ -262,6 +284,16 @@ func (s *Service) Invoke(ctx context.Context, token string, account access.Accou
 	}
 	return Result{Tool: name, Value: value, Continue: !session.Closed, Reason: session.Reason}, nil
 }
+func safeToolError(err error) error {
+	for _, allowed := range []error{access.ErrInvalid, access.ErrUnauthorized, access.ErrForbidden,
+		access.ErrNotFound, access.ErrConflict, access.ErrLimit, context.Canceled, context.DeadlineExceeded} {
+		if errors.Is(err, allowed) {
+			return allowed
+		}
+	}
+	return access.ErrUnavailable
+}
+
 func execute(ctx context.Context, t Tool, in Invocation) (out any, err error) {
 	defer func() {
 		if recover() != nil {

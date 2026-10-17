@@ -136,3 +136,45 @@ model sponsorship, external providers or production data. Record actual results
 separately from compiling the suite.
 
 Tests create uniquely named databases, use two independent pools, exercise rollback, account boundaries, least-privilege role behavior, duplicate applications, campaign caps and recovery after a core-result loss, then delete the test databases. Core money/model behavior in these tests is a controlled fixture, **not** live Rust ledger posting. The task workflow records the tested commit and full test output without deploying anything.
+
+## A08 execution and recovery additions
+
+The bounded native conversation now accepts only tools offered to that model
+round. Describing a tool and invoking it in the same batch is rejected; the next
+round must receive the exact permitted schema first. Live tool authorization
+continues to run at invocation. Tool result strings cannot add schemas or roles,
+and result credentials are masked before a following model call or response.
+Native session storage still contains metadata, not complete chat/tool payloads.
+
+Credential filtering is shared in the standard-library-only `redaction` package.
+History keeps its existing 4000/120 Unicode-character bounds. The JSON entrypoint
+preserves exact numbers and rejects ambiguous or oversized result objects.
+
+The owned `pgtest/history_process_test.go` adds a real executable child-process
+exit and restart against a newly created PostgreSQL database and restricted
+runtime role. It checks atomic replay, retained filtering, owner isolation and
+revocation. It runs under the existing assistant PostgreSQL CI job, once this
+candidate is committed. Test identity and completed model results are synthetic;
+it is not a live Rust delegation or payment test.
+
+The `/api/assistant/chat` compatibility endpoint remains unavailable without the
+A07 trusted model adapter. This change does not install that adapter, authorize
+platform payment or bypass the missing A01/A02 action policy. Tool-market grants
+are not assistant session credentials or permission to perform arbitrary
+remote-control commands. Whole A08 integration is still unfinished.
+
+## Result and cancellation handling
+
+`Invoke` filters every successful tool result before returning it to Go callers,
+HTTP or `Chat`. `Result.Value` contains JSON data rather than a handler's concrete
+Go type; callers must decode the JSON. Exact numeric values remain exact.
+`Chat` loads described tools from its registry, not from returned result data,
+and checks the live owner/account again before releasing a model reply.
+Model text also passes through the credential filter.
+
+A received tool outcome is saved with a separate two-second context even when
+the caller disconnects. Tool errors retain an `unknown` call outcome and close
+the session; an error is not proof that a remote effect failed. Duplicate call
+IDs report the original state and do not execute again. Private handler errors
+are replaced with fixed error values. This metadata receipt is not a payment,
+refund or complete external reconciliation mechanism.

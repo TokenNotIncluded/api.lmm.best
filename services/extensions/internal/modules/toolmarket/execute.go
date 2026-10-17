@@ -2,13 +2,42 @@ package toolmarket
 
 import (
 	"context"
-	"encoding/json"
 )
 
 func (m *Module) execute(ctx context.Context, p Principal, credential string, in ExecuteInput) (any, error) {
 	if !validID.MatchString(in.IdempotencyKey) || len(in.Handle) != 64 || len(in.Quote) != 64 {
 		return nil, ErrInvalid
 	}
+	if e := m.reauthorize(ctx, p, credential, "toolmarket.execute"); e != nil {
+		return nil, e
+	}
+	var canonical any
+	if e := decodeStrict(in.Arguments, &canonical); e != nil {
+		return nil, e
+	}
+	id := digest([]string{"toolmarket/v1", p.key(), in.IdempotencyKey})
+	requestHash := digest([]any{in.Installation, in.Name, in.Handle, in.Quote, in.Grant, canonical})
+	// A saved operation owns its original quote and result. Expired prices,
+	// revoked handles and upgrades cannot cause repricing or a second dispatch.
+	var prior Execution
+	found := false
+	if e := m.store.view(func(d database) error {
+		v, ok := d.Executions[id]
+		if !ok || v.RequestHash == "" {
+			return nil
+		} // Older receipts use the legacy fingerprint check below.
+		if v.Owner != p || v.RequestHash != requestHash {
+			return ErrConflict
+		}
+		prior, found = v, true
+		return nil
+	}); e != nil {
+		return nil, e
+	}
+	if found {
+		return m.replay(ctx, p, credential, id, prior)
+	}
+
 	i, r, s, e := m.snapshot(p, in.Installation)
 	if e != nil {
 		return nil, e
@@ -39,14 +68,8 @@ func (m *Module) execute(ctx context.Context, p Principal, credential string, in
 	if r.Server.Auth != "none" && (s.Access == "" || s.Expires > 0 && s.Expires <= m.now().Unix()) {
 		return nil, ErrAuth
 	}
-	var canonical any
-	if e = decodeStrict(in.Arguments, &canonical); e != nil {
-		return nil, e
-	}
-	id := digest([]string{"toolmarket/v1", p.key(), in.IdempotencyKey})
 	fingerprint := digest([]any{i.ID, r.ID, t.Name, canonical, q.ID})
 	charge := Charge{ID: id, Installation: i.ID, Tool: t.Name, Quote: q.ID, Currency: q.Currency, Amount: q.Amount}
-	var prior Execution
 	created := false
 	e = m.store.update(func(d *database) error {
 		current, _, _, e := selected(*d, p, i.ID)
@@ -57,7 +80,7 @@ func (m *Module) execute(ctx context.Context, p Principal, credential string, in
 			return ErrConflict
 		}
 		if v, ok := d.Executions[id]; ok {
-			if v.Owner != p || v.Fingerprint != fingerprint {
+			if v.Owner != p || v.Fingerprint != fingerprint || v.RequestHash != "" && v.RequestHash != requestHash {
 				return ErrConflict
 			}
 			prior = v
@@ -66,7 +89,10 @@ func (m *Module) execute(ctx context.Context, p Principal, credential string, in
 		if len(d.Executions) >= 50000 {
 			return ErrLimit
 		}
-		d.Executions[id] = Execution{Owner: p, Fingerprint: fingerprint, State: "started", Charge: charge}
+		if e := m.consumeGrant(d, p, in, charge, digest(canonical)); e != nil {
+			return e
+		}
+		d.Executions[id] = Execution{Owner: p, Fingerprint: fingerprint, RequestHash: requestHash, Grant: in.Grant, State: "started", Charge: charge}
 		d.audit(p, "execute", id, "started")
 		created = true
 		return nil
@@ -75,22 +101,18 @@ func (m *Module) execute(ctx context.Context, p Principal, credential string, in
 		return nil, e
 	}
 	if !created {
-		if prior.State == "done" {
-			return prior.Result, nil
-		}
-		if prior.State == "settlement_pending" {
-			return m.settle(ctx, p, credential, id, prior)
-		}
-		return nil, ErrPending
+		return m.replay(ctx, p, credential, id, prior)
 	}
-	// Persist intent before either reserving funds or contacting the provider.
-	// Ambiguous failures keep the intent. Retrying cannot execute/charge twice.
+	// The same durable operation consumes consent and reserves Core funds.
+	// Uncertainty retains both; no retry gets a fresh budget or idempotency key.
 	if q.Amount > 0 {
 		if e = m.funds.Reserve(ctx, credential, p, charge); e != nil {
 			return nil, ErrPending
 		}
 	}
-	// A revocation/disable that finished during reserve is observed before call.
+	if e = m.reauthorize(ctx, p, credential, "toolmarket.execute"); e != nil {
+		return nil, ErrPending
+	}
 	current, _, currentSecret, e := m.snapshot(p, i.ID)
 	if e != nil || current.Generation != i.Generation {
 		return nil, ErrPending
@@ -100,47 +122,91 @@ func (m *Module) execute(ctx context.Context, p Principal, credential string, in
 	if e != nil {
 		return nil, ErrPending
 	}
-	defer c.close(ctx)
+	defer func() {
+		if !c.preserve {
+			c.close(ctx)
+		}
+	}()
+	// Network initialization may be slow. Recheck live Core authority and local
+	// consent after it, then persist the dispatch boundary before tools/call.
+	if e = m.reauthorize(ctx, p, credential, "toolmarket.execute"); e != nil {
+		return nil, ErrPending
+	}
+	e = m.store.update(func(d *database) error {
+		g, ok := d.Grants[in.Grant]
+		if !ok {
+			return ErrConsent
+		}
+		if e := m.validateGrant(*d, p, g, true); e != nil {
+			return e
+		}
+		v, ok := d.Executions[id]
+		if !ok || v.Owner != p || v.RequestHash != requestHash || v.State != "started" {
+			return ErrConflict
+		}
+		v.State = "dispatched"
+		d.Executions[id] = v
+		d.audit(p, "execute", id, "dispatched")
+		return nil
+	})
+	if e != nil {
+		return nil, ErrPending
+	}
+	expected := Execution{Owner: p, Fingerprint: fingerprint, RequestHash: requestHash, Grant: in.Grant, State: "dispatched", Charge: charge}
+	m.bindExecutionStream(ctx, p, credential, id, expected, i, r, c)
 	result, e := c.rpc(ctx, "tools/call", map[string]any{"name": t.Name, "arguments": canonical})
 	if e != nil {
 		return nil, ErrPending
 	}
-	var check struct {
-		Content []json.RawMessage `json:"content"`
-		IsError bool              `json:"isError"`
-	}
-	if json.Unmarshal(result, &check) != nil || check.Content == nil {
-		return nil, ErrPending
-	}
-	// Commit charges for an accepted fixed-price invocation, including a tool's
-	// isError result. Transport uncertainty is held for reconciliation, not retried.
-	state := "done"
-	if q.Amount > 0 {
-		state = "settlement_pending"
-	}
-	record := Execution{Owner: p, Fingerprint: fingerprint, State: state, Charge: charge, Result: result}
-	e = m.store.update(func(d *database) error { d.Executions[id] = record; d.audit(p, "execute", id, state); return nil })
+	// A valid isError result is still an accepted fixed-price invocation.
+	record, e := m.saveExecutionResult(p, id, expected, result, credential, s.Access, s.Refresh)
 	if e != nil {
 		return nil, ErrPending
 	}
-	if state == "settlement_pending" {
+	c.preserve = false
+	if record.State == "settlement_pending" {
 		return m.settle(ctx, p, credential, id, record)
 	}
-	return result, nil
+	return record.Result, nil
 }
+
+func (m *Module) replay(ctx context.Context, p Principal, credential, id string, record Execution) (any, error) {
+	switch record.State {
+	case "done":
+		return m.executionResult(p, credential, record)
+	case "settlement_pending":
+		return m.settle(ctx, p, credential, id, record)
+	case "dispatched":
+		return m.resumeExecution(ctx, p, credential, id, record)
+	default:
+		return nil, ErrPending
+	}
+}
+
 func (m *Module) settle(ctx context.Context, p Principal, credential, id string, record Execution) (any, error) {
 	if m.funds == nil {
 		return nil, ErrFunds
+	}
+	result, err := m.executionResult(p, credential, record)
+	if err != nil {
+		return nil, err
 	}
 	if e := m.funds.Commit(ctx, credential, p, record.Charge); e != nil {
 		return nil, ErrPending
 	}
 	e := m.store.update(func(d *database) error {
 		v, ok := d.Executions[id]
-		if !ok || v.Owner != p || v.Fingerprint != record.Fingerprint {
+		if !ok || v.Owner != p || v.Fingerprint != record.Fingerprint || v.RequestHash != record.RequestHash {
+			return ErrConflict
+		}
+		if v.State == "done" {
+			return nil
+		}
+		if v.State != "settlement_pending" {
 			return ErrConflict
 		}
 		v.State = "done"
+		v.Result = result
 		d.Executions[id] = v
 		d.audit(p, "settle", id, "done")
 		return nil
@@ -148,5 +214,5 @@ func (m *Module) settle(ctx context.Context, p Principal, credential, id string,
 	if e != nil {
 		return nil, ErrPending
 	}
-	return record.Result, nil
+	return result, nil
 }
