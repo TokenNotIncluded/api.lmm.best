@@ -18,7 +18,7 @@
 
 该模式要求 `--reuse-export-proof`；不能同时选择三个 opening 模式，也不能传目标 receipt、预留审核或 opening approval/attempt。其他共用来源参数与 planner 一致，输出仍须为 `~/Backups` 下一个新的私有目录。凭据和用户事实不放进 argv 或仓库。
 
-详细结果保存在 `source-rights-reconciliation.private.json`，manifest 绑定它的实际文件 hash 和类型 hash，以及当前工具源码。汇总按表、字段、观察状态分别统计，不把重叠来源或不同币种相加。未知单位、缺失关联、未映射用户和未投影的表继续保留为待审核。核对范围仅限这份选定导出，来源 catalog 中未导出的表也不因此获得放行；`reserved_zero_proven=false`、`financial_rows_migrated=0` 是正常结果，命令成功不代表经济审核或迁移成功。
+详细结果保存在 `source-rights-reconciliation.private.json`，manifest 绑定它的实际文件 hash 和类型 hash，以及当前工具源码。该模式保留冻结来源引用、字节 hash、source proof 和非秘密投影，不生成包含完整原行的 `financial-full-source-manifest.private.json`，避免额外复制 Key bearer；manifest 明确 `full_source_manifest_created=false`、`raw_source_rows_copied=false`。原始完整行继续在原冻结私有导出中保留；普通金融 planner 的私有 full-source DTO 协议本轮不变。汇总按表、字段、观察状态分别统计，不把重叠来源或不同币种相加。未知单位、缺失关联、未映射用户和未投影的表继续保留为待审核。核对范围仅限这份选定导出，来源 catalog 中未导出的表也不因此获得放行；`reserved_zero_proven=false`、`financial_rows_migrated=0` 是正常结果，命令成功不代表经济审核或迁移成功。
 
 非零托管金额必须单独保留其归属、原始单位和后续释放/退款权利；不能加入钱包余额、再扣一次钱包，或因为将其排除在 opening writer 之外就视为已处理。来源行定位、状态名称或代码版本本身都不能证明历史部署执行过某种扣款规则。
 
@@ -33,6 +33,65 @@
 输出中的明确 blocker 和未知权利仍须逐项处理。该核对不生成导入 payload 或释放托管的授权，不能替代原子导入与付款、退款、争议恢复的独立验收。
 
 源码与独立反例入口：`markref context migration.bounty-basis --max-bytes 8000`。
+
+### API Key 剩余额度与历史用量的独立对账
+
+`source-rights-reconciliation.private.json` 的 `key_quota_reconciliation` 在冻结导出校验后，
+从 `tokens` 原行重新计算并逐类型核对 planner 的完整 `key_limits`，绑定来源 Key、原用户、
+目标个人账户、来源行 hash 和导出位置。缺项、多项、重复、改归属或改计数的计划即使重新计算了 hash 也拒绝；
+未映射 owner 保留原行事实并标记 blocker，不改绑其他账户。不会导出 Key 密文或把来源限制当成新授权。
+
+每条 Key 独立保留 `remain_quota`、`used_quota` 和 `unlimited_quota`，单位仍是
+`source-field-unit-unproven`。`display_basis_integer = used_quota + remain_quota` 仅为原整数的
+显示基数核对，不是美元换算或钱包金额；无限额 Key 也保留有符号的显示基数，但候选 lifetime cap 为 null。
+负的剩余额度不截断为零，负历史用量、有限 cap 越界及显示基数越界继续阻断。
+Key 之间及 Key 与用户的历史用量可能重叠，不汇成新资金，也不再次扣钱包。
+
+离线函数 `legacy_financial_reconciliation.build(..., target_key_inventory=inventory)` 接收目标库
+**只读导出的完整迁移范围 Key 清单**，不建立数据库连接。JSON 对象固定为
+`{"format_version":1,"scope":"legacy-api-keys","records":[...]}`。每行必须且只能包含：
+`source_key_id`、`target_key_id`、`account_id`（均为正整数），`status`（整数 1 启用、2 停用、
+3 过期、4 耗尽），`deleted_at`、`expired_time`、`unlimited`、`remaining_units`、`used_units`、
+`lifetime_limit_units`、`secret_sha256`、`restrictions`。`secret_sha256` 是原 bearer UTF-8 字节的
+小写 SHA-256，不是来源行 hash；导出中不得含 bearer。`restrictions` 包含原字段
+`model_limits_enabled`、`model_limits`、`allow_ips`、`group`、`auto_groups`、`cross_group_retry`、
+`oauth_managed`、`account_balance_read`、`one_time_reveal`、`creation_source`，缺失的来源字段按 null 比较。
+该格式保留原整数与状态语义；实际目标 schema 的只读适配及导出范围完整性仍需独立审核，不能从计划伪造目标清单。
+
+目标比较独立投影来源行，不从 planner 的 `map_key_limits` 生成目标期望值；共用 mapper 仅检查
+来源与计划是否一致。逐条比较 owner、状态（含删除与过期）、所有额度与限制、secret hash，输出
+`matched / missing_in_target / unexpected_in_target / field_mismatch`；匹配或字段不符的行均绑定实际
+`target_key_id`。任一非 matched 使 `key_reconciliation_passed=false`、顶层状态为
+`failed-key-reconciliation`，并保留逐条差异字段名，不复制可疑目标字段值。未提供清单或缺项也是失败；
+只有缺失目标的记录才没有目标 ID。
+
+`--source-rights-preview --target-key-inventory PATH` 可读取这一份已独立准备的离线 JSON；该参数不能用于
+普通 planner 或三个 opening 模式，也不会连接目标数据库。文件沿用 `~/Backups` 私有路径规则，拒绝
+符号链接、不安全权限、重复 JSON 属性和非有限数。通过格式及已知 bearer 检查后，原始字节保留为
+`target-key-inventory.private.json`；manifest 分别记录 `target_key_inventory_file_sha256` 与
+`target_key_inventory_typed_sha256`，前者绑定文件字节，后者绑定带类型的内容。
+`target_key_inventory_provenance_verified=false`、`target_inventory_scope_completeness_verified=false`：
+本地 hash 不能证明目标导出来自哪个数据库，或导出范围完整。
+
+提供清单后，任一缺失、多余或字段不符使命令退出 `1`，同时保留完整对账报告与 manifest；格式或
+私有路径检查失败则退出 `1`，记录 failure，且不生成目标清单副本。未提供清单时仍可成功生成来源预览
+并退出 `0`，但 Key 状态保持失败。stdout、report 与私有对账均明确给出 `key_reconciliation_passed`
+和状态；全部 matched 也只到 `blocked-for-opening-economic-review`，不能把退出 `0` 当作迁移验收。
+
+不同来源 ID 共用 bearer、缺失/空 bearer、未知或非整数 status 均直接拒绝，错误信息不包含原值。
+该模式先在内存中完成所有输出的已知 Key bearer 检查，再写出派生文件；检查包括 plan 中的来源限制与
+删除状态、source proof 的路径及元数据、目标清单、最终 manifest 和序列化内容。夹带会以固定错误码拒绝，
+输出只保留无秘密的 failure，不写出提前生成的 plan 或 proof 副本。发布阶段逐文件校验字节 hash；
+多文件输出不是原子事务，I/O 失败时可能留下已经检查过的部分文件，须保留失败证据。
+原始冻结导出仍是私有敏感材料。这是合成纯函数及 CLI 文件路径测试覆盖的**离线对账边界**，
+不是 PostgreSQL 导入或运行进程验收。
+Core 已有 `core_charging.budget_opening_consumption` 的历史用量预算合同；本片不写该表，
+也不生成其导入 payload。`credential_activation_allowed=false`、`target_writes=0`；即使所有导出字段
+matched，也不授权激活或证明单位与历史部署规则正确。实际导入的原子性、重放、故障恢复、运行时有效权限
+及不重复计费仍待后续独立验收，06 批次保持 BLOCKED。
+
+实现与反例沿用 `migration.financial-rights`，开发者测试见
+[`scripts/test_legacy_key_reconciliation.py`](../scripts/test_legacy_key_reconciliation.py)。
 
 ## 支持范围
 

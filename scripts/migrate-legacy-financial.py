@@ -348,13 +348,23 @@ def build_opening_counter_payloads(plan: dict, opening: dict) -> dict:
     return result
 
 
+# @mark migration.financial-rights role=implementation
 def map_key_limits(tokens: list[dict], identities: dict[int, int]) -> list[dict]:
-    result, seen = [], set()
+    result, seen, bearer_hashes = [], set(), set()
     for token in tokens:
         tid = integer(token.get("id"), "key_id_invalid", minimum=1)
         uid = integer(token.get("user_id"), "key_user_id_invalid", minimum=1)
         require(tid not in seen, "key_id_duplicate")
         seen.add(tid)
+        bearer = token.get("key")
+        require(type(bearer) is str and bool(bearer.strip()), "key_bearer_missing")
+        secret_hash = hashlib.sha256(bearer.encode("utf-8")).hexdigest()
+        require(secret_hash not in bearer_hashes, "key_bearer_duplicate")
+        bearer_hashes.add(secret_hash)
+        # Historical TokenStatus: enabled, disabled, expired, exhausted.
+        # Never include an untrusted status (or bearer) in an error message.
+        require(type(token.get("status")) is int and token["status"] in (1, 2, 3, 4),
+                "key_status_unknown")
         used = integer(token.get("used_quota"), "key_used_invalid")
         remain = integer(token.get("remain_quota"), "key_remaining_invalid")
         unlimited = token.get("unlimited_quota")
@@ -374,7 +384,8 @@ def map_key_limits(tokens: list[dict], identities: dict[int, int]) -> list[dict]
         result.append({"source_key_id": tid, "source_user_id": uid, "account_id": identities.get(uid),
                        "unlimited": unlimited, "remaining_units": remain, "used_units": used,
                        "lifetime_limit_units": limit, "expired_time": integer(token.get("expired_time"), "key_expiry_invalid"),
-                       "source_status": token.get("status"), "source_deleted_at": token.get("deleted_at"),
+                       "source_status": token["status"], "source_deleted_at": token.get("deleted_at"),
+                       "secret_sha256": secret_hash,
                        "restrictions": restrictions, "credential_activation_allowed": False,
                        "source_row_sha256": digest(token), "blockers": blockers})
     return sorted(result, key=lambda row: row["source_key_id"])
@@ -773,6 +784,90 @@ def verify_plan_mapping(plan: dict) -> None:
             "financial_plan_summary_hash_mismatch")
 
 
+# @mark migration.financial-manifest role=implementation
+def build_full_financial_manifest(plan: dict, tables: dict[str, list[dict]], identities: dict[int, int], *,
+                                  source_proof: dict, source_observation: dict) -> dict:
+    """Private read DTO, NOT approval or rights. Rebind every original typed row.
+
+    A self-consistent mapping hash alone is not proof of the source. Both source
+    evidence and the independently frozen export proof must agree, including
+    empty tables, source columns, primary keys and the COMPLETE identity map.
+    Decimal display tags are never decoded back into money.
+    """
+    verify_plan_mapping(plan)
+    require(isinstance(source_proof, dict) and source_proof.get("source_archive_sha256") == plan["source_archive_sha256"],
+            "full_manifest_source_mismatch")
+    export_hash = source_proof.get("source_export_sha256")
+    require(isinstance(export_hash, str) and IDENTITY.HEX.fullmatch(export_hash) is not None,
+            "full_manifest_export_hash_invalid")
+    require(source_proof.get("source_column_coverage_exact") is True and source_proof.get("source_row_baseline_exact") is True,
+            "full_manifest_export_coverage_unproven")
+    require(digest(identities) == plan.get("identity_map_sha256"), "full_manifest_identity_map_mismatch")
+    require(all(type(uid) is int and type(aid) is int and 0 < uid <= BIGINT_MAX and 0 < aid <= BIGINT_MAX
+                for uid, aid in identities.items()) and len(set(identities.values())) == len(identities),
+            "full_manifest_identity_map_invalid")
+    require(isinstance(source_observation, dict) and source_observation.get("basis") == "frozen_dump_capture_started_utc"
+            and source_observation.get("exact_financial_snapshot_instant_known") is False
+            and source_observation.get("must_not_be_used_as_original_payment_or_settlement_time") is True,
+            "full_manifest_observation_invalid")
+    integer(source_observation.get("observed_at"), "full_manifest_observation_invalid",
+            minimum=-62135596800, maximum=253402300799)
+    try:
+        observed = datetime.fromisoformat(source_observation["capture_window_started_at_iso"])
+        require(observed.tzinfo is not None and observed.utcoffset().total_seconds() == 0,
+                "full_manifest_observation_invalid")
+        delta = observed - datetime(1970, 1, 1, tzinfo=timezone.utc)
+        require(delta.microseconds == 0 and delta.days * 86400 + delta.seconds == source_observation["observed_at"],
+                "full_manifest_observation_invalid")
+    except (KeyError, TypeError, ValueError):
+        raise MappingError("full_manifest_observation_invalid") from None
+    evidence = plan.get("source_evidence", {})
+    counts = source_proof.get("selected_table_counts", {})
+    columns = source_proof.get("source_column_schema", {})
+    primary_keys = source_proof.get("source_primary_keys", {})
+    require(set(tables) == set(evidence) == set(counts) == set(columns) == set(primary_keys),
+            "full_manifest_table_coverage_mismatch")
+    rows_by_table = {}
+    for table, rows in sorted(tables.items()):
+        require(isinstance(rows, list) and all(isinstance(row, dict) for row in rows), "full_manifest_row_shape_invalid")
+        require(type(counts[table]) is int and counts[table] == len(rows) == evidence[table].get("row_count")
+                and [digest(row) for row in rows] == evidence[table].get("row_hashes"), "full_manifest_source_rows_changed")
+        require(evidence[table].get("source_column_schema") == columns[table]
+                and evidence[table].get("primary_key_columns") == primary_keys[table], "full_manifest_catalog_changed")
+        records = evidence[table].get("source_records")
+        require(isinstance(records, list) and len(records) == len(rows), "full_manifest_record_identity_missing")
+        fields = primary_keys[table]
+        require(fields is None or (isinstance(fields, list) and bool(fields) and all(type(f) is str for f in fields)
+                and len(set(fields)) == len(fields)), "full_manifest_primary_key_invalid")
+        seen, retained = set(), []
+        for ordinal, (row, record) in enumerate(zip(rows, records)):
+            require(fields is None or all(field in row and row[field] is not None for field in fields),
+                    "full_manifest_primary_key_missing")
+            key = {field: row[field] for field in fields} if fields else None
+            require(key is None or digest(key) not in seen, "full_manifest_primary_key_duplicate")
+            seen.add(digest(key))
+            require(record == {"source_primary_key": key, "source_export_ordinal": ordinal, "source_row_sha256": digest(row)},
+                    "full_manifest_record_identity_changed")
+            retained.append({**record, "raw_fact": exact(row), "economic_authority": "unknown-not-authorized"})
+        rows_by_table[table] = {"primary_key_columns": fields, "columns": columns[table],
+                                "rows": retained, "row_count": len(rows), "source_typed_rows_sha256": digest(rows)}
+    result = {"format_version": 1, "scope": "financial-full-source-manifest-v1", "digest_format": DIGEST_FORMAT,
+              "source_archive_sha256": plan["source_archive_sha256"], "source_export_sha256": export_hash,
+              "mapping_sha256": plan["mapping_sha256"], "source_observation": source_observation,
+              "identity_map": [{"source_user_id": uid, "target_user_id": uid, "target_account_id": aid}
+                               for uid, aid in sorted(identities.items())],
+              "identity_map_sha256": digest(identities), "source_proof_sha256": digest(source_proof),
+              "family_facets": plan["families"], "source_tables": rows_by_table,
+              "unknown_economic_tables": plan["unclassified_financial_tables"],
+              "new_transaction_unit": UNIT, "new_transaction_credits_per_usd": 500000,
+              "historical_unit_conversion_authorized": False, "target_bound": False,
+              "runtime_activation_authorized": False, "target_writes": 0,
+              "raw_fact_types": "original-type-tagged-row-hash-plus-unmodified-private-export; display-tags-not-type-proof"}
+    result = exact(result)
+    result["full_manifest_sha256"] = digest(result)
+    return result
+
+
 def tool_source_hashes(*, source_rights=False) -> dict:
     result = {"importer_sha256": IDENTITY.sha256_file(Path(__file__)),
               "identity_helper_sha256": IDENTITY.sha256_file(Path(IDENTITY.__file__))}
@@ -836,7 +931,7 @@ def read_frozen_export(raw_path: Path, receipt: dict, columns: dict, baseline: d
     return tables
 
 
-def reuse_frozen_export(receipt: dict, proof_path: Path, output: Path):
+def reuse_frozen_export(receipt: dict, proof_path: Path, output: Path, *, publish_proof=True):
     """Replan a prior, hash-bound private export without querying either DB."""
     require(receipt.get("status") == "snapshot-restored-baseline-verified-frozen-and-classified", "source_receipt_status_invalid")
     proof_path = IDENTITY.private_backup_path(proof_path)
@@ -860,7 +955,8 @@ def reuse_frozen_export(receipt: dict, proof_path: Path, output: Path):
              "source_column_schema": {table: column_schema[table] for table in selected},
              "reused_source_export_path": str(raw_path), "reused_source_export_proof_sha256": IDENTITY.sha256_file(proof_path),
              "source_queries_this_run": 0}
-    IDENTITY.write_private(output, "source-export-proof.private.json", canonical(proof) + "\n")
+    if publish_proof:
+        IDENTITY.write_private(output, "source-export-proof.private.json", canonical(proof) + "\n")
     return tables, proof
 
 
@@ -919,6 +1015,7 @@ def main() -> int:
     parser.add_argument("--apply", action="store_true")
     # @mark migration.financial-rights role=cli
     parser.add_argument("--source-rights-preview", action="store_true", help="Audit only a verified frozen export; produce source facts with unknown rights, never opening payloads or approval")
+    parser.add_argument("--target-key-inventory", type=Path, help="Optional private offline Key export for source-rights preview comparison only; never reads or writes a target database")
     opening_modes = parser.add_mutually_exclusive_group()
     opening_modes.add_argument("--opening-preview", action="store_true", help="Prepare only the reviewed-zero opening candidate; never apply other financial families")
     opening_modes.add_argument("--apply-opening", action="store_true", help="Apply one separately approved opening-only batch to a new owned offline target")
@@ -933,6 +1030,8 @@ def main() -> int:
     try:
         require(not args.apply, "financial_apply_contract_not_frozen")
         opening_mode = args.opening_preview or args.apply_opening or args.reconcile_opening
+        require(args.target_key_inventory is None or args.source_rights_preview,
+                "target_key_inventory_requires_source_rights_preview")
         if args.source_rights_preview:
             require(args.reuse_export_proof is not None and not opening_mode and all(value is None for value in
                 (args.target_receipt, args.reservation_evidence, args.reservation_review, args.opening_approval, args.opening_attempt)),
@@ -953,18 +1052,27 @@ def main() -> int:
         identity_provenance = bind_identity_provenance(identity_manifest, map_file_sha256=IDENTITY.sha256_file(map_path),
                                                       source_archive_sha256=source.get("archive", {}).get("sha256"))
         identities = identity_index([parse_json(line) for line in map_path.read_text().splitlines() if line])
-        tables, proof = (reuse_frozen_export(source, args.reuse_export_proof, output) if args.reuse_export_proof
+        tables, proof = (reuse_frozen_export(source, args.reuse_export_proof, output,
+                                          publish_proof=not args.source_rights_preview) if args.reuse_export_proof
                          else export_source(source, output))
         plan = plan_financial(tables, identities, source_sha256=proof["source_archive_sha256"], source_timezone=args.source_timezone,
                               identity_provenance=identity_provenance, primary_keys=proof["source_primary_keys"],
                               column_schema=proof["source_column_schema"])
-        plan_path = IDENTITY.write_private(output, "financial-plan.private.json", canonical(plan) + "\n")
-        verify_plan_mapping(parse_json(plan_path.read_text()))
+        plan_text = canonical(plan) + "\n"
+        if args.source_rights_preview:
+            # No derived files are published until every preview output has
+            # passed the known-bearer check, including source plan metadata.
+            plan_file_hash = hashlib.sha256(plan_text.encode("utf-8")).hexdigest()
+            verify_plan_mapping(parse_json(plan_text))
+        else:
+            plan_path = IDENTITY.write_private(output, "financial-plan.private.json", plan_text)
+            verify_plan_mapping(parse_json(plan_path.read_text()))
+            plan_file_hash = IDENTITY.sha256_file(plan_path)
         verify_tool_source_hashes(tool_hashes)
         manifest = {"format_version": 1, "digest_format": DIGEST_FORMAT, "scope": "financial-typed-planner-only", "migration_id": args.migration_id,
                     "source_archive_sha256": proof["source_archive_sha256"], "source_export_sha256": proof["source_export_sha256"],
                     "identity_map_file_sha256": IDENTITY.sha256_file(map_path), "mapping_sha256": plan["mapping_sha256"],
-                    "financial_plan_file_sha256": IDENTITY.sha256_file(plan_path), "mapping_digest_domain": MAPPING_DIGEST_DOMAIN,
+                    "financial_plan_file_sha256": plan_file_hash, "mapping_digest_domain": MAPPING_DIGEST_DOMAIN,
                     "identity_manifest_file_sha256": IDENTITY.sha256_file(identity_manifest_path),
                     "identity_mapping_sha256": identity_provenance["identity_mapping_sha256"],
                     "source_observation": source_observation(source),
@@ -977,17 +1085,61 @@ def main() -> int:
             helper_spec.loader.exec_module(helper)
             import types
             financial = types.SimpleNamespace(**globals())
+            tokens = tables.get("tokens", [])
+            helper.reject_known_key_secrets(financial, {"plan": plan, "proof": proof, "manifest": manifest}, tokens)
+            artifacts = {"source-export-proof.private.json": canonical(proof) + "\n",
+                         "financial-plan.private.json": plan_text}
+            inventory, inventory_bytes = None, None
+            if args.target_key_inventory is not None:
+                inventory_path = IDENTITY.private_backup_path(args.target_key_inventory)
+                inventory_bytes = inventory_path.read_bytes()
+                inventory = parse_json(inventory_bytes.decode("utf-8"))
+                helper.validate_target_key_inventory(financial, inventory)
+                # Reject bearer strings hidden in untrusted target metadata
+                # before retaining the original bytes in the private output.
+                helper.reject_known_key_secrets(financial, inventory, tokens)
             rights = helper.build(financial, tables=tables, identities=identities, plan=plan, proof=proof,
                 identity_map_file_sha256=manifest["identity_map_file_sha256"],
-                identity_manifest_file_sha256=manifest["identity_manifest_file_sha256"], tool_hashes=tool_hashes)
-            rights_path = IDENTITY.write_private(output, "source-rights-reconciliation.private.json", canonical(rights) + "\n")
+                identity_manifest_file_sha256=manifest["identity_manifest_file_sha256"], tool_hashes=tool_hashes,
+                target_key_inventory=inventory)
+            if inventory_bytes is not None:
+                artifacts["target-key-inventory.private.json"] = inventory_bytes.decode("utf-8")
+                inventory_hash = hashlib.sha256(inventory_bytes).hexdigest()
+                manifest.update(target_key_inventory_file_sha256=inventory_hash,
+                    target_key_inventory_typed_sha256=digest(inventory),
+                    target_key_inventory_provenance_verified=False)
+            rights_text = canonical(rights) + "\n"
+            artifacts["source-rights-reconciliation.private.json"] = rights_text
             manifest.update(scope="financial-source-rights-preview-only",
                 target_identity_contract_verified=False,
-                source_rights_reconciliation_file_sha256=IDENTITY.sha256_file(rights_path),
+                source_rights_reconciliation_file_sha256=hashlib.sha256(rights_text.encode("utf-8")).hexdigest(),
                 source_rights_reconciliation_typed_sha256=digest(rights), source_queries=0, target_queries=0)
+            # The frozen original export remains the source of complete rows.
+            # This preview must not duplicate token bearers in a raw-row DTO.
+            manifest.update(full_source_manifest_created=False, raw_source_rows_copied=False,
+                original_frozen_source_export_retained=True)
+            artifacts["manifest.private.json"] = canonical(manifest) + "\n"
+            artifacts["report.private.json"] = canonical(rights["public_summary"]) + "\n"
+            # Inspect the actual serialized output too, after final manifest
+            # construction and before the first derived artifact is written.
+            helper.reject_known_key_secrets(financial, artifacts, tokens)
             verify_tool_source_hashes(tool_hashes)
+            for name, content in artifacts.items():
+                path = IDENTITY.write_private(output, name, content)
+                require(IDENTITY.sha256_file(path) == hashlib.sha256(content.encode("utf-8")).hexdigest(),
+                        "source_rights_artifact_copy_hash_mismatch")
+            verify_tool_source_hashes(tool_hashes)
+            print(canonical(rights["public_summary"]))
+            return 1 if args.target_key_inventory is not None and not rights["key_reconciliation_passed"] else 0
+        # Full source facets are private planner materials, not approval.
+        full_manifest = build_full_financial_manifest(plan, tables, identities, source_proof=proof,
+                                                     source_observation=manifest["source_observation"])
+        full_path = IDENTITY.write_private(output, "financial-full-source-manifest.private.json", canonical(full_manifest) + "\n")
+        manifest["full_source_manifest_file_sha256"] = IDENTITY.sha256_file(full_path)
+        manifest["full_source_manifest_typed_sha256"] = full_manifest["full_manifest_sha256"]
+        verify_tool_source_hashes(tool_hashes)
         IDENTITY.write_private(output, "manifest.private.json", canonical(manifest) + "\n")
-        IDENTITY.write_private(output, "report.private.json", canonical(rights["public_summary"] if args.source_rights_preview else plan["public_summary"]) + "\n")
+        IDENTITY.write_private(output, "report.private.json", canonical(plan["public_summary"]) + "\n")
         if opening_mode:
             opening_path = Path(__file__).with_name("legacy_financial_opening.py")
             opening_spec = importlib.util.spec_from_file_location("legacy_financial_opening", opening_path)
@@ -1005,7 +1157,7 @@ def main() -> int:
             IDENTITY.write_private(output, "opening-report.private.json", canonical(public)+"\n")
             print(canonical(public))
             return 0
-        print(canonical(rights["public_summary"] if args.source_rights_preview else plan["public_summary"]))
+        print(canonical(plan["public_summary"]))
         return 0
     except (MappingError, OSError, ValueError, KeyError, TypeError, RecursionError, subprocess.TimeoutExpired) as error:
         code = str(error) if isinstance(error, MappingError) else type(error).__name__

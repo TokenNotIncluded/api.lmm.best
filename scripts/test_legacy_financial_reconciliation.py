@@ -32,7 +32,8 @@ class ReconciliationTest(unittest.TestCase):
                 "primary_key_columns": ["id"], "source_column_schema": [{"column_name": key} for key in sorted(rows[0])] if rows else [],
                 "source_records": [{"source_primary_key": {"id": row["id"]}, "source_export_ordinal": n,
                     "source_row_sha256": F.digest(row)} for n, row in enumerate(rows)]}
-        plan.update(digest_format=F.DIGEST_FORMAT, mapping_digest_domain=F.MAPPING_DIGEST_DOMAIN)
+        plan.update(digest_format=F.DIGEST_FORMAT, mapping_digest_domain=F.MAPPING_DIGEST_DOMAIN,
+                    key_limits=F.map_key_limits(tables.get("tokens", []), identities))
         plan["mapping_sha256"] = F.digest(plan)
         plan["public_summary"] = {"mapping_sha256": plan["mapping_sha256"]}
         proof = {"selected_table_counts": {table: len(rows) for table, rows in tables.items()},
@@ -121,7 +122,8 @@ class ReconciliationTest(unittest.TestCase):
 
     def test_secret_columns_never_projected(self):
         result = self.build(self.fixture({"tokens": [{"id": 2, "key": "must-not-copy", "user_id": 1,
-            "remain_quota": 5, "used_quota": 4, "status": 1, "unlimited_quota": False}]}))
+            "remain_quota": 5, "used_quota": 4, "status": 1, "unlimited_quota": False,
+            "model_limits_enabled": False, "expired_time": -1}]}))
         self.assertNotIn("must-not-copy", F.canonical(result))
         self.assertNotIn('"key":', F.canonical(result))
 

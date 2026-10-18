@@ -7,6 +7,7 @@ prove that the deployed application followed a particular economic policy.
 """
 
 from collections import Counter
+import hashlib
 import importlib.util
 from pathlib import Path
 
@@ -53,8 +54,155 @@ SPECS = {
 
 
 # @mark migration.financial-rights role=implementation
+def source_key_comparison_facts(row, identities):
+    """Independent projection, not a call to the planner's candidate mapper.
+
+    This checks exported stored facts, NOT effective runtime authorization or
+    historical unit conversion. No source/target fields are trusted as money.
+    """
+    return {"account_id": identities.get(row["user_id"]),
+        "status": row["status"], "deleted_at": row.get("deleted_at"),
+        "expired_time": row["expired_time"], "unlimited": row["unlimited_quota"],
+        "remaining_units": row["remain_quota"], "used_units": row["used_quota"],
+        "lifetime_limit_units": None if row["unlimited_quota"] else row["used_quota"] + row["remain_quota"],
+        "secret_sha256": hashlib.sha256(row["key"].encode("utf-8")).hexdigest(),
+        "restrictions": {field: row.get(field) for field in (
+            "model_limits_enabled", "model_limits", "allow_ips", "group", "auto_groups",
+            "cross_group_retry", "oauth_managed", "account_balance_read", "one_time_reveal", "creation_source")}}
+
+
+# @mark migration.financial-rights role=implementation
+def validate_target_key_inventory(F, inventory):
+    """Read-only JSON export contract; no connection or plaintext secret input.
+
+    records must be the COMPLETE key set in the reviewed migration scope.
+    Absence of an inventory is a failed comparison, not successful acceptance.
+    """
+    if inventory is None:
+        return {}
+    F.require(type(inventory) is dict and set(inventory) == {"format_version", "scope", "records"}
+        and type(inventory["format_version"]) is int and inventory["format_version"] == 1
+        and inventory["scope"] == "legacy-api-keys" and type(inventory["records"]) is list,
+        "reconciliation_target_inventory_invalid")
+    fields = {"source_key_id", "target_key_id", "account_id", "status", "deleted_at", "expired_time",
+              "unlimited", "remaining_units", "used_units", "lifetime_limit_units", "secret_sha256", "restrictions"}
+    result, ids, hashes = {}, set(), set()
+    for row in inventory["records"]:
+        F.require(type(row) is dict and set(row) == fields, "reconciliation_target_key_shape_invalid")
+        for field in ("source_key_id", "target_key_id", "account_id"):
+            F.integer(row[field], "reconciliation_target_key_identity_invalid", minimum=1)
+        F.require(row["source_key_id"] not in result and row["target_key_id"] not in ids,
+                  "reconciliation_target_key_duplicate")
+        F.require(type(row["status"]) is int and row["status"] in (1, 2, 3, 4), "key_status_unknown")
+        F.require(type(row["unlimited"]) is bool, "reconciliation_target_key_unlimited_invalid")
+        for field in ("remaining_units", "used_units", "expired_time"):
+            F.integer(row[field], "reconciliation_target_key_counter_invalid")
+        if row["lifetime_limit_units"] is not None:
+            F.integer(row["lifetime_limit_units"], "reconciliation_target_key_limit_invalid", minimum=0)
+        F.require(type(row["restrictions"]) is dict, "reconciliation_target_key_restrictions_invalid")
+        secret_hash = row["secret_sha256"]
+        F.require(type(secret_hash) is str and len(secret_hash) == 64 and
+                  all(c in "0123456789abcdef" for c in secret_hash), "reconciliation_target_key_hash_invalid")
+        F.require(secret_hash not in hashes, "reconciliation_target_key_bearer_duplicate")
+        result[row["source_key_id"]] = row
+        ids.add(row["target_key_id"])
+        hashes.add(secret_hash)
+    return result
+
+
+# @mark migration.financial-rights role=implementation
+def reject_known_key_secrets(F, result, tokens):
+    """Refuse metadata-carried bearer leaks as well as direct secret fields."""
+    secrets = [row["key"] for row in tokens]
+    def visit(value):
+        if type(value) is str:
+            F.require(not any(secret in value for secret in secrets), "reconciliation_key_secret_in_output")
+        elif type(value) is dict:
+            for key, child in value.items():
+                visit(key)
+                visit(child)
+        elif type(value) is list:
+            for child in value:
+                visit(child)
+    visit(result)
+
+
+# @mark migration.financial-rights role=implementation
+def key_quota_reconciliation(F, *, tables, identities, plan, target_key_inventory=None):
+    """Bind Key counters independently; never turn a spending cap into money.
+
+    Called only after build verifies frozen source evidence and identity types.
+    The existing planner defines the candidate lifetime limit, not an approved
+    native credential or a proven conversion to current credits. Recompute it
+    from source rather than trusting a self-consistently rehashed plan.
+    """
+    source = tables.get("tokens", [])
+    expected = F.map_key_limits(source, identities)
+    # The persisted planner explicitly encodes decimal display tags. Compare
+    # its exact stored types; display JSON alone aliases a Decimal and an object.
+    F.require(F.digest(plan.get("key_limits", [])) == F.digest(F.exact(expected)),
+              "reconciliation_key_plan_mismatch")
+    F.require(len(set(identities.values())) == len(identities),
+              "reconciliation_key_account_mapping_not_unique")
+    # Planner consistency is NOT target evidence. The target side below never
+    # calls map_key_limits and is compared against the frozen raw source.
+    target_rows = validate_target_key_inventory(F, target_key_inventory)
+    records = []
+    by_id = {row["source_key_id"]: row for row in expected}
+    for ordinal, row in enumerate(source):
+        item = by_id[row["id"]]
+        used, remaining = item["used_units"], item["remaining_units"]
+        # Even unlimited Keys have signed display counters. This addition is
+        # source arithmetic only, not an exchange rate or a wallet posting.
+        display_basis = used + remaining
+        blockers = [*item["blockers"], "source-unit-and-deployed-policy-unproven",
+                    "native-key-binding-not-reviewed",
+                    "source-state-and-restrictions-not-authorized"]
+        if not -F.BIGINT_MAX - 1 <= display_basis <= F.BIGINT_MAX:
+            blockers.append("key_display_basis_out_of_range")
+        records.append({"source_key_id": item["source_key_id"],
+            "source_user_id": item["source_user_id"], "target_account_id": item["account_id"],
+            **plan["source_evidence"]["tokens"]["source_records"][ordinal],
+            "source_remaining_integer": remaining, "source_used_integer": used,
+            "source_unlimited": item["unlimited"], "display_basis_integer": display_basis,
+            "display_basis_minus_used_equals_remaining": display_basis - used == remaining,
+            "candidate_lifetime_limit_integer": item["lifetime_limit_units"],
+            "unit": "source-field-unit-unproven",
+            "source_status": item["source_status"], "source_deleted_at": item["source_deleted_at"],
+            "source_expired_time": item["expired_time"], "target_key_id": None,
+            "credential_activation_allowed": False, "blockers": blockers})
+        target = target_rows.pop(row["id"], None)
+        record = records[-1]
+        record["comparison"] = "missing_in_target"
+        record["mismatched_fields"] = []
+        if target is not None:
+            record["target_key_id"] = target["target_key_id"]
+            facts = source_key_comparison_facts(row, identities)
+            record["mismatched_fields"] = [field for field, value in facts.items()
+                if F.digest(target[field]) != F.digest(value)]
+            record["comparison"] = "field_mismatch" if record["mismatched_fields"] else "matched"
+    for source_id, target in sorted(target_rows.items()):
+        records.append({"source_key_id": source_id, "target_key_id": target["target_key_id"],
+            "comparison": "unexpected_in_target", "mismatched_fields": [],
+            "credential_activation_allowed": False})
+    passed = target_key_inventory is not None and all(r["comparison"] == "matched" for r in records)
+    return {"scope": "offline-source-to-target-key-reconciliation",
+        "status": "matched" if passed else "failed", "passed": passed,
+        "target_inventory_supplied": target_key_inventory is not None,
+        "target_inventory_provenance_verified": False,
+        "target_inventory_scope_completeness_verified": False,
+        "target_inventory_sha256": F.digest(target_key_inventory) if target_key_inventory is not None else None,
+        "comparison_counts": dict(Counter(r["comparison"] for r in records)), "records": records,
+        "record_count": len(records), "overlapping_counters_do_not_sum": True,
+        "historical_usage_is_not_a_new_charge": True, "wallet_delta_units": 0,
+        "native_import_payloads_created": False, "target_writes": 0}
+
+
+# @mark migration.financial-rights role=implementation
 def build(F, *, tables, identities, plan, proof, identity_map_file_sha256,
-          identity_manifest_file_sha256, tool_hashes):
+          identity_manifest_file_sha256, tool_hashes, target_key_inventory=None):
+    # Validate key states before any private projection, including grouped state.
+    F.map_key_limits(tables.get("tokens", []), identities)
     F.verify_plan_mapping(plan)
     F.require(set(tables) == set(plan["source_evidence"]) == set(proof["selected_table_counts"]),
               "reconciliation_table_coverage_mismatch")
@@ -185,12 +333,16 @@ def build(F, *, tables, identities, plan, proof, identity_map_file_sha256,
                 "wallet_debit_already_applied": "unknown-until-source-model-provenance-and-policy-review",
                 "outstanding_right": "unknown-not-derived-from-state-name",
                 "blocking_reason": "source-model-provenance-and-full-economic-review-not-established"})
+    keys = key_quota_reconciliation(F, tables=tables, identities=identities, plan=plan,
+                                    target_key_inventory=target_key_inventory)
     spec = importlib.util.spec_from_file_location("legacy_bounty_basis", Path(__file__).with_name("legacy_bounty_basis.py"))
     helper = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(helper)
     bounty = helper.build(F, tables=tables, identities=identities, plan=plan)
-    return {"format_version": 1, "digest_format": F.DIGEST_FORMAT,
-        "scope": "source-rights-reconciliation-only", "status": "blocked-for-opening-economic-review",
+    result = {"format_version": 1, "digest_format": F.DIGEST_FORMAT,
+        "scope": "source-rights-reconciliation-only",
+        "status": "blocked-for-opening-economic-review" if keys["passed"] else "failed-key-reconciliation",
+        "key_reconciliation_passed": keys["passed"],
         "source_archive_sha256": proof["source_archive_sha256"], "source_export_sha256": proof["source_export_sha256"],
         "identity_map_file_sha256": identity_map_file_sha256, "identity_manifest_file_sha256": identity_manifest_file_sha256,
         "financial_mapping_sha256": plan["mapping_sha256"], "tool_source_hashes": tool_hashes,
@@ -198,7 +350,7 @@ def build(F, *, tables, identities, plan, proof, identity_map_file_sha256,
         "table_evidence": table_evidence, "wallet_positions": wallets, "wallet_integer_totals": dict(totals),
         "wallet_totals_are_source_positions_not_new_credits": True,
         "wallet_positions_are_raw_integer_quota_not_usd_conversion": True,
-        "bounty_rebase_lineage": bounty,
+        "bounty_rebase_lineage": bounty, "key_quota_reconciliation": keys,
         "observed_rights_records": records, "reference_counts": dict(sorted(reference_counts.items())),
         "integer_amount_groups": [grouped[key] for key in sorted(grouped)],
         "historical_counters_are_not_wallet_or_reward_lineage": True,
@@ -208,8 +360,16 @@ def build(F, *, tables, identities, plan, proof, identity_map_file_sha256,
         "raw_export_preserved": True, "families_overlap_do_not_sum": True,
         "unprojected_tables_are_not_proven_clear": True,
         "selected_export_is_not_full_database": True, "full_database_rights_cleared": False,
-        "public_summary": {"status": "source-rights-preview-blocked-for-economic-review",
+        "public_summary": {"status": "blocked-for-opening-economic-review" if keys["passed"] else "failed-key-reconciliation",
+            "key_reconciliation_passed": keys["passed"],
+            "full_source_manifest_created": False, "raw_source_rows_copied": False,
             "bounty_rebase_lineage": bounty["public_summary"],
+            "key_quota_reconciliation": {"status": keys["status"], "record_count": keys["record_count"],
+                "target_inventory_supplied": keys["target_inventory_supplied"],
+                "comparison_counts": keys["comparison_counts"],
+                "target_inventory_provenance_verified": False,
+                "target_inventory_scope_completeness_verified": False,
+                "native_import_payloads_created": False, "target_writes": 0},
             "selected_export_is_not_full_database": True, "full_database_rights_cleared": False,
             "source_table_count": len(tables), "source_row_count": sum(map(len, tables.values())),
             "wallet_position_count": len(wallets), "projected_table_count": sum(t in tables for t in SPECS),
@@ -217,3 +377,5 @@ def build(F, *, tables, identities, plan, proof, identity_map_file_sha256,
             "missing_or_unindexed_reference_count": reference_counts["row_missing-or-unindexed"],
             "source_queries": 0, "target_queries": 0, "target_writes": 0,
             "reserved_zero_proven": False, "financial_rows_migrated": 0}}
+    reject_known_key_secrets(F, result, tables.get("tokens", []))
+    return result

@@ -23,7 +23,7 @@ def user(uid=71, **changes):
 
 
 def token(tid=8, **changes):
-    return {"id": tid, "user_id": 71, "remain_quota": 8, "used_quota": 92,
+    return {"id": tid, "user_id": 71, "key": f"SYNTHETIC-TEST-BEARER-{tid}", "remain_quota": 8, "used_quota": 92,
             "unlimited_quota": False, "expired_time": -1, "status": 1, "deleted_at": None,
             "model_limits_enabled": True, "model_limits": "synthetic-model", "allow_ips": "192.0.2.0/24",
             "group": "synthetic-group", "auto_groups": "[]", "cross_group_retry": False,
