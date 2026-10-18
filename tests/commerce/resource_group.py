@@ -9,6 +9,7 @@ This is test infrastructure, not a deployment service or acceptance signoff.
 """
 
 from __future__ import annotations
+import errno
 import hashlib
 import json
 import os
@@ -322,42 +323,132 @@ class Group:
                 )
             deadline = time.monotonic() + 15
             held_info = os.fstat(held.fileno())
-            while time.monotonic() < deadline:
-                observed = properties(unit)
-                path = observed.get("ControlGroup", "")
-                if path:
-                    candidate = Path("/sys/fs/cgroup" + path)
-                    if (
-                        observed.get("Slice") != self.unit
-                        or candidate.parent != self.group
-                    ):
-                        raise ResourceError("child is outside the shared parent budget")
-                    item["group"] = candidate
-                pid = int(observed.get("MainPID", "0"))
-                if pid:
-                    try:
-                        before = identity(pid)
-                        actual = Path(f"/proc/{pid}/exe")
-                        actual_info = actual.stat()
-                        matches = (actual_info.st_dev, actual_info.st_ino) == (
-                            held_info.st_dev,
-                            held_info.st_ino,
-                        )
+            pinned = None
+            startup = {"timeout_seconds": 15, "attempts": 0, "retry_counts": {}}
+            stage = "unit-properties"
+            try:
+                while time.monotonic() < deadline:
+                    startup["attempts"] += 1
+                    stage = "unit-properties"
+                    observed = properties(unit)
+                    path = observed.get("ControlGroup", "")
+                    if path:
+                        candidate = Path("/sys/fs/cgroup" + path)
                         if (
-                            matches
-                            and sha(actual) == expected_sha256
-                            and identity(pid) == before
+                            observed.get("Slice") != self.unit
+                            or candidate.parent != self.group
+                            or (
+                                item["group"] is not None and candidate != item["group"]
+                            )
                         ):
-                            item["pid"] = pid
-                            item["identity"] = before
-                            break
-                    except FileNotFoundError:
-                        pass  # /usr/bin/env may still be execing the product
-                if item["launcher"].poll() is not None:
-                    raise LauncherExited("launcher exited before verified product PID")
-                time.sleep(0.02)
-            else:
-                raise ResourceError("no verified product PID within startup deadline")
+                            raise ResourceError(
+                                "child is outside the shared parent budget"
+                            )
+                        item["group"] = candidate
+                    pid = int(observed.get("MainPID", "0"))
+                    if item["launcher"].poll() is not None or (pinned and not pid):
+                        raise LauncherExited(
+                            "launcher or product exited before verified product PID"
+                        )
+                    if pinned and pid != pinned["pid"]:
+                        raise ResourceError("child PID identity changed during startup")
+                    if pid and path:
+                        try:
+                            stage = "identity-before"
+                            before = identity(pid)
+                            if pinned is None:
+                                pinned = before
+                            if (
+                                before != pinned
+                                or before["boot_id"] != self.owner["boot_id"]
+                            ):
+                                raise ResourceError(
+                                    "child PID identity changed during startup"
+                                )
+                            expected_cgroup = f"0::{path}"
+                            process_cgroup = Path(f"/proc/{pid}/cgroup")
+                            stage = "cgroup-before"
+                            if process_cgroup.read_text().strip() != expected_cgroup:
+                                raise ResourceError(
+                                    "child process is outside the shared parent budget"
+                                )
+                            actual = Path(f"/proc/{pid}/exe")
+                            stage = "executable-open"
+                            with actual.open("rb") as running:
+                                actual_info = os.fstat(running.fileno())
+                                matches = (actual_info.st_dev, actual_info.st_ino) == (
+                                    held_info.st_dev,
+                                    held_info.st_ino,
+                                )
+                                # Hash the same opened inode, not a second /proc lookup.
+                                if matches:
+                                    stage = "executable-hash"
+                                    if (
+                                        hashlib.file_digest(
+                                            running, "sha256"
+                                        ).hexdigest()
+                                        != expected_sha256
+                                    ):
+                                        raise ResourceError(
+                                            "running executable SHA256 differs"
+                                        )
+                            if matches:
+                                stage = "executable-after"
+                                final_info = actual.stat()
+                                if (final_info.st_dev, final_info.st_ino) != (
+                                    held_info.st_dev,
+                                    held_info.st_ino,
+                                ):
+                                    raise ResourceError(
+                                        "running executable changed during verification"
+                                    )
+                            stage = "cgroup-after"
+                            if process_cgroup.read_text().strip() != expected_cgroup:
+                                raise ResourceError(
+                                    "child process is outside the shared parent budget"
+                                )
+                            stage = "identity-after"
+                            if identity(pid) != pinned:
+                                raise ResourceError(
+                                    "child PID identity changed during startup"
+                                )
+                            if matches and time.monotonic() < deadline:
+                                item["pid"] = pid
+                                item["identity"] = pinned
+                                startup["result"] = "identity-verified"
+                                break
+                            reason = (
+                                "identity-read-completed-after-deadline"
+                                if matches
+                                else "executable-not-yet-matched"
+                            )
+                        except OSError as error:
+                            # /proc/exe uses ptrace access checks. A denial can be
+                            # transient around service startup, but proves neither
+                            # exec progress nor identity. Only complete later reads
+                            # can pass, under the original, non-renewing deadline.
+                            if error.errno not in {errno.EACCES, errno.ENOENT}:
+                                raise
+                            reason = f"{stage}:{errno.errorcode[error.errno]}"
+                        counts = startup["retry_counts"]
+                        counts[reason] = counts.get(reason, 0) + 1
+                        startup["last_retry"] = reason
+                    time.sleep(0.02)
+                else:
+                    reason = startup.get("last_retry", "no-product-PID")
+                    raise ResourceError(
+                        f"no verified product PID within startup deadline; last observation: {reason}"
+                    )
+            except Exception as error:
+                startup.update(
+                    result="failed",
+                    stage=stage,
+                    error=f"{type(error).__name__}: {error}",
+                )
+                raise
+            finally:
+                startup["pinned_identity"] = pinned
+                record(self.root, stem + "-startup.json", startup)
             current = binary.stat()
             if (current.st_dev, current.st_ino) != (held_info.st_dev, held_info.st_ino):
                 raise ResourceError("binary path changed during launch")
